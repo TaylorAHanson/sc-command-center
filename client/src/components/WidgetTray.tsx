@@ -17,7 +17,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const categories = getWidgetCategories();
 
-  // Close tray when drag starts (with delay to not interfere)
+  // Close tray when drag starts (with delay to not interfere) and on Escape key
   React.useEffect(() => {
     if (!isOpen) return;
     
@@ -34,10 +34,18 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
       }
     };
 
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
     document.addEventListener('dragstart', handleDragStart);
+    document.addEventListener('keydown', handleEscape);
     
     return () => {
       document.removeEventListener('dragstart', handleDragStart);
+      document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen, onClose]);
 
@@ -96,7 +104,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
       {/* Backdrop */}
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-black/20 z-40 transition-opacity pointer-events-none"
+          className="fixed inset-0 bg-black/20 z-40 transition-opacity"
           onClick={onClose}
         />
       )}
@@ -108,6 +116,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
           isOpen ? "translate-y-0" : "translate-y-full"
         )}
         style={{ height: isOpen ? '60vh' : '0' }}
+        onClick={(e) => e.stopPropagation()} // Prevent clicks inside tray from closing it
       >
         {/* Tray Header - Always fully opaque */}
         <div className="h-14 border-b border-gray-200 flex items-center justify-between px-6 bg-gray-50 relative z-20">
