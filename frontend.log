@@ -1,0 +1,974 @@
+=== Frontend started at Wed Dec 17 12:28:32 MST 2025 ===
+
+> client@0.0.0 dev
+> vite
+
+
+  VITE v7.3.0  ready in 88 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+12:30:44 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+12:31:18 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+12:31:26 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+12:31:37 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:25:28 PM [vite] (client) hmr update /src/App.tsx, /src/components/Layout.tsx, /src/index.css
+1:25:38 PM [vite] (client) hmr update /src/App.tsx, /src/components/Layout.tsx, /src/index.css
+1:26:19 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:26:29 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:26:40 PM [vite] (client) hmr update /src/App.tsx, /src/components/WidgetTray.tsx, /src/index.css
+1:26:40 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:26:40 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:28:43 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:28:43 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:28:43 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:28:47 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:28:47 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:28:47 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:28:48 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:28:51 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:28:59 PM [vite] (client) hmr update /src/App.tsx, /src/components/WidgetTray.tsx, /src/index.css
+1:29:00 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:29:01 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:29:01 PM [vite] (client) hmr update /src/index.css, /src/components/WidgetPreview.tsx
+1:29:02 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:29:02 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:29:02 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:29:03 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:29:12 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:29:22 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:29:22 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:29:22 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:29:26 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:29:27 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:29:27 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:29:27 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:29:28 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:29:32 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:29:33 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:29:33 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:29:33 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:29:34 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:29:34 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:29:34 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:29:35 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:29:35 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:29:35 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:29:35 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:29:35 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:29:35 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:29:36 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:29:37 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:29:37 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:29:37 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:29:47 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:29:56 PM [vite] (client) hmr update /src/index.css, /src/components/WidgetPreview.tsx
+1:30:18 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:30:18 PM [vite] (client) hmr update /src/index.css, /src/components/WidgetPreview.tsx
+1:30:19 PM [vite] (client) hmr update /src/index.css, /src/components/WidgetPreview.tsx
+1:30:31 PM [vite] (client) hmr update /src/index.css, /src/components/WidgetPreview.tsx
+1:30:31 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:30:31 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:30:31 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:31:31 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:31:33 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:31:44 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:31:49 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:31:49 PM [vite] Internal server error: /Users/taylor.hanson/sc-command-center/client/src/App.tsx: Unexpected token (164:2)
+
+  162 |
+  163 | function App() {
+> 164 |   return (
+      |   ^
+  165 |     <Layout>
+  166 |       <DashboardGrid />
+  167 |     </Layout>
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/App.tsx:164:2
+  162 |  
+  163 |  function App() {
+  164 |    return (
+      |    ^
+  165 |      <Layout>
+  166 |        <DashboardGrid />
+      at constructor (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6624:19)
+      at TypeScriptParserMixin.unexpected (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6644:16)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11508:22)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9839:20)
+      at TypeScriptParserMixin.parseExpressionBase (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10848:23)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10844:39
+      at TypeScriptParserMixin.allowInAnd (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12500:12)
+      at TypeScriptParserMixin.parseExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10844:17)
+      at TypeScriptParserMixin.jsxParseExpressionContainer (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4661:31)
+      at TypeScriptParserMixin.jsxParseElementAt (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4740:36)
+      at TypeScriptParserMixin.jsxParseElement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4778:17)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4788:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9828:39
+      at TypeScriptParserMixin.tryParse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6932:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9828:18)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:39
+      at TypeScriptParserMixin.allowInAnd (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12500:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12567:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11747:28)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11395:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9839:20)
+      at TypeScriptParserMixin.parseExpressionBase (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10848:23)
+1:31:56 PM [vite] (client) hmr update /src/index.css
+1:32:03 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:32:21 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:32:22 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:32:37 PM [vite] (client) hmr update /src/index.css
+1:32:37 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:32:37 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:32:39 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:32:40 PM [vite] (client) hmr update /src/index.css
+1:32:41 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:33:42 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:33:44 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:33:55 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:34:14 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:34:20 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:34:31 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:34:48 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:36:24 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:36:36 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:36:46 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:37:31 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:38:25 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:38:33 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:38:37 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:38:40 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:38:43 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:38:48 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:38:51 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:38:59 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:41:38 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:41:41 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:41:42 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:41:51 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:41:56 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:42:09 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:42:09 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:42:09 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:42:36 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:42:39 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:42:42 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:42:54 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:42:54 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:42:54 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:43:21 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:43:25 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:43:30 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:43:31 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:43:32 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:43:33 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:43:34 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:43:40 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:43:44 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:44:01 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:44:02 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:45:12 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:45:13 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:45:18 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:45:22 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:45:25 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:45:29 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:45:45 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:45:57 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:45:57 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:46:14 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:46:15 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+1:47:00 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:47:15 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:47:26 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:47:32 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:48:20 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:48:24 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:48:29 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:48:39 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:48:56 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+1:49:35 PM [vite] (client) hmr update /src/index.css, /src/widgets/InventoryWidget.tsx
+1:49:49 PM [vite] (client) hmr update /src/index.css, /src/widgets/GanttWidget.tsx
+1:50:01 PM [vite] (client) hmr update /src/index.css, /src/widgets/InventoryWidget.tsx
+1:50:01 PM [vite] (client) hmr update /src/index.css, /src/widgets/GanttWidget.tsx
+1:52:34 PM [vite] (client) hmr update /src/App.tsx, /src/components/WidgetTray.tsx, /src/store/dashboardStore.tsx, /src/index.css
+1:52:34 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:52:34 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:52:42 PM [vite] (client) hmr update /src/App.tsx, /src/components/WidgetTray.tsx, /src/store/dashboardStore.tsx, /src/index.css
+1:52:42 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:52:42 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:52:48 PM [vite] (client) hmr update /src/widgets/RiskHeatmapWidget.tsx, /src/index.css
+1:52:51 PM [vite] (client) hmr update /src/widgets/RiskHeatmapWidget.tsx, /src/index.css
+1:52:52 PM [vite] (client) hmr update /src/widgets/ShipmentTrackingWidget.tsx, /src/index.css
+1:53:00 PM [vite] (client) hmr update /src/App.tsx, /src/components/WidgetTray.tsx, /src/store/dashboardStore.tsx, /src/index.css
+1:53:00 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:53:00 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:53:01 PM [vite] (client) hmr update /src/widgets/RiskHeatmapWidget.tsx, /src/index.css
+1:53:01 PM [vite] (client) hmr update /src/widgets/RiskHeatmapWidget.tsx, /src/index.css
+1:53:02 PM [vite] (client) hmr update /src/widgets/ShipmentTrackingWidget.tsx, /src/index.css
+1:53:14 PM [vite] (client) hmr update /src/widgets/CostBreakdownWidget.tsx, /src/index.css
+1:53:14 PM [vite] (client) hmr update /src/widgets/ShipmentTrackingWidget.tsx, /src/index.css
+1:53:14 PM [vite] (client) hmr update /src/widgets/RiskHeatmapWidget.tsx, /src/index.css
+1:53:14 PM [vite] (client) hmr update /src/App.tsx, /src/components/WidgetTray.tsx, /src/store/dashboardStore.tsx, /src/index.css
+1:53:14 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:53:14 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:56:56 PM [vite] (client) hmr update /src/widgets/RiskHeatmapWidget.tsx, /src/index.css
+1:56:57 PM [vite] (client) ✨ new dependencies optimized: highcharts/modules/heatmap
+1:56:57 PM [vite] (client) ✨ optimized dependencies changed. reloading
+1:57:06 PM [vite] (client) hmr update /src/widgets/RiskHeatmapWidget.tsx, /src/index.css
+1:58:31 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:58:37 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:58:50 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+1:58:56 PM [vite] (client) hmr update /src/widgets/RiskHeatmapWidget.tsx, /src/index.css
+1:59:46 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:59:46 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:59:46 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:59:49 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:59:49 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:59:49 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:59:54 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:59:54 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:59:54 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:59:55 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:59:55 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:59:55 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:59:57 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:59:57 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:59:57 PM [vite] (client) page reload src/store/dashboardStore.tsx
+1:59:58 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+1:59:58 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("useDashboardStore" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+1:59:58 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:00:02 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:00:04 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:00:06 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:00:07 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:00:14 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:00:16 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:00:18 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:00:19 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:00:37 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:00:37 PM [vite] Internal server error: /Users/taylor.hanson/sc-command-center/client/src/App.tsx: 'import' and 'export' may only appear at the top level. (63:2)
+
+  61 |   
+  62 |   // Import TEMPLATES to access them
+> 63 |   import { TEMPLATES } from './store/dashboardStore';
+     |   ^
+  64 |   
+  65 |   // Get active tab - either from user tabs or templates
+  66 |   const activeTab = viewingTemplate 
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/App.tsx:63:2
+  61 |    
+  62 |    // Import TEMPLATES to access them
+  63 |    import { TEMPLATES } from './store/dashboardStore';
+     |    ^
+  64 |    
+  65 |    // Get active tab - either from user tabs or templates
+      at constructor (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6624:19)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12947:18)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12823:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseBlock (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13373:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12174:24)
+      at TypeScriptParserMixin.parseArrowExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12149:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11759:12)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11395:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9839:20)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:39
+      at TypeScriptParserMixin.allowInAnd (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12495:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:17)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13460:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseModuleItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12820:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:36)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseProgram (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12698:10)
+      at TypeScriptParserMixin.parseTopLevel (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12688:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:14568:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10183:18)
+      at parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:14602:38)
+      at parser (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/core/lib/transformation/normalize-file.js:64:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/Users/taylor.hanson/sc-command-center/client/node_modules/gensync/index.js:261:32)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/gensync/index.js:273:13
+2:00:39 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:00:40 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:00:47 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:00:47 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh (new export)
+2:00:47 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:00:48 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:00:51 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:00:51 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:00:51 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:00:51 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:00:55 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:00:55 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:00:55 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:00:57 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:00:57 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:00:57 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:01:07 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:01:10 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:01:16 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:01:16 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:01:16 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:01:16 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:01:16 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:02:01 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:02:01 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:02:01 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:02:03 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:02:03 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:02:03 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:02:05 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:02:05 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:02:05 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:02:05 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:02:05 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:02:05 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:02:09 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:02:16 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:02:20 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:02:28 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:02:28 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:02:58 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:02:58 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:02:58 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:02:59 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:49:45 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:49:45 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:49:45 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:49:46 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:49:47 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:49:47 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:49:48 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:49:48 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:49:48 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:49:49 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:49:51 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:50:06 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:50:15 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:50:15 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:50:15 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:50:15 PM [vite] (client) page reload src/store/dashboardStore.tsx
+2:50:35 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+2:50:36 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+2:50:36 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+2:50:36 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:18:04 PM [vite] (client) hmr update /src/components/BaseWidget.tsx, /src/index.css
+3:18:11 PM [vite] (client) hmr update /src/components/BaseWidget.tsx, /src/index.css
+3:18:14 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:18:18 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:18:26 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:18:33 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:18:41 PM [vite] (client) hmr update /src/components/BaseWidget.tsx, /src/index.css
+3:18:44 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:18:53 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:18:53 PM [vite] (client) hmr update /src/components/BaseWidget.tsx, /src/index.css
+3:19:01 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:19:09 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:19:09 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:19:09 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:19:14 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:19:14 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:19:14 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:19:16 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:19:16 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:19:16 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:19:18 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:19:18 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:19:18 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:19:19 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:19:22 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:19:26 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:19:33 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:19:33 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:19:33 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:19:34 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:19:34 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:19:34 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:19:44 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:19:44 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:19:44 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:19:45 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:19:45 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:19:45 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:19:54 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:19:54 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:20:00 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:20:02 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:20:02 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:20:02 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:21:55 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:22:02 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:22:09 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:22:16 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:22:16 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:22:20 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:22:41 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:24:30 PM [vite] (client) hmr update /src/App.tsx, /src/components/WidgetTray.tsx, /src/store/dashboardStore.tsx, /src/index.css
+3:24:30 PM [vite] (client) Pre-transform error: /Users/taylor.hanson/sc-command-center/client/src/widgets/DataTableWidget.tsx: Unexpected token, expected "}" (222:93)
+
+  220 |         accessorKey: 'totalOrders',
+  221 |         header: 'Total Orders',
+> 222 |         cell: (info) => <div className="text-right">{info.getValue() as number.toLocaleString()}</div>,
+      |                                                                                              ^
+  223 |       },
+  224 |       {
+  225 |         accessorKey: 'region',
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/widgets/DataTableWidget.tsx:222:93
+  220 |          accessorKey: 'totalOrders',
+  221 |          header: 'Total Orders',
+  222 |          cell: (info) => <div className="text-right">{info.getValue() as number.toLocaleString()}</div>,
+      |                                                                                               ^
+  223 |        },
+  224 |        {
+3:24:30 PM [vite] Internal server error: /Users/taylor.hanson/sc-command-center/client/src/widgets/DataTableWidget.tsx: Unexpected token, expected "}" (222:93)
+
+  220 |         accessorKey: 'totalOrders',
+  221 |         header: 'Total Orders',
+> 222 |         cell: (info) => <div className="text-right">{info.getValue() as number.toLocaleString()}</div>,
+      |                                                                                              ^
+  223 |       },
+  224 |       {
+  225 |         accessorKey: 'region',
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/widgets/DataTableWidget.tsx:222:93
+  220 |          accessorKey: 'totalOrders',
+  221 |          header: 'Total Orders',
+  222 |          cell: (info) => <div className="text-right">{info.getValue() as number.toLocaleString()}</div>,
+      |                                                                                               ^
+  223 |        },
+  224 |        {
+      at constructor (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6624:19)
+      at TypeScriptParserMixin.unexpected (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6644:16)
+      at TypeScriptParserMixin.expect (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6924:12)
+      at TypeScriptParserMixin.jsxParseExpressionContainer (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4666:10)
+      at TypeScriptParserMixin.jsxParseElementAt (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4740:36)
+      at TypeScriptParserMixin.jsxParseElement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4778:17)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4788:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9828:39
+      at TypeScriptParserMixin.tryParse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6932:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9828:18)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12167:24)
+      at TypeScriptParserMixin.parseArrowExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12149:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11759:12)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11395:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9839:20)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:39
+      at TypeScriptParserMixin.allowInAnd (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12500:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12567:17)
+      at TypeScriptParserMixin.parseObjectProperty (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12024:83)
+      at TypeScriptParserMixin.parseObjPropValue (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12052:100)
+      at TypeScriptParserMixin.parseObjPropValue (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9797:18)
+      at TypeScriptParserMixin.parsePropertyDefinition (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11989:17)
+      at TypeScriptParserMixin.parseObjectLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11904:21)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11403:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+3:24:32 PM [vite] (client) hmr update /src/App.tsx, /src/components/WidgetTray.tsx, /src/store/dashboardStore.tsx, /src/index.css
+3:24:32 PM [vite] (client) Pre-transform error: /Users/taylor.hanson/sc-command-center/client/src/widgets/DataTableWidget.tsx: Unexpected token, expected "}" (222:93)
+
+  220 |         accessorKey: 'totalOrders',
+  221 |         header: 'Total Orders',
+> 222 |         cell: (info) => <div className="text-right">{info.getValue() as number.toLocaleString()}</div>,
+      |                                                                                              ^
+  223 |       },
+  224 |       {
+  225 |         accessorKey: 'region',
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/widgets/DataTableWidget.tsx:222:93
+  220 |          accessorKey: 'totalOrders',
+  221 |          header: 'Total Orders',
+  222 |          cell: (info) => <div className="text-right">{info.getValue() as number.toLocaleString()}</div>,
+      |                                                                                               ^
+  223 |        },
+  224 |        {
+3:24:34 PM [vite] (client) hmr update /src/index.css
+3:24:39 PM [vite] (client) hmr update /src/index.css
+3:24:51 PM [vite] (client) hmr update /src/index.css
+3:24:51 PM [vite] (client) hmr update /src/App.tsx, /src/components/WidgetTray.tsx, /src/store/dashboardStore.tsx, /src/index.css
+3:24:51 PM [vite] (client) ✨ new dependencies optimized: @tanstack/react-table
+3:24:51 PM [vite] (client) ✨ optimized dependencies changed. reloading
+3:24:51 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:24:51 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:25:47 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:25:47 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:25:47 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:25:51 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:25:51 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:25:51 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:25:53 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:25:54 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:25:54 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:25:55 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:25:57 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:26:03 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:26:05 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:26:05 PM [vite] Internal server error: /Users/taylor.hanson/sc-command-center/client/src/App.tsx: Identifier 'activeTab' has already been declared. (69:8)
+
+  67 |   
+  68 |   // Get active tab - either from user tabs or templates
+> 69 |   const activeTab = viewingTemplate 
+     |         ^
+  70 |     ? TEMPLATES[viewingTemplate]
+  71 |     : tabs.find(t => t.id === activeTabId);
+  72 |   
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/App.tsx:69:8
+  67 |    
+  68 |    // Get active tab - either from user tabs or templates
+  69 |    const activeTab = viewingTemplate 
+     |          ^
+  70 |      ? TEMPLATES[viewingTemplate]
+  71 |      : tabs.find(t => t.id === activeTabId);
+      at constructor (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6624:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1646:19)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1612:12)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4909:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7594:16)
+      at TypeScriptParserMixin.checkIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7590:12)
+      at TypeScriptParserMixin.checkLVal (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7527:12)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13488:10)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9805:11)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13459:12)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12823:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseBlock (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13373:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12174:24)
+      at TypeScriptParserMixin.parseArrowExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12149:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11759:12)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11395:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9839:20)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:39
+      at TypeScriptParserMixin.allowInAnd (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12495:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:17)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13460:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseModuleItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12820:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:36)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseProgram (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12698:10)
+      at TypeScriptParserMixin.parseTopLevel (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12688:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:14568:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10183:18)
+3:26:08 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:26:08 PM [vite] Internal server error: /Users/taylor.hanson/sc-command-center/client/src/App.tsx: Identifier 'activeTab' has already been declared. (69:8)
+
+  67 |   
+  68 |   // Get active tab - either from user tabs or templates
+> 69 |   const activeTab = viewingTemplate 
+     |         ^
+  70 |     ? TEMPLATES[viewingTemplate]
+  71 |     : tabs.find(t => t.id === activeTabId);
+  72 |   
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/App.tsx:69:8
+  67 |    
+  68 |    // Get active tab - either from user tabs or templates
+  69 |    const activeTab = viewingTemplate 
+     |          ^
+  70 |      ? TEMPLATES[viewingTemplate]
+  71 |      : tabs.find(t => t.id === activeTabId);
+      at constructor (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6624:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1646:19)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1612:12)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4909:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7594:16)
+      at TypeScriptParserMixin.checkIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7590:12)
+      at TypeScriptParserMixin.checkLVal (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7527:12)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13488:10)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9805:11)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13459:12)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12823:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseBlock (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13373:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12174:24)
+      at TypeScriptParserMixin.parseArrowExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12149:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11759:12)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11395:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9839:20)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:39
+      at TypeScriptParserMixin.allowInAnd (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12495:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:17)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13460:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseModuleItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12820:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:36)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseProgram (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12698:10)
+      at TypeScriptParserMixin.parseTopLevel (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12688:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:14568:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10183:18)
+3:26:12 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:26:12 PM [vite] Internal server error: /Users/taylor.hanson/sc-command-center/client/src/App.tsx: Identifier 'activeTab' has already been declared. (69:8)
+
+  67 |   
+  68 |   // Get active tab - either from user tabs or templates
+> 69 |   const activeTab = viewingTemplate 
+     |         ^
+  70 |     ? TEMPLATES[viewingTemplate]
+  71 |     : tabs.find(t => t.id === activeTabId);
+  72 |   
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/App.tsx:69:8
+  67 |    
+  68 |    // Get active tab - either from user tabs or templates
+  69 |    const activeTab = viewingTemplate 
+     |          ^
+  70 |      ? TEMPLATES[viewingTemplate]
+  71 |      : tabs.find(t => t.id === activeTabId);
+      at constructor (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6624:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1646:19)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1612:12)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4909:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7594:16)
+      at TypeScriptParserMixin.checkIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7590:12)
+      at TypeScriptParserMixin.checkLVal (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7527:12)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13488:10)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9805:11)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13459:12)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12823:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseBlock (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13373:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12174:24)
+      at TypeScriptParserMixin.parseArrowExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12149:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11759:12)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11395:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9839:20)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:39
+      at TypeScriptParserMixin.allowInAnd (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12495:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:17)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13460:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseModuleItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12820:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:36)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseProgram (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12698:10)
+      at TypeScriptParserMixin.parseTopLevel (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12688:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:14568:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10183:18)
+3:26:16 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:26:16 PM [vite] Internal server error: /Users/taylor.hanson/sc-command-center/client/src/App.tsx: Identifier 'activeTab' has already been declared. (69:8)
+
+  67 |   
+  68 |   // Get active tab - either from user tabs or templates
+> 69 |   const activeTab = viewingTemplate 
+     |         ^
+  70 |     ? TEMPLATES[viewingTemplate]
+  71 |     : tabs.find(t => t.id === activeTabId);
+  72 |   
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/App.tsx:69:8
+  67 |    
+  68 |    // Get active tab - either from user tabs or templates
+  69 |    const activeTab = viewingTemplate 
+     |          ^
+  70 |      ? TEMPLATES[viewingTemplate]
+  71 |      : tabs.find(t => t.id === activeTabId);
+      at constructor (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6624:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1646:19)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1612:12)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4909:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7594:16)
+      at TypeScriptParserMixin.checkIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7590:12)
+      at TypeScriptParserMixin.checkLVal (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7527:12)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13488:10)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9805:11)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13459:12)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12823:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseBlock (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13373:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12174:24)
+      at TypeScriptParserMixin.parseArrowExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12149:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11759:12)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11395:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9839:20)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:39
+      at TypeScriptParserMixin.allowInAnd (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12495:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:17)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13460:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseModuleItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12820:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:36)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseProgram (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12698:10)
+      at TypeScriptParserMixin.parseTopLevel (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12688:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:14568:25)
+      at TypeScriptParserMixin.parse (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10183:18)
+3:26:31 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:26:37 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:26:37 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:26:37 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:26:46 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:26:46 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:26:46 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:26:46 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:26:46 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:26:48 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:26:48 PM [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+3:26:48 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:26:48 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:26:48 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:27:29 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:27:32 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:27:41 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:27:54 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:28:02 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:28:51 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:28:54 PM [vite] (client) hmr update /src/components/BaseWidget.tsx, /src/index.css
+3:29:01 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:29:02 PM [vite] (client) hmr update /src/components/BaseWidget.tsx, /src/index.css
+3:29:04 PM [vite] (client) hmr update /src/index.css
+3:29:05 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:29:06 PM [vite] (client) hmr update /src/components/BaseWidget.tsx, /src/index.css
+3:29:07 PM [vite] (client) hmr update /src/index.css
+3:29:16 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:29:16 PM [vite] (client) hmr update /src/index.css
+3:29:16 PM [vite] (client) hmr update /src/components/BaseWidget.tsx, /src/index.css
+3:29:38 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:29:38 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:29:38 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:29:45 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:29:56 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:30:06 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:30:06 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:30:06 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:30:06 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:30:18 PM [vite] (client) hmr update /src/store/dashboardStore.tsx, /src/index.css
+3:30:18 PM [vite] (client) hmr invalidate /src/store/dashboardStore.tsx Could not Fast Refresh ("TEMPLATES" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+3:30:18 PM [vite] (client) page reload src/store/dashboardStore.tsx
+3:30:19 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+3:30:45 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+3:30:50 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+3:30:51 PM [vite] Internal server error: /Users/taylor.hanson/sc-command-center/client/src/components/WidgetTray.tsx: Identifier 'handleWidgetClick' has already been declared. (94:8)
+
+  92 |   };
+  93 |   
+> 94 |   const handleWidgetClick = (widgetId: string) => {
+     |         ^
+  95 |     if (isLocked) return;
+  96 |     addWidget(activeTabId, widgetId);
+  97 |   };
+  Plugin: vite:react-babel
+  File: /Users/taylor.hanson/sc-command-center/client/src/components/WidgetTray.tsx:94:8
+  92 |    };
+  93 |    
+  94 |    const handleWidgetClick = (widgetId: string) => {
+     |          ^
+  95 |      if (isLocked) return;
+  96 |      addWidget(activeTabId, widgetId);
+      at constructor (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:6624:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1646:19)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:1612:12)
+      at TypeScriptScopeHandler.declareName (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4909:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7594:16)
+      at TypeScriptParserMixin.checkIdentifier (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7590:12)
+      at TypeScriptParserMixin.checkLVal (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:7527:12)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13488:10)
+      at TypeScriptParserMixin.parseVarId (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9805:11)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13459:12)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12823:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13392:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseBlock (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13373:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12174:24)
+      at TypeScriptParserMixin.parseArrowExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12149:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11759:12)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11395:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9839:20)
+      at /Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:39
+      at TypeScriptParserMixin.allowInAnd (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12495:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:10864:17)
+      at TypeScriptParserMixin.parseVar (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13460:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12823:17)
+      at TypeScriptParserMixin.parseExportDeclaration (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:14010:17)
+      at TypeScriptParserMixin.parseExportDeclaration (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9690:85)
+      at TypeScriptParserMixin.maybeParseExportDeclaration (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13969:31)
+      at TypeScriptParserMixin.parseExport (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:13888:29)
+      at TypeScriptParserMixin.parseExport (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:9446:20)
+      at TypeScriptParserMixin.parseStatementContent (/Users/taylor.hanson/sc-command-center/client/node_modules/@babel/parser/lib/index.js:12954:27)
+3:30:51 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+3:30:53 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+3:30:57 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+3:30:59 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+3:31:08 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+3:32:10 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+3:32:11 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css
+3:32:21 PM [vite] (client) hmr update /src/components/WidgetTray.tsx, /src/index.css

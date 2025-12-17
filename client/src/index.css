@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background-color: #F8F9FA;
+  color: #001E3C;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: #007BFF !important;
+  opacity: 0.2 !important;
+}
+
+.react-grid-item.react-draggable-dragging {
+  opacity: 0.5;
+}
+
+.react-grid-layout {
+  position: relative;
+}
+
+/* Drop preview styling */
+.react-grid-item.react-grid-placeholder {
+  background: #007BFF !important;
+  opacity: 0.3 !important;
+  border: 2px dashed #007BFF !important;
+  border-radius: 8px;
+}
+
+/* Locked widget styling */
+.locked-widget .drag-handle {
+  cursor: default !important;
+  pointer-events: none !important;
+  opacity: 0.6;
+}
