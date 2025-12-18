@@ -1,7 +1,7 @@
-=== Backend started at Wed Dec 17 12:28:29 MST 2025 ===
+=== Backend started at Thu Dec 18 10:40:42 MST 2025 ===
 INFO:     Will watch for changes in these directories: ['/Users/taylor.hanson/sc-command-center/server']
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [98122] using StatReload
+INFO:     Started reloader process [59069] using StatReload
 Process SpawnProcess-1:
 Traceback (most recent call last):
   File "/opt/homebrew/Cellar/python@3.13/3.13.7/Frameworks/Python.framework/Versions/3.13/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap

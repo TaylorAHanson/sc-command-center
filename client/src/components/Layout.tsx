@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { Plus, Settings, HelpCircle, Search, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock } from 'lucide-react';
+import { Plus, Settings, HelpCircle, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, ChevronDown, Info } from 'lucide-react';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
+import { SettingsPage } from '../pages/SettingsPage';
+import { HelpPage } from '../pages/HelpPage';
+import { AboutPage } from '../pages/AboutPage';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [currentPage, setCurrentPage] = useState<string | null>(null);
   const { tabs, activeTabId, viewingTemplate, setActiveTabId, addTab, removeTab, renameTab, reorderTabs, loadTemplate, viewTemplate, generateShareLink, toggleLock } = useDashboardStore();
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [isTrayOpen, setTrayOpen] = useState(false);
@@ -13,6 +17,25 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [draggedTabIndex, setDraggedTabIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close user menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+
+    if (isUserMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isUserMenuOpen]);
 
   // Separate user tabs from global templates
   const userTabs = tabs.filter(t => !t.id.startsWith('temp-'));
@@ -37,18 +60,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         <div className="flex-1 overflow-y-auto">
           {isSidebarOpen ? (
             <>
-              {/* Search */}
-              <div className="p-3 border-b border-gray-700">
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input 
-                    type="text" 
-                    placeholder="Search dashboards..." 
-                    className="w-full pl-9 pr-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-qualcomm-blue focus:border-transparent text-white placeholder-gray-400"
-                  />
-                </div>
-              </div>
-
               {/* My Dashboards */}
               <div className="p-3 border-b border-gray-700">
                 <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
@@ -255,13 +266,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
           )}
         </div>
-
-        <div className="p-3 border-t border-gray-700">
-          <div className="flex items-center gap-3 p-2 text-gray-400 hover:text-white cursor-pointer rounded hover:bg-white/5">
-             <Settings className="w-5 h-5" />
-             {isSidebarOpen && <span className="text-sm">Settings</span>}
-          </div>
-        </div>
       </div>
 
       {/* Main Content */}
@@ -339,37 +343,85 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                  </button>
                </>
              )}
-             <button className="text-gray-500 hover:text-qualcomm-blue">
-               <HelpCircle className="w-5 h-5" />
-             </button>
-             <div className="w-8 h-8 bg-qualcomm-blue rounded-full flex items-center justify-center text-white text-xs font-bold ring-2 ring-offset-2 ring-gray-100">
-               QH
+             <div className="relative" ref={userMenuRef}>
+               <button 
+                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                 className="flex items-center gap-2 text-gray-500 hover:text-qualcomm-blue focus:outline-none"
+               >
+                 <div className="w-8 h-8 bg-qualcomm-blue rounded-full flex items-center justify-center text-white text-xs font-bold ring-2 ring-offset-2 ring-gray-100">
+                   QH
+                 </div>
+                 <ChevronDown className={clsx("w-4 h-4 transition-transform", isUserMenuOpen && "rotate-180")} />
+               </button>
+               
+               {isUserMenuOpen && (
+                 <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                   <button
+                     onClick={() => {
+                       setIsUserMenuOpen(false);
+                       setCurrentPage('settings');
+                     }}
+                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                   >
+                     <Settings className="w-4 h-4" />
+                     Settings
+                   </button>
+                   <button
+                     onClick={() => {
+                       setIsUserMenuOpen(false);
+                       setCurrentPage('help');
+                     }}
+                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                   >
+                     <HelpCircle className="w-4 h-4" />
+                     Help
+                   </button>
+                   <button
+                     onClick={() => {
+                       setIsUserMenuOpen(false);
+                       setCurrentPage('about');
+                     }}
+                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                   >
+                     <Info className="w-4 h-4" />
+                     About
+                   </button>
+                 </div>
+               )}
              </div>
           </div>
         </header>
 
-        {/* Dashboard Canvas */}
-        <main 
-          className="flex-1 overflow-auto bg-gray-50/50 p-6 relative"
-          onDragOver={(e) => {
-            // Allow drops on main content area
-            if (e.dataTransfer.types.includes('application/widget-type')) {
-              e.preventDefault();
-              e.stopPropagation();
-              e.dataTransfer.dropEffect = 'copy';
-            }
-          }}
-          onDrop={(e) => {
-            // Prevent main from intercepting - let it bubble to children
-            if (e.dataTransfer.types.includes('application/widget-type')) {
-              e.stopPropagation();
-            }
-          }}
-        >
-          <div className="max-w-[1920px] mx-auto h-full">
-            {children}
-          </div>
-        </main>
+        {/* Dashboard Canvas or Page */}
+        {currentPage ? (
+          <main className="flex-1 overflow-hidden bg-gray-50">
+            {currentPage === 'settings' && <SettingsPage onNavigate={(page) => setCurrentPage(page)} />}
+            {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
+            {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}
+          </main>
+        ) : (
+          <main 
+            className="flex-1 overflow-auto bg-gray-50/50 p-6 relative"
+            onDragOver={(e) => {
+              // Allow drops on main content area
+              if (e.dataTransfer.types.includes('application/widget-type')) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = 'copy';
+              }
+            }}
+            onDrop={(e) => {
+              // Prevent main from intercepting - let it bubble to children
+              if (e.dataTransfer.types.includes('application/widget-type')) {
+                e.stopPropagation();
+              }
+            }}
+          >
+            <div className="max-w-[1920px] mx-auto h-full">
+              {children}
+            </div>
+          </main>
+        )}
       </div>
 
       {/* Widget Tray */}
