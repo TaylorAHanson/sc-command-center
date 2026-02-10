@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -11,233 +11,150 @@ import {
   type SortingState,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Eye } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Eye, RefreshCw, AlertCircle } from 'lucide-react';
 import type { WidgetProps } from '../widgetRegistry';
+import { executeSqlQuery } from '../services/sqlQueryService';
 
-// Mock data for supply chain supplier performance
-interface SupplierData {
-  id: string;
-  supplierName: string;
-  onTimeDelivery: number;
-  qualityScore: number;
-  costRating: string;
-  status: string;
-  totalOrders: number;
-  region: string;
-  lastOrderDate: string;
+// Widget configuration interface
+interface DataTableWidgetConfig {
+  queryId: string;
+  title?: string;
+  parameters?: Record<string, any>;
+  refreshInterval?: number; // in seconds
 }
 
-const mockData: SupplierData[] = [
-  {
-    id: '1',
-    supplierName: 'TSMC Manufacturing',
-    onTimeDelivery: 98.5,
-    qualityScore: 9.2,
-    costRating: 'A',
-    status: 'Active',
-    totalOrders: 1247,
-    region: 'Asia-Pacific',
-    lastOrderDate: '2024-01-15',
-  },
-  {
-    id: '2',
-    supplierName: 'Samsung Electronics',
-    onTimeDelivery: 96.8,
-    qualityScore: 9.0,
-    costRating: 'A',
-    status: 'Active',
-    totalOrders: 892,
-    region: 'Asia-Pacific',
-    lastOrderDate: '2024-01-14',
-  },
-  {
-    id: '3',
-    supplierName: 'Foxconn Technology',
-    onTimeDelivery: 94.2,
-    qualityScore: 8.7,
-    costRating: 'B',
-    status: 'Active',
-    totalOrders: 654,
-    region: 'Asia-Pacific',
-    lastOrderDate: '2024-01-13',
-  },
-  {
-    id: '4',
-    supplierName: 'Intel Corporation',
-    onTimeDelivery: 97.1,
-    qualityScore: 9.1,
-    costRating: 'A',
-    status: 'Active',
-    totalOrders: 523,
-    region: 'North America',
-    lastOrderDate: '2024-01-12',
-  },
-  {
-    id: '5',
-    supplierName: 'Micron Technology',
-    onTimeDelivery: 95.5,
-    qualityScore: 8.9,
-    costRating: 'B',
-    status: 'Active',
-    totalOrders: 412,
-    region: 'North America',
-    lastOrderDate: '2024-01-11',
-  },
-  {
-    id: '6',
-    supplierName: 'SK Hynix',
-    onTimeDelivery: 93.8,
-    qualityScore: 8.5,
-    costRating: 'B',
-    status: 'Active',
-    totalOrders: 389,
-    region: 'Asia-Pacific',
-    lastOrderDate: '2024-01-10',
-  },
-  {
-    id: '7',
-    supplierName: 'Broadcom Inc.',
-    onTimeDelivery: 99.2,
-    qualityScore: 9.4,
-    costRating: 'A',
-    status: 'Active',
-    totalOrders: 287,
-    region: 'North America',
-    lastOrderDate: '2024-01-09',
-  },
-  {
-    id: '8',
-    supplierName: 'NXP Semiconductors',
-    onTimeDelivery: 92.1,
-    qualityScore: 8.3,
-    costRating: 'C',
-    status: 'Review',
-    totalOrders: 198,
-    region: 'Europe',
-    lastOrderDate: '2024-01-08',
-  },
-  {
-    id: '9',
-    supplierName: 'STMicroelectronics',
-    onTimeDelivery: 96.3,
-    qualityScore: 8.8,
-    costRating: 'B',
-    status: 'Active',
-    totalOrders: 156,
-    region: 'Europe',
-    lastOrderDate: '2024-01-07',
-  },
-  {
-    id: '10',
-    supplierName: 'MediaTek Inc.',
-    onTimeDelivery: 94.7,
-    qualityScore: 8.6,
-    costRating: 'B',
-    status: 'Active',
-    totalOrders: 234,
-    region: 'Asia-Pacific',
-    lastOrderDate: '2024-01-06',
-  },
-];
+export const DataTableWidget: React.FC<WidgetProps> = ({ data }) => {
+  // Extract configuration from widget data with defaults
+  const config = (data as DataTableWidgetConfig) || {};
+  const queryId = config.queryId || 'supplier_performance';
+  const title = config.title;
+  const parameters = config.parameters;
+  const refreshInterval = config.refreshInterval;
 
-export const DataTableWidget: React.FC<WidgetProps> = () => {
+  // State for data fetching
+  const [tableData, setTableData] = useState<Record<string, any>[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  // Table state
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [globalFilter, setGlobalFilter] = useState('');
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 
-  const columns = useMemo<ColumnDef<SupplierData>[]>(
-    () => [
-      {
-        accessorKey: 'supplierName',
-        header: 'Supplier Name',
-        cell: (info) => <div className="font-medium text-qualcomm-navy">{info.getValue() as string}</div>,
+  // Fetch data from SQL API
+  const fetchData = React.useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await executeSqlQuery({
+        query_id: queryId,
+        parameters: parameters,
+      });
+      setTableData(response.rows);
+      setLastRefresh(new Date());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch data');
+      console.error('Error fetching table data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [queryId, parameters]);
+
+  // Initial data fetch
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Auto-refresh if configured
+  useEffect(() => {
+    if (refreshInterval && refreshInterval > 0) {
+      const interval = setInterval(fetchData, refreshInterval * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [refreshInterval, fetchData]);
+
+  // Generate columns dynamically from data
+  const columns = useMemo<ColumnDef<Record<string, any>>[]>(() => {
+    if (tableData.length === 0) return [];
+
+    const firstRow = tableData[0];
+    return Object.keys(firstRow).map((key) => ({
+      id: key,
+      accessorKey: key,
+      header: () => {
+        // Convert snake_case to Title Case
+        if (typeof key !== 'string') return String(key);
+        return key
+          .split('_')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
       },
-      {
-        accessorKey: 'onTimeDelivery',
-        header: 'On-Time Delivery %',
-        cell: (info) => {
-          const value = info.getValue() as number;
-          return (
-            <div className="flex items-center gap-2">
-              <span>{value.toFixed(1)}%</span>
-              <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-qualcomm-blue"
-                  style={{ width: `${value}%` }}
-                />
-              </div>
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: 'qualityScore',
-        header: 'Quality Score',
-        cell: (info) => {
-          const value = info.getValue() as number;
-          const color = value >= 9 ? 'text-green-600' : value >= 8.5 ? 'text-yellow-600' : 'text-red-600';
-          return <span className={`font-semibold ${color}`}>{value.toFixed(1)}</span>;
-        },
-      },
-      {
-        accessorKey: 'costRating',
-        header: 'Cost Rating',
-        cell: (info) => {
-          const value = info.getValue() as string;
-          const colorMap: Record<string, string> = {
-            A: 'bg-green-100 text-green-800',
-            B: 'bg-yellow-100 text-yellow-800',
-            C: 'bg-red-100 text-red-800',
+      cell: (info) => {
+        const value = info.getValue();
+
+        // Handle null/undefined
+        if (value === null || value === undefined) {
+          return <span className="text-gray-400">—</span>;
+        }
+
+        // Format based on type
+        if (typeof value === 'number') {
+          // Check if it's a percentage (0-100 range with decimals)
+          if (key.toLowerCase().includes('percent') || key.toLowerCase().includes('rate')) {
+            return <span>{value.toFixed(1)}%</span>;
+          }
+          // Format large numbers with commas
+          if (value > 999) {
+            return <span>{value.toLocaleString()}</span>;
+          }
+          // Format decimals
+          if (value % 1 !== 0) {
+            return <span>{value.toFixed(2)}</span>;
+          }
+          return <span>{value}</span>;
+        }
+
+        // Format dates
+        if (key.toLowerCase().includes('date') || key.toLowerCase().includes('time')) {
+          try {
+            const date = new Date(String(value));
+            if (!isNaN(date.getTime())) {
+              return <span>{date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>;
+            }
+          } catch {
+            // Not a valid date, fall through
+          }
+        }
+
+        // Status badges
+        if (key.toLowerCase().includes('status')) {
+          const statusColors: Record<string, string> = {
+            active: 'bg-green-100 text-green-800',
+            inactive: 'bg-gray-100 text-gray-800',
+            pending: 'bg-yellow-100 text-yellow-800',
+            review: 'bg-yellow-100 text-yellow-800',
+            completed: 'bg-blue-100 text-blue-800',
+            failed: 'bg-red-100 text-red-800',
+            error: 'bg-red-100 text-red-800',
           };
+          const colorClass = statusColors[String(value).toLowerCase()] || 'bg-gray-100 text-gray-800';
           return (
-            <span className={`px-2 py-1 rounded text-xs font-semibold ${colorMap[value] || 'bg-gray-100 text-gray-800'}`}>
-              {value}
+            <span className={`px-2 py-1 rounded text-xs font-medium ${colorClass}`}>
+              {String(value)}
             </span>
           );
-        },
+        }
+
+        // Default: render as string
+        return <span>{String(value)}</span>;
       },
-      {
-        accessorKey: 'status',
-        header: 'Status',
-        cell: (info) => {
-          const value = info.getValue() as string;
-          const colorMap: Record<string, string> = {
-            Active: 'bg-green-100 text-green-800',
-            Review: 'bg-yellow-100 text-yellow-800',
-            Inactive: 'bg-gray-100 text-gray-800',
-          };
-          return (
-            <span className={`px-2 py-1 rounded text-xs font-medium ${colorMap[value] || 'bg-gray-100 text-gray-800'}`}>
-              {value}
-            </span>
-          );
-        },
-      },
-      {
-        accessorKey: 'totalOrders',
-        header: 'Total Orders',
-        cell: (info) => <div className="text-right">{(info.getValue() as number).toLocaleString()}</div>,
-      },
-      {
-        accessorKey: 'region',
-        header: 'Region',
-      },
-      {
-        accessorKey: 'lastOrderDate',
-        header: 'Last Order',
-        cell: (info) => {
-          const date = new Date(info.getValue() as string);
-          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        },
-      },
-    ],
-    []
-  );
+    }));
+  }, [tableData]);
 
   const table = useReactTable({
-    data: mockData,
+    data: tableData,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -256,11 +173,57 @@ export const DataTableWidget: React.FC<WidgetProps> = () => {
     },
   });
 
+  // Loading state
+  if (isLoading && tableData.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 text-qualcomm-blue animate-spin mx-auto mb-2" />
+          <p className="text-gray-600">Loading data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error && tableData.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+          <p className="text-gray-900 font-medium mb-1">Failed to load data</p>
+          <p className="text-gray-600 text-sm mb-4">{error}</p>
+          <button
+            onClick={fetchData}
+            className="px-4 py-2 bg-qualcomm-blue text-white rounded-md hover:bg-qualcomm-navy transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col">
+      {/* Title bar */}
+      {title && (
+        <div className="mb-3">
+          <h3 className="text-lg font-semibold text-qualcomm-navy">{title}</h3>
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
-        <div className="flex items-center gap-3 flex-1">
+        {/* Refresh button */}
+        <button
+          onClick={fetchData}
+          disabled={isLoading}
+          className="p-2 text-gray-600 hover:text-qualcomm-blue hover:bg-gray-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Refresh data"
+        >
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+        </button>
+        <div className="flex items-center gap-3 flex-1 ml-2">
           {/* Global Search */}
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -311,14 +274,11 @@ export const DataTableWidget: React.FC<WidgetProps> = () => {
                             onChange={column.getToggleVisibilityHandler()}
                             className="rounded border-gray-300 text-qualcomm-blue focus:ring-qualcomm-blue"
                           />
-                          <span className="text-sm">{column.id === 'supplierName' ? 'Supplier Name' : 
-                            column.id === 'onTimeDelivery' ? 'On-Time Delivery %' :
-                            column.id === 'qualityScore' ? 'Quality Score' :
-                            column.id === 'costRating' ? 'Cost Rating' :
-                            column.id === 'status' ? 'Status' :
-                            column.id === 'totalOrders' ? 'Total Orders' :
-                            column.id === 'region' ? 'Region' :
-                            column.id === 'lastOrderDate' ? 'Last Order' : column.id}</span>
+                          <span className="text-sm">
+                            {column.id
+                              ? column.id.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+                              : 'Unknown'}
+                          </span>
                         </label>
                       ))}
                   </div>
@@ -328,9 +288,14 @@ export const DataTableWidget: React.FC<WidgetProps> = () => {
           </div>
         </div>
 
-        {/* Results count */}
-        <div className="text-sm text-gray-600">
-          {table.getFilteredRowModel().rows.length} of {mockData.length} suppliers
+        {/* Results count and last refresh */}
+        <div className="text-sm text-gray-600 flex items-center gap-4">
+          <span>{table.getFilteredRowModel().rows.length} of {tableData.length} rows</span>
+          {lastRefresh && (
+            <span className="text-xs text-gray-500">
+              Updated {lastRefresh.toLocaleTimeString()}
+            </span>
+          )}
         </div>
       </div>
 
@@ -348,9 +313,8 @@ export const DataTableWidget: React.FC<WidgetProps> = () => {
                   >
                     {header.isPlaceholder ? null : (
                       <div
-                        className={`flex items-center gap-2 ${
-                          header.column.getCanSort() ? 'cursor-pointer select-none hover:text-qualcomm-blue' : ''
-                        }`}
+                        className={`flex items-center gap-2 ${header.column.getCanSort() ? 'cursor-pointer select-none hover:text-qualcomm-blue' : ''
+                          }`}
                         onClick={header.column.getToggleSortingHandler()}
                       >
                         {flexRender(header.column.columnDef.header, header.getContext())}
@@ -360,8 +324,8 @@ export const DataTableWidget: React.FC<WidgetProps> = () => {
                               asc: <ChevronUp className="w-4 h-4" />,
                               desc: <ChevronDown className="w-4 h-4" />,
                             }[header.column.getIsSorted() as string] ?? (
-                              <ChevronsUpDown className="w-4 h-4" />
-                            )}
+                                <ChevronsUpDown className="w-4 h-4" />
+                              )}
                           </span>
                         )}
                       </div>
@@ -375,7 +339,7 @@ export const DataTableWidget: React.FC<WidgetProps> = () => {
             {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-500">
-                  No suppliers found
+                  No data found
                 </td>
               </tr>
             ) : (
@@ -448,4 +412,3 @@ export const DataTableWidget: React.FC<WidgetProps> = () => {
     </div>
   );
 };
-

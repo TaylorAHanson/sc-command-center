@@ -32,10 +32,9 @@
         - [x] Add a way to view logged data from executable actions
 
 ## Widgets
+    - [x] Bring over changes for SQL runner
+    - [x] Bring over changes for Genie runner
+    - [ ] Bring over changes for Notebook runner
     - [ ] N8N - Have a widget that can trigger a workflow
     - [ ] Tableau - Add tableau widget that can display a tableau dashboard. 
         - [ ] PLT Metric: Demand Coverage / Plan solve health
-
-
-## Other
-    - [ ]  Bring over widgets from other envs into this one. 

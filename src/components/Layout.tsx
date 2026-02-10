@@ -31,12 +31,31 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Toggle widget tray on 'w' key press
+      if (event.key.toLowerCase() === 'w' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        // Check if the user is typing in an input or textarea
+        const activeElement = document.activeElement;
+        const isTyping =
+          activeElement instanceof HTMLInputElement ||
+          activeElement instanceof HTMLTextAreaElement ||
+          (activeElement as HTMLElement)?.isContentEditable;
+
+        if (!isTyping) {
+          setTrayOpen(true);
+        }
+      }
+    };
+
     if (isUserMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
+    document.addEventListener('keydown', handleKeyDown);
+
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isUserMenuOpen]);
 

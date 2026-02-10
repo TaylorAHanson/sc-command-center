@@ -40,6 +40,15 @@ echo -e "${CYAN}Cleaning up old log files...${NC}"
 rm -f backend.log frontend.log
 echo -e "${GREEN}✓ Log files cleared${NC}"
 
+# Load environment variables from .env if it exists
+if [ -f ".env" ]; then
+    echo -e "${CYAN}Loading environment variables from .env...${NC}"
+    set -a
+    source ".env"
+    set +a
+    echo -e "${GREEN}✓ Environment variables loaded from .env${NC}"
+fi
+
 # Check and kill processes on ports 8000 and 5173
 echo -e "${CYAN}Checking for processes on ports 8000 and 5173...${NC}"
 BACKEND_PORT_PID=$(lsof -ti:8000 2>/dev/null || true)
@@ -239,10 +248,8 @@ fi
 echo -e "${GREEN}→ Starting frontend...${NC}"
 # Add timestamp to log file
 echo "=== Frontend started at $(date) ===" > frontend.log
-cd client
-npm run dev >> ../frontend.log 2>&1 &
+npm run dev >> frontend.log 2>&1 &
 FRONTEND_PID=$!
-cd ..
 
 # Wait a moment for frontend to start
 sleep 3

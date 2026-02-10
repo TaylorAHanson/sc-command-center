@@ -1,0 +1,19 @@
+command:
+  - uvicorn
+  - server.main:app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
+  - --proxy-headers
+  - --forwarded-allow-ips
+  - "*"
+env:
+  - name: PYTHONPATH
+    value: .:server
+  - name: SQL_WAREHOUSE_ID
+    value: "14b25bcc9c131636"
+  - name: N8N_BASE_URL
+    value: ""  # Optional: Set your N8N instance URL, e.g. https://your-n8n.com
+  - name: TABLEAU_SERVER_URL
+    value: ""  # Set your Tableau Cloud URL, e.g. https://10ax.online.tableau.com

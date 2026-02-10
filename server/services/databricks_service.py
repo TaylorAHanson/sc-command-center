@@ -1,15 +1,16 @@
-from databricks.sdk import WorkspaceClient
+from middleware.auth import get_db_client
 import os
 
 class DatabricksService:
     def __init__(self):
         # Initialize client only if configured, otherwise mock or handle gracefully
-        # In a real app, environment variables would be set by the Databricks runtime
         try:
-            self.client = WorkspaceClient()
+            # In dev mode, this uses SP. In prod, this will fail unless we pass a token later.
+            # We call with None to let it check DEV_MODE internally.
+            self.client = get_db_client(None) 
             self.is_connected = True
         except Exception as e:
-            print(f"Warning: Could not connect to Databricks: {e}")
+            print(f"Warning: Could not connect to Databricks during startup: {e}")
             self.client = None
             self.is_connected = False
 

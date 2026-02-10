@@ -1,0 +1,31 @@
+
+// N8N Trigger Widget
+registerWidget({
+  id: 'n8n_trigger',
+  name: 'Run N8N Workflow',
+  component: N8NTriggerWidget,
+  defaultW: 4,
+  defaultH: 6,
+  description: 'Trigger N8N workflows with custom parameters.',
+  category: 'Automation',
+  domain: 'General',
+  isCertified: false,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'config_required',
+  isExecutable: true
+});
+
+// Tableau Dashboard Widget
+registerWidget({
+  id: 'tableau_dashboard',
+  name: 'Tableau Dashboard',
+  component: TableauWidget,
+  defaultW: 8,
+  defaultH: 8,
+  description: 'Embed interactive Tableau Cloud dashboards.',
+  category: 'Analytics',
+  domain: 'General',
+  isCertified: false,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'config_required'
+});

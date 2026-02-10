@@ -3,7 +3,6 @@ import { AlertsWidget } from './widgets/AlertsWidget';
 import { InventoryWidget } from './widgets/InventoryWidget';
 import { GanttWidget } from './widgets/GanttWidget';
 import { GenieWidget } from './widgets/GenieWidget';
-import { ActionWidget } from './widgets/ActionWidget';
 import { SupplierFormWidget } from './widgets/SupplierFormWidget';
 import { ExternalWidget } from './widgets/ExternalWidget';
 import { SupplierScorecardWidget } from './widgets/SupplierScorecardWidget';
@@ -16,6 +15,10 @@ import { CostBreakdownWidget } from './widgets/CostBreakdownWidget';
 import { ProductionLinesWidget } from './widgets/ProductionLinesWidget';
 import { DataTableWidget } from './widgets/DataTableWidget';
 import { ExecuteNotebookWidget } from './widgets/ExecuteNotebookWidget';
+import { DatabricksJobRunnerWidget } from './widgets/DatabricksJobRunnerWidget';
+import { LineChartWidget } from './widgets/LineChartWidget';
+import { N8NTriggerWidget } from './widgets/N8NTriggerWidget';
+import { TableauWidget } from './widgets/TableauWidget';
 
 export interface WidgetProps {
   id: string;
@@ -90,8 +93,15 @@ registerWidget({
 
 registerWidget({
   id: 'genie',
-  name: 'Ask Genie',
-  component: GenieWidget,
+  name: 'Supply Chain Genie',
+  component: (props) => React.createElement(GenieWidget, {
+    ...props,
+    data: {
+      ...props.data,
+      space_id: '01f106b447c7129b8f1dc466a177d9d7',
+      name: 'Supply Chain Genie',
+    }
+  }),
   defaultW: 3,
   defaultH: 6,
   description: 'AI-powered supply chain assistant.',
@@ -99,23 +109,9 @@ registerWidget({
   domain: 'General',
   isCertified: false,
   accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
+  configurationMode: 'config_allowed'
 });
 
-registerWidget({
-  id: 'action',
-  name: 'Job Trigger',
-  component: ActionWidget,
-  defaultW: 3,
-  defaultH: 4,
-  description: 'Trigger Databricks synchronization jobs.',
-  category: 'Actions',
-  domain: 'IT',
-  isCertified: true,
-  accessControl: { mockHasAccess: false }, // Mock restricted
-  configurationMode: 'config_allowed',
-  isExecutable: true
-});
 
 registerWidget({
   id: 'supplier_form',
@@ -259,16 +255,22 @@ registerWidget({
 
 registerWidget({
   id: 'data_table',
-  name: 'Supplier Performance',
-  component: DataTableWidget,
+  name: 'NYC Taxi Data',
+  component: (props) => React.createElement(DataTableWidget, {
+    ...props,
+    data: {
+      ...props.data,
+      queryId: 'test_query',
+    }
+  }),
   defaultW: 8,
   defaultH: 8,
-  description: 'Searchable, sortable table of supplier performance data.',
+  description: 'Searchable, sortable table of data.',
   category: 'Analytics',
-  domain: 'Procurement',
+  domain: 'General',
   isCertified: true,
   accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
+  configurationMode: 'config_allowed'
 });
 
 registerWidget({
@@ -285,6 +287,77 @@ registerWidget({
   configurationMode: 'config_required',
   isExecutable: true
 });
+
+registerWidget({
+  id: 'job_runner',
+  name: 'Databricks Job Runner',
+  component: DatabricksJobRunnerWidget,
+  defaultW: 4,
+  defaultH: 6,
+  description: 'Run and monitor Databricks jobs.',
+  category: 'Actions',
+  domain: 'IT',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'config_allowed',
+  isExecutable: true
+});
+
+registerWidget({
+  id: 'line_chart',
+  name: 'Test Data Chart',
+  component: (props) => React.createElement(LineChartWidget, {
+    ...props,
+    data: {
+      ...props.data,
+      queryId: 'test_query',
+      xColumn: 'pickup_zip',
+      yColumn: 'trip_count',
+      yAxisTitle: 'Trip Count',
+      chartType: 'line'
+    }
+  }),
+  defaultW: 6,
+  defaultH: 6,
+  description: 'Dynamic chart driven by SQL queries.',
+  category: 'Analytics',
+  domain: 'General',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'config_allowed'
+});
+
+// N8N Trigger Widget
+registerWidget({
+  id: 'n8n_trigger',
+  name: 'Run N8N Workflow',
+  component: N8NTriggerWidget,
+  defaultW: 4,
+  defaultH: 6,
+  description: 'Trigger N8N workflows with custom parameters.',
+  category: 'Automation',
+  domain: 'General',
+  isCertified: false,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'config_required',
+  isExecutable: true
+});
+
+// Tableau Dashboard Widget
+registerWidget({
+  id: 'tableau_dashboard',
+  name: 'Tableau Dashboard',
+  component: TableauWidget,
+  defaultW: 8,
+  defaultH: 8,
+  description: 'Embed interactive Tableau Cloud dashboards.',
+  category: 'Analytics',
+  domain: 'General',
+  isCertified: false,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'config_required'
+});
+
 export const getAvailableWidgets = () => Object.values(widgetRegistry);
 
 export const getWidgetCategories = () => {
