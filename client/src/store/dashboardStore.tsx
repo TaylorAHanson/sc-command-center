@@ -31,12 +31,17 @@ interface DashboardContextType {
   setActiveTabId: (id: string) => void;
   viewTemplate: (templateName: string) => void;
   toggleLock: (tabId: string) => void;
-  addWidget: (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }) => void;
+  addWidget: (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => void;
   removeWidget: (tabId: string, widgetId: string) => void;
+  updateWidget: (tabId: string, widgetId: string, updates: Partial<WidgetLayout>) => void;
   updateLayout: (tabId: string, newLayout: WidgetLayout[]) => void;
   loadTemplate: (templateName: string) => void;
   generateShareLink: () => string;
   loadSharedDashboard: (sharedData: string) => void;
+  // Config Modal
+  configModal: { isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null };
+  openConfigModal: (widgetId: string, onSave: (config: any) => void, initialConfig?: any) => void;
+  closeConfigModal: () => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -133,7 +138,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const newTab = { ...template, id: uuidv4(), name: `${template.name} (Copy)` };
       // Regenerate widget IDs to avoid conflicts
       newTab.widgets = newTab.widgets.map(w => ({ ...w, i: uuidv4() }));
-      
+
       setTabs([...tabs, newTab]);
       setActiveTabId(newTab.id);
       setViewingTemplate(null); // Clear template view when cloning
@@ -176,7 +181,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const generateShareLink = (): string => {
     const activeTab = tabs.find(t => t.id === activeTabId);
     if (!activeTab) return '';
-    
+
     // Create a shareable representation of the dashboard
     const shareData = {
       name: activeTab.name,
@@ -189,13 +194,13 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         props: w.props
       }))
     };
-    
+
     // Encode as base64 URL-safe string
     const encoded = btoa(JSON.stringify(shareData))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=/g, '');
-    
+
     return `${window.location.origin}${window.location.pathname}?share=${encoded}`;
   };
 
@@ -208,7 +213,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           .replace(/_/g, '/')
       );
       const parsedData = JSON.parse(decoded);
-      
+
       // Create a new tab from the shared data
       const newTab: Tab = {
         id: uuidv4(),
@@ -223,7 +228,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           props: w.props || {}
         }))
       };
-      
+
       setTabs([...tabs, newTab]);
       setActiveTabId(newTab.id);
       setViewingTemplate(null);
@@ -232,7 +237,22 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
-  const addWidget = (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }) => {
+  const [configModal, setConfigModal] = useState<{ isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null }>({
+    isOpen: false,
+    widgetId: null,
+    initialConfig: {},
+    onSave: null
+  });
+
+  const openConfigModal = (widgetId: string, onSave: (config: any) => void, initialConfig: any = {}) => {
+    setConfigModal({ isOpen: true, widgetId, initialConfig, onSave });
+  };
+
+  const closeConfigModal = () => {
+    setConfigModal({ isOpen: false, widgetId: null, initialConfig: {}, onSave: null });
+  };
+
+  const addWidget = (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => {
     setTabs(prev => prev.map(tab => {
       if (tab.id !== tabId) return tab;
       const def = widgetRegistry[type];
@@ -243,9 +263,19 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         w: position?.w ?? def?.defaultW ?? 4,
         h: position?.h ?? def?.defaultH ?? 4,
         type,
-        props: {}
+        props: props || {}
       };
       return { ...tab, widgets: [...tab.widgets, newWidget] };
+    }));
+  };
+
+  const updateWidget = (tabId: string, widgetId: string, updates: Partial<WidgetLayout>) => {
+    setTabs(prev => prev.map(tab => {
+      if (tab.id !== tabId) return tab;
+      return {
+        ...tab,
+        widgets: tab.widgets.map(w => w.i === widgetId ? { ...w, ...updates } : w)
+      };
     }));
   };
 
@@ -264,7 +294,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const existing = tab.widgets.find(w => w.i === l.i);
         return existing ? { ...existing, ...l } : undefined;
       }).filter(Boolean) as WidgetLayout[];
-      
+
       return { ...tab, widgets: updatedWidgets };
     }));
   };
@@ -282,11 +312,15 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       viewTemplate,
       addWidget,
       removeWidget,
+      updateWidget,
       updateLayout,
       loadTemplate,
       generateShareLink,
       loadSharedDashboard,
-      toggleLock
+      toggleLock,
+      configModal,
+      openConfigModal,
+      closeConfigModal
     }}>
       {children}
     </DashboardContext.Provider>

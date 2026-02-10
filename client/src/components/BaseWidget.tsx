@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, GripHorizontal, Maximize2 } from 'lucide-react';
+import { X, GripHorizontal, Maximize2, Settings } from 'lucide-react';
 
 interface BaseWidgetProps {
   id: string;
@@ -7,6 +7,7 @@ interface BaseWidgetProps {
   children: React.ReactNode;
   onRemove?: () => void;
   onFullscreen?: () => void;
+  onConfigure?: () => void;
   className?: string;
   // react-grid-layout injects these props
   style?: React.CSSProperties;
@@ -24,6 +25,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
   children,
   onRemove,
   onFullscreen,
+  onConfigure,
   className,
   style,
   className_rgl,
@@ -48,8 +50,20 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
           {title}
         </div>
         <div className="flex items-center gap-1">
+          {onConfigure && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation(); // prevent drag start
+                onConfigure();
+              }}
+              className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+              title="Configure Widget"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
           {onFullscreen && (
-            <button 
+            <button
               onClick={(e) => {
                 e.stopPropagation(); // prevent drag start
                 onFullscreen();
@@ -61,7 +75,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
             </button>
           )}
           {onRemove && (
-            <button 
+            <button
               onClick={(e) => {
                 e.stopPropagation(); // prevent drag start
                 onRemove();

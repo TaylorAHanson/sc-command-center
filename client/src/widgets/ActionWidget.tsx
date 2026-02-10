@@ -2,11 +2,19 @@ import React, { useState } from 'react';
 import { Play, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import type { WidgetProps } from '../widgetRegistry';
 
-export const ActionWidget: React.FC<WidgetProps> = () => {
+import { ActionConfirmationModal } from '../components/ActionConfirmationModal';
+import { useActionLogger } from '../hooks/useActionLogger';
+
+export const ActionWidget: React.FC<WidgetProps> = ({ id }) => {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
 
-  const triggerJob = async () => {
+  const { isConfirming, initiateAction, confirmAction, cancelAction } = useActionLogger({
+    widgetId: id,
+    widgetName: 'Job Trigger'
+  });
+
+  const performTrigger = async () => {
     setStatus('loading');
     setMessage('');
     try {
@@ -25,13 +33,24 @@ export const ActionWidget: React.FC<WidgetProps> = () => {
     }
   };
 
+  const handleTrigger = () => {
+    initiateAction(performTrigger);
+  };
+
   return (
     <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+      <ActionConfirmationModal
+        isOpen={isConfirming}
+        onClose={cancelAction}
+        onConfirm={confirmAction}
+        actionName="Trigger Job"
+        widgetName="Inventory Sync"
+      />
       <h3 className="text-lg font-semibold mb-2">Inventory Sync Job</h3>
       <p className="text-sm text-gray-500 mb-6">Trigger the Databricks job to update global inventory levels from SAP.</p>
-      
-      <button 
-        onClick={triggerJob}
+
+      <button
+        onClick={handleTrigger}
         disabled={status === 'loading'}
         className="flex items-center gap-2 px-6 py-3 bg-qualcomm-blue text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors"
       >

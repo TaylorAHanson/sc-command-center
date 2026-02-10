@@ -1,10 +1,33 @@
-# Supply Chain Command Center - Widget Development Guide
+# Supply Chain Command Center 
 
-Welcome! This guide will help you add new widgets to the dashboard. It's designed for developers who are new to the codebase.
+## Overview
+
+### At first glance
+On the surface, this app looks just like a highly configurable dashboarding tool where users select and add widgets to a grid.
+They have the ability to create multiple views, and share with others.
+
+### The deeper truth
+This app is not just analytical/dashboards. It's a data collection platform.
+The reason we want to pair "View Data" with "Take action" on one screen is to collect user telemetry. 
+If we log the data, we have rows in a DB that are more or less cause and effect - user saw 'abc' so took action 'xyz'. 
+This is ML training food! This is an actual strategic plan to implement the 4 stage AI maturity model.
+
+### The 4 Stage AI Maturity Model
+Stage 1 (6 months):
+Manual control, log all user actions. What did they see, and what action they took based on that.
+
+Stage 2 (1 year):
+Train and serve ML model(s) to proactively nudge and suggest user actions. Continue collecting cause/effect data and refining models.
+
+Stage 3 (2 years)
+Proactive, agentic, tool based action taking with human-in-the-loop approval. Continue collecting cause/effect data and refining models.
+
+Stage 4 (3 years)
+Full automation of supply chain management. Human review, but mostly just model and agent tuning.
 
 ## Quick Start: Adding a New Widget
 
-Adding a widget is simple - just follow these 3 steps:
+Welcome! This guide will help you add new widgets to the dashboard. It's designed for developers who are new to the codebase. Adding a widget is simple - just follow these 3 steps:
 
 ### Step 1: Create Your Widget Component
 

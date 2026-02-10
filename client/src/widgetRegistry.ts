@@ -15,6 +15,7 @@ import { SupplyChainKPIsWidget } from './widgets/SupplyChainKPIsWidget';
 import { CostBreakdownWidget } from './widgets/CostBreakdownWidget';
 import { ProductionLinesWidget } from './widgets/ProductionLinesWidget';
 import { DataTableWidget } from './widgets/DataTableWidget';
+import { ExecuteNotebookWidget } from './widgets/ExecuteNotebookWidget';
 
 export interface WidgetProps {
   id: string;
@@ -28,7 +29,14 @@ export interface WidgetDefinition {
   defaultW: number;
   defaultH: number;
   description?: string;
-  category?: string; // New: category for organizing widgets
+  category?: string;
+  domain?: string;
+  isCertified?: boolean;
+  configurationMode?: 'none' | 'config_allowed' | 'config_required';
+  accessControl?: {
+    mockHasAccess?: boolean;
+  };
+  isExecutable?: boolean;
 }
 
 export const widgetRegistry: Record<string, WidgetDefinition> = {};
@@ -45,7 +53,11 @@ registerWidget({
   defaultW: 4,
   defaultH: 4,
   description: 'Real-time supply chain alerts and risks.',
-  category: 'Monitoring'
+  category: 'Monitoring',
+  domain: 'Supply Chain',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -55,7 +67,11 @@ registerWidget({
   defaultW: 6,
   defaultH: 6,
   description: 'Line graph of inventory across regions.',
-  category: 'Analytics'
+  category: 'Analytics',
+  domain: 'Logistics',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -65,7 +81,11 @@ registerWidget({
   defaultW: 8,
   defaultH: 6,
   description: 'Gantt chart of production phases.',
-  category: 'Planning'
+  category: 'Planning',
+  domain: 'Manufacturing',
+  isCertified: true,
+  accessControl: { mockHasAccess: true }, // Mock restricted access
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -75,7 +95,11 @@ registerWidget({
   defaultW: 3,
   defaultH: 6,
   description: 'AI-powered supply chain assistant.',
-  category: 'AI & Automation'
+  category: 'AI & Automation',
+  domain: 'General',
+  isCertified: false,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -85,7 +109,12 @@ registerWidget({
   defaultW: 3,
   defaultH: 4,
   description: 'Trigger Databricks synchronization jobs.',
-  category: 'Actions'
+  category: 'Actions',
+  domain: 'IT',
+  isCertified: true,
+  accessControl: { mockHasAccess: false }, // Mock restricted
+  configurationMode: 'config_allowed',
+  isExecutable: true
 });
 
 registerWidget({
@@ -95,7 +124,11 @@ registerWidget({
   defaultW: 4,
   defaultH: 6,
   description: 'Feedback form for suppliers.',
-  category: 'Forms'
+  category: 'Forms',
+  domain: 'Procurement',
+  isCertified: false,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -105,7 +138,11 @@ registerWidget({
   defaultW: 3,
   defaultH: 3,
   description: 'Link to external planning tools.',
-  category: 'External'
+  category: 'External',
+  domain: 'Planning',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -115,7 +152,11 @@ registerWidget({
   defaultW: 5,
   defaultH: 5,
   description: 'Performance scores for key suppliers.',
-  category: 'Analytics'
+  category: 'Analytics',
+  domain: 'Procurement',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -125,7 +166,11 @@ registerWidget({
   defaultW: 6,
   defaultH: 5,
   description: 'Quarterly risk assessment across categories.',
-  category: 'Monitoring'
+  category: 'Monitoring',
+  domain: 'Risk Management',
+  isCertified: false,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -135,7 +180,11 @@ registerWidget({
   defaultW: 4,
   defaultH: 6,
   description: 'Real-time tracking of global shipments.',
-  category: 'Logistics'
+  category: 'Logistics',
+  domain: 'Logistics',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -145,7 +194,11 @@ registerWidget({
   defaultW: 5,
   defaultH: 5,
   description: 'Capacity utilization across warehouse locations.',
-  category: 'Analytics'
+  category: 'Analytics',
+  domain: 'Logistics',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -155,7 +208,11 @@ registerWidget({
   defaultW: 6,
   defaultH: 5,
   description: '12-month demand forecast vs actuals.',
-  category: 'Planning'
+  category: 'Planning',
+  domain: 'Planning',
+  isCertified: true,
+  accessControl: { mockHasAccess: false }, // Mock restricted
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -165,7 +222,11 @@ registerWidget({
   defaultW: 4,
   defaultH: 4,
   description: 'Key performance indicators dashboard.',
-  category: 'Monitoring'
+  category: 'Monitoring',
+  domain: 'Supply Chain',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -175,7 +236,11 @@ registerWidget({
   defaultW: 4,
   defaultH: 5,
   description: 'Pie chart of supply chain cost distribution.',
-  category: 'Analytics'
+  category: 'Analytics',
+  domain: 'Finance',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -185,7 +250,11 @@ registerWidget({
   defaultW: 4,
   defaultH: 6,
   description: 'Real-time status of manufacturing lines.',
-  category: 'Monitoring'
+  category: 'Monitoring',
+  domain: 'Manufacturing',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
 registerWidget({
@@ -195,9 +264,27 @@ registerWidget({
   defaultW: 8,
   defaultH: 8,
   description: 'Searchable, sortable table of supplier performance data.',
-  category: 'Analytics'
+  category: 'Analytics',
+  domain: 'Procurement',
+  isCertified: true,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'none'
 });
 
+registerWidget({
+  id: 'execute_notebook',
+  name: 'Execute Notebook',
+  component: ExecuteNotebookWidget,
+  defaultW: 5,
+  defaultH: 8,
+  description: 'Select and run Databricks notebooks, view execution results.',
+  category: 'Actions',
+  domain: 'IT',
+  isCertified: false,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'config_required',
+  isExecutable: true
+});
 export const getAvailableWidgets = () => Object.values(widgetRegistry);
 
 export const getWidgetCategories = () => {
@@ -206,6 +293,14 @@ export const getWidgetCategories = () => {
     categories.add(w.category || 'Uncategorized');
   });
   return Array.from(categories).sort();
+};
+
+export const getWidgetDomains = () => {
+  const domains = new Set<string>();
+  Object.values(widgetRegistry).forEach(w => {
+    if (w.domain) domains.add(w.domain);
+  });
+  return Array.from(domains).sort();
 };
 
 export const getWidgetsByCategory = (category: string) => {

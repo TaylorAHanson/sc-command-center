@@ -2,9 +2,18 @@ import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from .services.databricks_service import db_service
+from services.databricks_service import db_service
+from routes import widgets, actions
+from database import init_db
 
 app = FastAPI(title="Supply Chain Command Center")
+
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+
+app.include_router(widgets.router)
+app.include_router(actions.router)
 
 # CORS for local development
 app.add_middleware(

@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { Plus, Settings, HelpCircle, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, ChevronDown, Info } from 'lucide-react';
+import { ActionLogs } from '../pages/ActionLogs';
+import { Plus, Settings, HelpCircle, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, ChevronDown, Info, Shield } from 'lucide-react';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
+import { ConfigModal } from './ConfigModal';
+import { widgetRegistry } from '../widgetRegistry';
 import { SettingsPage } from '../pages/SettingsPage';
 import { HelpPage } from '../pages/HelpPage';
 import { AboutPage } from '../pages/AboutPage';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<string | null>(null);
-  const { tabs, activeTabId, viewingTemplate, setActiveTabId, addTab, removeTab, renameTab, reorderTabs, loadTemplate, viewTemplate, generateShareLink, toggleLock } = useDashboardStore();
+  const { tabs, activeTabId, viewingTemplate, setActiveTabId, addTab, removeTab, renameTab, reorderTabs, loadTemplate, viewTemplate, generateShareLink, toggleLock, configModal, closeConfigModal } = useDashboardStore();
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [isTrayOpen, setTrayOpen] = useState(false);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
@@ -49,22 +52,22 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         isSidebarOpen ? "w-64" : "w-16"
       )}>
         <div className="h-14 flex items-center px-4 border-b border-gray-700 bg-opacity-50">
-           <div className="flex items-center gap-2 font-bold text-lg truncate">
-             {isSidebarOpen && <span>Command Center</span>}
-           </div>
-           <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="ml-auto text-gray-400 hover:text-white">
-             <Menu className="w-5 h-5" />
-           </button>
+          <div className="flex items-center gap-2 font-bold text-lg truncate">
+            {isSidebarOpen && <span>Command Center</span>}
+          </div>
+          <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="ml-auto text-gray-400 hover:text-white">
+            <Menu className="w-5 h-5" />
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto flex flex-col">
           {isSidebarOpen ? (
             <>
-              {/* My Dashboards */}
+              {/* My Views */}
               <div className="p-3 border-b border-gray-700">
                 <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
                   <Layers className="w-3 h-3" />
-                  My Dashboards
+                  My Views
                 </div>
                 <div className="space-y-1">
                   {userTabs.map((tab, index) => {
@@ -72,10 +75,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     const isDragging = draggedTabIndex === index;
                     const isDragOver = dragOverIndex === index;
                     const tabIndex = tabs.findIndex(t => t.id === tab.id);
-                    
+
                     return (
-                      <div 
-                        key={tab.id} 
+                      <div
+                        key={tab.id}
                         className={clsx(
                           "group relative",
                           isDragging && "opacity-50",
@@ -151,7 +154,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                             )}
                           >
                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <GripVertical 
+                              <GripVertical
                                 className={clsx(
                                   "w-4 h-4 flex-shrink-0 cursor-move",
                                   activeTabId === tab.id ? "text-white/60" : "text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -168,7 +171,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                                   setEditName(tab.name);
                                 }}
                                 className="hover:bg-qualcomm-blue/20 rounded p-0.5 transition-colors"
-                                title="Rename Dashboard"
+                                title="Rename View"
                                 type="button"
                               >
                                 <Pencil className="w-3 h-3" />
@@ -180,7 +183,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                                     removeTab(tab.id);
                                   }}
                                   className="hover:bg-red-500/20 rounded p-0.5 transition-colors"
-                                  title="Close Dashboard"
+                                  title="Close View"
                                   type="button"
                                 >
                                   <Plus className="w-3 h-3 rotate-45" />
@@ -193,20 +196,20 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     );
                   })}
                   <button
-                    onClick={() => addTab(`Dashboard ${userTabs.length + 1}`)}
+                    onClick={() => addTab(`View ${userTabs.length + 1}`)}
                     className="w-full text-left px-3 py-2 rounded-md text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>New Dashboard</span>
+                    <span>New View</span>
                   </button>
                 </div>
               </div>
 
-              {/* Global Dashboards (Templates) */}
+              {/* Global Views (Templates) */}
               <div className="p-3 border-b border-gray-700">
                 <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
                   <LayoutGrid className="w-3 h-3" />
-                  Global Dashboards
+                  Global Views
                 </div>
                 <div className="space-y-1">
                   {globalTemplates.map(templateName => {
@@ -230,7 +233,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                             loadTemplate(templateName);
                           }}
                           className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-qualcomm-blue/20 rounded transition-all text-gray-400 hover:text-qualcomm-blue"
-                          title="Copy this template to My Dashboards"
+                          title="Copy this template to My Views"
                         >
                           <Copy className="w-3.5 h-3.5" />
                         </button>
@@ -253,6 +256,31 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   Open Widget Library
                 </button>
               </div>
+
+              {/* Resources */}
+              <div className="p-3 border-t border-gray-700 mt-auto">
+                <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1">
+                  Resources
+                </div>
+                <div className="space-y-1">
+                  <a href="https://docs.qualcomm.com/command-center" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-md transition-colors">
+                    <HelpCircle className="w-4 h-4" />
+                    <span>Documentation</span>
+                  </a>
+                  <a href="https://qualcomm.service-now.com/sp" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-md transition-colors">
+                    <Settings className="w-4 h-4" />
+                    <span>Self Service Hub</span>
+                  </a>
+                  <a href="https://qualcomm.service-now.com/sp?id=sc_cat_item&sys_id=e1d674121b64711099684197dc4bcb2a" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-md transition-colors">
+                    <Info className="w-4 h-4" />
+                    <span>Report Issue</span>
+                  </a>
+                  <button onClick={() => setCurrentPage('admin')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'admin' ? "bg-qualcomm-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
+                    <Shield className="w-4 h-4" />
+                    <span>Admin Panel</span>
+                  </button>
+                </div>
+              </div>
             </>
           ) : (
             <div className="flex flex-col gap-4 items-center p-3">
@@ -262,6 +290,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 title="Widget Library"
               >
                 <LayoutGrid className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setCurrentPage('admin')}
+                className={clsx("p-2 rounded-md border border-gray-700", currentPage === 'admin' ? "bg-qualcomm-blue border-transparent" : "bg-gray-800 hover:bg-qualcomm-blue")}
+                title="Admin Panel"
+              >
+                <Shield className="w-5 h-5" />
               </button>
             </div>
           )}
@@ -274,121 +309,121 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-semibold text-qualcomm-navy">
-              {viewingTemplate 
+              {currentPage === 'admin' ? 'Admin Panel' : (viewingTemplate
                 ? `${viewingTemplate} (Read-Only)`
-                : tabs.find(t => t.id === activeTabId)?.name || 'Dashboard'}
+                : tabs.find(t => t.id === activeTabId)?.name || 'Command Center')}
             </h1>
           </div>
-          
+
           <div className="flex items-center gap-3">
-             {!viewingTemplate && (
-               <>
-                 <button
-                   onClick={() => {
-                     const activeTab = tabs.find(t => t.id === activeTabId);
-                     if (activeTab) {
-                       toggleLock(activeTabId);
-                     }
-                   }}
-                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
-                   title={tabs.find(t => t.id === activeTabId)?.locked ? "Unlock Dashboard" : "Lock Dashboard"}
-                 >
-                   {tabs.find(t => t.id === activeTabId)?.locked ? (
-                     <>
-                       <Lock className="w-4 h-4" />
-                       <span>Locked</span>
-                     </>
-                   ) : (
-                     <>
-                       <Unlock className="w-4 h-4" />
-                       <span>Lock</span>
-                     </>
-                   )}
-                 </button>
-                 <button
-                   onClick={async () => {
-                     const link = generateShareLink();
-                     if (link) {
-                       try {
-                         await navigator.clipboard.writeText(link);
-                         setShareLinkCopied(true);
-                         setTimeout(() => setShareLinkCopied(false), 2000);
-                       } catch (err) {
-                         // Fallback for older browsers
-                         const textArea = document.createElement('textarea');
-                         textArea.value = link;
-                         document.body.appendChild(textArea);
-                         textArea.select();
-                         document.execCommand('copy');
-                         document.body.removeChild(textArea);
-                         setShareLinkCopied(true);
-                         setTimeout(() => setShareLinkCopied(false), 2000);
-                       }
-                     }
-                   }}
-                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
-                   title="Share Dashboard"
-                 >
-                   {shareLinkCopied ? (
-                     <>
-                       <Check className="w-4 h-4" />
-                       <span>Copied!</span>
-                     </>
-                   ) : (
-                     <>
-                       <Share2 className="w-4 h-4" />
-                       <span>Share</span>
-                     </>
-                   )}
-                 </button>
-               </>
-             )}
-             <div className="relative" ref={userMenuRef}>
-               <button 
-                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                 className="flex items-center gap-2 text-gray-500 hover:text-qualcomm-blue focus:outline-none"
-               >
-                 <div className="w-8 h-8 bg-qualcomm-blue rounded-full flex items-center justify-center text-white text-xs font-bold ring-2 ring-offset-2 ring-gray-100">
-                   QH
-                 </div>
-                 <ChevronDown className={clsx("w-4 h-4 transition-transform", isUserMenuOpen && "rotate-180")} />
-               </button>
-               
-               {isUserMenuOpen && (
-                 <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
-                   <button
-                     onClick={() => {
-                       setIsUserMenuOpen(false);
-                       setCurrentPage('settings');
-                     }}
-                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                   >
-                     <Settings className="w-4 h-4" />
-                     Settings
-                   </button>
-                   <button
-                     onClick={() => {
-                       setIsUserMenuOpen(false);
-                       setCurrentPage('help');
-                     }}
-                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                   >
-                     <HelpCircle className="w-4 h-4" />
-                     Help
-                   </button>
-                   <button
-                     onClick={() => {
-                       setIsUserMenuOpen(false);
-                       setCurrentPage('about');
-                     }}
-                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                   >
-                     <Info className="w-4 h-4" />
-                     About
-                   </button>
-                 </div>
-               )}
-             </div>
+            {!viewingTemplate && (
+              <>
+                <button
+                  onClick={() => {
+                    const activeTab = tabs.find(t => t.id === activeTabId);
+                    if (activeTab) {
+                      toggleLock(activeTabId);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
+                  title={tabs.find(t => t.id === activeTabId)?.locked ? "Unlock View" : "Lock View"}
+                >
+                  {tabs.find(t => t.id === activeTabId)?.locked ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>Locked</span>
+                    </>
+                  ) : (
+                    <>
+                      <Unlock className="w-4 h-4" />
+                      <span>Lock</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={async () => {
+                    const link = generateShareLink();
+                    if (link) {
+                      try {
+                        await navigator.clipboard.writeText(link);
+                        setShareLinkCopied(true);
+                        setTimeout(() => setShareLinkCopied(false), 2000);
+                      } catch (err) {
+                        // Fallback for older browsers
+                        const textArea = document.createElement('textarea');
+                        textArea.value = link;
+                        document.body.appendChild(textArea);
+                        textArea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                        setShareLinkCopied(true);
+                        setTimeout(() => setShareLinkCopied(false), 2000);
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
+                  title="Share View"
+                >
+                  {shareLinkCopied ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="w-4 h-4" />
+                      <span>Share</span>
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+            <div className="relative" ref={userMenuRef}>
+              <button
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                className="flex items-center gap-2 text-gray-500 hover:text-qualcomm-blue focus:outline-none"
+              >
+                <div className="w-8 h-8 bg-qualcomm-blue rounded-full flex items-center justify-center text-white text-xs font-bold ring-2 ring-offset-2 ring-gray-100">
+                  QH
+                </div>
+                <ChevronDown className={clsx("w-4 h-4 transition-transform", isUserMenuOpen && "rotate-180")} />
+              </button>
+
+              {isUserMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                  <button
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      setCurrentPage('settings');
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                  >
+                    <Settings className="w-4 h-4" />
+                    Settings
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      setCurrentPage('help');
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                    Help
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      setCurrentPage('about');
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                  >
+                    <Info className="w-4 h-4" />
+                    About
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -398,9 +433,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {currentPage === 'settings' && <SettingsPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}
+            {currentPage === 'admin' && <ActionLogs />}
           </main>
         ) : (
-          <main 
+          <main
             className="flex-1 overflow-auto bg-gray-50/50 p-6 relative"
             onDragOver={(e) => {
               // Allow drops on main content area
@@ -426,6 +462,21 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
       {/* Widget Tray */}
       <WidgetTray isOpen={isTrayOpen} onClose={() => setTrayOpen(false)} />
+
+      {/* Config Modal */}
+      {/* Config Modal */}
+      <ConfigModal
+        isOpen={configModal.isOpen}
+        onClose={closeConfigModal}
+        onSave={(config) => {
+          if (configModal.onSave) {
+            configModal.onSave(config);
+          }
+          closeConfigModal();
+        }}
+        widget={configModal.widgetId ? widgetRegistry[configModal.widgetId] : null}
+        initialConfig={configModal.initialConfig}
+      />
     </div>
   );
 };

@@ -18,14 +18,14 @@ const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
     useEffect(() => {
       mounted.current = true;
       if (elementRef.current) {
-         setWidth(elementRef.current.offsetWidth);
+        setWidth(elementRef.current.offsetWidth);
       }
-      
+
       const resizeObserver = new ResizeObserver((entries) => {
         if (!mounted.current) return;
         for (const entry of entries) {
-           // use contentBoxSize or contentRect
-           setWidth(entry.contentRect.width);
+          // use contentBoxSize or contentRect
+          setWidth(entry.contentRect.width);
         }
       });
 
@@ -45,7 +45,7 @@ const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
           {...props}
           width={width}
           // Remove className/style from child to avoid duplication if RGL applies them
-          className="" 
+          className=""
           style={{}}
         />
       </div>
@@ -56,22 +56,22 @@ const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
 const DashboardGrid: React.FC = () => {
-  const { tabs, activeTabId, viewingTemplate, updateLayout, removeWidget, addWidget } = useDashboardStore();
+  const { tabs, activeTabId, viewingTemplate, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget } = useDashboardStore();
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
-  
+
   // Get active tab - either from user tabs or templates
-  const activeTab = viewingTemplate 
+  const activeTab = viewingTemplate
     ? TEMPLATES[viewingTemplate]
     : tabs.find(t => t.id === activeTabId);
-  
+
   const handleLayoutChange = (layout: WidgetLayout[]) => {
     const isLockedCheck = !viewingTemplate && activeTab && (activeTab as any).locked === true;
     if (activeTab && !isLockedCheck) {
-       // Remove static property before saving (we add it dynamically)
-       const layoutWithoutStatic = layout.map(({ static: _, ...rest }) => rest);
-       updateLayout(activeTab.id, layoutWithoutStatic as WidgetLayout[]);
+      // Remove static property before saving (we add it dynamically)
+      const layoutWithoutStatic = layout.map(({ static: _, ...rest }) => rest);
+      updateLayout(activeTab.id, layoutWithoutStatic as WidgetLayout[]);
     }
   };
 
@@ -79,24 +79,24 @@ const DashboardGrid: React.FC = () => {
   const handleNativeDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    console.log('🎯 Native drop event triggered!', { 
-      draggedWidget, 
-      activeTab: !!activeTab, 
+
+    console.log('🎯 Native drop event triggered!', {
+      draggedWidget,
+      activeTab: !!activeTab,
       target: e.target,
       currentTarget: e.currentTarget,
       dataTransferTypes: Array.from(e.dataTransfer.types)
     });
-    
+
     // Try to get widget data from dataTransfer as fallback
     let widgetType = draggedWidget?.type;
     let w = draggedWidget?.w || 4;
     let h = draggedWidget?.h || 4;
-    
+
     try {
       const typeFromTransfer = e.dataTransfer.getData('application/widget-type');
       if (typeFromTransfer) widgetType = typeFromTransfer;
-      
+
       const wStr = e.dataTransfer.getData('application/widget-w');
       const hStr = e.dataTransfer.getData('application/widget-h');
       if (wStr) w = parseInt(wStr, 10);
@@ -104,7 +104,7 @@ const DashboardGrid: React.FC = () => {
     } catch (err) {
       console.warn('Could not read from dataTransfer:', err);
     }
-    
+
     if (!widgetType || !activeTab) {
       console.warn('Drop failed - missing widget type or active tab', { widgetType, activeTab: !!activeTab });
       setDroppingItem(undefined);
@@ -127,9 +127,9 @@ const DashboardGrid: React.FC = () => {
     // Use the actual drop position relative to the grid
     const x = e.clientX - gridRect.left;
     const y = e.clientY - gridRect.top;
-    
-    console.log('Drop coordinates:', { 
-      clientX: e.clientX, 
+
+    console.log('Drop coordinates:', {
+      clientX: e.clientX,
       clientY: e.clientY,
       gridLeft: gridRect.left,
       gridTop: gridRect.top,
@@ -149,22 +149,34 @@ const DashboardGrid: React.FC = () => {
     const gridX = Math.max(0, Math.min(Math.floor((x - margin[0]) / (colWidth + margin[0])), cols - w));
     const gridY = Math.max(0, Math.floor((y - margin[1]) / (rowHeight + margin[1])));
 
-    console.log('Adding widget at grid position', { 
-      widgetType, 
-      x: gridX, 
-      y: gridY, 
-      w, 
+    console.log('Adding widget at grid position', {
+      widgetType,
+      x: gridX,
+      y: gridY,
+      w,
       h,
       activeTabId: activeTab.id
     });
 
-    addWidget(activeTab.id, widgetType, {
-      x: gridX,
-      y: gridY,
-      w,
-      h
-    });
-    
+    const def = widgetRegistry[widgetType];
+    if (def?.configurationMode === 'config_required') {
+      openConfigModal(widgetType, (config) => {
+        addWidget(activeTab.id, widgetType, {
+          x: gridX,
+          y: gridY,
+          w,
+          h
+        }, config);
+      });
+    } else {
+      addWidget(activeTab.id, widgetType, {
+        x: gridX,
+        y: gridY,
+        w,
+        h
+      });
+    }
+
     console.log('Widget added - check dashboard for widget at position', { gridX, gridY });
 
     // Clean up
@@ -188,11 +200,11 @@ const DashboardGrid: React.FC = () => {
   const handleDropDragOver = (e: DragEvent) => {
     // Allow drop and return widget dimensions for preview
     e.preventDefault();
-    
+
     // Try to get from dataTransfer, but also use stored state
     let w = 4;
     let h = 4;
-    
+
     try {
       const wStr = e.dataTransfer?.getData('application/widget-w');
       const hStr = e.dataTransfer?.getData('application/widget-h');
@@ -205,7 +217,7 @@ const DashboardGrid: React.FC = () => {
         h = draggedWidget.h;
       }
     }
-    
+
     return { w, h };
   };
 
@@ -268,7 +280,7 @@ const DashboardGrid: React.FC = () => {
   const isLocked = !viewingTemplate && activeTab?.locked === true;
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className="h-full w-full"
       onDrop={(e) => {
@@ -309,10 +321,10 @@ const DashboardGrid: React.FC = () => {
     >
       <ResponsiveGridLayout
         className="layout"
-        layouts={{ 
-          lg: activeTab.widgets.map(w => ({ 
-            ...w, 
-            static: isLocked || false 
+        layouts={{
+          lg: activeTab.widgets.map(w => ({
+            ...w,
+            static: isLocked || false
           }))
         }}
         breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
@@ -327,44 +339,49 @@ const DashboardGrid: React.FC = () => {
         droppingItem={droppingItem}
         onDropDragOver={handleDropDragOver as any}
       >
-      {activeTab.widgets.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center text-gray-400">
-          <div className="text-center">
-            <p className="text-lg mb-2">Empty Dashboard</p>
-            <p className="text-sm">
-              {isLocked 
-                ? "Dashboard is locked. Click 'Unlock' to edit."
-                : "Drag widgets from the library to get started"}
-            </p>
+        {activeTab.widgets.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+            <div className="text-center">
+              <p className="text-lg mb-2">Empty Dashboard</p>
+              <p className="text-sm">
+                {isLocked
+                  ? "Dashboard is locked. Click 'Unlock' to edit."
+                  : "Drag widgets from the library to get started"}
+              </p>
+            </div>
           </div>
-        </div>
-      )}
-      {activeTab.widgets.map((widget: WidgetLayout) => {
-        const def = widgetRegistry[widget.type];
-        if (!def) {
-          return (
-             <div key={widget.i} className="bg-red-50 border border-red-200 p-4 rounded text-red-500">
-               Unknown Widget Type: {widget.type}
-             </div>
-          );
-        }
+        )}
+        {activeTab.widgets.map((widget: WidgetLayout) => {
+          const def = widgetRegistry[widget.type];
+          if (!def) {
+            return (
+              <div key={widget.i} className="bg-red-50 border border-red-200 p-4 rounded text-red-500">
+                Unknown Widget Type: {widget.type}
+              </div>
+            );
+          }
 
-        const Component = def.component;
-        
-        return (
-          <div key={widget.i}>
-            <BaseWidget
-              id={widget.i}
-              title={def.name}
-              onRemove={viewingTemplate || isLocked ? undefined : () => removeWidget(activeTabId, widget.i)}
-              onFullscreen={() => setFullscreenWidget({ id: widget.i, type: widget.type, title: def.name })}
-              className={`h-full w-full ${isLocked ? 'locked-widget' : ''}`}
-            >
-              <Component id={widget.i} data={widget.props} />
-            </BaseWidget>
-          </div>
-        );
-      })}
+          const Component = def.component;
+
+          return (
+            <div key={widget.i}>
+              <BaseWidget
+                id={widget.i}
+                title={def.name}
+                onRemove={viewingTemplate || isLocked ? undefined : () => removeWidget(activeTabId, widget.i)}
+                onFullscreen={() => setFullscreenWidget({ id: widget.i, type: widget.type, title: def.name })}
+                onConfigure={
+                  (def.configurationMode === 'config_required' || def.configurationMode === 'config_allowed') && (!viewingTemplate && !isLocked)
+                    ? () => openConfigModal(widget.type, (config) => updateWidget(activeTabId, widget.i, { props: config }), widget.props)
+                    : undefined
+                }
+                className={`h-full w-full ${isLocked ? 'locked-widget' : ''}`}
+              >
+                <Component id={widget.i} data={widget.props} />
+              </BaseWidget>
+            </div>
+          );
+        })}
       </ResponsiveGridLayout>
 
       {/* Fullscreen Widget Modal */}
@@ -394,7 +411,7 @@ const FullscreenWidgetModal: React.FC<FullscreenWidgetModalProps> = ({ widget, o
     document.addEventListener('keydown', handleEscape);
     // Prevent body scroll when modal is open
     document.body.style.overflow = 'hidden';
-    
+
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
@@ -409,7 +426,7 @@ const FullscreenWidgetModal: React.FC<FullscreenWidgetModalProps> = ({ widget, o
   const Component = def.component;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
       onClick={(e) => {
         // Close on backdrop click
@@ -430,7 +447,7 @@ const FullscreenWidgetModal: React.FC<FullscreenWidgetModalProps> = ({ widget, o
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         {/* Widget Content */}
         <div className="flex-1 overflow-auto p-6">
           <Component id={widget.id} data={undefined} />
