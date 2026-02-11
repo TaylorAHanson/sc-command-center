@@ -117,3 +117,57 @@ def require_auth(request: Request) -> str:
             detail="Authentication required. No user token found."
         )
     return token
+
+def get_db_client_for_jobs(user_token: Optional[str] = Depends(get_user_token)) -> WorkspaceClient:
+    """
+    Specialized factory for WorkspaceClient for job/notebook execution.
+    Checks USE_SP_FOR_JOBS env var to decide between SP and OBO authentication.
+    
+    This allows job execution to use SP (which has broader permissions) 
+    while keeping SQL/Genie on OBO for proper user-level access control.
+    """
+    use_sp_for_jobs = os.environ.get('USE_SP_FOR_JOBS', '').lower() == 'true'
+    
+    if use_sp_for_jobs:
+        logging.info("🔧 Using Service Principal for job execution (USE_SP_FOR_JOBS=true)")
+        # Workaround for $HOME issue
+        if not os.environ.get('HOME'):
+            os.environ['HOME'] = '/tmp'
+        
+        return WorkspaceClient(
+            host=os.environ.get('DATABRICKS_HOST'),
+            client_id=os.environ.get('DATABRICKS_CLIENT_ID'),
+            client_secret=os.environ.get('DATABRICKS_CLIENT_SECRET')
+        )
+    else:
+        # Use OBO token - same logic as get_db_client but inline
+        logging.info("👤 Using OBO token for job execution")
+        
+        if not user_token:
+            logging.error("OBO: Authentication required but no user token found in request headers")
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required. No user token found."
+            )
+        
+        # Temporarily suppress SP credentials to avoid SDK confusion
+        saved_client_id = os.environ.pop('DATABRICKS_CLIENT_ID', None)
+        saved_client_secret = os.environ.pop('DATABRICKS_CLIENT_SECRET', None)
+        
+        try:
+            host = os.environ.get('DATABRICKS_HOST')
+            
+            if not host:
+                from databricks.sdk.config import Config
+                host = Config().host
+            
+            return WorkspaceClient(
+                host=host,
+                token=user_token
+            )
+        finally:
+            # Restore env vars
+            if saved_client_id:
+                os.environ['DATABRICKS_CLIENT_ID'] = saved_client_id
+            if saved_client_secret:
+                os.environ['DATABRICKS_CLIENT_SECRET'] = saved_client_secret

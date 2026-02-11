@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from databricks.sdk import WorkspaceClient
 from typing import Optional, Dict, Any, List
 
-from middleware.auth import get_db_client
+from middleware.auth import get_db_client, get_db_client_for_jobs
 
 # --- Configuration & Client Setup ---
 
@@ -64,7 +64,7 @@ from fastapi import APIRouter, HTTPException, Depends
 @router.post("/trigger", response_model=JobTriggerResponse, summary="Trigger a Databricks job")
 async def trigger_job(
     request: JobTriggerRequest, 
-    w: WorkspaceClient = Depends(get_db_client)
+    w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
     """
     Triggers a Databricks job by job_id and returns the run_id.
@@ -103,7 +103,7 @@ async def trigger_job(
 @router.get("/status/{run_id}", response_model=JobStatusResponse, summary="Get job run status")
 async def get_job_status(
     run_id: int, 
-    w: WorkspaceClient = Depends(get_db_client)
+    w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
     """
     Gets the status of a job run by run_id.
@@ -170,7 +170,7 @@ async def get_job_status(
 @router.get("/output/{run_id}", response_model=JobOutputResponse, summary="Get job run output")
 async def get_job_output(
     run_id: int, 
-    w: WorkspaceClient = Depends(get_db_client)
+    w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
     """
     Gets the output of a completed job run by run_id.
@@ -221,7 +221,7 @@ async def get_job_output(
 @router.delete("/cancel/{run_id}", summary="Cancel a running job")
 async def cancel_job(
     run_id: int, 
-    w: WorkspaceClient = Depends(get_db_client)
+    w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
     """
     Cancels a running job by run_id.
@@ -242,6 +242,29 @@ async def cancel_job(
         logging.exception(f"Failed to cancel run {run_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
 
+@router.get("/job/{job_id}", summary="Get job details")
+async def get_job_details(
+    job_id: int,
+    w: WorkspaceClient = Depends(get_db_client_for_jobs)
+):
+    """
+    Get details about a specific job including its name and settings.
+    """
+    try:
+        job = w.jobs.get(job_id=job_id)
+        
+        return {
+            "job_id": job_id,
+            "name": job.settings.name if job.settings else None,
+            "description": job.settings.description if job.settings else None,
+            "creator_user_name": job.creator_user_name,
+            "created_time": job.created_time
+        }
+    
+    except Exception as e:
+        logging.exception(f"Failed to get job details for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=404, detail=f"Job not found: {str(e)}")
+
 class ExecuteNotebookRequest(BaseModel):
     """Request to execute a notebook."""
     notebook_path: str
@@ -250,7 +273,7 @@ class ExecuteNotebookRequest(BaseModel):
 @router.post("/execute-notebook", summary="Execute a Databricks notebook")
 async def execute_notebook(
     request: ExecuteNotebookRequest,
-    w: WorkspaceClient = Depends(get_db_client)
+    w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
     """
     Executes a notebook using a one-time job.
@@ -285,7 +308,7 @@ async def execute_notebook(
 @router.get("/notebooks", summary="List Databricks notebooks")
 async def list_notebooks(
     path: str = "/Users",
-    w: WorkspaceClient = Depends(get_db_client)
+    w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
     """
     Lists notebooks in a given workspace path.

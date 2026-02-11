@@ -2,6 +2,7 @@
 
 ## Visual Changes
     - [x] Change the word "Dashboard" wherever it appears to something else that reflects the true nature of the app. 
+    - [x] Add a 'w' to open widgets
     - [x] Add second order of organization to widgets (by business domain for starters, but generalize so the owners of this app can change their mind)
     - [x] Add search to the widget library. Allow searching on both title and description
     - [x] To the widget library header, add a toggle that shows only the widgets the user has access to run or all widgets. Mock a few widgets that the user doesn't have access to run, and overlay with a 'request access button' that links to our self service hub
@@ -34,7 +35,17 @@
 ## Widgets
     - [x] Bring over changes for SQL runner
     - [x] Bring over changes for Genie runner
-    - [ ] Bring over changes for Notebook runner
-    - [ ] N8N - Have a widget that can trigger a workflow
-    - [ ] Tableau - Add tableau widget that can display a tableau dashboard. 
+    - [x] Bring over changes for Notebook runner
+    - [x] N8N - Have a widget that can trigger a workflow
+    - [x] Tableau - Add tableau widget that can display a tableau dashboard. 
         - [ ] PLT Metric: Demand Coverage / Plan solve health
+
+
+
+- [ ] Default to category view in widget library. Change the order - 
+- [ ] "My Access Only" - default to 'on' - "Accessible to Me" "No Request Needed" include "not accessible to me"
+- [ ] Default the thumbnails
+- [ ] Generic iframe widget with dbl click to open full size 
+
+- [ ] Widget Studio
+- [ ] exit admin panel

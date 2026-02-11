@@ -3,4 +3,4 @@ uvicorn
 databricks-sdk
 pydantic
 python-multipart
-
+httpx

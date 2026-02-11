@@ -25,6 +25,17 @@ export interface WidgetProps {
   data?: any;
 }
 
+export interface ConfigField {
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'select' | 'textarea';
+  required?: boolean;
+  placeholder?: string;
+  options?: Array<{ value: string; label: string }>; // For select fields
+  defaultValue?: any;
+  helpText?: string;
+}
+
 export interface WidgetDefinition {
   id: string;
   name: string;
@@ -36,6 +47,7 @@ export interface WidgetDefinition {
   domain?: string;
   isCertified?: boolean;
   configurationMode?: 'none' | 'config_allowed' | 'config_required';
+  configSchema?: ConfigField[]; // Schema for structured configuration form
   accessControl?: {
     mockHasAccess?: boolean;
   };
@@ -270,7 +282,10 @@ registerWidget({
   domain: 'General',
   isCertified: true,
   accessControl: { mockHasAccess: true },
-  configurationMode: 'config_allowed'
+  configurationMode: 'config_allowed',
+  configSchema: [
+    { key: 'queryId', label: 'SQL Query ID', type: 'text', required: true, placeholder: 'test_query', helpText: 'The ID of the SQL query to execute' }
+  ]
 });
 
 registerWidget({
@@ -300,7 +315,11 @@ registerWidget({
   isCertified: true,
   accessControl: { mockHasAccess: true },
   configurationMode: 'config_allowed',
-  isExecutable: true
+  isExecutable: true,
+  configSchema: [
+    { key: 'job_id', label: 'Job ID', type: 'number', required: true, placeholder: '123456', helpText: 'The Databricks job ID to run' },
+    { key: 'job_name', label: 'Custom Name (Optional)', type: 'text', placeholder: 'My Data Pipeline', helpText: 'Override the job name displayed in the widget' }
+  ]
 });
 
 registerWidget({
@@ -324,7 +343,20 @@ registerWidget({
   domain: 'General',
   isCertified: true,
   accessControl: { mockHasAccess: true },
-  configurationMode: 'config_allowed'
+  configurationMode: 'config_allowed',
+  configSchema: [
+    { key: 'queryId', label: 'SQL Query ID', type: 'text', required: true, placeholder: 'test_query', helpText: 'The ID of the SQL query to execute' },
+    { key: 'xColumn', label: 'X-Axis Column', type: 'text', required: true, placeholder: 'pickup_zip', helpText: 'Column name for X-axis' },
+    { key: 'yColumn', label: 'Y-Axis Column', type: 'text', required: true, placeholder: 'trip_count', helpText: 'Column name for Y-axis' },
+    { key: 'yAxisTitle', label: 'Y-Axis Title', type: 'text', placeholder: 'Trip Count', helpText: 'Label for the Y-axis' },
+    {
+      key: 'chartType', label: 'Chart Type', type: 'select', required: true, defaultValue: 'line', options: [
+        { value: 'line', label: 'Line' },
+        { value: 'bar', label: 'Bar' },
+        { value: 'area', label: 'Area' }
+      ]
+    }
+  ]
 });
 
 // N8N Trigger Widget
@@ -340,7 +372,10 @@ registerWidget({
   isCertified: false,
   accessControl: { mockHasAccess: true },
   configurationMode: 'config_required',
-  isExecutable: true
+  isExecutable: true,
+  configSchema: [
+    { key: 'workflow_id', label: 'Workflow ID', type: 'text', required: true, placeholder: 'workflow-123', helpText: 'The ID of the N8N workflow to trigger' }
+  ]
 });
 
 // Tableau Dashboard Widget
@@ -355,7 +390,10 @@ registerWidget({
   domain: 'General',
   isCertified: false,
   accessControl: { mockHasAccess: true },
-  configurationMode: 'config_required'
+  configurationMode: 'config_required',
+  configSchema: [
+    { key: 'dashboard_id', label: 'Dashboard ID', type: 'text', required: true, placeholder: 'dashboard-123', helpText: 'The ID of the Tableau dashboard to embed' }
+  ]
 });
 
 export const getAvailableWidgets = () => Object.values(widgetRegistry);

@@ -57,8 +57,28 @@ export const DatabricksJobRunnerWidget: React.FC<WidgetProps> = ({ data }) => {
     const [errorMessage, setErrorMessage] = useState<string>('');
     const [showOutput, setShowOutput] = useState<boolean>(false);
     const [showTasks, setShowTasks] = useState<boolean>(false);
+    const [fetchedJobName, setFetchedJobName] = useState<string | null>(null);
 
     const pollingIntervalRef = useRef<number | null>(null);
+
+    // Fetch job details on mount if job_id is provided but job_name is not
+    useEffect(() => {
+        if (jobId && !widgetData?.job_name) {
+            const fetchJobDetails = async () => {
+                try {
+                    const response = await fetch(`/api/jobs/job/${jobId}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        setFetchedJobName(data.name || `Job ${jobId}`);
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch job details:', error);
+                    setFetchedJobName(`Job ${jobId}`);
+                }
+            };
+            fetchJobDetails();
+        }
+    }, [jobId, widgetData?.job_name]);
 
     // Clean up polling on unmount
     useEffect(() => {
@@ -263,7 +283,7 @@ export const DatabricksJobRunnerWidget: React.FC<WidgetProps> = ({ data }) => {
             {/* Header */}
             <div className="p-3 border-b border-gray-200 bg-white">
                 <h3 className="text-sm font-semibold text-gray-900">
-                    {widgetData?.job_name || 'Databricks Job Runner'}
+                    {widgetData?.job_name || fetchedJobName || 'Databricks Job Runner'}
                 </h3>
             </div>
 

@@ -17,3 +17,5 @@ env:
     value: ""  # Optional: Set your N8N instance URL, e.g. https://your-n8n.com
   - name: TABLEAU_SERVER_URL
     value: ""  # Set your Tableau Cloud URL, e.g. https://10ax.online.tableau.com
+  - name: USE_SP_FOR_JOBS
+    value: "true"  # Set to "true" to use Service Principal for job/notebook execution
