@@ -184,20 +184,13 @@ fi
 
 if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     echo -e "${YELLOW}Missing dependencies: ${MISSING_DEPS[*]}. Installing from requirements.txt...${NC}"
-    # requirements.txt is in server/
-    if [ -f "server/requirements.txt" ]; then
-        cd server
-        # Adjust Python path if it starts with "server/"
-        if [[ "$PYTHON_CMD" == server/* ]]; then
-            LOCAL_PYTHON_CMD="${PYTHON_CMD#server/}"
-        else
-            LOCAL_PYTHON_CMD="$PYTHON_CMD"
-        fi
-        $LOCAL_PYTHON_CMD -m pip install --upgrade pip > /dev/null 2>&1
+    # requirements.txt is in root
+    if [ -f "requirements.txt" ]; then
         echo -e "${CYAN}Installing dependencies (this may take a minute)...${NC}"
-        $LOCAL_PYTHON_CMD -m pip install -r requirements.txt
+        $PYTHON_CMD -m pip install --upgrade pip > /dev/null 2>&1
+        $PYTHON_CMD -m pip install -r requirements.txt
         INSTALL_EXIT_CODE=$?
-        cd ..
+
         if [ $INSTALL_EXIT_CODE -eq 0 ]; then
             echo -e "${GREEN}✓ Dependencies installed${NC}"
         else
@@ -205,7 +198,7 @@ if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
             exit 1
         fi
     else
-        echo -e "${RED}✗ Could not find server/requirements.txt${NC}"
+        echo -e "${RED}✗ Could not find requirements.txt${NC}"
         exit 1
     fi
 else

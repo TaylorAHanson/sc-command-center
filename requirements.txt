@@ -4,3 +4,4 @@ databricks-sdk
 pydantic
 python-multipart
 httpx
+psycopg2-binary

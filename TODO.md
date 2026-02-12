@@ -31,6 +31,7 @@
         - [x] All of this should be one row, that can be used for ML training according to the goals outlined in @readme.md.
     - [x] Add an admin panel
         - [x] Add a way to view logged data from executable actions
+    - [ ] Enable the option to use lakebase via app.yaml. If values are set in app.yaml, use lakebase, otherwise use sqlite. 
 
 ## Widgets
     - [x] Bring over changes for SQL runner
@@ -39,13 +40,7 @@
     - [x] N8N - Have a widget that can trigger a workflow
     - [x] Tableau - Add tableau widget that can display a tableau dashboard. 
         - [ ] PLT Metric: Demand Coverage / Plan solve health
+    - [x] Generic iframe widget with dbl click to open full size 
 
-
-
-- [ ] Default to category view in widget library. Change the order - 
-- [ ] "My Access Only" - default to 'on' - "Accessible to Me" "No Request Needed" include "not accessible to me"
-- [ ] Default the thumbnails
-- [ ] Generic iframe widget with dbl click to open full size 
-
-- [ ] Widget Studio
-- [ ] exit admin panel
+## Parking Lot
+    - [ ] Widget Studio

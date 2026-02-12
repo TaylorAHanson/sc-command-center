@@ -8,6 +8,8 @@ interface BaseWidgetProps {
   onRemove?: () => void;
   onFullscreen?: () => void;
   onConfigure?: () => void;
+
+  customActions?: React.ReactNode;
   className?: string;
   // react-grid-layout injects these props
   style?: React.CSSProperties;
@@ -26,6 +28,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
   onRemove,
   onFullscreen,
   onConfigure,
+  customActions,
   className,
   style,
   className_rgl,
@@ -50,6 +53,11 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
           {title}
         </div>
         <div className="flex items-center gap-1">
+          {customActions && (
+            <div className="flex items-center gap-1 mr-1 border-r border-gray-200 pr-1">
+              {customActions}
+            </div>
+          )}
           {onConfigure && (
             <button
               onClick={(e) => {

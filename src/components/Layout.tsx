@@ -164,10 +164,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                           </div>
                         ) : (
                           <div
-                            onClick={() => setActiveTabId(tab.id)}
+                            onClick={() => {
+                              setActiveTabId(tab.id);
+                              setCurrentPage(null);
+                            }}
                             className={clsx(
                               "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between cursor-pointer",
-                              activeTabId === tab.id
+                              activeTabId === tab.id && currentPage === null
                                 ? "bg-qualcomm-blue text-white"
                                 : "text-gray-300 hover:bg-gray-800 hover:text-white"
                             )}
@@ -236,10 +239,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     return (
                       <div key={templateName} className="group relative">
                         <button
-                          onClick={() => viewTemplate(templateName)}
+                          onClick={() => {
+                            viewTemplate(templateName);
+                            setCurrentPage(null);
+                          }}
                           className={clsx(
                             "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
-                            isViewing
+                            isViewing && currentPage === null
                               ? "bg-qualcomm-blue text-white"
                               : "text-gray-300 hover:bg-gray-800 hover:text-white"
                           )}
@@ -269,10 +275,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <div className="p-3">
                 <button
                   onClick={() => setTrayOpen(true)}
-                  className="w-full px-3 py-2.5 bg-qualcomm-blue hover:bg-blue-600 rounded-md text-sm font-medium text-white transition-colors flex items-center justify-center gap-2"
+                  className="w-full px-3 py-2 border border-gray-600 hover:border-qualcomm-blue hover:text-qualcomm-blue rounded-md text-sm text-gray-400 transition-colors flex items-center justify-center gap-2 group"
                 >
-                  <LayoutGrid className="w-4 h-4" />
-                  Open Widget Library
+                  <LayoutGrid className="w-4 h-4 group-hover:text-qualcomm-blue" />
+                  Widget Library (w)
                 </button>
               </div>
 
@@ -452,7 +458,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {currentPage === 'settings' && <SettingsPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}
-            {currentPage === 'admin' && <ActionLogs />}
+            {currentPage === 'admin' && <ActionLogs onNavigate={(page) => setCurrentPage(page)} />}
           </main>
         ) : (
           <main
@@ -496,6 +502,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         widget={configModal.widgetId ? widgetRegistry[configModal.widgetId] : null}
         initialConfig={configModal.initialConfig}
       />
-    </div>
+    </div >
   );
 };

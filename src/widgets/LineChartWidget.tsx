@@ -204,7 +204,7 @@ export const LineChartWidget: React.FC<WidgetProps> = ({ data }) => {
             height: undefined,
             reflow: true,
         },
-        title: { text: '' },
+        title: { text: config.title || '' },
         xAxis: {
             type: config.xAxisType,
             categories: config.xAxisType === 'category' ? categories : undefined,
@@ -319,9 +319,11 @@ export const LineChartWidget: React.FC<WidgetProps> = ({ data }) => {
             {/* Chart */}
             <div ref={containerRef} className="flex-1 w-full">
                 <HighchartsReact
+                    key={`${config.chartType}-${config.title}`}
                     ref={chartRef}
                     highcharts={Highcharts}
                     options={options}
+                    immutable={true}
                     containerProps={{ style: { height: '100%', width: '100%' } }}
                 />
             </div>

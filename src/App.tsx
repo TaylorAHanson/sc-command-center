@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Responsive } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
-import { X } from 'lucide-react';
+import { X, ExternalLink } from 'lucide-react';
 import { useDashboardStore, type WidgetLayout, TEMPLATES } from './store/dashboardStore';
 import { widgetRegistry } from './widgetRegistry';
 import { Layout } from './components/Layout';
@@ -128,17 +128,6 @@ const DashboardGrid: React.FC = () => {
     const x = e.clientX - gridRect.left;
     const y = e.clientY - gridRect.top;
 
-    console.log('Drop coordinates:', {
-      clientX: e.clientX,
-      clientY: e.clientY,
-      gridLeft: gridRect.left,
-      gridTop: gridRect.top,
-      gridWidth: gridRect.width,
-      gridHeight: gridRect.height,
-      relativeX: x,
-      relativeY: y
-    });
-
     // Grid properties
     const cols = 12; // lg breakpoint
     const rowHeight = 60;
@@ -169,12 +158,20 @@ const DashboardGrid: React.FC = () => {
         }, config);
       });
     } else {
+      const initialConfig: Record<string, any> = {};
+      if (def?.configSchema) {
+        def.configSchema.forEach(field => {
+          if (field.defaultValue !== undefined) {
+            initialConfig[field.key] = field.defaultValue;
+          }
+        });
+      }
       addWidget(activeTab.id, widgetType, {
         x: gridX,
         y: gridY,
         w,
         h
-      });
+      }, initialConfig);
     }
 
     console.log('Widget added - check dashboard for widget at position', { gridX, gridY });
@@ -192,7 +189,7 @@ const DashboardGrid: React.FC = () => {
       e.dataTransfer.dropEffect = 'copy';
       // Log occasionally to verify it's being called (throttle to avoid spam)
       if (Math.random() < 0.01) {
-        console.log('DragOver on grid container');
+        // console.log('DragOver on grid container');
       }
     }
   };
@@ -230,7 +227,6 @@ const DashboardGrid: React.FC = () => {
           const widgetType = e.dataTransfer.getData('application/widget-type');
           const w = parseInt(e.dataTransfer.getData('application/widget-w') || '4', 10);
           const h = parseInt(e.dataTransfer.getData('application/widget-h') || '4', 10);
-          console.log('Drag started, tracking widget:', { widgetType, w, h });
           setDraggedWidget({ type: widgetType, w, h });
           setDroppingItem({ i: 'dropping', w, h });
         } catch (err) {
@@ -243,18 +239,15 @@ const DashboardGrid: React.FC = () => {
       // Clear state if drag ends without drop (give drop handler time to fire)
       // Use a longer timeout to ensure drop handler completes first
       setTimeout(() => {
-        console.log('Drag ended, clearing state (if no drop occurred)');
         // Only clear if still set (drop handler will clear it if drop succeeded)
         setDroppingItem(prev => {
           if (prev) {
-            console.log('Clearing dropping item - drop may have failed');
             return undefined;
           }
           return prev;
         });
         setDraggedWidget(prev => {
           if (prev) {
-            console.log('Clearing dragged widget - drop may have failed');
             return null;
           }
           return prev;
@@ -289,7 +282,6 @@ const DashboardGrid: React.FC = () => {
           e.stopPropagation();
           return;
         }
-        console.log('🔥 DROP on container div!', e);
         handleNativeDrop(e);
       }}
       onDragOver={(e) => {
@@ -312,7 +304,6 @@ const DashboardGrid: React.FC = () => {
           return;
         }
         if (e.dataTransfer.types.includes('application/widget-type')) {
-          console.log('✅ DragEnter on grid container!', e.target);
           e.preventDefault();
           e.stopPropagation();
         }
@@ -355,19 +346,47 @@ const DashboardGrid: React.FC = () => {
           const def = widgetRegistry[widget.type];
           if (!def) {
             return (
-              <div key={widget.i} className="bg-red-50 border border-red-200 p-4 rounded text-red-500">
-                Unknown Widget Type: {widget.type}
+              <div key={widget.i} className="bg-red-50 border border-red-200 p-4 rounded text-red-500 h-full relative group">
+                <p className="font-medium">Unknown Widget Type</p>
+                <p className="text-xs mt-1 text-red-400">{widget.type}</p>
+                {!viewingTemplate && !isLocked && (
+                  <button
+                    onClick={() => removeWidget(activeTabId, widget.i)}
+                    className="absolute top-2 right-2 p-1.5 hover:bg-red-100 rounded-md transition-colors text-red-500"
+                    title="Remove Widget"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             );
           }
 
           const Component = def.component;
 
+          let customActions = null;
+          if (widget.type === 'iframe') {
+            const url = widget.props?.url || 'https://forecast.weather.gov/MapClick.php?lat=32.7157&lon=-117.1611';
+            customActions = (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(url, '_blank');
+                }}
+                className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+                title="Open in New Tab"
+              >
+                <ExternalLink className="w-4 h-4" />
+              </button>
+            );
+          }
+
           return (
             <div key={widget.i}>
               <BaseWidget
                 id={widget.i}
                 title={def.name}
+                customActions={customActions}
                 onRemove={viewingTemplate || isLocked ? undefined : () => removeWidget(activeTabId, widget.i)}
                 onFullscreen={() => setFullscreenWidget({ id: widget.i, type: widget.type, title: def.name })}
                 onConfigure={
@@ -377,7 +396,11 @@ const DashboardGrid: React.FC = () => {
                 }
                 className={`h-full w-full ${isLocked ? 'locked-widget' : ''}`}
               >
-                <Component id={widget.i} data={widget.props} />
+                <Component
+                  id={widget.i}
+                  data={widget.props}
+                  key={`${widget.i}-${JSON.stringify(widget.props)}`}
+                />
               </BaseWidget>
             </div>
           );

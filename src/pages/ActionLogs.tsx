@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronRight, Search, ArrowLeft } from 'lucide-react';
 
 interface ActionLog {
     id: number;
@@ -10,7 +10,11 @@ interface ActionLog {
     timestamp: string;
 }
 
-export const ActionLogs: React.FC = () => {
+interface ActionLogsProps {
+    onNavigate?: (page: string | null) => void;
+}
+
+export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
     const [logs, setLogs] = useState<ActionLog[]>([]);
     const [loading, setLoading] = useState(true);
     const [expandedRow, setExpandedRow] = useState<number | null>(null);
@@ -50,7 +54,18 @@ export const ActionLogs: React.FC = () => {
     return (
         <div className="p-6 h-full flex flex-col">
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl font-bold text-qualcomm-navy">Action Logs (Telemetry)</h1>
+                <div className="flex items-center gap-4">
+                    {onNavigate && (
+                        <button
+                            onClick={() => onNavigate(null)}
+                            className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                            title="Back to Dashboard"
+                        >
+                            <ArrowLeft className="w-5 h-5 text-gray-600" />
+                        </button>
+                    )}
+                    <h1 className="text-2xl font-bold text-qualcomm-navy">Action Logs (Telemetry)</h1>
+                </div>
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                     <input

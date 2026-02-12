@@ -274,7 +274,12 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (tab.id !== tabId) return tab;
       return {
         ...tab,
-        widgets: tab.widgets.map(w => w.i === widgetId ? { ...w, ...updates } : w)
+        widgets: tab.widgets.map(w => {
+          if (w.i === widgetId) {
+            return { ...w, ...updates };
+          }
+          return w;
+        })
       };
     }));
   };
@@ -289,10 +294,18 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const updateLayout = (tabId: string, newLayout: WidgetLayout[]) => {
     setTabs(prev => prev.map(tab => {
       if (tab.id !== tabId) return tab;
+
+      if (newLayout.length > 0) {
+        // console.log('dashboardStore: updateLayout called. First item in newLayout:', newLayout[0]);
+        // const targetWidget = tab.widgets.find(w => w.i === newLayout[0].i);
+        // console.log('dashboardStore: updateLayout existing widget state:', targetWidget);
+      }
+
       // Merge new layout positions with existing widget data (type, props)
       const updatedWidgets = newLayout.map(l => {
         const existing = tab.widgets.find(w => w.i === l.i);
-        return existing ? { ...existing, ...l } : undefined;
+        // Only update layout properties, preserve existing props/type/etc.
+        return existing ? { ...existing, x: l.x, y: l.y, w: l.w, h: l.h } : undefined;
       }).filter(Boolean) as WidgetLayout[];
 
       return { ...tab, widgets: updatedWidgets };

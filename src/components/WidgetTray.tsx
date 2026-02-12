@@ -19,9 +19,27 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
-  const [grouping, setGrouping] = useState<'category' | 'domain'>('domain');
-  const [showCertifiedOnly, setShowCertifiedOnly] = useState(false);
-  const [showMyAccessOnly, setShowMyAccessOnly] = useState(false);
+  const [grouping, setGrouping] = useState<'category' | 'domain'>('category');
+
+  // Persist filters
+  const [showCertifiedOnly, setShowCertifiedOnly] = useState(() => {
+    const saved = localStorage.getItem('widget_tray_certified_only');
+    return saved !== null ? JSON.parse(saved) : true; // Default true
+  });
+
+  const [accessFilter, setAccessFilter] = useState<'all' | 'accessible' | 'restricted'>(() => {
+    const saved = localStorage.getItem('widget_tray_access_filter');
+    return (saved as 'all' | 'accessible' | 'restricted') || 'accessible'; // Default accessible
+  });
+
+  // Save filters on change
+  useEffect(() => {
+    localStorage.setItem('widget_tray_certified_only', JSON.stringify(showCertifiedOnly));
+  }, [showCertifiedOnly]);
+
+  useEffect(() => {
+    localStorage.setItem('widget_tray_access_filter', accessFilter);
+  }, [accessFilter]);
   const [popularityScores, setPopularityScores] = useState<Record<string, number>>({});
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
@@ -93,8 +111,10 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
     if (showCertifiedOnly) {
       widgets = widgets.filter(w => w.isCertified);
     }
-    if (showMyAccessOnly) {
+    if (accessFilter === 'accessible') {
       widgets = widgets.filter(w => w.accessControl?.mockHasAccess !== false);
+    } else if (accessFilter === 'restricted') {
+      widgets = widgets.filter(w => w.accessControl?.mockHasAccess === false);
     }
 
     // Sort by popularity desc
@@ -103,7 +123,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
       const scoreB = popularityScores[b.id] || 0;
       return scoreB - scoreA;
     });
-  }, [allWidgets, searchQuery, selectedGroup, grouping, showCertifiedOnly, showMyAccessOnly, popularityScores]);
+  }, [allWidgets, searchQuery, selectedGroup, grouping, showCertifiedOnly, accessFilter, popularityScores]);
 
   const handleDragStart = (e: React.DragEvent, widget: WidgetDefinition) => {
     if (isLocked) {
@@ -220,7 +240,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
             </div>
 
             {/* Filters */}
-            <div className="flex items-center gap-2 border-l border-gray-300 pl-4 ml-2">
+            <div className="flex items-center gap-3 ml-4 border-l border-gray-300 pl-4">
               <button
                 onClick={() => setShowCertifiedOnly(!showCertifiedOnly)}
                 className={clsx(
@@ -231,20 +251,34 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
                 )}
               >
                 <ShieldCheck className="w-3.5 h-3.5" />
-                Certified Only
+                Certified
               </button>
-              <button
-                onClick={() => setShowMyAccessOnly(!showMyAccessOnly)}
-                className={clsx(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors border",
-                  showMyAccessOnly
-                    ? "bg-blue-50 text-blue-700 border-blue-200"
-                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                )}
-              >
-                <Lock className="w-3.5 h-3.5" />
-                My Access Only
-              </button>
+
+              {/* Access Filter Rocker Switch */}
+              <div className="flex items-center bg-gray-100 rounded-lg p-1 border border-gray-200">
+                <button
+                  onClick={() => setAccessFilter(prev => prev === 'accessible' ? 'all' : 'accessible')}
+                  className={clsx(
+                    "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                    accessFilter === 'accessible'
+                      ? "bg-white text-qualcomm-blue shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  )}
+                >
+                  Accessible to me
+                </button>
+                <button
+                  onClick={() => setAccessFilter(prev => prev === 'restricted' ? 'all' : 'restricted')}
+                  className={clsx(
+                    "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                    accessFilter === 'restricted'
+                      ? "bg-white text-qualcomm-blue shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  )}
+                >
+                  Access Request Needed
+                </button>
+              </div>
             </div>
           </div>
 
@@ -278,15 +312,6 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
             <div className="p-3 border-b border-gray-200">
               <div className="flex rounded-md bg-gray-200 p-1 mb-2">
                 <button
-                  onClick={() => setGrouping('domain')}
-                  className={clsx(
-                    "flex-1 text-xs font-medium py-1 rounded transition-all",
-                    grouping === 'domain' ? "bg-white shadow text-qualcomm-navy" : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  Domains
-                </button>
-                <button
                   onClick={() => setGrouping('category')}
                   className={clsx(
                     "flex-1 text-xs font-medium py-1 rounded transition-all",
@@ -294,6 +319,15 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
                   )}
                 >
                   Categories
+                </button>
+                <button
+                  onClick={() => setGrouping('domain')}
+                  className={clsx(
+                    "flex-1 text-xs font-medium py-1 rounded transition-all",
+                    grouping === 'domain' ? "bg-white shadow text-qualcomm-navy" : "text-gray-500 hover:text-gray-700"
+                  )}
+                >
+                  Domains
                 </button>
               </div>
             </div>

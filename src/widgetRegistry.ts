@@ -19,6 +19,7 @@ import { DatabricksJobRunnerWidget } from './widgets/DatabricksJobRunnerWidget';
 import { LineChartWidget } from './widgets/LineChartWidget';
 import { N8NTriggerWidget } from './widgets/N8NTriggerWidget';
 import { TableauWidget } from './widgets/TableauWidget';
+import { IframeWidget } from './widgets/IframeWidget';
 
 export interface WidgetProps {
   id: string;
@@ -284,7 +285,7 @@ registerWidget({
   accessControl: { mockHasAccess: true },
   configurationMode: 'config_allowed',
   configSchema: [
-    { key: 'queryId', label: 'SQL Query ID', type: 'text', required: true, placeholder: 'test_query', helpText: 'The ID of the SQL query to execute' }
+    { key: 'queryId', label: 'SQL Query ID', type: 'text', required: true, defaultValue: 'test_query', placeholder: 'test_query', helpText: 'The ID of the SQL query to execute' }
   ]
 });
 
@@ -317,8 +318,8 @@ registerWidget({
   configurationMode: 'config_allowed',
   isExecutable: true,
   configSchema: [
-    { key: 'job_id', label: 'Job ID', type: 'number', required: true, placeholder: '123456', helpText: 'The Databricks job ID to run' },
-    { key: 'job_name', label: 'Custom Name (Optional)', type: 'text', placeholder: 'My Data Pipeline', helpText: 'Override the job name displayed in the widget' }
+    { key: 'job_id', label: 'Job ID', type: 'number', required: true, defaultValue: 123456, placeholder: '123456', helpText: 'The Databricks job ID to run' },
+    { key: 'job_name', label: 'Custom Name (Optional)', type: 'text', defaultValue: 'My Data Pipeline', placeholder: 'My Data Pipeline', helpText: 'Override the job name displayed in the widget' }
   ]
 });
 
@@ -328,12 +329,12 @@ registerWidget({
   component: (props) => React.createElement(LineChartWidget, {
     ...props,
     data: {
-      ...props.data,
       queryId: 'test_query',
       xColumn: 'pickup_zip',
       yColumn: 'trip_count',
       yAxisTitle: 'Trip Count',
-      chartType: 'line'
+      chartType: 'line',
+      ...props.data
     }
   }),
   defaultW: 6,
@@ -345,10 +346,11 @@ registerWidget({
   accessControl: { mockHasAccess: true },
   configurationMode: 'config_allowed',
   configSchema: [
-    { key: 'queryId', label: 'SQL Query ID', type: 'text', required: true, placeholder: 'test_query', helpText: 'The ID of the SQL query to execute' },
-    { key: 'xColumn', label: 'X-Axis Column', type: 'text', required: true, placeholder: 'pickup_zip', helpText: 'Column name for X-axis' },
-    { key: 'yColumn', label: 'Y-Axis Column', type: 'text', required: true, placeholder: 'trip_count', helpText: 'Column name for Y-axis' },
-    { key: 'yAxisTitle', label: 'Y-Axis Title', type: 'text', placeholder: 'Trip Count', helpText: 'Label for the Y-axis' },
+    { key: 'title', label: 'Title', type: 'text', placeholder: 'My Chart', helpText: 'Title of the chart' },
+    { key: 'queryId', label: 'SQL Query ID', type: 'text', required: true, defaultValue: 'test_query', placeholder: 'test_query', helpText: 'The ID of the SQL query to execute' },
+    { key: 'xColumn', label: 'X-Axis Column', type: 'text', required: true, defaultValue: 'pickup_zip', placeholder: 'pickup_zip', helpText: 'Column name for X-axis' },
+    { key: 'yColumn', label: 'Y-Axis Column', type: 'text', required: true, defaultValue: 'trip_count', placeholder: 'trip_count', helpText: 'Column name for Y-axis' },
+    { key: 'yAxisTitle', label: 'Y-Axis Title', type: 'text', defaultValue: 'Trip Count', placeholder: 'Trip Count', helpText: 'Label for the Y-axis' },
     {
       key: 'chartType', label: 'Chart Type', type: 'select', required: true, defaultValue: 'line', options: [
         { value: 'line', label: 'Line' },
@@ -374,7 +376,7 @@ registerWidget({
   configurationMode: 'config_required',
   isExecutable: true,
   configSchema: [
-    { key: 'workflow_id', label: 'Workflow ID', type: 'text', required: true, placeholder: 'workflow-123', helpText: 'The ID of the N8N workflow to trigger' }
+    { key: 'workflow_id', label: 'Workflow ID', type: 'text', required: true, defaultValue: 'workflow-123', placeholder: 'workflow-123', helpText: 'The ID of the N8N workflow to trigger' }
   ]
 });
 
@@ -392,7 +394,26 @@ registerWidget({
   accessControl: { mockHasAccess: true },
   configurationMode: 'config_required',
   configSchema: [
-    { key: 'dashboard_id', label: 'Dashboard ID', type: 'text', required: true, placeholder: 'dashboard-123', helpText: 'The ID of the Tableau dashboard to embed' }
+    { key: 'dashboard_id', label: 'Dashboard ID', type: 'text', required: true, defaultValue: 'dashboard-123', placeholder: 'dashboard-123', helpText: 'The ID of the Tableau dashboard to embed' }
+  ]
+});
+
+// Iframe Widget
+registerWidget({
+  id: 'iframe',
+  name: 'Embedded Page',
+  component: IframeWidget,
+  defaultW: 6,
+  defaultH: 6,
+  description: 'Embed external web pages.',
+  category: 'External',
+  domain: 'General',
+  isCertified: false,
+  accessControl: { mockHasAccess: true },
+  configurationMode: 'config_allowed',
+  configSchema: [
+    { key: 'url', label: 'URL', type: 'text', required: true, defaultValue: 'https://forecast.weather.gov/MapClick.php?lat=32.7157&lon=-117.1611', placeholder: 'https://example.com', helpText: 'The URL to embed' },
+    { key: 'title', label: 'Title', type: 'text', placeholder: 'My Widget', helpText: 'Hidden title for accessibility' }
   ]
 });
 
