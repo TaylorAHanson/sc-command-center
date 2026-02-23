@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid } from 'lucide-react';
+import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid, Pencil, Trash2 } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { getWidgetCategories, getWidgetDomains, getAvailableWidgets } from '../widgetRegistry';
+import { getWidgetCategories, getWidgetDomains, getAvailableWidgets, useWidgetRegistry } from '../widgetRegistry';
 import type { WidgetDefinition } from '../widgetRegistry';
 import { WidgetPreview } from './WidgetPreview';
 import { logWidgetRun, getPopularityScores } from '../api';
@@ -10,9 +10,10 @@ import clsx from 'clsx';
 interface WidgetTrayProps {
   isOpen: boolean;
   onClose: () => void;
+  onEditWidget?: (widgetId: string) => void;
 }
 
-export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
+export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditWidget }) => {
   const { tabs, activeTabId, viewingTemplate, addWidget, openConfigModal } = useDashboardStore();
   const activeTab = viewingTemplate ? null : tabs.find(t => t.id === activeTabId);
   const isLocked = !viewingTemplate && activeTab?.locked === true;
@@ -42,6 +43,15 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
   }, [accessFilter]);
   const [popularityScores, setPopularityScores] = useState<Record<string, number>>({});
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
+  const { version: registryVersion } = useWidgetRegistry();
+
+  // Fetch current user identity when tray opens
+  useEffect(() => {
+    if (isOpen && !currentUser) {
+      fetch('/api/widgets/me').then(r => r.json()).then(data => setCurrentUser(data.user)).catch(() => { });
+    }
+  }, [isOpen, currentUser]);
 
   // Reset selected group when grouping changes
   React.useEffect(() => {
@@ -83,8 +93,8 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
     };
   }, [isOpen, onClose]);
 
-  const allWidgets = useMemo(() => getAvailableWidgets(), []);
-  const groups = useMemo(() => grouping === 'category' ? getWidgetCategories() : getWidgetDomains(), [grouping]);
+  const allWidgets = useMemo(() => getAvailableWidgets(), [registryVersion]);
+  const groups = useMemo(() => grouping === 'category' ? getWidgetCategories() : getWidgetDomains(), [grouping, registryVersion]);
 
   const filteredWidgets = useMemo(() => {
     let widgets = allWidgets;
@@ -109,7 +119,8 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
 
     // Filter by Toggles
     if (showCertifiedOnly) {
-      widgets = widgets.filter(w => w.isCertified);
+      // Always show user-published custom widgets, even when certified filter is on
+      widgets = widgets.filter(w => w.isCertified || w.category === 'Custom');
     }
     if (accessFilter === 'accessible') {
       widgets = widgets.filter(w => w.accessControl?.mockHasAccess !== false);
@@ -124,6 +135,23 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
       return scoreB - scoreA;
     });
   }, [allWidgets, searchQuery, selectedGroup, grouping, showCertifiedOnly, accessFilter, popularityScores]);
+
+  const handleDeleteWidget = async (e: React.MouseEvent, widget: WidgetDefinition) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!confirm(`Delete "${widget.name}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/widgets/custom/${widget.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+        alert(`Failed to delete: ${err.detail}`);
+      }
+    } catch {
+      alert('Network error deleting widget');
+    }
+  };
 
   const handleDragStart = (e: React.DragEvent, widget: WidgetDefinition) => {
     if (isLocked) {
@@ -431,12 +459,35 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose }) => {
                             </div>
                           )}
 
-                          {/* Drag Handle */}
-                          {hasAccess && (
-                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                              <GripVertical className="w-4 h-4 text-gray-400" />
-                            </div>
-                          )}
+                          {/* Drag Handle / Owner Actions */}
+                          {hasAccess && (() => {
+                            const isOwned = widget.category === 'Custom' && currentUser && (widget.createdBy === currentUser || !widget.createdBy);
+                            if (isOwned) {
+                              return (
+                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
+                                  <button
+                                    title="Edit in Widget Studio"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onEditWidget?.(widget.id); onClose(); }}
+                                    className="p-1 rounded bg-white/90 hover:bg-indigo-100 text-indigo-600 shadow-sm border border-indigo-200"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    title="Delete widget"
+                                    onClick={(e) => handleDeleteWidget(e, widget)}
+                                    className="p-1 rounded bg-white/90 hover:bg-red-100 text-red-600 shadow-sm border border-red-200"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                <GripVertical className="w-4 h-4 text-gray-400" />
+                              </div>
+                            );
+                          })()}
 
                           {/* Preview */}
                           <div className="h-32 bg-gray-50 border-b border-gray-100 relative">

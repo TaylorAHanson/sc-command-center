@@ -1,46 +1,56 @@
-# TODO		
+# TODO
 
-## Visual Changes
-    - [x] Change the word "Dashboard" wherever it appears to something else that reflects the true nature of the app. 
-    - [x] Add a 'w' to open widgets
-    - [x] Add second order of organization to widgets (by business domain for starters, but generalize so the owners of this app can change their mind)
-    - [x] Add search to the widget library. Allow searching on both title and description
-    - [x] To the widget library header, add a toggle that shows only the widgets the user has access to run or all widgets. Mock a few widgets that the user doesn't have access to run, and overlay with a 'request access button' that links to our self service hub
-    - [x] To all widgets, add a popularity score.
-        - [x] Add an API endpoint and a table that stores the amount of times a widget is run. This counter becomes the popularity score.
-        - [x] Design this in a way that we can easily add other factors to the score later (e.g. data freshness, user ratings, etc.)
-        - [x] Add a simple sqllite implemenation to store this, with the framework in place to switch to Databricks Lakebase (postgresql) later
-    - [x] To the widget library header, add a toggle that shows all widgets, or only "certified" widgets. Add an icon to the widgets once on a dashboard to indicate whether or not it is certified at a glance.
-    - [x] Introduce a Configurable widget concept. There are 3 modes, set in the property 'configurable_mode'
-        - [x] 'config_required': The user must configure the widget before it can be added to the dashboard. When dragging/dropping, a modal pops up with the configuration options. The user can change this config later by clicking the gear icon near the fullscreen icon.
-        - [x] 'config_allowed': The widget is added without delay, but the user can click a gear icon near the fullscreen icon to edit the values later
-        - [x] 'none': No configuration options are available to the user, either on add or via click of gear icon.
-        - [x] This config must be persisted in local storage alongside the view config.
-    - [x] To the lower portion of the left nav, add 2 links:
-        - [x] A link to the documentation
-        - [x] A link to the self service hub
-        - [x] Report Issue
-    - [x] Add a gallery vs list view toggle to the widget library
+## Widget Studio
+The widget studio is a new feature that will allow users to create, preview, and publish their own custom widgets dynamically through natural language interaction.
 
-## App Architecture
-    - [x] For any 'executable' action that the user takes, log it to the database. see @readme.md for more info on why we want to do this.
-        - [x] What was the user looking at? For all visible widgets, log the widget name, widget id, widget configuration, etc.
-        - [x] What did the user do? Which 'executable' widget did they interact with? Log the same info for this
-        - [x] To facilitate this, we need to add a flag to the widget registry to indicate whether a widget is 'executable' or not. 
-        - [x] Pop up a window to confirm the action, ask the user to briefly explain why they are taking this action, and then log it to the database. 
-        - [x] All of this should be one row, that can be used for ML training according to the goals outlined in @readme.md.
-    - [x] Add an admin panel
-        - [x] Add a way to view logged data from executable actions
-    - [ ] Enable the option to use lakebase via app.yaml. If values are set in app.yaml, use lakebase, otherwise use sqlite. 
+### 1. User Experience & UI Layout
+- **Full-Screen Workspace:** The widget studio will be a dedicated full-screen view, similar to the admin page.
+- **Split-Pane Design:** 
+  - **Left Pane (Chat & Controls):** A chat interface for communicating with the AI agent, along with configuration panels (data sources, parameters).
+  - **Right Pane (Workspace):**
+    - *Live Preview Mode:* A real-time rendering of the generated widget, updating automatically.
+    - *Code Editor Mode:* A manual code editor (e.g., Monaco Editor) showing the underlying React/TSX code. Users can toggle between Preview and Code, allowing them to make manual tweaks if the AI doesn't get it perfectly right.
+- **Actions:** A clear set of actions such as 'Revert', 'Accept', and 'Save/Publish' to commit the widget to the global widget registry.
+- **Editing & Cloning:** Users can start from scratch or leverage existing widgets:
+  - *Clone Global Widgets:* Users can select a pre-existing, globally registered widget, duplicate it, and modify it in the studio.
+  - *Edit Custom Widgets:* Users can re-open any of their previously created custom widgets. This should restore the current state and allow them to continue making iterative adjustments or code improvements.
 
-## Widgets
-    - [x] Bring over changes for SQL runner
-    - [x] Bring over changes for Genie runner
-    - [x] Bring over changes for Notebook runner
-    - [x] N8N - Have a widget that can trigger a workflow
-    - [x] Tableau - Add tableau widget that can display a tableau dashboard. 
-        - [ ] PLT Metric: Demand Coverage / Plan solve health
-    - [x] Generic iframe widget with dbl click to open full size 
+### 2. Agent & Code Generation Flow
+- **Natural Language to Code:** An AI agent will take the user's natural language description and generate React/TSX code adhering to our existing widget design guidelines.
+- **Model Hosting:** We will utilize Databricks-hosted models (e.g., Llama 3 or similar), accessed via the standard OpenAI-compatible API spec. This allows us to use standard tooling without custom API integrations.
+- **Context Injection:** The system prompt will include the project's styling system, available internal UI components, and the `registerWidget` API contract.
+- **Iterative Refinement:** The user can converse with the agent to request layout tweaks, color changes, or logic updates directly in the chat window.
 
-## Parking Lot
-    - [ ] Widget Studio
+### 3. Data & Configuration Handling
+- **Data Sources:** Users can specify whether the widget is purely UI-driven or tied to a data source (e.g., a parameterized SQL query or API fetch). 
+- **Configuration Modes:** Support for defining widget configuration parameters matching our registry schema:
+  - `config_required` (requires setup before rendering on a dashboard).
+  - `config_optional` (has defaults but can be overridden).
+  - `isExecutable` integrations (like n8n triggers).
+- **Metadata:** Auto-generation of standard widget metadata (`name`, `description`, `category`, `domain`, `defaultW`, `defaultH`).
+
+### 4. Dynamic Frontend Architecture (Refactoring Required)
+- **Dynamic Module Loading:** Widgets and the registry are currently hardcoded TSX files. We must transition to a system capable of fetching, transpiling (e.g., via Babel standalone or similar), and evaluating raw TSX code dynamically at runtime.
+- **Component Sandboxing:** Ensure that dynamically injected components don't clash or cause global application crashes. React Error Boundaries are essential to isolate bad code.
+- **Dynamic Registry:** The `registerWidget` function needs to support runtime additions without requiring a full application rebuild.
+
+### 5. Backend Services & APIs
+- **Agent Runner:** Build a backend service to orchestrate the LLM calls. This requires:
+  - Managing prompts and system instructions specifically optimized for our widget TSX format.
+  - Handling multi-turn conversation state.
+- **Widget Storage API:** Endpoints to Save, Update, and Fetch custom widgets from the database (storing the raw TSX code, dependencies, and configuration metadata).
+- **Data Source Schema Extraction:** The agent should be able to extract the schema of the data source from SQL or the API endpoint by testing it on the backend.
+
+### 6. Testing & Self-Correction Loop
+- **In-Browser Execution:** Leverage the browser environment to execute the generated code in a safe preview sandbox.
+- **Automated Feedback Loop:** If the dynamically rendered TSX throws runtime errors or syntax errors, intercept the console output and React error boundary messages.
+- **Auto-Retry:** Feed the isolated error logs automatically back to the backend Agent Runner so it can attempt self-correction and output fixed code without user intervention.
+
+### 7. Test Prompts
+- **Prompt 1:** I want a widget that shows 4 boxes in a grid, green, yellow, red, and black. These grids will have the current date in them using timezones in PST, hyderabad india, singapore, and nyc.
+- **Prompt 2:** Let' make a widget that uses the API to show title, quote, poster, and plays the quote on click. 
+  - Add the url: https://owen-wilson-wow-api.onrender.com/wows/random
+- **Prompt 3:** create a table that uses this sql query to show in a table 
+  - Add the sql query: select * from system.access.audit where event_time >= NOW() - INTERVAL 1 HOUR
+- **Prompt 4:** Make a compact "Part Lookup" widget. It needs a search input field taking up 100% width, a blue 'Search' button below it, and a mock 'Recent Searches' list with 3 dummy part numbers. Include hover effects on the list items.
+- **Prompt 5:** Create a "Live Inventory" KPI widget. It should just be a single massive number '24,592' in the center with a smaller green '+450' indicating a positive trend below it. Make it look sleek with a dark slate background and white text.

@@ -137,7 +137,7 @@ async def execute_sql_query(
         statement = sql_api.execute_statement(
             warehouse_id=warehouse_id,
             statement=sql,
-            wait_timeout="30s",  # Wait up to 30 seconds for results
+            wait_timeout="50s",  # Wait up to 30 seconds for results
             disposition=Disposition.INLINE,  # Return results inline
         )
        
@@ -201,3 +201,70 @@ async def execute_sql_query_by_id(
     """
     query_request = SqlQueryRequest(query_id=query_id, parameters=parameters or {})
     return await execute_sql_query(query_request, w)
+
+
+class RawSqlRequest(BaseModel):
+    """Request to execute a raw SQL string against Databricks."""
+    sql: Optional[str] = None
+    raw_query: Optional[str] = None  # Alias accepted for convenience
+    max_rows: Optional[int] = 500
+
+
+@router.post("/execute-raw", summary="Execute a raw SQL string against Databricks")
+async def execute_raw_sql(
+    req: RawSqlRequest,
+    w: WorkspaceClient = Depends(get_db_client)
+):
+    """
+    Executes an arbitrary SQL query string on the configured SQL Warehouse.
+    Used by generated widgets that receive their SQL via props.data.dataSource.
+    """
+    import traceback
+
+    sql_statement = req.sql or req.raw_query
+    if not sql_statement:
+        raise HTTPException(status_code=400, detail="Request body must include a 'sql' field with the SQL query to execute.")
+
+    warehouse_id = os.environ.get("SQL_WAREHOUSE_ID", "")
+    if not warehouse_id:
+        raise HTTPException(
+            status_code=500,
+            detail="No SQL Warehouse ID configured. Set SQL_WAREHOUSE_ID in environment."
+        )
+
+    try:
+        sql_api = StatementExecutionAPI(w.api_client)
+
+        statement = sql_api.execute_statement(
+            warehouse_id=warehouse_id,
+            statement=sql_statement,
+            wait_timeout="50s",
+            disposition=Disposition.INLINE,
+        )
+
+        columns = []
+        rows = []
+
+        if statement.manifest and statement.manifest.schema and statement.manifest.schema.columns:
+            columns = [col.name for col in statement.manifest.schema.columns]
+
+        max_rows = req.max_rows or 500
+        if statement.result and statement.result.data_array:
+            for row_data in statement.result.data_array[:max_rows]:
+                row_dict = {}
+                for i, col_name in enumerate(columns):
+                    row_dict[col_name] = row_data[i] if i < len(row_data) else None
+                rows.append(row_dict)
+
+        return {
+            "columns": columns,
+            "rows": rows,
+            "row_count": len(rows),
+            "statement_id": statement.statement_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        tb = traceback.format_exc()
+        logging.error(f"Error executing raw SQL:\n{tb}")
+        raise HTTPException(status_code=500, detail=f"SQL execution failed: {str(e)}\n\nTraceback:\n{tb}")

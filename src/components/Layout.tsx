@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { ActionLogs } from '../pages/ActionLogs';
-import { Plus, Settings, HelpCircle, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, ChevronDown, Info, Shield } from 'lucide-react';
+import { Plus, Settings, HelpCircle, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, ChevronDown, Info, Shield, Code } from 'lucide-react';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
 import { ConfigModal } from './ConfigModal';
@@ -9,6 +9,7 @@ import { widgetRegistry } from '../widgetRegistry';
 import { SettingsPage } from '../pages/SettingsPage';
 import { HelpPage } from '../pages/HelpPage';
 import { AboutPage } from '../pages/AboutPage';
+import { WidgetStudio } from '../pages/WidgetStudio';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<string | null>(null);
@@ -21,6 +22,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [editWidgetId, setEditWidgetId] = useState<string | null>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   // Close user menu when clicking outside
@@ -41,7 +43,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           activeElement instanceof HTMLTextAreaElement ||
           (activeElement as HTMLElement)?.isContentEditable;
 
-        if (!isTyping) {
+        // Only open widget tray if there is no full screen page open, and not typing
+        if (!isTyping && !currentPage) {
           setTrayOpen(true);
         }
       }
@@ -57,7 +60,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isUserMenuOpen]);
+  }, [isUserMenuOpen, currentPage]);
 
   // Separate user tabs from global templates
   const userTabs = tabs.filter(t => !t.id.startsWith('temp-'));
@@ -280,6 +283,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <LayoutGrid className="w-4 h-4 group-hover:text-qualcomm-blue" />
                   Widget Library (w)
                 </button>
+                <button
+                  onClick={() => setCurrentPage('studio')}
+                  className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'studio' ? "bg-qualcomm-blue border-transparent text-white" : "border-gray-600 hover:border-qualcomm-blue hover:text-qualcomm-blue text-gray-400")}
+                >
+                  <Code className="w-4 h-4 group-hover:text-qualcomm-blue" />
+                  Widget Studio
+                </button>
               </div>
 
               {/* Resources */}
@@ -331,126 +341,128 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header */}
-        <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
-          <div className="flex items-center gap-4">
-            <h1 className="text-lg font-semibold text-qualcomm-navy">
-              {currentPage === 'admin' ? 'Admin Panel' : (viewingTemplate
-                ? `${viewingTemplate} (Read-Only)`
-                : tabs.find(t => t.id === activeTabId)?.name || 'Command Center')}
-            </h1>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {!viewingTemplate && (
-              <>
-                <button
-                  onClick={() => {
-                    const activeTab = tabs.find(t => t.id === activeTabId);
-                    if (activeTab) {
-                      toggleLock(activeTabId);
-                    }
-                  }}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
-                  title={tabs.find(t => t.id === activeTabId)?.locked ? "Unlock View" : "Lock View"}
-                >
-                  {tabs.find(t => t.id === activeTabId)?.locked ? (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      <span>Locked</span>
-                    </>
-                  ) : (
-                    <>
-                      <Unlock className="w-4 h-4" />
-                      <span>Lock</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={async () => {
-                    const link = generateShareLink();
-                    if (link) {
-                      try {
-                        await navigator.clipboard.writeText(link);
-                        setShareLinkCopied(true);
-                        setTimeout(() => setShareLinkCopied(false), 2000);
-                      } catch (err) {
-                        // Fallback for older browsers
-                        const textArea = document.createElement('textarea');
-                        textArea.value = link;
-                        document.body.appendChild(textArea);
-                        textArea.select();
-                        document.execCommand('copy');
-                        document.body.removeChild(textArea);
-                        setShareLinkCopied(true);
-                        setTimeout(() => setShareLinkCopied(false), 2000);
-                      }
-                    }
-                  }}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
-                  title="Share View"
-                >
-                  {shareLinkCopied ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Share2 className="w-4 h-4" />
-                      <span>Share</span>
-                    </>
-                  )}
-                </button>
-              </>
-            )}
-            <div className="relative" ref={userMenuRef}>
-              <button
-                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="flex items-center gap-2 text-gray-500 hover:text-qualcomm-blue focus:outline-none"
-              >
-                <div className="w-8 h-8 bg-qualcomm-blue rounded-full flex items-center justify-center text-white text-xs font-bold ring-2 ring-offset-2 ring-gray-100">
-                  QH
-                </div>
-                <ChevronDown className={clsx("w-4 h-4 transition-transform", isUserMenuOpen && "rotate-180")} />
-              </button>
-
-              {isUserMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
-                  <button
-                    onClick={() => {
-                      setIsUserMenuOpen(false);
-                      setCurrentPage('settings');
-                    }}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                  >
-                    <Settings className="w-4 h-4" />
-                    Settings
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsUserMenuOpen(false);
-                      setCurrentPage('help');
-                    }}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                  >
-                    <HelpCircle className="w-4 h-4" />
-                    Help
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsUserMenuOpen(false);
-                      setCurrentPage('about');
-                    }}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                  >
-                    <Info className="w-4 h-4" />
-                    About
-                  </button>
-                </div>
-              )}
+        {currentPage !== 'studio' && (
+          <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
+            <div className="flex items-center gap-4">
+              <h1 className="text-lg font-semibold text-qualcomm-navy">
+                {currentPage === 'admin' ? 'Admin Panel' : (viewingTemplate
+                  ? `${viewingTemplate} (Read-Only)`
+                  : tabs.find(t => t.id === activeTabId)?.name || 'Command Center')}
+              </h1>
             </div>
-          </div>
-        </header>
+
+            <div className="flex items-center gap-3">
+              {!viewingTemplate && (
+                <>
+                  <button
+                    onClick={() => {
+                      const activeTab = tabs.find(t => t.id === activeTabId);
+                      if (activeTab) {
+                        toggleLock(activeTabId);
+                      }
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
+                    title={tabs.find(t => t.id === activeTabId)?.locked ? "Unlock View" : "Lock View"}
+                  >
+                    {tabs.find(t => t.id === activeTabId)?.locked ? (
+                      <>
+                        <Lock className="w-4 h-4" />
+                        <span>Locked</span>
+                      </>
+                    ) : (
+                      <>
+                        <Unlock className="w-4 h-4" />
+                        <span>Lock</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const link = generateShareLink();
+                      if (link) {
+                        try {
+                          await navigator.clipboard.writeText(link);
+                          setShareLinkCopied(true);
+                          setTimeout(() => setShareLinkCopied(false), 2000);
+                        } catch (err) {
+                          // Fallback for older browsers
+                          const textArea = document.createElement('textarea');
+                          textArea.value = link;
+                          document.body.appendChild(textArea);
+                          textArea.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(textArea);
+                          setShareLinkCopied(true);
+                          setTimeout(() => setShareLinkCopied(false), 2000);
+                        }
+                      }
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
+                    title="Share View"
+                  >
+                    {shareLinkCopied ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Share2 className="w-4 h-4" />
+                        <span>Share</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  className="flex items-center gap-2 text-gray-500 hover:text-qualcomm-blue focus:outline-none"
+                >
+                  <div className="w-8 h-8 bg-qualcomm-blue rounded-full flex items-center justify-center text-white text-xs font-bold ring-2 ring-offset-2 ring-gray-100">
+                    QH
+                  </div>
+                  <ChevronDown className={clsx("w-4 h-4 transition-transform", isUserMenuOpen && "rotate-180")} />
+                </button>
+
+                {isUserMenuOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                    <button
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        setCurrentPage('settings');
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Settings
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        setCurrentPage('help');
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                    >
+                      <HelpCircle className="w-4 h-4" />
+                      Help
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        setCurrentPage('about');
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                    >
+                      <Info className="w-4 h-4" />
+                      About
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </header>
+        )}
 
         {/* Dashboard Canvas or Page */}
         {currentPage ? (
@@ -459,6 +471,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'admin' && <ActionLogs onNavigate={(page) => setCurrentPage(page)} />}
+            {currentPage === 'studio' && <WidgetStudio editWidgetId={editWidgetId} onClose={() => { setCurrentPage(null); setEditWidgetId(null); }} />}
           </main>
         ) : (
           <main
@@ -486,7 +499,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       </div>
 
       {/* Widget Tray */}
-      <WidgetTray isOpen={isTrayOpen} onClose={() => setTrayOpen(false)} />
+      <WidgetTray
+        isOpen={isTrayOpen}
+        onClose={() => setTrayOpen(false)}
+        onEditWidget={(id) => {
+          setEditWidgetId(id);
+          setCurrentPage('studio');
+        }}
+      />
 
       {/* Config Modal */}
       {/* Config Modal */}

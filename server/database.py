@@ -61,6 +61,49 @@ def init_db():
         )
     ''')
     
+    # Custom Widgets Table
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS custom_widgets (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            category TEXT,
+            domain TEXT,
+            default_w INTEGER DEFAULT 4,
+            default_h INTEGER DEFAULT 4,
+            tsx_code TEXT NOT NULL,
+            configuration_mode TEXT DEFAULT 'none',
+            config_schema TEXT,
+            data_source_type TEXT DEFAULT 'api',
+            data_source TEXT,
+            is_executable INTEGER DEFAULT 0,
+            created_by TEXT,
+            timestamp TIMESTAMP {default_ts}
+        )
+    ''')
+    
+    # Try to add new columns to an existing table (for local developer environments)
+    if not use_lakebase:
+        try:
+            c.execute("ALTER TABLE custom_widgets ADD COLUMN data_source TEXT")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+            
+        try:
+            c.execute("ALTER TABLE custom_widgets ADD COLUMN data_source_type TEXT DEFAULT 'api'")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+            
+        try:
+            c.execute("ALTER TABLE custom_widgets ADD COLUMN is_executable INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+
+        try:
+            c.execute("ALTER TABLE custom_widgets ADD COLUMN created_by TEXT")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+    
     conn.commit()
     conn.close()
 

@@ -4,7 +4,7 @@ import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { X, ExternalLink } from 'lucide-react';
 import { useDashboardStore, type WidgetLayout, TEMPLATES } from './store/dashboardStore';
-import { widgetRegistry } from './widgetRegistry';
+import { widgetRegistry, useWidgetRegistry } from './widgetRegistry';
 import { Layout } from './components/Layout';
 import { BaseWidget } from './components/BaseWidget';
 
@@ -57,6 +57,7 @@ const ResponsiveGridLayout = WidthProvider(Responsive);
 
 const DashboardGrid: React.FC = () => {
   const { tabs, activeTabId, viewingTemplate, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget } = useDashboardStore();
+  const { loading: isRegistryLoading } = useWidgetRegistry();
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
@@ -159,6 +160,10 @@ const DashboardGrid: React.FC = () => {
       });
     } else {
       const initialConfig: Record<string, any> = {};
+      // Merge in any defaultProps from the widget definition (e.g., dataSource for custom widgets)
+      if (def?.defaultProps) {
+        Object.assign(initialConfig, def.defaultProps);
+      }
       if (def?.configSchema) {
         def.configSchema.forEach(field => {
           if (field.defaultValue !== undefined) {
@@ -345,6 +350,14 @@ const DashboardGrid: React.FC = () => {
         {activeTab.widgets.map((widget: WidgetLayout) => {
           const def = widgetRegistry[widget.type];
           if (!def) {
+            if (isRegistryLoading) {
+              return (
+                <div key={widget.i} className="bg-gray-50 border border-gray-100 p-4 rounded h-full animate-pulse flex flex-col justify-center items-center">
+                  <div className="w-8 h-8 bg-gray-200 rounded-full mb-2"></div>
+                  <div className="h-2 bg-gray-200 rounded w-24"></div>
+                </div>
+              );
+            }
             return (
               <div key={widget.i} className="bg-red-50 border border-red-200 p-4 rounded text-red-500 h-full relative group">
                 <p className="font-medium">Unknown Widget Type</p>
@@ -480,7 +493,13 @@ const FullscreenWidgetModal: React.FC<FullscreenWidgetModalProps> = ({ widget, o
   );
 };
 
+import { loadCustomWidgets } from './widgetRegistry';
+
 function App() {
+  useEffect(() => {
+    loadCustomWidgets();
+  }, []);
+
   return (
     <Layout>
       <DashboardGrid />

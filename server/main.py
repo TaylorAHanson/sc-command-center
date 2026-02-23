@@ -96,6 +96,12 @@ app.include_router(jobs_router.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(n8n.router, prefix="/api", tags=["n8n"])
 app.include_router(tableau.router, prefix="/api", tags=["tableau"])
 
+from routes import custom_widgets
+from routes import agent_studio
+app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
+app.include_router(agent_studio.router, prefix="/api/agent/widget", tags=["agent_studio"])
+
+
 # Serve Frontend
 base_dir = Path(__file__).resolve().parent.parent
 client_dist_path = base_dir / "dist"
