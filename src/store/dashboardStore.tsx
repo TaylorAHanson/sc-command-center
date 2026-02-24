@@ -88,10 +88,31 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Will be handled by useEffect
       return '';
     }
+
+    const hash = window.location.hash;
+    if (hash.startsWith('#/template/')) {
+      // Find if template id exists
+      const templateName = decodeURIComponent(hash.replace('#/template/', ''));
+      if (TEMPLATES[templateName]) {
+        return TEMPLATES[templateName].id;
+      }
+    }
+    if (hash.startsWith('#/view/')) {
+      const id = hash.replace('#/view/', '');
+      if (tabs.some((t: Tab) => t.id === id)) return id;
+    }
+
     return tabs[0]?.id || '';
   });
 
-  const [viewingTemplate, setViewingTemplate] = useState<string | null>(null);
+  const [viewingTemplate, setViewingTemplate] = useState<string | null>(() => {
+    const hash = window.location.hash;
+    if (hash.startsWith('#/template/')) {
+      const templateName = decodeURIComponent(hash.replace('#/template/', ''));
+      if (TEMPLATES[templateName]) return templateName;
+    }
+    return null;
+  });
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs));

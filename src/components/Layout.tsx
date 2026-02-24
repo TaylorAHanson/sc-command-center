@@ -12,7 +12,13 @@ import { AboutPage } from '../pages/AboutPage';
 import { WidgetStudio } from '../pages/WidgetStudio';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentPage, setCurrentPage] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<string | null>(() => {
+    const hash = window.location.hash;
+    if (['#/admin', '#/studio', '#/settings', '#/help', '#/about'].includes(hash)) {
+      return hash.substring(2);
+    }
+    return null;
+  });
   const { tabs, activeTabId, viewingTemplate, setActiveTabId, addTab, removeTab, renameTab, reorderTabs, loadTemplate, viewTemplate, generateShareLink, toggleLock, configModal, closeConfigModal } = useDashboardStore();
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [isTrayOpen, setTrayOpen] = useState(false);
@@ -24,6 +30,47 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [editWidgetId, setEditWidgetId] = useState<string | null>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Sync state changes to URL hash
+  useEffect(() => {
+    let newHash = '';
+    if (currentPage) {
+      newHash = `#/${currentPage}`;
+    } else if (viewingTemplate) {
+      newHash = `#/template/${encodeURIComponent(viewingTemplate)}`;
+    } else if (activeTabId) {
+      newHash = `#/view/${activeTabId}`;
+    }
+
+    if (newHash && window.location.hash !== newHash) {
+      window.location.hash = newHash;
+    }
+  }, [currentPage, viewingTemplate, activeTabId]);
+
+  // Handle browser back/forward buttons (hash changes)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (['#/admin', '#/studio', '#/settings', '#/help', '#/about'].includes(hash)) {
+        setCurrentPage(hash.substring(2));
+      } else if (hash.startsWith('#/template/')) {
+        const templateName = decodeURIComponent(hash.replace('#/template/', ''));
+        setCurrentPage(null);
+        viewTemplate(templateName);
+      } else if (hash.startsWith('#/view/')) {
+        const id = hash.replace('#/view/', '');
+        setCurrentPage(null);
+        setActiveTabId(id);
+      } else if (hash === '' || hash === '#/') {
+        // Default to first tab
+        setCurrentPage(null);
+        if (tabs.length > 0) setActiveTabId(tabs[0].id);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [tabs, setActiveTabId, viewTemplate]);
 
   // Close user menu when clicking outside
   useEffect(() => {
