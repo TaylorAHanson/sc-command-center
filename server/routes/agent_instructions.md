@@ -13,6 +13,7 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
 - **CRITICAL**: Do NOT use arbitrary Tailwind values (like `w-[150px]` or `bg-[#ff0000]`). The dynamic runtime environment only supports standard Tailwind utility classes (e.g., `w-32`, `bg-red-500`). If you absolutely need an exact custom measurement or color, use a React inline `style={{ width: '150px' }}` prop instead.
 - Use standard React Hooks (`useState`, `useEffect`, etc.).
 - Default Width is 1-12 columns. Specify how your widget handles resizing. By default, it spans full container width/height.
+- **Charts**: For any chart requests, you MUST use vanilla `Highcharts` directly from the global scope. Do NOT use `HighchartsReact` or any wrapper libraries. Instead, create a `useRef` for a container `div`, and initialize the chart inside a `useEffect` using `Highcharts.chart(containerRef.current, options)`. Make sure to return a cleanup function from the `useEffect` that calls `chart.destroy()` to prevent memory leaks and duplicate charts during hot reloading. Do NOT add import statements for Highcharts.
 
 ## Configuration & Data
 - You can declare configurations for your widget. The `widgetRegistry` supports `configurationMode`: 'none', 'config_allowed', or 'config_required', along with a `configSchema`.

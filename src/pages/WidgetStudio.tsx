@@ -7,6 +7,51 @@ interface WidgetStudioProps {
     onClose?: () => void;
 }
 
+class WidgetErrorBoundary extends React.Component<
+    { children: React.ReactNode; onReset?: () => void; onError?: (error: Error) => void },
+    { hasError: boolean; error: Error | null }
+> {
+    constructor(props: any) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+
+    static getDerivedStateFromError(error: Error) {
+        return { hasError: true, error };
+    }
+
+    componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+        console.error('Widget preview error:', error, errorInfo);
+        this.props.onError?.(error);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="w-full h-full p-6 flex flex-col items-center justify-center bg-rose-50 border-4 border-dashed border-rose-200 text-center">
+                    <AlertCircle className="text-rose-500 mb-4" size={48} />
+                    <h3 className="text-lg font-bold text-rose-800 mb-2">Build Succeeded, Render Failed</h3>
+                    <p className="text-sm text-rose-600 mb-4 max-w-md">The widget code compiled successfully but crashed when React tried to render it.</p>
+                    <pre className="text-xs text-left bg-white p-4 rounded-lg shadow-inner border border-rose-100 text-rose-900 max-w-lg w-full overflow-x-auto whitespace-pre-wrap">
+                        {this.state.error?.message}
+                    </pre>
+                    <button
+                        onClick={() => {
+                            this.setState({ hasError: false, error: null });
+                            this.props.onReset?.();
+                        }}
+                        className="mt-6 px-4 py-2 bg-rose-600 text-white rounded-md hover:bg-rose-700 font-medium text-sm transition-colors"
+                    >
+                        Try Again
+                    </button>
+                </div>
+            );
+        }
+
+        return this.props.children;
+    }
+}
+
 // Basic skeleton for the page
 export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClose }) => {
     const [messages, setMessages] = useState<{ role: 'user' | 'assistant' | 'system', content: string }[]>([{
@@ -97,9 +142,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                 // We replace "export default" to be able to extract the component
                 const executableCode = transpiled.replace(/export\s+default\s+(function|class|identifier)/, 'return $1').replace(/export\s+default\s+/, 'return ');
 
+                // Fallback to window object if globals aren't directly available in module scope
+                // @ts-ignore
+                const HC = typeof Highcharts !== 'undefined' ? Highcharts : window.Highcharts;
+
                 // eslint-disable-next-line no-new-func
-                const createComponent = new Function('React', executableCode);
-                const Component = createComponent(React);
+                const createComponent = new Function('React', 'Highcharts', executableCode);
+                const Component = createComponent(React, HC);
                 setPreviewComponent(() => Component);
             } catch (err: any) {
                 const errorMsg = err.message || String(err);
@@ -378,13 +427,22 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                                 <h3 className="font-semibold text-gray-800 text-sm truncate">{widgetName}</h3>
                                             </div>
                                             <div className="p-4 flex-1 h-full w-full overflow-auto bg-white">
-                                                {React.createElement(previewComponent as any, {
-                                                    id: "preview-widget",
-                                                    data: {
-                                                        dataSource: dataSource,
-                                                        dataSourceType: dataSourceType
-                                                    }
-                                                })}
+                                                <WidgetErrorBoundary
+                                                    onReset={() => setPreviewComponent(null)}
+                                                    onError={(err) => {
+                                                        if (!isGenerating) {
+                                                            setTimeout(() => handleGenerate(err.message || String(err)), 1000);
+                                                        }
+                                                    }}
+                                                >
+                                                    {React.createElement(previewComponent as any, {
+                                                        id: "preview-widget",
+                                                        data: {
+                                                            dataSource: dataSource,
+                                                            dataSourceType: dataSourceType
+                                                        }
+                                                    })}
+                                                </WidgetErrorBoundary>
                                             </div>
                                         </div>
                                     </div>

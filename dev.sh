@@ -73,7 +73,11 @@ else
 fi
 
 # Determine Python and uvicorn commands
-PYTHON_CMD="python3"
+if command -v python3 >/dev/null 2>&1; then
+    PYTHON_CMD="python3"
+else
+    PYTHON_CMD="python"
+fi
 UVICORN_CMD=""
 VENV_PATH=""
 
@@ -82,11 +86,17 @@ find_venv_python() {
     local venv_path=$1
     local python_exe=""
     
-    # Check for python or python3
+    # Check for python or python3 in bin (Unix) or Scripts (Windows)
     if [ -f "$venv_path/bin/python" ] && [ -x "$venv_path/bin/python" ]; then
         python_exe="$venv_path/bin/python"
     elif [ -f "$venv_path/bin/python3" ] && [ -x "$venv_path/bin/python3" ]; then
         python_exe="$venv_path/bin/python3"
+    elif [ -f "$venv_path/Scripts/python.exe" ] && [ -x "$venv_path/Scripts/python.exe" ]; then
+        python_exe="$venv_path/Scripts/python.exe"
+    elif [ -f "$venv_path/Scripts/python3.exe" ] && [ -x "$venv_path/Scripts/python3.exe" ]; then
+        python_exe="$venv_path/Scripts/python3.exe"
+    elif [ -f "$venv_path/Scripts/python" ] && [ -x "$venv_path/Scripts/python" ]; then
+        python_exe="$venv_path/Scripts/python"
     fi
     
     # Verify it actually works
@@ -107,6 +117,10 @@ if [ -d "server/venv" ]; then
         VENV_PATH="server/venv"
         if [ -f "server/venv/bin/uvicorn" ]; then
             UVICORN_CMD="server/venv/bin/uvicorn"
+        elif [ -f "server/venv/Scripts/uvicorn.exe" ]; then
+            UVICORN_CMD="server/venv/Scripts/uvicorn.exe"
+        elif [ -f "server/venv/Scripts/uvicorn" ]; then
+            UVICORN_CMD="server/venv/Scripts/uvicorn"
         else
             UVICORN_CMD="$PYTHON_CMD -m uvicorn"
         fi
@@ -121,7 +135,7 @@ if [ -z "$VENV_PYTHON" ]; then
     echo -e "${YELLOW}No valid virtual environment found. Creating one...${NC}"
     echo -e "${CYAN}Creating virtual environment in server/venv...${NC}"
     cd server
-    python3 -m venv venv
+    $PYTHON_CMD -m venv venv
     # Wait a moment for venv to be fully created
     sleep 1
     VENV_PYTHON=$(find_venv_python "venv")
@@ -146,7 +160,15 @@ if [ ! -f "$PYTHON_CMD" ] || [ ! -x "$PYTHON_CMD" ] || ! $PYTHON_CMD --version >
     # Recreate venv
     echo -e "${CYAN}Creating virtual environment in server/venv...${NC}"
     cd server
-    python3 -m venv venv
+    
+    # Reset PYTHON_CMD to system python for venv creation
+    if command -v python3 >/dev/null 2>&1; then
+        SYS_PYTHON="python3"
+    else
+        SYS_PYTHON="python"
+    fi
+    $SYS_PYTHON -m venv venv
+    
     sleep 2
     VENV_PYTHON=$(find_venv_python "venv")
     if [ -z "$VENV_PYTHON" ]; then
