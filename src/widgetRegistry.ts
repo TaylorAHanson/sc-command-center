@@ -1,4 +1,5 @@
 import React from 'react';
+import { useScript } from './hooks/useScript';
 import { AlertsWidget } from './widgets/AlertsWidget';
 import { InventoryWidget } from './widgets/InventoryWidget';
 import { GanttWidget } from './widgets/GanttWidget';
@@ -109,8 +110,8 @@ export const loadCustomWidgets = async () => {
           .replace(/export\s+default\s+/, 'var __widget = ');
         executableCode += '\nreturn __widget;';
         // eslint-disable-next-line no-new-func
-        const createComponent = new (Function as any)('React', executableCode);
-        const Component = createComponent(React);
+        const createComponent = new (Function as any)('React', 'useScript', executableCode);
+        const Component = createComponent(React, useScript);
 
         registerWidget({
           id: w.id,
