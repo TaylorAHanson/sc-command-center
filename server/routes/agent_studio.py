@@ -4,7 +4,7 @@ from openai import OpenAI
 import os
 import re
 from typing import List, Optional, Dict, Any
-from middleware.auth import get_db_client
+from middleware.auth import get_db_client, get_db_client_sp
 from databricks.sdk import WorkspaceClient
 
 router = APIRouter()
@@ -27,7 +27,7 @@ class DataSourceTestRequest(BaseModel):
     data_source: str
 
 @router.post("/generate")
-async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Depends(get_db_client)):
+async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Depends(get_db_client_sp)):
     # Use the WorkspaceClient config to initialize the OpenAI client securely
     try:
         host = db_client.config.host
@@ -93,12 +93,15 @@ async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Dep
         if code_match:
             code = code_match.group(1).strip()
             explanation = content.replace(code_match.group(0), "").strip()
+            # Collapse excessive newlines left behind by the removed code block
+            explanation = re.sub(r'\n{3,}', '\n\n', explanation)
         else:
             # Maybe it's truncated, look for an opening typed block without a closing block
             partial_match = re.search(r'```(?:tsx|jsx|typescript|javascript|ts|js)\n(.*)', content, re.DOTALL | re.IGNORECASE)
             if partial_match:
                 code = partial_match.group(1).strip()
                 explanation = content[:partial_match.start()].strip()
+                explanation = re.sub(r'\n{3,}', '\n\n', explanation)
             else:
                 code = None
                 explanation = content.strip()
@@ -126,7 +129,7 @@ def extract_schema_from_json(data):
     return {"data": type(data).__name__}
 
 @router.post("/datasource/test")
-async def test_datasource(req: DataSourceTestRequest, db_client: WorkspaceClient = Depends(get_db_client)):
+async def test_datasource(req: DataSourceTestRequest, db_client: WorkspaceClient = Depends(get_db_client_sp)):
     import httpx
     if req.data_source_type == "api":
         try:

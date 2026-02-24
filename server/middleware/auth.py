@@ -171,3 +171,21 @@ def get_db_client_for_jobs(user_token: Optional[str] = Depends(get_user_token)) 
                 os.environ['DATABRICKS_CLIENT_ID'] = saved_client_id
             if saved_client_secret:
                 os.environ['DATABRICKS_CLIENT_SECRET'] = saved_client_secret
+
+def get_db_client_sp() -> WorkspaceClient:
+    """
+    Specialized factory for WorkspaceClient that ALWAYS uses Service Principal authentication.
+    Used for routes like the Agent Studio that must have strict SP scopes to reach Databricks AI endpoints.
+    """
+    logging.info("🤖 Using strict Service Principal authentication")
+    
+    # Workaround for $HOME issue
+    if not os.environ.get('HOME'):
+        os.environ['HOME'] = '/tmp'
+        
+    # Explicitly map the SP credentials to avoid any fallback to local databricks CLI configs
+    return WorkspaceClient(
+        host=os.environ.get('DATABRICKS_HOST'),
+        client_id=os.environ.get('DATABRICKS_CLIENT_ID'),
+        client_secret=os.environ.get('DATABRICKS_CLIENT_SECRET')
+    )
