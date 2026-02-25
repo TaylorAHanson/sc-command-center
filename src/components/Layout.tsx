@@ -10,6 +10,7 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { HelpPage } from '../pages/HelpPage';
 import { AboutPage } from '../pages/AboutPage';
 import { WidgetStudio } from '../pages/WidgetStudio';
+import { AppSwitcher } from './AppSwitcher';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<string | null>(() => {
@@ -461,6 +462,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   </button>
                 </>
               )}
+              <AppSwitcher />
+
               <div className="relative" ref={userMenuRef}>
                 <button
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
