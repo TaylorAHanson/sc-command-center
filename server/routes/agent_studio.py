@@ -21,6 +21,8 @@ class GenerateRequest(BaseModel):
     data_source_schema: Optional[Dict[str, Any]] = None
     data_source: Optional[str] = None
     data_source_type: Optional[str] = None
+    configuration_mode: Optional[str] = "none"
+    config_schema: Optional[List[Dict[str, Any]]] = None
 
 class DataSourceTestRequest(BaseModel):
     data_source_type: str
@@ -67,6 +69,11 @@ async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Dep
         import json
         schema_str = json.dumps(req.data_source_schema, indent=2)
         system_prompt += f"\n\nThe data source returns the following schema (use these exact field names in your component):\n```json\n{schema_str}\n```"
+
+    if req.configuration_mode != "none" and req.config_schema:
+        import json
+        config_schema_str = json.dumps(req.config_schema, indent=2)
+        system_prompt += f"\n\nThe user has configured the following dynamic configuration inputs for this widget:\n```json\n{config_schema_str}\n```\nYou MUST expect these exact keys in `props.data` (e.g. `props.data.myKey`). Provide reasonable fallback values if they are undefined or empty. Do NOT hardcode colors/text if a dynamic config key exists for it."
 
     messages = [{"role": "system", "content": system_prompt}]
     for msg in req.history:

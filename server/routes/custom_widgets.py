@@ -115,6 +115,8 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
     data_source = widget.get("data_source", None)
     default_w = widget.get("default_w", 6)
     default_h = widget.get("default_h", 6)
+    configuration_mode = widget.get("configurationMode", widget.get("configuration_mode", "none"))
+    config_schema = widget.get("configSchema", widget.get("config_schema", None))
 
     if not name or not tsx_code:
         conn.close()
@@ -122,13 +124,13 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
 
     if is_lakebase_enabled():
         c.execute(
-            'UPDATE custom_widgets SET name = %s, description = %s, category = %s, domain = %s, tsx_code = %s, data_source_type = %s, data_source = %s, default_w = %s, default_h = %s WHERE id = %s',
-            (name, description, category, domain, tsx_code, data_source_type, data_source, default_w, default_h, widget_id)
+            'UPDATE custom_widgets SET name = %s, description = %s, category = %s, domain = %s, tsx_code = %s, data_source_type = %s, data_source = %s, default_w = %s, default_h = %s, configuration_mode = %s, config_schema = %s WHERE id = %s',
+            (name, description, category, domain, tsx_code, data_source_type, data_source, default_w, default_h, configuration_mode, config_schema, widget_id)
         )
     else:
         c.execute(
-            'UPDATE custom_widgets SET name = ?, description = ?, category = ?, domain = ?, tsx_code = ?, data_source_type = ?, data_source = ?, default_w = ?, default_h = ? WHERE id = ?',
-            (name, description, category, domain, tsx_code, data_source_type, data_source, default_w, default_h, widget_id)
+            'UPDATE custom_widgets SET name = ?, description = ?, category = ?, domain = ?, tsx_code = ?, data_source_type = ?, data_source = ?, default_w = ?, default_h = ?, configuration_mode = ?, config_schema = ? WHERE id = ?',
+            (name, description, category, domain, tsx_code, data_source_type, data_source, default_w, default_h, configuration_mode, config_schema, widget_id)
         )
 
     conn.commit()

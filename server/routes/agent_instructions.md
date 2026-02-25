@@ -12,7 +12,8 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
 - Use Tailwind CSS classes for styling (we use the Qualcomm color scheme: `text-qualcomm-navy` (#001E3C), `text-qualcomm-blue` (#007BFF)).
 - **CRITICAL**: Do NOT use arbitrary Tailwind values (like `w-[150px]` or `bg-[#ff0000]`). The dynamic runtime environment only supports standard Tailwind utility classes (e.g., `w-32`, `bg-red-500`). If you absolutely need an exact custom measurement or color, use a React inline `style={{ width: '150px' }}` prop instead.
 - Use standard React Hooks (`useState`, `useEffect`, etc.).
-- Default Width is 1-12 columns. Specify how your widget handles resizing. By default, it spans full container width/height.
+- **Responsiveness**: These widgets are meant to be resizable by the user and placed in a grid. Ensure your widget design is fully responsive and adapts gracefully to different dimensions (both height and width) using flexible layouts (`flex`, `grid`, `w-full`, `h-full`). Do not assume a fixed aspect ratio.
+- Default Width is 1-12 columns. By default, it spans full container width/height (`className="h-full w-full"`).
 - **External Libraries (Charts, Maps, etc.)**: You CANNOT `import` any external libraries. Instead, you MUST use the ALWAYS-PROVIDED `useScript(url, globalName)` hook to dynamically load the library from a CDN. **CRITICAL: DO NOT define or implement `useScript` yourself in the component code; it is already injected into the global execution environment.** Do NOT use React-wrapper libraries (like `HighchartsReact`, `react-leaflet`) as they will not be available.
   - Example: `const [loaded, error] = useScript('https://code.highcharts.com/highcharts.js', 'Highcharts');`
   - Only render your library component (e.g. the chart) once `loaded` is true.
@@ -22,8 +23,9 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
 ## Configuration & Data
 - You can declare configurations for your widget. The `widgetRegistry` supports `configurationMode`: 'none', 'config_allowed', or 'config_required', along with a `configSchema`.
 - Access configuration via the `data` prop passed to the Widget Component (e.g., `props.data`).
+- **Custom configurations**: The user may request dynamic configuration variables (like colors, thresholds, labels). These will be provided to you via `props.data[<key>]`. Always use `props.data.keyName` instead of hardcoding values when a config key is provided in the prompt. Fallback to a sensical default `props.data?.keyName || 'default'`.
 - **CRITICAL**: If you are fetching data from an external API or SQL endpoint, the URL or Query string is ALREADY provided to you as `props.data.dataSource`. YOU MUST USE `props.data.dataSource` DIRECTLY in your `fetch()` call.
-- **DO NOT** ask the user to configure an API URL in a settings menu. **DO NOT** throw an error saying "No API URL configured" if you can just use `props.data.dataSource`.
+- **DO NOT** ask the user to configure an API URL in a settings menu if `props.data.dataSource` already has it.
 - Data Source Types (`props.data.dataSourceType`):
   - `'api'`: Use `fetch(props.data.dataSource)` to retrieve the data.
   - `'sql'`: Use `fetch('/api/sql/execute-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: props.data.dataSource }) })` to execute the SQL. The response has `{ columns: string[], rows: object[], row_count: number }`.

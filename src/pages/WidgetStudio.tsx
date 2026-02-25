@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, Settings } from 'lucide-react';
+import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, Settings, Plus, Trash2 } from 'lucide-react';
 import { loadCustomWidgets } from '../widgetRegistry';
+import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
 
 interface WidgetStudioProps {
@@ -80,6 +81,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
     const [dataSourceTestError, setDataSourceTestError] = useState<string | null>(null);
     const [defaultW, setDefaultW] = useState(6);
     const [defaultH, setDefaultH] = useState(6);
+    const [configMode, setConfigMode] = useState<'none' | 'config_allowed' | 'config_required'>('none');
+    const [configSchema, setConfigSchema] = useState<ConfigField[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -101,6 +104,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                 setDataSource(w.data_source || '');
                 setDefaultW(w.default_w || 6);
                 setDefaultH(w.default_h || 6);
+                setConfigMode(w.configuration_mode || 'none');
+                try {
+                    setConfigSchema(w.config_schema ? JSON.parse(w.config_schema) : []);
+                } catch (e) {
+                    setConfigSchema([]);
+                }
                 setMessages([{ role: 'assistant', content: `Loaded "${w.name}" for editing. Describe what you'd like to change.` }]);
             })
             .catch(console.error);
@@ -198,7 +207,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                     current_code: code,
                     data_source_schema: dataSourceSchema,
                     data_source: dataSourceType !== 'none' ? dataSource : null,
-                    data_source_type: dataSourceType !== 'none' ? dataSourceType : null
+                    data_source_type: dataSourceType !== 'none' ? dataSourceType : null,
+                    configuration_mode: configMode,
+                    config_schema: dataSourceType !== 'none' ? [{ key: 'dataSource', label: 'Data Source', type: 'textarea' }, ...configSchema] : configSchema
                 })
             });
 
@@ -244,7 +255,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                     data_source_type: dataSourceType,
                     data_source: dataSource,
                     default_w: defaultW,
-                    default_h: defaultH
+                    default_h: defaultH,
+                    configurationMode: configMode,
+                    configSchema: dataSourceType !== 'none' ? JSON.stringify([{ key: 'dataSource', label: 'Data Source', type: 'textarea' }, ...configSchema]) : JSON.stringify(configSchema)
                 })
             });
             if (res.ok) {
@@ -600,6 +613,111 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                             </div>
                                         </label>
                                     </div>
+                                    <div className="col-span-2 pt-4 border-t border-slate-700">
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Configuration Mode</label>
+                                        <select
+                                            value={configMode}
+                                            onChange={e => setConfigMode(e.target.value as any)}
+                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="none">None (No custom user configurations)</option>
+                                            <option value="config_allowed">Allowed (Users can configure properties)</option>
+                                            <option value="config_required">Required (Users MUST configure before rendering)</option>
+                                        </select>
+                                        <p className="text-xs text-slate-500 mt-1">Allow users to provide dynamic configuration inputs to the widget.</p>
+                                    </div>
+
+                                    {configMode !== 'none' && (
+                                        <div className="col-span-2 space-y-4">
+                                            <div className="flex items-center justify-between">
+                                                <label className="block text-sm font-medium text-slate-300">Configuration Schema</label>
+                                                <button
+                                                    onClick={() => setConfigSchema([...configSchema, { key: '', label: '', type: 'text' }])}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium transition-colors"
+                                                >
+                                                    <Plus size={14} /> Add Field
+                                                </button>
+                                            </div>
+
+                                            {configSchema.length === 0 ? (
+                                                <div className="text-sm text-slate-500 italic p-4 text-center border border-dashed border-slate-700 rounded-lg">
+                                                    No configuration fields added. Click "Add Field" to begin.
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    {configSchema.map((field, index) => (
+                                                        <div key={index} className="p-4 bg-slate-900 border border-slate-700 rounded-lg flex flex-col gap-3 relative group">
+                                                            <button
+                                                                onClick={() => setConfigSchema(configSchema.filter((_, i) => i !== index))}
+                                                                className="absolute top-2 right-2 p-1.5 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                                                title="Remove Field"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+
+                                                            <div className="grid grid-cols-2 gap-4">
+                                                                <div>
+                                                                    <label className="block text-xs font-medium text-slate-400 mb-1">Key (camelCase)</label>
+                                                                    <input
+                                                                        value={field.key}
+                                                                        onChange={e => {
+                                                                            const newSchema = [...configSchema];
+                                                                            newSchema[index] = { ...field, key: e.target.value };
+                                                                            setConfigSchema(newSchema);
+                                                                        }}
+                                                                        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                                        placeholder="e.g. chartColor"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-medium text-slate-400 mb-1">Label (Display Name)</label>
+                                                                    <input
+                                                                        value={field.label}
+                                                                        onChange={e => {
+                                                                            const newSchema = [...configSchema];
+                                                                            newSchema[index] = { ...field, label: e.target.value };
+                                                                            setConfigSchema(newSchema);
+                                                                        }}
+                                                                        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                                        placeholder="e.g. Chart Color"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-medium text-slate-400 mb-1">Type</label>
+                                                                    <select
+                                                                        value={field.type}
+                                                                        onChange={e => {
+                                                                            const newSchema = [...configSchema];
+                                                                            newSchema[index] = { ...field, type: e.target.value as any };
+                                                                            setConfigSchema(newSchema);
+                                                                        }}
+                                                                        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                                    >
+                                                                        <option value="text">Text / String</option>
+                                                                        <option value="number">Number</option>
+                                                                        <option value="textarea">Large Text (Textarea)</option>
+                                                                    </select>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-medium text-slate-400 mb-1">Default Value (Optional)</label>
+                                                                    <input
+                                                                        value={field.defaultValue || ''}
+                                                                        onChange={e => {
+                                                                            const newSchema = [...configSchema];
+                                                                            newSchema[index] = { ...field, defaultValue: e.target.value };
+                                                                            setConfigSchema(newSchema);
+                                                                        }}
+                                                                        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                                        placeholder="Default string/num"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

@@ -103,6 +103,16 @@ def init_db():
             c.execute("ALTER TABLE custom_widgets ADD COLUMN created_by TEXT")
         except sqlite3.OperationalError:
             pass # Column already exists
+            
+        try:
+            c.execute("ALTER TABLE custom_widgets ADD COLUMN configuration_mode TEXT DEFAULT 'none'")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+            
+        try:
+            c.execute("ALTER TABLE custom_widgets ADD COLUMN config_schema TEXT")
+        except sqlite3.OperationalError:
+            pass # Column already exists
     
     conn.commit()
     conn.close()
