@@ -452,15 +452,28 @@ registerWidget({
   component: N8NTriggerWidget,
   defaultW: 4,
   defaultH: 6,
-  description: 'Trigger N8N workflows with custom parameters.',
+  description: 'Trigger the test N8N workflow - calls webhook directly from your browser.',
   category: 'Automation',
   domain: 'General',
   isCertified: false,
   accessControl: { mockHasAccess: true },
-  configurationMode: 'config_required',
+  configurationMode: 'config_allowed',
   isExecutable: true,
   configSchema: [
-    { key: 'workflow_id', label: 'Workflow ID', type: 'text', required: true, defaultValue: 'workflow-123', placeholder: 'workflow-123', helpText: 'The ID of the N8N workflow to trigger' }
+    { key: 'webhookUrl', label: 'Webhook URL', type: 'text', defaultValue: 'https://aiplatforms-n8n-stg.qualcomm.com/webhook/e4b0e321-1a20-4026-81e4-e6e501dfc227', placeholder: 'https://your-n8n-instance.com/webhook/...', helpText: 'The webhook URL to call when triggering the workflow' },
+    { key: 'name', label: 'Workflow Name', type: 'text', defaultValue: 'Test Workflow', placeholder: 'My Workflow', helpText: 'Display name for the workflow' },
+    { key: 'description', label: 'Description', type: 'text', defaultValue: 'Trigger test workflow directly from browser', placeholder: 'Workflow description', helpText: 'Description of what this workflow does' },
+    {
+      key: 'useDirectCall',
+      label: 'Call Method',
+      type: 'select',
+      defaultValue: 'true',
+      options: [
+        { value: 'true', label: 'Direct (from browser)' },
+        { value: 'false', label: 'Via Backend' }
+      ],
+      helpText: 'Whether to call the webhook directly from the browser or via the backend'
+    }
   ]
 });
 
