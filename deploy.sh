@@ -114,7 +114,7 @@ echo -e "${CYAN}Syncing source code to Databricks workspace...${NC}"
 # --full performs a complete sync rather than incremental
 SYNC_TARGET="/Workspace/Apps/$APP_NAME"
 
-databricks sync \
+MSYS_NO_PATHCONV=1 databricks sync \
     --profile "$PROFILE" \
     --full \
     "." "$SYNC_TARGET"
@@ -134,7 +134,7 @@ echo ""
 # ─────────────────────────────────────────────
 echo -e "${CYAN}Deploying app '$APP_NAME'...${NC}"
 
-databricks apps deploy "$APP_NAME" \
+MSYS_NO_PATHCONV=1 databricks apps deploy "$APP_NAME" \
     --profile "$PROFILE" \
     --source-code-path "$SYNC_TARGET"
 
