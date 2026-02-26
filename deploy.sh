@@ -106,29 +106,6 @@ echo -e "${GREEN}✓ App found${NC}"
 echo ""
 
 # ─────────────────────────────────────────────
-# Build frontend
-# ─────────────────────────────────────────────
-echo -e "${CYAN}Building frontend...${NC}"
-
-if [ ! -d "node_modules" ]; then
-    echo -e "${YELLOW}node_modules not found. Running npm install...${NC}"
-    npm install
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}✗ npm install failed${NC}"
-        exit 1
-    fi
-fi
-
-npm run build
-if [ $? -ne 0 ]; then
-    echo -e "${RED}✗ Frontend build failed${NC}"
-    exit 1
-fi
-
-echo -e "${GREEN}✓ Frontend built${NC}"
-echo ""
-
-# ─────────────────────────────────────────────
 # Sync source code
 # ─────────────────────────────────────────────
 echo -e "${CYAN}Syncing source code to Databricks workspace...${NC}"
