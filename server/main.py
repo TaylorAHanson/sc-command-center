@@ -87,6 +87,16 @@ async def debug_info(request: Request):
 async def metrics():
     return Response(content="# No metrics yet\n", media_type="text/plain")
 
+@app.get("/env")
+async def env():
+    return {
+        "databricks_host": os.getenv("DATABRICKS_HOST"),
+        "databricks_client_id": os.getenv("DATABRICKS_CLIENT_ID"),
+        "databricks_client_secret": os.getenv("DATABRICKS_CLIENT_SECRET"),
+        "sql_warehouse_id": os.getenv("SQL_WAREHOUSE_ID"),
+        "dev_mode": os.getenv("DEV_MODE"),
+    }
+
 # Include routers
 app.include_router(widgets.router) # Prefix /api/widgets in widgets.py
 app.include_router(actions.router) # Prefix /api/actions in actions.py
