@@ -259,6 +259,18 @@ if ! kill -0 $BACKEND_PID 2>/dev/null; then
     exit 1
 fi
 
+# Ensure frontend dependencies are installed
+if [ ! -d "node_modules" ] || [ ! -f "node_modules/.bin/vite" ] && [ ! -f "node_modules/.bin/vite.cmd" ]; then
+    echo -e "${YELLOW}node_modules not found or vite missing. Running npm install...${NC}"
+    npm install
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}✗ npm install failed${NC}"
+        kill $BACKEND_PID 2>/dev/null || true
+        exit 1
+    fi
+    echo -e "${GREEN}✓ npm dependencies installed${NC}"
+fi
+
 # Start frontend (Vite)
 echo -e "${GREEN}→ Starting frontend...${NC}"
 # Add timestamp to log file
