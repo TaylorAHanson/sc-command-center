@@ -55,7 +55,11 @@ def get_db_client(user_token: Optional[str] = Depends(get_user_token)) -> Worksp
     if dev_mode:
         logging.info("OBO: Running in DEV_MODE, using Service Principal credentials")
         # Use Service Principal (Databricks SDK will pick up DATABRICKS_CLIENT_ID, etc.)
-        return WorkspaceClient()
+        try:
+            return WorkspaceClient()
+        except Exception as e:
+            logging.error(f"OBO: Failed to initialize WorkspaceClient in DEV_MODE: {e}")
+            raise HTTPException(status_code=401, detail=f"Invalid local Databricks credentials: {e}")
     
     if not user_token:
         logging.error("OBO: Authentication required but no user token found in request headers")
@@ -91,10 +95,14 @@ def get_db_client(user_token: Optional[str] = Depends(get_user_token)) -> Worksp
                 host = None
 
         logging.info(f"OBO: Creating WorkspaceClient for host: {host}")
-        return WorkspaceClient(
-            host=host,
-            token=user_token
-        )
+        try:
+            return WorkspaceClient(
+                host=host,
+                token=user_token
+            )
+        except Exception as e:
+            logging.error(f"OBO: Failed to initialize WorkspaceClient: {e}")
+            raise HTTPException(status_code=401, detail=f"Databricks authentication failed: {e}")
     finally:
         # Restore env vars
         if saved_client_id:
@@ -134,11 +142,15 @@ def get_db_client_for_jobs(user_token: Optional[str] = Depends(get_user_token)) 
         if not os.environ.get('HOME'):
             os.environ['HOME'] = '/tmp'
         
-        return WorkspaceClient(
-            host=os.environ.get('DATABRICKS_HOST'),
-            client_id=os.environ.get('DATABRICKS_CLIENT_ID'),
-            client_secret=os.environ.get('DATABRICKS_CLIENT_SECRET')
-        )
+        try:
+            return WorkspaceClient(
+                host=os.environ.get('DATABRICKS_HOST'),
+                client_id=os.environ.get('DATABRICKS_CLIENT_ID'),
+                client_secret=os.environ.get('DATABRICKS_CLIENT_SECRET')
+            )
+        except Exception as e:
+            logging.error(f"Failed to initialize SP client for jobs: {e}")
+            raise HTTPException(status_code=401, detail=f"Databricks SP authentication failed: {e}")
     else:
         # Use OBO token - same logic as get_db_client but inline
         logging.info("👤 Using OBO token for job execution")
@@ -161,10 +173,14 @@ def get_db_client_for_jobs(user_token: Optional[str] = Depends(get_user_token)) 
                 from databricks.sdk.config import Config
                 host = Config().host
             
-            return WorkspaceClient(
-                host=host,
-                token=user_token
-            )
+            try:
+                return WorkspaceClient(
+                    host=host,
+                    token=user_token
+                )
+            except Exception as e:
+                logging.error(f"OBO: Failed to initialize WorkspaceClient for jobs: {e}")
+                raise HTTPException(status_code=401, detail=f"Databricks authentication failed: {e}")
         finally:
             # Restore env vars
             if saved_client_id:
@@ -184,8 +200,12 @@ def get_db_client_sp() -> WorkspaceClient:
         os.environ['HOME'] = '/tmp'
         
     # Explicitly map the SP credentials to avoid any fallback to local databricks CLI configs
-    return WorkspaceClient(
-        host=os.environ.get('DATABRICKS_HOST'),
-        client_id=os.environ.get('DATABRICKS_CLIENT_ID'),
-        client_secret=os.environ.get('DATABRICKS_CLIENT_SECRET')
-    )
+    try:
+        return WorkspaceClient(
+            host=os.environ.get('DATABRICKS_HOST'),
+            client_id=os.environ.get('DATABRICKS_CLIENT_ID'),
+            client_secret=os.environ.get('DATABRICKS_CLIENT_SECRET')
+        )
+    except Exception as e:
+        logging.error(f"Failed to initialize strict SP client: {e}")
+        raise HTTPException(status_code=401, detail=f"Databricks Service Principal authentication failed: {e}")
