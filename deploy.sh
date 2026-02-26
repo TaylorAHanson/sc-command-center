@@ -103,6 +103,27 @@ if [ $GET_EXIT -ne 0 ]; then
 fi
 
 echo -e "${GREEN}✓ App found${NC}"
+
+# Extract the source_code_path the app is already configured to use
+if command -v jq &> /dev/null; then
+    SYNC_TARGET=$(echo "$APP_JSON" | jq -r '.source_code_path // empty')
+else
+    # Fall back to Python if jq isn't available
+    SYNC_TARGET=$(echo "$APP_JSON" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(data.get('source_code_path', ''))
+" 2>/dev/null)
+fi
+
+if [ -z "$SYNC_TARGET" ]; then
+    echo -e "${RED}✗ Could not determine source_code_path for app '$APP_NAME'.${NC}"
+    echo "App JSON response:"
+    echo "$APP_JSON"
+    exit 1
+fi
+
+echo -e "${CYAN}Source path:${NC} $SYNC_TARGET"
 echo ""
 
 # ─────────────────────────────────────────────
@@ -112,7 +133,6 @@ echo -e "${CYAN}Syncing source code to Databricks workspace...${NC}"
 
 # databricks sync uses positional args: SRC DST
 # --full performs a complete sync rather than incremental
-SYNC_TARGET="/Workspace/Apps/$APP_NAME"
 
 MSYS_NO_PATHCONV=1 databricks sync \
     --profile "$PROFILE" \
