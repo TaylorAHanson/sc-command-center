@@ -104,15 +104,15 @@ fi
 
 echo -e "${GREEN}✓ App found${NC}"
 
-# Extract the source_code_path the app is already configured to use
+# Extract the default_source_code_path (top-level human-readable path, e.g. /Workspace/Users/...)
 if command -v jq &> /dev/null; then
-    SYNC_TARGET=$(echo "$APP_JSON" | jq -r '.source_code_path // empty')
+    SYNC_TARGET=$(echo "$APP_JSON" | jq -r '.default_source_code_path // empty')
 else
     # Fall back to Python if jq isn't available
     SYNC_TARGET=$(echo "$APP_JSON" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-print(data.get('source_code_path', ''))
+print(data.get('default_source_code_path', ''))
 " 2>/dev/null)
 fi
 
