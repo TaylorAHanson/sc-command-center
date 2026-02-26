@@ -1,4 +1,13 @@
+# Immediate TODO
+- [ ] Fix the issue where the chat / agent context is not stored when navigating between pages
+- [ ] Make stock N8N better
+- [ ] Plan the role/promotion stuff
+
 # Widget Architecture Migration Plan
+
+2 key approach - two keys to turn the lock
+- domain - its my data, I know what's good
+- enterprise - prevent data proliferation
 
 ## Phase 1: Database Migration
 - [ ] Design database schema for all widgets (currently in `widgetRegistry.ts`)
@@ -16,3 +25,7 @@
 - [ ] Update Admin Dashboard UI with a "Widget Promotion" tab
 - [ ] Add promotion workflow in Admin UI to securely push a widget definition from the Dev database to the Test/Prod databases
 - [ ] Include conflict resolution for updating existing widgets in target environments based on Widget IDs/Versions
+
+
+
+

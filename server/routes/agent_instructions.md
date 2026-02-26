@@ -14,6 +14,7 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
 - Use standard React Hooks (`useState`, `useEffect`, etc.).
 - **Responsiveness**: These widgets are meant to be resizable by the user and placed in a grid. Ensure your widget design is fully responsive and adapts gracefully to different dimensions (both height and width) using flexible layouts (`flex`, `grid`, `w-full`, `h-full`). Do not assume a fixed aspect ratio.
 - Default Width is 1-12 columns. By default, it spans full container width/height (`className="h-full w-full"`).
+- Don't ask the user to specify width or height, this happens outside of the widget and the widget should just fill the space it's given. 
 - **External Libraries (Charts, Maps, etc.)**: You CANNOT `import` any external libraries. Instead, you MUST use the ALWAYS-PROVIDED `useScript(url, globalName)` hook to dynamically load the library from a CDN. **CRITICAL: DO NOT define or implement `useScript` yourself in the component code; it is already injected into the global execution environment.** Do NOT use React-wrapper libraries (like `HighchartsReact`, `react-leaflet`) as they will not be available.
   - Example: `const [loaded, error] = useScript('https://code.highcharts.com/highcharts.js', 'Highcharts');`
   - Only render your library component (e.g. the chart) once `loaded` is true.

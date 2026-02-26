@@ -54,37 +54,62 @@ class WidgetErrorBoundary extends React.Component<
     }
 }
 
+const WIDGET_STUDIO_SESSION_KEY = "sc_widget_studio_session";
+
 // Basic skeleton for the page
 export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClose }) => {
-    const [messages, setMessages] = useState<{ role: 'user' | 'assistant' | 'system', content: string }[]>([{
+    // Helper to genericize session storage retrieval
+    const getSessionState = () => {
+        const stored = sessionStorage.getItem(WIDGET_STUDIO_SESSION_KEY);
+        if (stored) {
+            try { return JSON.parse(stored); } catch (e) { console.error("Could not parse widget studio session.", e); }
+        }
+        return null;
+    };
+
+    const sessionState = getSessionState();
+
+    const [messages, setMessages] = useState<{ role: 'user' | 'assistant' | 'system', content: string }[]>(sessionState?.messages || [{
         role: 'assistant',
         content: "Welcome to the Widget Studio! Briefly describe the widget you want to build."
     }]);
 
-    const [prompt, setPrompt] = useState("");
+    const [prompt, setPrompt] = useState(sessionState?.prompt || "");
     const [isGenerating, setIsGenerating] = useState(false);
-    const [code, setCode] = useState<string>("export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}");
-    const [viewMode, setViewMode] = useState<'preview' | 'code' | 'config'>('preview');
+    const [code, setCode] = useState<string>(sessionState?.code || "export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}");
+    const [viewMode, setViewMode] = useState<'preview' | 'code' | 'config'>(sessionState?.viewMode || 'preview');
     const [previewComponent, setPreviewComponent] = useState<React.ComponentType | null>(null);
     const [previewError, setPreviewError] = useState<string | null>(null);
 
     // Widget Settings State
-    const [widgetName, setWidgetName] = useState("New Custom Widget");
-    const [widgetDescription, setWidgetDescription] = useState("");
-    const [widgetCategory, setWidgetCategory] = useState("Custom");
-    const [widgetDomain, setWidgetDomain] = useState("General");
-    const [isExecutable, setIsExecutable] = useState(false);
-    const [dataSourceType, setDataSourceType] = useState<"none" | "api" | "sql">("none");
-    const [dataSource, setDataSource] = useState("");
-    const [dataSourceSchema, setDataSourceSchema] = useState<any>(null);
+    const [widgetName, setWidgetName] = useState(sessionState?.widgetName || "New Custom Widget");
+    const [widgetDescription, setWidgetDescription] = useState(sessionState?.widgetDescription || "");
+    const [widgetCategory, setWidgetCategory] = useState(sessionState?.widgetCategory || "Custom");
+    const [widgetDomain, setWidgetDomain] = useState(sessionState?.widgetDomain || "General");
+    const [isExecutable, setIsExecutable] = useState(sessionState?.isExecutable || false);
+    const [dataSourceType, setDataSourceType] = useState<"none" | "api" | "sql">(sessionState?.dataSourceType || "none");
+    const [dataSource, setDataSource] = useState(sessionState?.dataSource || "");
+    const [dataSourceSchema, setDataSourceSchema] = useState<any>(sessionState?.dataSourceSchema || null);
     const [isTestingDataSource, setIsTestingDataSource] = useState(false);
     const [dataSourceTestError, setDataSourceTestError] = useState<string | null>(null);
-    const [defaultW, setDefaultW] = useState(6);
-    const [defaultH, setDefaultH] = useState(6);
-    const [configMode, setConfigMode] = useState<'none' | 'config_allowed' | 'config_required'>('none');
-    const [configSchema, setConfigSchema] = useState<ConfigField[]>([]);
-    const [editingId, setEditingId] = useState<string | null>(null);
+    const [defaultW, setDefaultW] = useState(sessionState?.defaultW || 6);
+    const [defaultH, setDefaultH] = useState(sessionState?.defaultH || 6);
+    const [configMode, setConfigMode] = useState<'none' | 'config_allowed' | 'config_required'>(sessionState?.configMode || 'none');
+    const [configSchema, setConfigSchema] = useState<ConfigField[]>(sessionState?.configSchema || []);
+    const [editingId, setEditingId] = useState<string | null>(sessionState?.editingId || null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Save state changes to session storage
+    useEffect(() => {
+        if (!editWidgetId) { // We only automatically sync to session storage if we aren't loading an externally provided edit ID over it. Let the edit load effect take priority.
+            const currentState = {
+                messages, prompt, code, viewMode, widgetName, widgetDescription, widgetCategory, widgetDomain,
+                isExecutable, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId
+            };
+            sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
+        }
+    }, [messages, prompt, code, viewMode, widgetName, widgetDescription, widgetCategory, widgetDomain,
+        isExecutable, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId, editWidgetId]);
 
     // Load existing widget data when editWidgetId is provided
     useEffect(() => {
@@ -110,7 +135,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                 } catch (e) {
                     setConfigSchema([]);
                 }
-                setMessages([{ role: 'assistant', content: `Loaded "${w.name}" for editing. Describe what you'd like to change.` }]);
+                const initMessages = [{ role: 'assistant' as const, content: `Loaded "${w.name}" for editing. Describe what you'd like to change.` }];
+                setMessages(initMessages);
+
+                // Overwrite the session storage right after loading existing widget
+                const currentState = {
+                    messages: initMessages, prompt: "", code: w.tsx_code, viewMode: 'preview', widgetName: w.name, widgetDescription: w.description || '', widgetCategory: w.category || 'Custom', widgetDomain: w.domain || 'General',
+                    isExecutable: false, dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: w.config_schema ? JSON.parse(w.config_schema) : [], editingId: w.id
+                };
+                sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
             })
             .catch(console.error);
     }, [editWidgetId]);
@@ -266,6 +299,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                     ? `"${widgetName}" updated! Changes are live in the Widget Library.`
                     : `"${widgetName}" published! Open the Widget Library (press W) to find it.`
                 );
+                // Clear session storage upon successful publish/update to avoid carrying state over for new widgets
+                sessionStorage.removeItem(WIDGET_STUDIO_SESSION_KEY);
                 if (isEditing) onClose?.();
             } else {
                 const err = await res.json().catch(() => ({ detail: res.statusText }));
