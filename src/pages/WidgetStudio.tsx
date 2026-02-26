@@ -358,7 +358,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                     )}
                     <div className="flex border border-slate-600 rounded-md bg-slate-900 focus-within:border-indigo-500 ring-1 focus-within:ring-indigo-500 overflow-hidden transition-all shadow-inner items-end">
                         <textarea
-                            className="flex-1 bg-transparent border-none px-4 py-3 text-sm focus:outline-none text-slate-200 placeholder-slate-500 resize-none min-h-[44px] max-h-32"
+                            className="flex-1 bg-transparent border-none px-4 py-3 text-sm focus:outline-none text-slate-200 placeholder-slate-500 resize-none min-h-[44px] max-h-32 overflow-hidden"
                             placeholder="E.g., A bar chart showing total completed units..."
                             value={prompt}
                             onChange={e => {
