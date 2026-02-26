@@ -242,7 +242,7 @@ fi
 # Add timestamp to log file
 echo "=== Backend started at $(date) ===" > ../backend.log
 # Running from server directory, imports are relative, so we use main:app
-$LOCAL_UVICORN_CMD main:app --reload --port 8000 >> ../backend.log 2>&1 &
+PYTHONUNBUFFERED=1 $LOCAL_UVICORN_CMD main:app --reload --port 8000 >> ../backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
 
