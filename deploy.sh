@@ -110,16 +110,14 @@ echo ""
 # ─────────────────────────────────────────────
 echo -e "${CYAN}Syncing source code to Databricks workspace...${NC}"
 
-# databricks sync uses the .databricks/project.json or --source-dir / --dest-dir flags.
-# We sync once (not watch mode) using --watch=false and pick up the target from the
-# existing .databricks config if present, or derive it from the app name.
+# databricks sync uses positional args: SRC DST
+# --full performs a complete sync rather than incremental
 SYNC_TARGET="/Workspace/Apps/$APP_NAME"
 
 databricks sync \
     --profile "$PROFILE" \
-    --source-dir "." \
-    --dest-dir "$SYNC_TARGET" \
-    --full
+    --full \
+    "." "$SYNC_TARGET"
 
 SYNC_EXIT=$?
 
