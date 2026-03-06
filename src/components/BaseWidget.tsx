@@ -2,6 +2,7 @@ import React from 'react';
 import { X, GripHorizontal, Maximize2, Settings } from 'lucide-react';
 import { useActionLogger } from '../hooks/useActionLogger';
 import { ActionConfirmationModal } from './ActionConfirmationModal';
+import { ActionProvider } from '../contexts/ActionContext';
 
 interface BaseWidgetProps {
   id: string;
@@ -42,16 +43,6 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
   const { isConfirming, actionName, initiateAction, confirmAction, cancelAction } = useActionLogger({
     widgetId: id,
     widgetName: title
-  });
-
-  // Inject executeAction into children if they are valid React elements
-  const childrenWithProps = React.Children.map(children, child => {
-    if (React.isValidElement(child)) {
-      return React.cloneElement(child as React.ReactElement<any>, {
-        executeAction: initiateAction
-      });
-    }
-    return child;
   });
 
   return (
@@ -114,7 +105,9 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
         </div>
       </div>
       <div className="flex-1 p-4 overflow-auto relative">
-        {childrenWithProps}
+        <ActionProvider value={initiateAction}>
+          {children}
+        </ActionProvider>
       </div>
 
       <ActionConfirmationModal
@@ -129,4 +122,3 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
 });
 
 BaseWidget.displayName = "BaseWidget";
-

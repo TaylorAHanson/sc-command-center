@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 
 interface ActionConfirmationModalProps {
@@ -17,6 +17,12 @@ export const ActionConfirmationModal: React.FC<ActionConfirmationModalProps> = (
     widgetName
 }) => {
     const [explanation, setExplanation] = useState('');
+
+    useEffect(() => {
+        if (!isOpen) {
+            setExplanation('');
+        }
+    }, [isOpen]);
 
     if (!isOpen) return null;
 

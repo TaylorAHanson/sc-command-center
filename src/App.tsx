@@ -7,6 +7,7 @@ import { useDashboardStore, type WidgetLayout } from './store/dashboardStore';
 import { widgetRegistry, useWidgetRegistry } from './widgetRegistry';
 import { Layout } from './components/Layout';
 import { BaseWidget } from './components/BaseWidget';
+import { ExecuteActionPropInjector } from './contexts/ActionContext';
 
 // Custom WidthProvider since it's missing in RGL v2.1.0 exports
 const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
@@ -418,11 +419,13 @@ const DashboardGrid: React.FC = () => {
                     </div>
                   </div>
                 }>
-                  <Component
-                    id={widget.i}
-                    data={widget.props}
-                    key={`${widget.i}-${JSON.stringify(widget.props)}`}
-                  />
+                  <ExecuteActionPropInjector>
+                    <Component
+                      id={widget.i}
+                      data={widget.props}
+                      key={`${widget.i}-${JSON.stringify(widget.props)}`}
+                    />
+                  </ExecuteActionPropInjector>
                 </React.Suspense>
               </BaseWidget>
             </div>

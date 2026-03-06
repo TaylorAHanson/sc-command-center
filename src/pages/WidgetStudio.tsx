@@ -4,6 +4,7 @@ import { loadCustomWidgets } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
 import { BaseWidget } from '../components/BaseWidget';
+import { ExecuteActionPropInjector } from '../contexts/ActionContext';
 
 interface WidgetStudioProps {
     editWidgetId?: string | null;
@@ -144,6 +145,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                 setCode(w.tsx_code);
                 setDataSourceType((w.data_source_type as any) || 'none');
                 setDataSource(w.data_source || '');
+                setIsExecutable(w.is_executable === 1);
                 setDefaultW(w.default_w || 6);
                 setDefaultH(w.default_h || 6);
                 setConfigMode(w.configuration_mode || 'none');
@@ -158,7 +160,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                 // Overwrite the session storage right after loading existing widget
                 const currentState = {
                     messages: initMessages, prompt: "", code: w.tsx_code, viewMode: 'preview', widgetName: w.name, widgetDescription: w.description || '', widgetCategory: w.category || 'Custom', widgetDomain: w.domain || 'General',
-                    isExecutable: false, dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: w.config_schema ? JSON.parse(w.config_schema) : [], editingId: w.id
+                    isExecutable: w.is_executable === 1, dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: w.config_schema ? JSON.parse(w.config_schema) : [], editingId: w.id
                 };
                 sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
             })
@@ -526,6 +528,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                                 title={widgetName}
                                                 className="h-full w-full"
                                             >
+                                                {/* */}
                                                 <WidgetErrorBoundary
                                                     onReset={() => setPreviewComponent(null)}
                                                     onError={(err) => {
@@ -534,13 +537,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                                         }
                                                     }}
                                                 >
-                                                    {React.createElement(previewComponent as any, {
-                                                        id: "preview-widget",
-                                                        data: {
-                                                            dataSource: dataSource,
-                                                            dataSourceType: dataSourceType
-                                                        }
-                                                    })}
+                                                    <ExecuteActionPropInjector>
+                                                        {React.createElement(previewComponent as any, {
+                                                            id: "preview-widget",
+                                                            data: {
+                                                                dataSource: dataSource,
+                                                                dataSourceType: dataSourceType
+                                                            }
+                                                        })}
+                                                    </ExecuteActionPropInjector>
                                                 </WidgetErrorBoundary>
                                             </BaseWidget>
                                         </div>
