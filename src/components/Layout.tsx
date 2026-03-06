@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { ActionLogs } from '../pages/ActionLogs';
+import { AdminPage } from '../pages/AdminPage';
 import { Plus, Settings, HelpCircle, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, ChevronDown, Info, Shield, Code } from 'lucide-react';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
@@ -11,6 +11,7 @@ import { HelpPage } from '../pages/HelpPage';
 import { AboutPage } from '../pages/AboutPage';
 import { WidgetStudio } from '../pages/WidgetStudio';
 import { AppSwitcher } from './AppSwitcher';
+import { DomainSwitcher } from './DomainSwitcher';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<string | null>(() => {
@@ -20,7 +21,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     }
     return null;
   });
-  const { tabs, activeTabId, viewingTemplate, setActiveTabId, addTab, removeTab, renameTab, reorderTabs, loadTemplate, viewTemplate, generateShareLink, toggleLock, configModal, closeConfigModal } = useDashboardStore();
+  const { tabs, activeTabId, setActiveTabId, addTab, removeTab, renameTab, reorderTabs, duplicateView, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin } = useDashboardStore();
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [isTrayOpen, setTrayOpen] = useState(false);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
@@ -37,8 +38,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     let newHash = '';
     if (currentPage) {
       newHash = `#/${currentPage}`;
-    } else if (viewingTemplate) {
-      newHash = `#/template/${encodeURIComponent(viewingTemplate)}`;
     } else if (activeTabId) {
       newHash = `#/view/${activeTabId}`;
     }
@@ -46,7 +45,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     if (newHash && window.location.hash !== newHash) {
       window.location.hash = newHash;
     }
-  }, [currentPage, viewingTemplate, activeTabId]);
+  }, [currentPage, activeTabId]);
 
   // Handle browser back/forward buttons (hash changes)
   useEffect(() => {
@@ -55,9 +54,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       if (['#/admin', '#/studio', '#/settings', '#/help', '#/about'].includes(hash)) {
         setCurrentPage(hash.substring(2));
       } else if (hash.startsWith('#/template/')) {
-        const templateName = decodeURIComponent(hash.replace('#/template/', ''));
+        const templateId = decodeURIComponent(hash.replace('#/template/', ''));
         setCurrentPage(null);
-        viewTemplate(templateName);
+        setActiveTabId(templateId);
       } else if (hash.startsWith('#/view/')) {
         const id = hash.replace('#/view/', '');
         setCurrentPage(null);
@@ -71,7 +70,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [tabs, setActiveTabId, viewTemplate]);
+  }, [tabs, setActiveTabId]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -111,8 +110,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   }, [isUserMenuOpen, currentPage]);
 
   // Separate user tabs from global templates
-  const userTabs = tabs.filter(t => !t.id.startsWith('temp-'));
-  const globalTemplates = ['Executive View', 'Production'];
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const userTabs = tabs.filter(t => !t.is_global);
+  const effectiveDomain = activeDomain || 'All';
+  const globalTemplates = tabs.filter(t => t.is_global && (effectiveDomain === 'All' || !t.domain || t.domain === effectiveDomain));
 
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
@@ -285,13 +286,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   Global Views
                 </div>
                 <div className="space-y-1">
-                  {globalTemplates.map(templateName => {
-                    const isViewing = viewingTemplate === templateName;
+                  {globalTemplates.map(template => {
+                    const isViewing = activeTabId === template.id;
                     return (
-                      <div key={templateName} className="group relative">
+                      <div key={template.id} className="group relative">
                         <button
                           onClick={() => {
-                            viewTemplate(templateName);
+                            setActiveTabId(template.id);
                             setCurrentPage(null);
                           }}
                           className={clsx(
@@ -301,12 +302,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                               : "text-gray-300 hover:bg-gray-800 hover:text-white"
                           )}
                         >
-                          <span className="truncate flex-1">{templateName}</span>
+                          <span className="truncate flex-1">{template.name}</span>
                         </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            loadTemplate(templateName);
+                            duplicateView(template.id);
                           }}
                           className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-qualcomm-blue/20 rounded transition-all text-gray-400 hover:text-qualcomm-blue"
                           title="Copy this template to My Views"
@@ -393,14 +394,16 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
             <div className="flex items-center gap-4">
               <h1 className="text-lg font-semibold text-qualcomm-navy">
-                {currentPage === 'admin' ? 'Admin Panel' : (viewingTemplate
-                  ? `${viewingTemplate} (Read-Only)`
-                  : tabs.find(t => t.id === activeTabId)?.name || 'Command Center')}
+                {currentPage === 'admin' ? 'Admin Panel' : (
+                  activeTab?.is_global && !isAdmin
+                    ? `${activeTab.name} (Read-Only)`
+                    : activeTab?.name || 'Command Center'
+                )}
               </h1>
             </div>
 
             <div className="flex items-center gap-3">
-              {!viewingTemplate && (
+              {(!activeTab?.is_global || isAdmin) && (
                 <>
                   <button
                     onClick={() => {
@@ -462,6 +465,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   </button>
                 </>
               )}
+
+              <div className="h-6 w-px bg-gray-300 mx-1"></div>
+
+              <DomainSwitcher />
+
+              <div className="h-6 w-px bg-gray-300 mx-1"></div>
+
               <AppSwitcher />
 
               <div className="relative" ref={userMenuRef}>
@@ -520,7 +530,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {currentPage === 'settings' && <SettingsPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}
-            {currentPage === 'admin' && <ActionLogs onNavigate={(page) => setCurrentPage(page)} />}
+            {currentPage === 'admin' && <AdminPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'studio' && <WidgetStudio editWidgetId={editWidgetId} onClose={() => { setCurrentPage(null); setEditWidgetId(null); }} />}
           </main>
         ) : (

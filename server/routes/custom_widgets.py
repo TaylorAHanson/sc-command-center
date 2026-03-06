@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from database import get_db_connection, is_lakebase_enabled
+from database import get_db_connection
 from middleware.auth import get_db_client, get_user_token
 from databricks.sdk import WorkspaceClient
 from typing import Optional
@@ -30,24 +30,46 @@ async def get_current_user(w: WorkspaceClient = Depends(get_db_client)):
 
 
 @router.get("/custom")
-async def get_custom_widgets():
-    conn = get_db_connection()
+async def get_custom_widgets(env: str = "dev"):
+    conn = get_db_connection(env)
     c = conn.cursor()
-    query = "SELECT * FROM custom_widgets ORDER BY timestamp DESC"
+    query = '''
+        SELECT w.* FROM widgets w
+        INNER JOIN (
+            SELECT id, MAX(version) as max_version 
+            FROM widgets 
+            WHERE is_deprecated = 0
+            GROUP BY id
+        ) latest ON w.id = latest.id AND w.version = latest.max_version
+        WHERE w.is_deprecated = 0
+        ORDER BY w.timestamp DESC
+    '''
     c.execute(query)
 
-    if is_lakebase_enabled():
-        rows = [dict({k: v for k, v in zip([desc[0] for desc in c.description], row)}) for row in c.fetchall()]
-    else:
-        rows = [dict(row) for row in c.fetchall()]
+    rows = [dict({k: v for k, v in zip([desc[0] for desc in c.description], row)}) for row in c.fetchall()]
 
     conn.close()
     return {"widgets": rows}
 
 
+@router.get("/history")
+async def get_widget_history(widget_id: str, env: str = "dev"):
+    """Return all versions of a widget in a given env, ordered newest first."""
+    conn = get_db_connection(env)
+    c = conn.cursor()
+    c.execute(
+        "SELECT version, name, created_by, timestamp FROM widgets WHERE id = %s AND is_deprecated = 0 ORDER BY version DESC",
+        (widget_id,)
+    )
+    rows = [dict(zip([d[0] for d in c.description], row)) for row in c.fetchall()]
+    conn.close()
+    return {"history": rows, "env": env}
+
+
+
 @router.post("/custom")
-async def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_client)):
-    conn = get_db_connection()
+async def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    conn = get_db_connection(env)
     c = conn.cursor()
 
     widget_id = widget.get("id", str(uuid.uuid4()))
@@ -65,18 +87,22 @@ async def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db
     is_executable = 1 if widget.get("isExecutable", False) else 0
     created_by = _get_current_username(w)
 
-    if is_lakebase_enabled():
-        c.execute('''
-            INSERT INTO custom_widgets 
-            (id, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, is_executable, created_by) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ''', (widget_id, name, description, category, domain, default_w, default_h, tsx_code, config_mode, config_schema, data_source_type, data_source, is_executable, created_by))
-    else:
-        c.execute('''
-            INSERT INTO custom_widgets 
-            (id, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, is_executable, created_by) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (widget_id, name, description, category, domain, default_w, default_h, tsx_code, config_mode, config_schema, data_source_type, data_source, is_executable, created_by))
+    c.execute("SELECT MAX(version) FROM widgets WHERE id = %s", (widget_id,))
+    
+    row = c.fetchone()
+    # Handle both tuple and sqlite3.Row structures
+    max_version = row[0] if (row and row[0] is not None) else 0
+        
+    if max_version is None:
+        max_version = 0
+        
+    new_version = max_version + 1
+
+    c.execute('''
+        INSERT INTO widgets 
+        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, is_executable, created_by) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, config_mode, config_schema, data_source_type, data_source, is_executable, created_by))
 
     conn.commit()
     conn.close()
@@ -84,17 +110,14 @@ async def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db
 
 
 @router.put("/custom/{widget_id}")
-async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient = Depends(get_db_client)):
-    conn = get_db_connection()
+async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    conn = get_db_connection(env)
     c = conn.cursor()
 
     current_user = _get_current_username(w)
 
     # Verify ownership
-    if is_lakebase_enabled():
-        c.execute("SELECT created_by FROM custom_widgets WHERE id = %s", (widget_id,))
-    else:
-        c.execute("SELECT created_by FROM custom_widgets WHERE id = ?", (widget_id,))
+    c.execute("SELECT created_by, version FROM widgets WHERE id = %s ORDER BY version DESC LIMIT 1", (widget_id,))
 
     row = c.fetchone()
     if not row:
@@ -102,6 +125,8 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
         raise HTTPException(status_code=404, detail="Widget not found")
 
     owner = row["created_by"] if not isinstance(row, tuple) else row[0]
+    current_version = row["version"] if not isinstance(row, tuple) else row[1]
+    
     if owner and owner != "unknown" and owner != current_user:
         conn.close()
         raise HTTPException(status_code=403, detail="You do not have permission to edit this widget")
@@ -117,21 +142,19 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
     default_h = widget.get("default_h", 6)
     configuration_mode = widget.get("configurationMode", widget.get("configuration_mode", "none"))
     config_schema = widget.get("configSchema", widget.get("config_schema", None))
+    is_executable = 1 if widget.get("isExecutable", widget.get("is_executable", False)) else 0
 
     if not name or not tsx_code:
         conn.close()
         raise HTTPException(status_code=400, detail="Name and tsx_code are required")
 
-    if is_lakebase_enabled():
-        c.execute(
-            'UPDATE custom_widgets SET name = %s, description = %s, category = %s, domain = %s, tsx_code = %s, data_source_type = %s, data_source = %s, default_w = %s, default_h = %s, configuration_mode = %s, config_schema = %s WHERE id = %s',
-            (name, description, category, domain, tsx_code, data_source_type, data_source, default_w, default_h, configuration_mode, config_schema, widget_id)
-        )
-    else:
-        c.execute(
-            'UPDATE custom_widgets SET name = ?, description = ?, category = ?, domain = ?, tsx_code = ?, data_source_type = ?, data_source = ?, default_w = ?, default_h = ?, configuration_mode = ?, config_schema = ? WHERE id = ?',
-            (name, description, category, domain, tsx_code, data_source_type, data_source, default_w, default_h, configuration_mode, config_schema, widget_id)
-        )
+    new_version = current_version + 1
+
+    c.execute('''
+        INSERT INTO widgets 
+        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, is_executable, created_by) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, is_executable, owner))
 
     conn.commit()
     conn.close()
@@ -139,8 +162,8 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
 
 
 @router.delete("/custom/{widget_id}")
-async def delete_custom_widget(widget_id: str, user_token: Optional[str] = Depends(get_user_token)):
-    conn = get_db_connection()
+async def delete_custom_widget(widget_id: str, user_token: Optional[str] = Depends(get_user_token), env: str = "dev"):
+    conn = get_db_connection(env)
     c = conn.cursor()
 
     # Build a WorkspaceClient if we have a token, otherwise pass None (DEV_MODE will fall back to "dev")
@@ -153,10 +176,7 @@ async def delete_custom_widget(widget_id: str, user_token: Optional[str] = Depen
 
     current_user = _get_current_username(w)
 
-    if is_lakebase_enabled():
-        c.execute("SELECT created_by FROM custom_widgets WHERE id = %s", (widget_id,))
-    else:
-        c.execute("SELECT created_by FROM custom_widgets WHERE id = ?", (widget_id,))
+    c.execute("SELECT created_by FROM widgets WHERE id = %s ORDER BY version DESC LIMIT 1", (widget_id,))
 
     row = c.fetchone()
     if not row:
@@ -169,10 +189,7 @@ async def delete_custom_widget(widget_id: str, user_token: Optional[str] = Depen
         conn.close()
         raise HTTPException(status_code=403, detail="You do not have permission to delete this widget")
 
-    if is_lakebase_enabled():
-        c.execute("DELETE FROM custom_widgets WHERE id = %s", (widget_id,))
-    else:
-        c.execute("DELETE FROM custom_widgets WHERE id = ?", (widget_id,))
+    c.execute("UPDATE widgets SET is_deprecated = 1 WHERE id = %s", (widget_id,))
 
     conn.commit()
     conn.close()

@@ -58,7 +58,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
             <h2 className="text-3xl font-bold text-qualcomm-navy mb-3">Command Center</h2>
             <p className="text-lg text-gray-600 mb-2">Version 1.0.0</p>
             <p className="text-gray-500 max-w-2xl mx-auto">
-              A powerful supply chain management dashboard that helps you monitor, analyze, and optimize your operations in real-time.
+              A powerful dynamic dashboard that helps you monitor, analyze, and act on insights in real-time.
             </p>
           </div>
 

@@ -9,12 +9,13 @@ interface UseActionLoggerProps {
 
 export const useActionLogger = ({ widgetId, widgetName }: UseActionLoggerProps) => {
     const [isConfirming, setIsConfirming] = useState(false);
+    const [actionName, setActionName] = useState('');
     const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
-    const { tabs, activeTabId, viewingTemplate } = useDashboardStore();
+    const { tabs, activeTabId } = useDashboardStore();
 
     const getDashboardContext = useCallback(() => {
         // Find the current active tab
-        const activeTab = viewingTemplate ? null : tabs.find(t => t.id === activeTabId);
+        const activeTab = tabs.find(t => t.id === activeTabId);
 
         if (!activeTab) return { error: "No active tab found" };
 
@@ -27,9 +28,10 @@ export const useActionLogger = ({ widgetId, widgetName }: UseActionLoggerProps) 
                 props: w.props
             }))
         };
-    }, [tabs, activeTabId, viewingTemplate]);
+    }, [tabs, activeTabId]);
 
-    const initiateAction = useCallback((action: () => void) => {
+    const initiateAction = useCallback((name: string, action: () => void) => {
+        setActionName(name);
         setPendingAction(() => action);
         setIsConfirming(true);
     }, []);
@@ -42,6 +44,7 @@ export const useActionLogger = ({ widgetId, widgetName }: UseActionLoggerProps) 
             logAction({
                 widget_id: widgetId,
                 widget_name: widgetName,
+                action_name: actionName,
                 explanation,
                 context
             });
@@ -51,7 +54,8 @@ export const useActionLogger = ({ widgetId, widgetName }: UseActionLoggerProps) 
         }
         setIsConfirming(false);
         setPendingAction(null);
-    }, [pendingAction, widgetId, widgetName, getDashboardContext]);
+        setActionName('');
+    }, [pendingAction, widgetId, widgetName, actionName, getDashboardContext]);
 
     const cancelAction = useCallback(() => {
         setIsConfirming(false);
@@ -60,6 +64,7 @@ export const useActionLogger = ({ widgetId, widgetName }: UseActionLoggerProps) 
 
     return {
         isConfirming,
+        actionName,
         initiateAction,
         confirmAction,
         cancelAction

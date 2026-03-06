@@ -1,44 +1,37 @@
-import sqlite3
 import os
 from typing import Dict, List, Any
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from config.settings import is_lakebase_enabled, get_lakebase_config
+from config.settings import get_lakebase_config
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "widgets.db")
-
-def get_db_connection():
+def get_db_connection(env: str = "dev"):
     """Get a database connection (SQLite or Lakebase/Postgres)."""
-    if is_lakebase_enabled():
-        config = get_lakebase_config()
-        return psycopg2.connect(
-            host=config.get("host"),
-            port=config.get("port"),
-            user=config.get("user"),
-            password=config.get("password"),
-            dbname=config.get("database")
-        )
-    else:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
+    config = get_lakebase_config()
+    db_name = config.get("database")
+    if env and env in ("dev", "test", "prod"):
+        base_name = db_name
+        for suffix in ("-dev", "-test", "-prod"):
+            if base_name.endswith(suffix):
+                base_name = base_name[:-len(suffix)]
+                break
+        db_name = f"{base_name}-{env}"
+        
+    return psycopg2.connect(
+        host=config.get("host"),
+        port=config.get("port"),
+        user=config.get("user"),
+        password=config.get("password"),
+        dbname=db_name
+    )
 
-def init_db():
+def init_db(env: str = "dev"):
     """Initialize database tables."""
-    conn = get_db_connection()
+    conn = get_db_connection(env)
     c = conn.cursor()
     
-    use_lakebase = is_lakebase_enabled()
-    
-    # DDL nuances
-    if use_lakebase:
-        # Postgres
-        auto_inc = "SERIAL PRIMARY KEY"
-        default_ts = "DEFAULT CURRENT_TIMESTAMP" 
-    else:
-        # SQLite
-        auto_inc = "INTEGER PRIMARY KEY AUTOINCREMENT"
-        default_ts = "DEFAULT CURRENT_TIMESTAMP"
+    # Postgres
+    auto_inc = "SERIAL PRIMARY KEY"
+    default_ts = "DEFAULT CURRENT_TIMESTAMP" 
 
     # Widget Runs Table
     c.execute(f'''
@@ -55,150 +48,138 @@ def init_db():
             id {auto_inc},
             widget_id TEXT,
             widget_name TEXT,
+            action_name TEXT,
             user_explanation TEXT,
             dashboard_context TEXT,
             timestamp TIMESTAMP {default_ts}
         )
     ''')
     
-    # Custom Widgets Table
+    # Simple migration: add action_name if it doesn't exist
+    try:
+        c.execute("ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS action_name TEXT")
+    except:
+        pass # In case IF NOT EXISTS isn't supported or other issues
+    
+    # Core + Custom Widgets Table with Versioning
     c.execute(f'''
-        CREATE TABLE IF NOT EXISTS custom_widgets (
-            id TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS widgets (
+            id TEXT NOT NULL,
+            version INTEGER DEFAULT 1,
             name TEXT NOT NULL,
             description TEXT,
             category TEXT,
             domain TEXT,
             default_w INTEGER DEFAULT 4,
             default_h INTEGER DEFAULT 4,
-            tsx_code TEXT NOT NULL,
+            tsx_code TEXT,
             configuration_mode TEXT DEFAULT 'none',
             config_schema TEXT,
             data_source_type TEXT DEFAULT 'api',
             data_source TEXT,
             is_executable INTEGER DEFAULT 0,
+            is_certified INTEGER DEFAULT 0,
+            is_deprecated INTEGER DEFAULT 0,
             created_by TEXT,
+            timestamp TIMESTAMP {default_ts},
+            PRIMARY KEY (id, version)
+        )
+    ''')
+
+    # Domain and Role Mapping Table
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS role_mappings (
+            id {auto_inc},
+            external_role TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            permission_level TEXT DEFAULT 'editor',
             timestamp TIMESTAMP {default_ts}
         )
     ''')
-    
-    # Try to add new columns to an existing table (for local developer environments)
-    if not use_lakebase:
-        try:
-            c.execute("ALTER TABLE custom_widgets ADD COLUMN data_source TEXT")
-        except sqlite3.OperationalError:
-            pass # Column already exists
-            
-        try:
-            c.execute("ALTER TABLE custom_widgets ADD COLUMN data_source_type TEXT DEFAULT 'api'")
-        except sqlite3.OperationalError:
-            pass # Column already exists
-            
-        try:
-            c.execute("ALTER TABLE custom_widgets ADD COLUMN is_executable INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass # Column already exists
 
-        try:
-            c.execute("ALTER TABLE custom_widgets ADD COLUMN created_by TEXT")
-        except sqlite3.OperationalError:
-            pass # Column already exists
-            
-        try:
-            c.execute("ALTER TABLE custom_widgets ADD COLUMN configuration_mode TEXT DEFAULT 'none'")
-        except sqlite3.OperationalError:
-            pass # Column already exists
-            
-        try:
-            c.execute("ALTER TABLE custom_widgets ADD COLUMN config_schema TEXT")
-        except sqlite3.OperationalError:
-            pass # Column already exists
+    # Dashboard Views Table
+    # Stores user-specific views and domain-specific global templates
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS dashboard_views (
+            id TEXT NOT NULL,
+            version INTEGER DEFAULT 1,
+            name TEXT NOT NULL,
+            domain TEXT,
+            username TEXT,
+            is_global INTEGER DEFAULT 0,
+            widgets_json TEXT,
+            is_locked INTEGER DEFAULT 0,
+            timestamp TIMESTAMP {default_ts},
+            PRIMARY KEY (id, version)
+        )
+    ''')
+
     
     conn.commit()
     conn.close()
 
-def log_widget_run(widget_id: str):
-    conn = get_db_connection()
+def log_widget_run(widget_id: str, env: str = "dev"):
+    conn = get_db_connection(env)
     c = conn.cursor()
-    if is_lakebase_enabled():
-        # Postgres uses %s for placeholders
-        c.execute('INSERT INTO widget_runs (widget_id) VALUES (%s)', (widget_id,))
-    else:
-        # SQLite uses ? for placeholders
-        c.execute('INSERT INTO widget_runs (widget_id) VALUES (?)', (widget_id,))
+    # Postgres uses %s for placeholders
+    c.execute('INSERT INTO widget_runs (widget_id) VALUES (%s)', (widget_id,))
         
     conn.commit()
     conn.close()
     return {"status": "success", "widget_id": widget_id}
 
-def log_user_action(widget_id: str, widget_name: str, explanation: str, context: str):
-    conn = get_db_connection()
+def log_user_action(widget_id: str, widget_name: str, explanation: str, context: str, action_name: str = "", env: str = "dev"):
+    conn = get_db_connection(env)
     c = conn.cursor()
     
-    if is_lakebase_enabled():
-        c.execute('''
-            INSERT INTO action_logs (widget_id, widget_name, user_explanation, dashboard_context) 
-            VALUES (%s, %s, %s, %s) RETURNING id
-        ''', (widget_id, widget_name, explanation, context))
-        last_id = c.fetchone()[0]
-    else:
-        c.execute('''
-            INSERT INTO action_logs (widget_id, widget_name, user_explanation, dashboard_context) 
-            VALUES (?, ?, ?, ?)
-        ''', (widget_id, widget_name, explanation, context))
-        last_id = c.lastrowid
+    c.execute('''
+        INSERT INTO action_logs (widget_id, widget_name, action_name, user_explanation, dashboard_context) 
+        VALUES (%s, %s, %s, %s, %s) RETURNING id
+    ''', (widget_id, widget_name, action_name, explanation, context))
+    last_id = c.fetchone()[0]
         
     conn.commit()
     conn.close()
     return {"status": "success", "action_id": last_id}
 
-def get_action_logs(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
-    conn = get_db_connection()
+def get_action_logs(limit: int = 100, offset: int = 0, env: str = "dev") -> List[Dict[str, Any]]:
+    conn = get_db_connection(env)
     
-    if is_lakebase_enabled():
-        c = conn.cursor(cursor_factory=RealDictCursor)
-        query = '''
-            SELECT id, widget_id, widget_name, user_explanation, dashboard_context, timestamp 
-            FROM action_logs 
-            ORDER BY timestamp DESC 
-            LIMIT %s OFFSET %s
-        '''
-    else:
-        c = conn.cursor()
-        query = '''
-            SELECT id, widget_id, widget_name, user_explanation, dashboard_context, timestamp 
-            FROM action_logs 
-            ORDER BY timestamp DESC 
-            LIMIT ? OFFSET ?
-        '''
-    
+    c = conn.cursor(cursor_factory=RealDictCursor)
+    query = '''
+        SELECT al.id, al.widget_id, al.widget_name, al.action_name, al.user_explanation, al.dashboard_context,
+               al.timestamp, w.domain
+        FROM action_logs al
+        LEFT JOIN (
+            SELECT id, domain
+            FROM widgets
+            WHERE is_deprecated = 0
+            AND version = (
+                SELECT MAX(version) FROM widgets w2
+                WHERE w2.id = widgets.id AND w2.is_deprecated = 0
+            )
+        ) w ON al.widget_id = w.id
+        ORDER BY al.timestamp DESC 
+        LIMIT %s OFFSET %s
+    '''
     c.execute(query, (limit, offset))
     
-    if is_lakebase_enabled():
-        # RealDictCursor return dict-like objects
-        logs = [dict(row) for row in c.fetchall()]
-    else:
-        # SQLite Row factory
-        logs = [dict(row) for row in c.fetchall()]
+    # RealDictCursor return dict-like objects
+    logs = [dict(row) for row in c.fetchall()]
         
     conn.close()
     return logs
 
-def get_popularity_scores() -> Dict[str, int]:
-    conn = get_db_connection()
+def get_popularity_scores(env: str = "dev") -> Dict[str, int]:
+    conn = get_db_connection(env)
     c = conn.cursor()
     c.execute('SELECT widget_id, COUNT(*) as count FROM widget_runs GROUP BY widget_id')
     rows = c.fetchall()
     
     scores = {}
-    if is_lakebase_enabled():
-         for row in rows:
-             # Standard cursor returns tuples
-             scores[row[0]] = row[1]
-    else:
-        for row in rows:
-             # SQLite Row object access
-            scores[row['widget_id']] = row['count']
+    for row in rows:
+        # Standard cursor returns tuples
+        scores[row[0]] = row[1]
             
     conn.close()
     return scores

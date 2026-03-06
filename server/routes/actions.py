@@ -12,6 +12,7 @@ router = APIRouter(
 class ActionLogRequest(BaseModel):
     widget_id: str
     widget_name: str
+    action_name: str = ""
     explanation: str
     context: Any  # Receives JSON object, will be stringified
 
@@ -24,6 +25,7 @@ async def log_action(request: ActionLogRequest):
         return log_user_action(
             widget_id=request.widget_id,
             widget_name=request.widget_name,
+            action_name=request.action_name,
             explanation=request.explanation,
             context=context_str
         )

@@ -1,30 +1,11 @@
 import React from 'react';
 import { useScript } from './hooks/useScript';
-import { AlertsWidget } from './widgets/AlertsWidget';
-import { InventoryWidget } from './widgets/InventoryWidget';
-import { GanttWidget } from './widgets/GanttWidget';
-import { GenieWidget } from './widgets/GenieWidget';
-import { SupplierFormWidget } from './widgets/SupplierFormWidget';
-import { ExternalWidget } from './widgets/ExternalWidget';
-import { SupplierScorecardWidget } from './widgets/SupplierScorecardWidget';
-import { RiskHeatmapWidget } from './widgets/RiskHeatmapWidget';
-import { ShipmentTrackingWidget } from './widgets/ShipmentTrackingWidget';
-import { WarehouseCapacityWidget } from './widgets/WarehouseCapacityWidget';
-import { DemandForecastWidget } from './widgets/DemandForecastWidget';
-import { SupplyChainKPIsWidget } from './widgets/SupplyChainKPIsWidget';
-import { CostBreakdownWidget } from './widgets/CostBreakdownWidget';
-import { ProductionLinesWidget } from './widgets/ProductionLinesWidget';
-import { DataTableWidget } from './widgets/DataTableWidget';
-import { ExecuteNotebookWidget } from './widgets/ExecuteNotebookWidget';
-import { DatabricksJobRunnerWidget } from './widgets/DatabricksJobRunnerWidget';
-import { LineChartWidget } from './widgets/LineChartWidget';
-import { N8NTriggerWidget } from './widgets/N8NTriggerWidget';
-import { TableauWidget } from './widgets/TableauWidget';
-import { IframeWidget } from './widgets/IframeWidget';
 
+// Define types broadly since we only need component matching
 export interface WidgetProps {
   id: string;
   data?: any;
+  executeAction?: (actionName: string, callback: () => void) => void;
 }
 
 export interface ConfigField {
@@ -94,24 +75,28 @@ export const loadCustomWidgets = async () => {
     const data = await res.json();
     data.widgets.forEach((w: any) => {
       try {
-        // @ts-ignore
-        if (!window.Babel) return;
-        // @ts-ignore
-        const transpiled = window.Babel.transform(w.tsx_code, {
-          filename: `${w.id}.tsx`,
-          presets: ['react', 'typescript']
-        }).code;
-        // Convert `export default function Foo` → `var __widget = function Foo ...; return __widget`
-        // and `export default SomeIdentifier` → `return SomeIdentifier`
-        // Use a more robust regex that handles optional names and classes
-        let executableCode = transpiled
-          .replace(/export\s+default\s+function\s*(\w*)/, 'var __widget = function $1')
-          .replace(/export\s+default\s+class\s*(\w*)/, 'var __widget = class $1')
-          .replace(/export\s+default\s+/, 'var __widget = ');
-        executableCode += '\nreturn __widget;';
-        // eslint-disable-next-line no-new-func
-        const createComponent = new (Function as any)('React', 'useScript', executableCode);
-        const Component = createComponent(React, useScript);
+        let Component;
+        if (w.tsx_code) {
+          // @ts-ignore
+          if (!window.Babel) return;
+          // @ts-ignore
+          const transpiled = window.Babel.transform(w.tsx_code, {
+            filename: `${w.id}.tsx`,
+            presets: ['react', 'typescript']
+          }).code;
+          // Convert `export default function Foo` → `var __widget = function Foo ...; return __widget`
+          let executableCode = transpiled
+            .replace(/export\s+default\s+function\s*(\w*)/, 'var __widget = function $1')
+            .replace(/export\s+default\s+class\s*(\w*)/, 'var __widget = class $1')
+            .replace(/export\s+default\s+/, 'var __widget = ');
+          executableCode += '\nreturn __widget;';
+          // eslint-disable-next-line no-new-func
+          const createComponent = new (Function as any)('React', 'useScript', executableCode);
+          Component = createComponent(React, useScript);
+        } else {
+          console.warn(`Widget ${w.id} has no tsx_code to evaluate.`);
+          return;
+        }
 
         registerWidget({
           id: w.id,
@@ -128,391 +113,24 @@ export const loadCustomWidgets = async () => {
             dataSource: w.data_source,
             dataSourceType: w.data_source_type || 'none'
           } : undefined,
-          isCertified: false,
+          isCertified: w.is_certified === 1,
           isExecutable: w.is_executable === 1,
           createdBy: w.created_by || undefined,
           accessControl: { mockHasAccess: true }
         });
       } catch (err) {
-        console.error(`Failed to transpile custom widget ${w.id}:`, err);
+        console.error(`Failed to load widget ${w.id}:`, err);
       }
     });
   } catch (err) {
-    console.error("Failed to load custom widgets:", err);
+    console.error("Failed to load widgets:", err);
   } finally {
     isRegistryLoading = false;
     listeners.forEach(l => l());
   }
 };
 
-// Register Widgets
-registerWidget({
-  id: 'alerts',
-  name: 'Problem Alerts',
-  component: AlertsWidget,
-  defaultW: 4,
-  defaultH: 4,
-  description: 'Real-time supply chain alerts and risks.',
-  category: 'Monitoring',
-  domain: 'Supply Chain',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'inventory',
-  name: 'Inventory Levels',
-  component: InventoryWidget,
-  defaultW: 6,
-  defaultH: 6,
-  description: 'Line graph of inventory across regions.',
-  category: 'Analytics',
-  domain: 'Logistics',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'gantt',
-  name: 'Production Schedule',
-  component: GanttWidget,
-  defaultW: 8,
-  defaultH: 6,
-  description: 'Gantt chart of production phases.',
-  category: 'Planning',
-  domain: 'Manufacturing',
-  isCertified: true,
-  accessControl: { mockHasAccess: true }, // Mock restricted access
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'genie',
-  name: 'Supply Chain Genie',
-  component: (props) => React.createElement(GenieWidget, {
-    ...props,
-    data: {
-      ...props.data,
-      space_id: '01f106b447c7129b8f1dc466a177d9d7',
-      name: 'Supply Chain Genie',
-    }
-  }),
-  defaultW: 3,
-  defaultH: 6,
-  description: 'AI-powered supply chain assistant.',
-  category: 'AI & Automation',
-  domain: 'General',
-  isCertified: false,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'config_allowed'
-});
-
-
-registerWidget({
-  id: 'supplier_form',
-  name: 'Supplier Survey',
-  component: SupplierFormWidget,
-  defaultW: 4,
-  defaultH: 6,
-  description: 'Feedback form for suppliers.',
-  category: 'Forms',
-  domain: 'Procurement',
-  isCertified: false,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'external',
-  name: 'Rapid Response',
-  component: ExternalWidget,
-  defaultW: 3,
-  defaultH: 3,
-  description: 'Link to external planning tools.',
-  category: 'External',
-  domain: 'Planning',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'supplier_scorecard',
-  name: 'Supplier Scorecard',
-  component: SupplierScorecardWidget,
-  defaultW: 5,
-  defaultH: 5,
-  description: 'Performance scores for key suppliers.',
-  category: 'Analytics',
-  domain: 'Procurement',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'risk_heatmap',
-  name: 'Risk Heatmap',
-  component: RiskHeatmapWidget,
-  defaultW: 6,
-  defaultH: 5,
-  description: 'Quarterly risk assessment across categories.',
-  category: 'Monitoring',
-  domain: 'Risk Management',
-  isCertified: false,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'shipment_tracking',
-  name: 'Shipment Tracking',
-  component: ShipmentTrackingWidget,
-  defaultW: 4,
-  defaultH: 6,
-  description: 'Real-time tracking of global shipments.',
-  category: 'Logistics',
-  domain: 'Logistics',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'warehouse_capacity',
-  name: 'Warehouse Capacity',
-  component: WarehouseCapacityWidget,
-  defaultW: 5,
-  defaultH: 5,
-  description: 'Capacity utilization across warehouse locations.',
-  category: 'Analytics',
-  domain: 'Logistics',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'demand_forecast',
-  name: 'Demand Forecast',
-  component: DemandForecastWidget,
-  defaultW: 6,
-  defaultH: 5,
-  description: '12-month demand forecast vs actuals.',
-  category: 'Planning',
-  domain: 'Planning',
-  isCertified: true,
-  accessControl: { mockHasAccess: false }, // Mock restricted
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'supply_chain_kpis',
-  name: 'Supply Chain KPIs',
-  component: SupplyChainKPIsWidget,
-  defaultW: 4,
-  defaultH: 4,
-  description: 'Key performance indicators dashboard.',
-  category: 'Monitoring',
-  domain: 'Supply Chain',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'cost_breakdown',
-  name: 'Cost Breakdown',
-  component: CostBreakdownWidget,
-  defaultW: 4,
-  defaultH: 5,
-  description: 'Pie chart of supply chain cost distribution.',
-  category: 'Analytics',
-  domain: 'Finance',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'production_lines',
-  name: 'Production Lines',
-  component: ProductionLinesWidget,
-  defaultW: 4,
-  defaultH: 6,
-  description: 'Real-time status of manufacturing lines.',
-  category: 'Monitoring',
-  domain: 'Manufacturing',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'none'
-});
-
-registerWidget({
-  id: 'data_table',
-  name: 'NYC Taxi Data',
-  component: (props) => React.createElement(DataTableWidget, {
-    ...props,
-    data: {
-      ...props.data,
-      queryId: 'test_query',
-    }
-  }),
-  defaultW: 8,
-  defaultH: 8,
-  description: 'Searchable, sortable table of data.',
-  category: 'Analytics',
-  domain: 'General',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'config_allowed',
-  configSchema: [
-    { key: 'queryId', label: 'SQL Query ID', type: 'text', required: true, defaultValue: 'test_query', placeholder: 'test_query', helpText: 'The ID of the SQL query to execute' }
-  ]
-});
-
-registerWidget({
-  id: 'execute_notebook',
-  name: 'Execute Notebook',
-  component: ExecuteNotebookWidget,
-  defaultW: 5,
-  defaultH: 8,
-  description: 'Select and run Databricks notebooks, view execution results.',
-  category: 'Actions',
-  domain: 'IT',
-  isCertified: false,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'config_required',
-  isExecutable: true
-});
-
-registerWidget({
-  id: 'job_runner',
-  name: 'Databricks Job Runner',
-  component: DatabricksJobRunnerWidget,
-  defaultW: 4,
-  defaultH: 6,
-  description: 'Run and monitor Databricks jobs.',
-  category: 'Actions',
-  domain: 'IT',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'config_allowed',
-  isExecutable: true,
-  configSchema: [
-    { key: 'job_id', label: 'Job ID', type: 'number', required: true, defaultValue: 123456, placeholder: '123456', helpText: 'The Databricks job ID to run' },
-    { key: 'job_name', label: 'Custom Name (Optional)', type: 'text', defaultValue: 'My Data Pipeline', placeholder: 'My Data Pipeline', helpText: 'Override the job name displayed in the widget' }
-  ]
-});
-
-registerWidget({
-  id: 'line_chart',
-  name: 'Test Data Chart',
-  component: (props) => React.createElement(LineChartWidget, {
-    ...props,
-    data: {
-      queryId: 'test_query',
-      xColumn: 'pickup_zip',
-      yColumn: 'trip_count',
-      yAxisTitle: 'Trip Count',
-      chartType: 'line',
-      ...props.data
-    }
-  }),
-  defaultW: 6,
-  defaultH: 6,
-  description: 'Dynamic chart driven by SQL queries.',
-  category: 'Analytics',
-  domain: 'General',
-  isCertified: true,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'config_allowed',
-  configSchema: [
-    { key: 'title', label: 'Title', type: 'text', placeholder: 'My Chart', helpText: 'Title of the chart' },
-    { key: 'queryId', label: 'SQL Query ID', type: 'text', required: true, defaultValue: 'test_query', placeholder: 'test_query', helpText: 'The ID of the SQL query to execute' },
-    { key: 'xColumn', label: 'X-Axis Column', type: 'text', required: true, defaultValue: 'pickup_zip', placeholder: 'pickup_zip', helpText: 'Column name for X-axis' },
-    { key: 'yColumn', label: 'Y-Axis Column', type: 'text', required: true, defaultValue: 'trip_count', placeholder: 'trip_count', helpText: 'Column name for Y-axis' },
-    { key: 'yAxisTitle', label: 'Y-Axis Title', type: 'text', defaultValue: 'Trip Count', placeholder: 'Trip Count', helpText: 'Label for the Y-axis' },
-    {
-      key: 'chartType', label: 'Chart Type', type: 'select', required: true, defaultValue: 'line', options: [
-        { value: 'line', label: 'Line' },
-        { value: 'bar', label: 'Bar' },
-        { value: 'area', label: 'Area' }
-      ]
-    }
-  ]
-});
-
-// N8N Trigger Widget
-registerWidget({
-  id: 'n8n_trigger',
-  name: 'Run N8N Workflow',
-  component: N8NTriggerWidget,
-  defaultW: 4,
-  defaultH: 6,
-  description: 'Trigger the test N8N workflow - calls webhook directly from your browser.',
-  category: 'Automation',
-  domain: 'General',
-  isCertified: false,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'config_allowed',
-  isExecutable: true,
-  configSchema: [
-    { key: 'webhookUrl', label: 'Webhook URL', type: 'text', defaultValue: 'https://aiplatforms-n8n-stg.qualcomm.com/webhook/e4b0e321-1a20-4026-81e4-e6e501dfc227', placeholder: 'https://your-n8n-instance.com/webhook/...', helpText: 'The webhook URL to call when triggering the workflow' },
-    { key: 'name', label: 'Workflow Name', type: 'text', defaultValue: 'Test Workflow', placeholder: 'My Workflow', helpText: 'Display name for the workflow' },
-    { key: 'description', label: 'Description', type: 'text', defaultValue: 'Trigger test workflow directly from browser', placeholder: 'Workflow description', helpText: 'Description of what this workflow does' },
-    {
-      key: 'useDirectCall',
-      label: 'Call Method',
-      type: 'select',
-      defaultValue: 'true',
-      options: [
-        { value: 'true', label: 'Direct (from browser)' },
-        { value: 'false', label: 'Via Backend' }
-      ],
-      helpText: 'Whether to call the webhook directly from the browser or via the backend'
-    }
-  ]
-});
-
-// Tableau Dashboard Widget
-registerWidget({
-  id: 'tableau_dashboard',
-  name: 'Tableau Dashboard',
-  component: TableauWidget,
-  defaultW: 8,
-  defaultH: 8,
-  description: 'Embed interactive Tableau Cloud dashboards.',
-  category: 'Analytics',
-  domain: 'General',
-  isCertified: false,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'config_required',
-  configSchema: [
-    { key: 'dashboard_id', label: 'Dashboard ID', type: 'text', required: true, defaultValue: 'dashboard-123', placeholder: 'dashboard-123', helpText: 'The ID of the Tableau dashboard to embed' }
-  ]
-});
-
-// Iframe Widget
-registerWidget({
-  id: 'iframe',
-  name: 'Embedded Page',
-  component: IframeWidget,
-  defaultW: 6,
-  defaultH: 6,
-  description: 'Embed external web pages.',
-  category: 'External',
-  domain: 'General',
-  isCertified: false,
-  accessControl: { mockHasAccess: true },
-  configurationMode: 'config_allowed',
-  configSchema: [
-    { key: 'url', label: 'URL', type: 'text', required: true, defaultValue: 'https://forecast.weather.gov/MapClick.php?lat=32.7157&lon=-117.1611', placeholder: 'https://example.com', helpText: 'The URL to embed' },
-    { key: 'title', label: 'Title', type: 'text', placeholder: 'My Widget', helpText: 'Hidden title for accessibility' }
-  ]
-});
+// The widgetMap is completely dynamic, no hardcoded definitions here.
 
 export const getAvailableWidgets = () => Object.values(widgetRegistry);
 

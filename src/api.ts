@@ -29,6 +29,7 @@ export const getPopularityScores = async (): Promise<Record<string, number>> => 
 export interface ActionLogPayload {
     widget_id: string;
     widget_name: string;
+    action_name: string;
     explanation: string;
     context: any;
 }

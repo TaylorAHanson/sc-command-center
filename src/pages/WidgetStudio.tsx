@@ -3,6 +3,7 @@ import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, Settings, Plus
 import { loadCustomWidgets } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
+import { BaseWidget } from '../components/BaseWidget';
 
 interface WidgetStudioProps {
     editWidgetId?: string | null;
@@ -98,6 +99,22 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
     const [configSchema, setConfigSchema] = useState<ConfigField[]>(sessionState?.configSchema || []);
     const [editingId, setEditingId] = useState<string | null>(sessionState?.editingId || null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [availableDomains, setAvailableDomains] = useState<string[]>(['General']);
+
+    useEffect(() => {
+        fetch('/api/roles/my-domains')
+            .then(r => r.json())
+            .then(data => {
+                if (data.domains) {
+                    setAvailableDomains(data.domains);
+                    // Ensure the currently selected domain is in the list, otherwise select the first available
+                    if (!data.domains.includes(widgetDomain) && data.domains.length > 0) {
+                        setWidgetDomain(data.domains[0]);
+                    }
+                }
+            })
+            .catch(console.error);
+    }, [widgetDomain]);
 
     // Save state changes to session storage
     useEffect(() => {
@@ -338,6 +355,32 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
         }
     };
 
+    const handleReset = () => {
+        if (!confirm("Are you sure you want to reset the Widget Studio? All unsaved changes will be lost.")) return;
+        sessionStorage.removeItem(WIDGET_STUDIO_SESSION_KEY);
+        setEditingId(null);
+        setWidgetName("New Custom Widget");
+        setWidgetDescription("");
+        setWidgetCategory("Custom");
+        setWidgetDomain(availableDomains[0] || "General");
+        setIsExecutable(false);
+        setDataSourceType("none");
+        setDataSource("");
+        setDataSourceSchema(null);
+        setDefaultW(6);
+        setDefaultH(6);
+        setConfigMode('none');
+        setConfigSchema([]);
+        setPrompt("");
+        setCode("export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}");
+        setMessages([{
+            role: 'assistant',
+            content: "Welcome to the Widget Studio! Briefly describe the widget you want to build."
+        }]);
+        setViewMode('preview');
+        setPreviewError(null);
+    };
+
     return (
         <div className="flex h-full w-full bg-slate-900 text-slate-100 overflow-hidden font-sans">
             {/* LEFT PANE: Chat Interface (1/3 width) */}
@@ -348,6 +391,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                         <span>Widget Studio</span>
                     </div>
                     <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleReset}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-md transition-colors font-medium">
+                            <RefreshCw size={14} />
+                            Reset
+                        </button>
                         <button
                             onClick={handlePublish}
                             className="flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 rounded-md transition-colors font-medium">
@@ -463,7 +512,6 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                 ) : previewComponent ? (
                                     <div className="min-w-min min-h-min">
                                         <div
-                                            className="bg-gray-100 rounded-xl shadow-2xl overflow-hidden flex flex-col border border-gray-300 pb-1 pr-1"
                                             style={{
                                                 // Assume ~80px width per grid column, ~60px height per row to give a rough feel for Grid layout.
                                                 width: `${Math.max(300, defaultW * 80)}px`,
@@ -471,11 +519,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                                 resize: 'both',
                                                 overflow: 'auto'
                                             }}
+                                            className="bg-gray-100 rounded-xl shadow-2xl overflow-hidden flex flex-col border border-gray-300 pb-1 pr-1"
                                         >
-                                            <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center min-h-[40px] flex-shrink-0">
-                                                <h3 className="font-semibold text-gray-800 text-sm truncate">{widgetName}</h3>
-                                            </div>
-                                            <div className="p-4 flex-1 h-full w-full overflow-auto bg-white">
+                                            <BaseWidget
+                                                id="preview-widget"
+                                                title={widgetName}
+                                                className="h-full w-full"
+                                            >
                                                 <WidgetErrorBoundary
                                                     onReset={() => setPreviewComponent(null)}
                                                     onError={(err) => {
@@ -492,7 +542,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                                         }
                                                     })}
                                                 </WidgetErrorBoundary>
-                                            </div>
+                                            </BaseWidget>
                                         </div>
                                     </div>
                                 ) : (
@@ -542,11 +592,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Domain</label>
-                                        <input
+                                        <select
                                             value={widgetDomain} onChange={e => setWidgetDomain(e.target.value)}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
-                                            placeholder="e.g. Logistics"
-                                        />
+                                        >
+                                            {availableDomains.map(d => (
+                                                <option key={d} value={d}>{d}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Default Width (cols)</label>

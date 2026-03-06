@@ -14,7 +14,7 @@ interface WidgetTrayProps {
 }
 
 export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditWidget }) => {
-  const { tabs, activeTabId, viewingTemplate, addWidget, openConfigModal } = useDashboardStore();
+  const { tabs, activeTabId, viewingTemplate, activeDomain, addWidget, openConfigModal } = useDashboardStore();
   const activeTab = viewingTemplate ? null : tabs.find(t => t.id === activeTabId);
   const isLocked = !viewingTemplate && activeTab?.locked === true;
 
@@ -97,9 +97,13 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
   const groups = useMemo(() => grouping === 'category' ? getWidgetCategories() : getWidgetDomains(), [grouping, registryVersion]);
 
   const filteredWidgets = useMemo(() => {
+    // 1. Filter by Active Global Domain
     let widgets = allWidgets;
+    if (activeDomain) {
+      widgets = widgets.filter(w => !w.domain || w.domain === activeDomain);
+    }
 
-    // Filter by Group (if no search)
+    // 2. Filter by Group (if no search)
     if (!searchQuery && selectedGroup) {
       widgets = widgets.filter(w =>
         grouping === 'category'
@@ -134,7 +138,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
       const scoreB = popularityScores[b.id] || 0;
       return scoreB - scoreA;
     });
-  }, [allWidgets, searchQuery, selectedGroup, grouping, showCertifiedOnly, accessFilter, popularityScores]);
+  }, [allWidgets, activeDomain, searchQuery, selectedGroup, grouping, showCertifiedOnly, accessFilter, popularityScores]);
 
   const handleDeleteWidget = async (e: React.MouseEvent, widget: WidgetDefinition) => {
     e.stopPropagation();

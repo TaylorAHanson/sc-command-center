@@ -87,7 +87,7 @@ async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Dep
             model=model_name,
             messages=messages,
             temperature=0.1,
-            max_tokens=4096
+            max_tokens=100000
         )
         
         content = response.choices[0].message.content
@@ -118,6 +118,11 @@ async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Dep
             code = re.sub(r'^```[a-zA-Z]*\n?', '', code)
             code = re.sub(r'\n?```$', '', code)
             
+        finish_reason = response.choices[0].finish_reason
+        if finish_reason == "length":
+            warning = "\n\n**SYSTEM ERROR: The response exceeded the maximum token limit and was cut off. In your next response, you MUST rewrite the component to be smaller and more concise. Remove unnecessary features, comments, or complex logic patterns to fit within the generator limits.**"
+            explanation = explanation + warning if explanation else warning
+
         return {"code": code, "explanation": explanation, "raw": content}
     except Exception as e:
         import traceback

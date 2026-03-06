@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from middleware.auth import AuthMiddleware
 from services.databricks_service import db_service
-from routes import widgets, actions, genie, sql_query, n8n, tableau
+from routes import widgets, actions, genie, sql_query, n8n, tableau, roles
 from routes import databricks_jobs as jobs_router
 from database import init_db
 
@@ -29,7 +29,7 @@ class ProxyHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 app = FastAPI(
-    title="Supply Chain Command Center",
+    title="Enterprise Command Center",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json"
@@ -37,7 +37,9 @@ app = FastAPI(
 
 @app.on_event("startup")
 async def startup_event():
-    init_db()
+    init_db("dev")
+    init_db("test")
+    init_db("prod")
 
 # Add proxy headers middleware first
 app.add_middleware(ProxyHeadersMiddleware)
@@ -71,7 +73,7 @@ async def log_requests(request: Request, call_next):
 @app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "service": "Supply Chain Command Center"}
+    return {"status": "healthy", "service": "Enterprise Command Center"}
 
 # Debug endpoint
 @app.get("/debug")
@@ -95,11 +97,16 @@ app.include_router(sql_query.router, prefix="/api/sql", tags=["sql"])
 app.include_router(jobs_router.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(n8n.router, prefix="/api", tags=["n8n"])
 app.include_router(tableau.router, prefix="/api", tags=["tableau"])
+app.include_router(roles.router, prefix="/api/roles", tags=["roles"])
 
 from routes import custom_widgets
 from routes import agent_studio
+from routes import promotion
+from routes import views
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(agent_studio.router, prefix="/api/agent/widget", tags=["agent_studio"])
+app.include_router(promotion.router, prefix="/api/promotion", tags=["promotion"])
+app.include_router(views.router, prefix="/api/views", tags=["views"])
 
 
 # Serve Frontend

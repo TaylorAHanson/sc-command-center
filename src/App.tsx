@@ -3,7 +3,7 @@ import { Responsive } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { X, ExternalLink } from 'lucide-react';
-import { useDashboardStore, type WidgetLayout, TEMPLATES } from './store/dashboardStore';
+import { useDashboardStore, type WidgetLayout } from './store/dashboardStore';
 import { widgetRegistry, useWidgetRegistry } from './widgetRegistry';
 import { Layout } from './components/Layout';
 import { BaseWidget } from './components/BaseWidget';
@@ -56,20 +56,18 @@ const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
 const DashboardGrid: React.FC = () => {
-  const { tabs, activeTabId, viewingTemplate, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget } = useDashboardStore();
+  const { tabs, activeTabId, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
 
-  // Get active tab - either from user tabs or templates
-  const activeTab = viewingTemplate
-    ? TEMPLATES[viewingTemplate]
-    : tabs.find(t => t.id === activeTabId);
+  // Get active tab
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const isReadOnly = (activeTab?.is_global && !isAdmin) || activeTab?.locked === true;
 
   const handleLayoutChange = (layout: WidgetLayout[]) => {
-    const isLockedCheck = !viewingTemplate && activeTab && (activeTab as any).locked === true;
-    if (activeTab && !isLockedCheck) {
+    if (activeTab && !isReadOnly) {
       // Remove static property before saving (we add it dynamically)
       const layoutWithoutStatic = layout.map(({ static: _, ...rest }) => rest);
       updateLayout(activeTab.id, layoutWithoutStatic as WidgetLayout[]);
@@ -275,14 +273,12 @@ const DashboardGrid: React.FC = () => {
   // Early return after all hooks
   if (!activeTab) return null;
 
-  const isLocked = !viewingTemplate && activeTab?.locked === true;
-
   return (
     <div
       ref={containerRef}
       className="h-full w-full"
       onDrop={(e) => {
-        if (isLocked) {
+        if (isReadOnly) {
           e.preventDefault();
           e.stopPropagation();
           return;
@@ -290,7 +286,7 @@ const DashboardGrid: React.FC = () => {
         handleNativeDrop(e);
       }}
       onDragOver={(e) => {
-        if (isLocked) {
+        if (isReadOnly) {
           e.preventDefault();
           e.stopPropagation();
           return;
@@ -303,7 +299,7 @@ const DashboardGrid: React.FC = () => {
         handleNativeDragOver(e);
       }}
       onDragEnter={(e) => {
-        if (isLocked) {
+        if (isReadOnly) {
           e.preventDefault();
           e.stopPropagation();
           return;
@@ -320,18 +316,18 @@ const DashboardGrid: React.FC = () => {
         layouts={{
           lg: activeTab.widgets.map(w => ({
             ...w,
-            static: isLocked || false
+            static: isReadOnly || false
           }))
         }}
         breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
         cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
         rowHeight={60}
         onLayoutChange={(layout: any) => handleLayoutChange(layout as WidgetLayout[])}
-        draggableHandle={isLocked ? "" : ".drag-handle"}
+        draggableHandle={isReadOnly ? "" : ".drag-handle"}
         margin={[16, 16]}
-        isDroppable={!viewingTemplate && !isLocked} // Disable drops when viewing template or locked
-        isDraggable={!viewingTemplate && !isLocked} // Disable dragging when viewing template or locked
-        isResizable={!viewingTemplate && !isLocked} // Disable resizing when viewing template or locked
+        isDroppable={!isReadOnly} // Disable drops when viewing template or locked
+        isDraggable={!isReadOnly} // Disable dragging when viewing template or locked
+        isResizable={!isReadOnly} // Disable resizing when viewing template or locked
         droppingItem={droppingItem}
         onDropDragOver={handleDropDragOver as any}
       >
@@ -340,8 +336,8 @@ const DashboardGrid: React.FC = () => {
             <div className="text-center">
               <p className="text-lg mb-2">Empty Dashboard</p>
               <p className="text-sm">
-                {isLocked
-                  ? "Dashboard is locked. Click 'Unlock' to edit."
+                {isReadOnly
+                  ? "Dashboard is read-only."
                   : "Drag widgets from the library to get started"}
               </p>
             </div>
@@ -362,7 +358,7 @@ const DashboardGrid: React.FC = () => {
               <div key={widget.i} className="bg-red-50 border border-red-200 p-4 rounded text-red-500 h-full relative group">
                 <p className="font-medium">Unknown Widget Type</p>
                 <p className="text-xs mt-1 text-red-400">{widget.type}</p>
-                {!viewingTemplate && !isLocked && (
+                {!isReadOnly && (
                   <button
                     onClick={() => removeWidget(activeTabId, widget.i)}
                     className="absolute top-2 right-2 p-1.5 hover:bg-red-100 rounded-md transition-colors text-red-500"
@@ -376,6 +372,11 @@ const DashboardGrid: React.FC = () => {
           }
 
           const Component = def.component;
+
+          // Domain Filter check
+          if (activeDomain && def.domain && def.domain !== activeDomain) {
+            return null; // hide widgets not in the active domain
+          }
 
           let customActions = null;
           if (widget.type === 'iframe') {
@@ -400,20 +401,29 @@ const DashboardGrid: React.FC = () => {
                 id={widget.i}
                 title={def.name}
                 customActions={customActions}
-                onRemove={viewingTemplate || isLocked ? undefined : () => removeWidget(activeTabId, widget.i)}
+                onRemove={isReadOnly ? undefined : () => removeWidget(activeTabId, widget.i)}
                 onFullscreen={() => setFullscreenWidget({ id: widget.i, type: widget.type, title: def.name })}
                 onConfigure={
-                  (def.configurationMode === 'config_required' || def.configurationMode === 'config_allowed') && (!viewingTemplate && !isLocked)
+                  (def.configurationMode === 'config_required' || def.configurationMode === 'config_allowed') && !isReadOnly
                     ? () => openConfigModal(widget.type, (config) => updateWidget(activeTabId, widget.i, { props: config }), widget.props)
                     : undefined
                 }
-                className={`h-full w-full ${isLocked ? 'locked-widget' : ''}`}
+                className={`h-full w-full ${isReadOnly ? 'locked-widget' : ''}`}
               >
-                <Component
-                  id={widget.i}
-                  data={widget.props}
-                  key={`${widget.i}-${JSON.stringify(widget.props)}`}
-                />
+                <React.Suspense fallback={
+                  <div className="flex items-center justify-center h-full w-full text-gray-400">
+                    <div className="animate-pulse flex flex-col items-center">
+                      <div className="w-6 h-6 border-2 border-qualcomm-blue border-t-transparent rounded-full animate-spin mb-2"></div>
+                      <span className="text-xs">Loading Widget...</span>
+                    </div>
+                  </div>
+                }>
+                  <Component
+                    id={widget.i}
+                    data={widget.props}
+                    key={`${widget.i}-${JSON.stringify(widget.props)}`}
+                  />
+                </React.Suspense>
               </BaseWidget>
             </div>
           );
@@ -486,7 +496,16 @@ const FullscreenWidgetModal: React.FC<FullscreenWidgetModalProps> = ({ widget, o
 
         {/* Widget Content */}
         <div className="flex-1 overflow-auto p-6">
-          <Component id={widget.id} data={undefined} />
+          <React.Suspense fallback={
+            <div className="flex items-center justify-center h-full w-full text-gray-400">
+              <div className="animate-pulse flex flex-col items-center">
+                <div className="w-8 h-8 border-2 border-qualcomm-blue border-t-transparent rounded-full animate-spin mb-2"></div>
+                <span>Loading Widget...</span>
+              </div>
+            </div>
+          }>
+            <Component id={widget.id} data={undefined} />
+          </React.Suspense>
         </div>
       </div>
     </div>

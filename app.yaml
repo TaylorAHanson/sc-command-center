@@ -19,3 +19,11 @@ env:
     value: ""  # Set your Tableau Cloud URL, e.g. https://10ax.online.tableau.com
   - name: USE_SP_FOR_JOBS
     value: "true"  # Set to "true" to use Service Principal for job/notebook execution
+  - name: LAKEBASE_ENABLED
+    value: "true"
+  - name: PGHOST
+    value: "ep-broad-silence-d1ovo00l.database.us-west-2.cloud.databricks.com"
+  - name: PGDATABASE
+    value: "command-center-dev"
+  - name: PGUSER
+    value: "command-center-role"

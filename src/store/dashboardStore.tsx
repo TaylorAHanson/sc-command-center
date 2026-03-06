@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
 
@@ -10,35 +10,45 @@ export interface WidgetLayout {
   h: number;
   type: string;
   props?: Record<string, any>;
-  static?: boolean; // For react-grid-layout to prevent dragging/resizing
+  static?: boolean;
 }
 
 export interface Tab {
   id: string;
   name: string;
   widgets: WidgetLayout[];
-  locked?: boolean; // Lock state for preventing edits
+  locked?: boolean;
+  domain?: string;
+  is_global?: boolean;
+  username?: string;
+  version?: number;
 }
 
 interface DashboardContextType {
-  tabs: Tab[];
+  tabs: Tab[]; // All views (user + global)
   activeTabId: string;
-  viewingTemplate: string | null; // Track if we're viewing a template (read-only)
-  addTab: (name: string) => void;
+  activeDomain: string | null;
+  setActiveDomain: (domainId: string | null) => void;
+  isLoading: boolean;
+  isAdmin: boolean;
+  fetchViews: () => Promise<void>;
+
+  addTab: (name: string, domain?: string, is_global?: boolean) => void;
   removeTab: (id: string) => void;
   renameTab: (id: string, newName: string) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
   setActiveTabId: (id: string) => void;
-  viewTemplate: (templateName: string) => void;
+  duplicateView: (viewId: string) => void;
   toggleLock: (tabId: string) => void;
+
   addWidget: (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => void;
   removeWidget: (tabId: string, widgetId: string) => void;
   updateWidget: (tabId: string, widgetId: string, updates: Partial<WidgetLayout>) => void;
   updateLayout: (tabId: string, newLayout: WidgetLayout[]) => void;
-  loadTemplate: (templateName: string) => void;
+
   generateShareLink: () => string;
   loadSharedDashboard: (sharedData: string) => void;
-  // Config Modal
+
   configModal: { isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null };
   openConfigModal: (widgetId: string, onSave: (config: any) => void, initialConfig?: any) => void;
   closeConfigModal: () => void;
@@ -46,149 +56,144 @@ interface DashboardContextType {
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'sc_command_center_state';
-
-export const TEMPLATES: Record<string, Tab> = {
-  'Executive View': {
-    id: 'temp-exec',
-    name: 'Executive View',
-    widgets: [
-      { i: 'w1', x: 0, y: 0, w: 3, h: 6, type: 'alerts' },
-      { i: 'w2', x: 3, y: 0, w: 6, h: 6, type: 'inventory' },
-      { i: 'w3', x: 9, y: 0, w: 3, h: 6, type: 'genie' },
-      { i: 'w4', x: 0, y: 6, w: 3, h: 3, type: 'external' }
-    ]
-  },
-  'Production': {
-    id: 'temp-prod',
-    name: 'Production',
-    widgets: [
-      { i: 'p1', x: 0, y: 0, w: 8, h: 6, type: 'gantt' },
-      { i: 'p2', x: 8, y: 0, w: 4, h: 4, type: 'action' },
-      { i: 'p3', x: 8, y: 4, w: 4, h: 6, type: 'supplier_form' }
-    ]
-  }
-};
-
-const DEFAULT_TABS: Tab[] = [
-  { ...TEMPLATES['Executive View'], id: 'default-1', name: 'Overview' }
-];
-
 export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [tabs, setTabs] = useState<Tab[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : DEFAULT_TABS;
-  });
+  const [activeDomain, setActiveDomain] = useState<string | null>(null);
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+  const isAdmin = true; // TODO: Fetch from actual auth
 
-  const [activeTabId, setActiveTabId] = useState<string>(() => {
-    // Check for shared dashboard in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const shareParam = urlParams.get('share');
-    if (shareParam) {
-      // Will be handled by useEffect
-      return '';
-    }
+  const fetchViews = useCallback(async () => {
+    try {
+      const response = await fetch('/api/views/');
+      if (response.ok) {
+        const data = await response.json();
+        const loadedTabs = data.views.map((v: any) => ({
+          ...v,
+          locked: v.is_locked
+        }));
+        setTabs(loadedTabs);
 
-    const hash = window.location.hash;
-    if (hash.startsWith('#/template/')) {
-      // Find if template id exists
-      const templateName = decodeURIComponent(hash.replace('#/template/', ''));
-      if (TEMPLATES[templateName]) {
-        return TEMPLATES[templateName].id;
+        // Only set default tab if we don't have one and we're not loading a shared URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const hasShare = urlParams.get('share');
+
+        if (!hasShare && loadedTabs.length > 0) {
+          // Check hash
+          const hash = window.location.hash;
+          if (hash.startsWith('#/view/')) {
+            const id = hash.replace('#/view/', '');
+            if (loadedTabs.some((t: Tab) => t.id === id)) {
+              setActiveTabId(id);
+              return;
+            }
+          }
+          if (!activeTabId) {
+            setActiveTabId(loadedTabs[0].id);
+          }
+        }
       }
+    } catch (e) {
+      console.error('Failed to load views:', e);
+    } finally {
+      setIsLoading(false);
     }
-    if (hash.startsWith('#/view/')) {
-      const id = hash.replace('#/view/', '');
-      if (tabs.some((t: Tab) => t.id === id)) return id;
-    }
-
-    return tabs[0]?.id || '';
-  });
-
-  const [viewingTemplate, setViewingTemplate] = useState<string | null>(() => {
-    const hash = window.location.hash;
-    if (hash.startsWith('#/template/')) {
-      const templateName = decodeURIComponent(hash.replace('#/template/', ''));
-      if (TEMPLATES[templateName]) return templateName;
-    }
-    return null;
-  });
+  }, [activeTabId]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs));
-  }, [tabs]);
+    fetchViews();
+  }, [fetchViews]);
 
-  // Load shared dashboard from URL on mount
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const shareParam = urlParams.get('share');
-    if (shareParam) {
-      // Use setTimeout to ensure state is initialized
+    if (shareParam && !isLoading) {
       setTimeout(() => {
         loadSharedDashboard(shareParam);
-        // Clean up URL
         window.history.replaceState({}, '', window.location.pathname);
       }, 0);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run on mount
+  }, [isLoading]);
 
-  const addTab = (name: string) => {
-    const newTab: Tab = {
-      id: uuidv4(),
-      name,
-      widgets: []
-    };
-    setTabs([...tabs, newTab]);
-    setActiveTabId(newTab.id);
-  };
-
-  const viewTemplate = (templateName: string) => {
-    // View template in read-only mode
-    setViewingTemplate(templateName);
-    const template = TEMPLATES[templateName];
-    if (template) {
-      // Set active tab to template ID (temporary, won't be saved)
-      setActiveTabId(template.id);
+  const apiSyncView = async (tab: Tab, method: string = 'PUT') => {
+    try {
+      await fetch(`/api/views/${method === 'PUT' ? `${tab.id}` : ''}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: tab.id,
+          name: tab.name,
+          domain: tab.domain || "General",
+          is_global: tab.is_global || false,
+          is_locked: tab.locked || false,
+          widgets: tab.widgets
+        })
+      });
+    } catch (e) {
+      console.error('Failed to sync view:', e);
     }
   };
 
-  const loadTemplate = (templateName: string) => {
-    const template = TEMPLATES[templateName];
-    if (template) {
-      const newTab = { ...template, id: uuidv4(), name: `${template.name} (Copy)` };
-      // Regenerate widget IDs to avoid conflicts
-      newTab.widgets = newTab.widgets.map(w => ({ ...w, i: uuidv4() }));
+  const addTab = (name: string, domain?: string, is_global: boolean = false) => {
+    const newTab: Tab = {
+      id: uuidv4(),
+      name,
+      widgets: [],
+      domain: domain || 'General',
+      is_global
+    };
+    setTabs([...tabs, newTab]);
+    setActiveTabId(newTab.id);
+    apiSyncView(newTab, 'POST');
+  };
 
+  const duplicateView = (viewId: string) => {
+    const template = tabs.find(t => t.id === viewId);
+    if (template) {
+      const newTab = {
+        ...template,
+        id: uuidv4(),
+        name: `${template.name} (Copy)`,
+        is_global: false,
+        username: undefined
+      };
+      newTab.widgets = newTab.widgets.map(w => ({ ...w, i: uuidv4() }));
       setTabs([...tabs, newTab]);
       setActiveTabId(newTab.id);
-      setViewingTemplate(null); // Clear template view when cloning
+      apiSyncView(newTab, 'POST');
     }
   };
 
   const handleSetActiveTabId = (id: string) => {
-    // If switching to a user tab, clear template view
-    const isTemplate = Object.values(TEMPLATES).some(t => t.id === id);
-    if (!isTemplate) {
-      setViewingTemplate(null);
-    }
     setActiveTabId(id);
   };
 
-  const removeTab = (id: string) => {
+  const removeTab = async (id: string) => {
     const newTabs = tabs.filter(t => t.id !== id);
     setTabs(newTabs);
     if (activeTabId === id && newTabs.length > 0) {
       setActiveTabId(newTabs[0].id);
     }
+
+    try {
+      await fetch(`/api/views/${id}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('Failed to delete view', e);
+    }
   };
 
   const renameTab = (id: string, newName: string) => {
-    if (!newName.trim()) return; // Don't allow empty names
-    setTabs(tabs.map(t => t.id === id ? { ...t, name: newName.trim() } : t));
+    if (!newName.trim()) return;
+    setTabs(prev => {
+      const newTabs = prev.map(t => t.id === id ? { ...t, name: newName.trim() } : t);
+      const updatedTab = newTabs.find(t => t.id === id);
+      if (updatedTab) apiSyncView(updatedTab);
+      return newTabs;
+    });
   };
 
   const reorderTabs = (fromIndex: number, toIndex: number) => {
+    // Only affect UI order, DB doesn't care for now
     const newTabs = [...tabs];
     const [removed] = newTabs.splice(fromIndex, 1);
     newTabs.splice(toIndex, 0, removed);
@@ -196,73 +201,116 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const toggleLock = (tabId: string) => {
-    setTabs(tabs.map(t => t.id === tabId ? { ...t, locked: !t.locked } : t));
+    setTabs(prev => {
+      const newTabs = prev.map(t => t.id === tabId ? { ...t, locked: !t.locked } : t);
+      const updatedTab = newTabs.find(t => t.id === tabId);
+      if (updatedTab) apiSyncView(updatedTab);
+      return newTabs;
+    });
   };
 
+  const addWidget = (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => {
+    setTabs(prev => {
+      let updatedTab: Tab | null = null;
+      const newTabs = prev.map(tab => {
+        if (tab.id !== tabId) return tab;
+        const def = widgetRegistry[type];
+        const newWidget: WidgetLayout = {
+          i: uuidv4(),
+          x: position?.x ?? (tab.widgets.length * 4) % 12,
+          y: position?.y ?? Infinity,
+          w: position?.w ?? def?.defaultW ?? 4,
+          h: position?.h ?? def?.defaultH ?? 4,
+          type,
+          props: props || {}
+        };
+        updatedTab = { ...tab, widgets: [...tab.widgets, newWidget] };
+        return updatedTab;
+      });
+      if (updatedTab) apiSyncView(updatedTab);
+      return newTabs;
+    });
+  };
+
+  const updateWidget = (tabId: string, widgetId: string, updates: Partial<WidgetLayout>) => {
+    setTabs(prev => {
+      let updatedTab: Tab | null = null;
+      const newTabs = prev.map(tab => {
+        if (tab.id !== tabId) return tab;
+        updatedTab = {
+          ...tab,
+          widgets: tab.widgets.map(w => w.i === widgetId ? { ...w, ...updates } : w)
+        };
+        return updatedTab;
+      });
+      if (updatedTab) apiSyncView(updatedTab);
+      return newTabs;
+    });
+  };
+
+  const removeWidget = (tabId: string, widgetId: string) => {
+    setTabs(prev => {
+      let updatedTab: Tab | null = null;
+      const newTabs = prev.map(tab => {
+        if (tab.id !== tabId) return tab;
+        updatedTab = { ...tab, widgets: tab.widgets.filter(w => w.i !== widgetId) };
+        return updatedTab;
+      });
+      if (updatedTab) apiSyncView(updatedTab);
+      return newTabs;
+    });
+  };
+
+  const updateLayout = (tabId: string, newLayout: WidgetLayout[]) => {
+    setTabs(prev => {
+      let updatedTab: Tab | null = null;
+      const newTabs = prev.map(tab => {
+        if (tab.id !== tabId) return tab;
+        const updatedWidgets = newLayout.map(l => {
+          const existing = tab.widgets.find(w => w.i === l.i);
+          return existing ? { ...existing, x: l.x, y: l.y, w: l.w, h: l.h } : undefined;
+        }).filter(Boolean) as WidgetLayout[];
+        updatedTab = { ...tab, widgets: updatedWidgets };
+        return updatedTab;
+      });
+      if (updatedTab) apiSyncView(updatedTab);
+      return newTabs;
+    });
+  };
+
+  // Remaining tools
   const generateShareLink = (): string => {
     const activeTab = tabs.find(t => t.id === activeTabId);
     if (!activeTab) return '';
-
-    // Create a shareable representation of the dashboard
     const shareData = {
       name: activeTab.name,
-      widgets: activeTab.widgets.map(w => ({
-        type: w.type,
-        x: w.x,
-        y: w.y,
-        w: w.w,
-        h: w.h,
-        props: w.props
-      }))
+      widgets: activeTab.widgets.map(w => ({ type: w.type, x: w.x, y: w.y, w: w.w, h: w.h, props: w.props }))
     };
-
-    // Encode as base64 URL-safe string
-    const encoded = btoa(JSON.stringify(shareData))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-
+    const encoded = btoa(JSON.stringify(shareData)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     return `${window.location.origin}${window.location.pathname}?share=${encoded}`;
   };
 
   const loadSharedDashboard = (sharedData: string) => {
     try {
-      // Decode base64 URL-safe string
-      const decoded = atob(
-        sharedData
-          .replace(/-/g, '+')
-          .replace(/_/g, '/')
-      );
+      const decoded = atob(sharedData.replace(/-/g, '+').replace(/_/g, '/'));
       const parsedData = JSON.parse(decoded);
-
-      // Create a new tab from the shared data
       const newTab: Tab = {
         id: uuidv4(),
         name: `${parsedData.name} (Shared)`,
         widgets: parsedData.widgets.map((w: any) => ({
-          i: uuidv4(),
-          type: w.type,
-          x: w.x,
-          y: w.y,
-          w: w.w,
-          h: w.h,
-          props: w.props || {}
+          i: uuidv4(), type: w.type, x: w.x, y: w.y, w: w.w, h: w.h, props: w.props || {}
         }))
       };
-
       setTabs([...tabs, newTab]);
       setActiveTabId(newTab.id);
-      setViewingTemplate(null);
+      apiSyncView(newTab, 'POST');
     } catch (error) {
       console.error('Failed to load shared dashboard:', error);
     }
   };
 
   const [configModal, setConfigModal] = useState<{ isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null }>({
-    isOpen: false,
-    widgetId: null,
-    initialConfig: {},
-    onSave: null
+    isOpen: false, widgetId: null, initialConfig: {}, onSave: null
   });
 
   const openConfigModal = (widgetId: string, onSave: (config: any) => void, initialConfig: any = {}) => {
@@ -273,88 +321,12 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setConfigModal({ isOpen: false, widgetId: null, initialConfig: {}, onSave: null });
   };
 
-  const addWidget = (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => {
-    setTabs(prev => prev.map(tab => {
-      if (tab.id !== tabId) return tab;
-      const def = widgetRegistry[type];
-      const newWidget: WidgetLayout = {
-        i: uuidv4(),
-        x: position?.x ?? (tab.widgets.length * 4) % 12,
-        y: position?.y ?? Infinity, // puts it at the bottom if no position
-        w: position?.w ?? def?.defaultW ?? 4,
-        h: position?.h ?? def?.defaultH ?? 4,
-        type,
-        props: props || {}
-      };
-      return { ...tab, widgets: [...tab.widgets, newWidget] };
-    }));
-  };
-
-  const updateWidget = (tabId: string, widgetId: string, updates: Partial<WidgetLayout>) => {
-    setTabs(prev => prev.map(tab => {
-      if (tab.id !== tabId) return tab;
-      return {
-        ...tab,
-        widgets: tab.widgets.map(w => {
-          if (w.i === widgetId) {
-            return { ...w, ...updates };
-          }
-          return w;
-        })
-      };
-    }));
-  };
-
-  const removeWidget = (tabId: string, widgetId: string) => {
-    setTabs(prev => prev.map(tab => {
-      if (tab.id !== tabId) return tab;
-      return { ...tab, widgets: tab.widgets.filter(w => w.i !== widgetId) };
-    }));
-  };
-
-  const updateLayout = (tabId: string, newLayout: WidgetLayout[]) => {
-    setTabs(prev => prev.map(tab => {
-      if (tab.id !== tabId) return tab;
-
-      if (newLayout.length > 0) {
-        // console.log('dashboardStore: updateLayout called. First item in newLayout:', newLayout[0]);
-        // const targetWidget = tab.widgets.find(w => w.i === newLayout[0].i);
-        // console.log('dashboardStore: updateLayout existing widget state:', targetWidget);
-      }
-
-      // Merge new layout positions with existing widget data (type, props)
-      const updatedWidgets = newLayout.map(l => {
-        const existing = tab.widgets.find(w => w.i === l.i);
-        // Only update layout properties, preserve existing props/type/etc.
-        return existing ? { ...existing, x: l.x, y: l.y, w: l.w, h: l.h } : undefined;
-      }).filter(Boolean) as WidgetLayout[];
-
-      return { ...tab, widgets: updatedWidgets };
-    }));
-  };
-
   return (
     <DashboardContext.Provider value={{
-      tabs,
-      activeTabId,
-      viewingTemplate,
-      addTab,
-      removeTab,
-      renameTab,
-      reorderTabs,
-      setActiveTabId: handleSetActiveTabId,
-      viewTemplate,
-      addWidget,
-      removeWidget,
-      updateWidget,
-      updateLayout,
-      loadTemplate,
-      generateShareLink,
-      loadSharedDashboard,
-      toggleLock,
-      configModal,
-      openConfigModal,
-      closeConfigModal
+      tabs, activeTabId, activeDomain, setActiveDomain, isLoading, isAdmin, fetchViews,
+      addTab, removeTab, renameTab, reorderTabs, setActiveTabId: handleSetActiveTabId,
+      duplicateView, addWidget, removeWidget, updateWidget, updateLayout,
+      toggleLock, generateShareLink, loadSharedDashboard, configModal, openConfigModal, closeConfigModal
     }}>
       {children}
     </DashboardContext.Provider>
@@ -363,9 +335,6 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
 export const useDashboardStore = () => {
   const context = useContext(DashboardContext);
-  if (!context) {
-    throw new Error('useDashboardStore must be used within a DashboardProvider');
-  }
+  if (!context) throw new Error('useDashboardStore must be used within a DashboardProvider');
   return context;
 };
-
