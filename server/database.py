@@ -3,6 +3,7 @@ from typing import Dict, List, Any
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from config.settings import get_lakebase_config
+from databricks.sdk import WorkspaceClient
 
 def get_db_connection(env: str = "dev"):
     """Get a database connection (SQLite or Lakebase/Postgres)."""
@@ -16,11 +17,26 @@ def get_db_connection(env: str = "dev"):
                 break
         db_name = f"{base_name}-{env}"
         
+    host = config.get("host")
+    port = config.get("port")
+    user = config.get("user")
+    password = config.get("password")
+    
+    # If no password is provided and we aren't using a local db,
+    # generate a short-lived OAuth token via the Databricks SDK.
+    if not password and host and host != "localhost":
+        try:
+            w = WorkspaceClient()
+            creds = w.database.generate_database_credential()
+            password = creds.token
+        except Exception as e:
+            print(f"Warning: Failed to generate database credential: {e}")
+
     return psycopg2.connect(
-        host=config.get("host"),
-        port=config.get("port"),
-        user=config.get("user"),
-        password=config.get("password"),
+        host=host,
+        port=port,
+        user=user,
+        password=password,
         dbname=db_name
     )
 
