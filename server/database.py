@@ -1,4 +1,5 @@
 import os
+import uuid
 from typing import Dict, List, Any
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -21,12 +22,16 @@ def get_db_connection(env: str = "dev"):
     port = config.get("port")
     user = config.get("user")
     password = config.get("password")
+    instance_name = config.get("instance_name")
     
     # If no password is provided and we aren't using a local db,
     # generate a short-lived OAuth token via the Databricks SDK.
     if not password and host and host != "localhost":
         w = WorkspaceClient()
-        creds = w.database.generate_database_credential()
+        creds = w.database.generate_database_credential(
+            request_id = str(uuid.uuid4()),
+            instance_names=[instance_name] if instance_name else []
+        )
         password = creds.token
 
     return psycopg2.connect(

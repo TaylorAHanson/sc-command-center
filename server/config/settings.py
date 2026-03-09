@@ -8,5 +8,6 @@ def get_lakebase_config():
         "port": os.environ.get("PGPORT", "5432"),
         "user": os.environ.get("PGUSER", "postgres"),
         "password": os.environ.get("PGPASSWORD", ""),
-        "database": os.environ.get("PGDATABASE", "lakebase")
+        "database": os.environ.get("PGDATABASE", "lakebase"),
+        "instance_name": os.environ.get("LAKEBASE_INSTANCE_NAME", "scm-oltp")
     }
