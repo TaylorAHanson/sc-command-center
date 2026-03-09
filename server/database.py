@@ -25,12 +25,9 @@ def get_db_connection(env: str = "dev"):
     # If no password is provided and we aren't using a local db,
     # generate a short-lived OAuth token via the Databricks SDK.
     if not password and host and host != "localhost":
-        try:
-            w = WorkspaceClient()
-            creds = w.database.generate_database_credential()
-            password = creds.token
-        except Exception as e:
-            print(f"Warning: Failed to generate database credential: {e}")
+        w = WorkspaceClient()
+        creds = w.database.generate_database_credential()
+        password = creds.token
 
     return psycopg2.connect(
         host=host,
