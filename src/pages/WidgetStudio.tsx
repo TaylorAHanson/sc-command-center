@@ -86,7 +86,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
     // Widget Settings State
     const [widgetName, setWidgetName] = useState(sessionState?.widgetName || "New Custom Widget");
     const [widgetDescription, setWidgetDescription] = useState(sessionState?.widgetDescription || "");
-    const [widgetCategory, setWidgetCategory] = useState(sessionState?.widgetCategory || "Custom");
+    const [widgetCategory, setWidgetCategory] = useState(sessionState?.widgetCategory || "");
     const [widgetDomain, setWidgetDomain] = useState(sessionState?.widgetDomain || "General");
     const [isExecutable, setIsExecutable] = useState(sessionState?.isExecutable || false);
     const [dataSourceType, setDataSourceType] = useState<"none" | "api" | "sql">(sessionState?.dataSourceType || "none");
@@ -290,6 +290,27 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
     };
 
     const handlePublish = async () => {
+        if (!widgetName.trim()) {
+            alert('Please provide a Widget Name before publishing.');
+            setViewMode('config');
+            return;
+        }
+        if (!widgetDescription.trim()) {
+            alert('Please provide a Description before publishing.');
+            setViewMode('config');
+            return;
+        }
+        if (!widgetCategory || widgetCategory === 'Custom') {
+            alert('Please select a Category before publishing.');
+            setViewMode('config');
+            return;
+        }
+        if (!widgetDomain || widgetDomain.toLowerCase() === 'general' || widgetDomain.toLowerCase() === 'custom') {
+            alert('Please select a specific Domain (cannot be "General" or "Custom") before publishing.');
+            setViewMode('config');
+            return;
+        }
+
         const isEditing = !!editingId;
         const url = isEditing ? `/api/widgets/custom/${editingId}` : '/api/widgets/custom';
         const method = isEditing ? 'PUT' : 'POST';
@@ -363,7 +384,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
         setEditingId(null);
         setWidgetName("New Custom Widget");
         setWidgetDescription("");
-        setWidgetCategory("Custom");
+        setWidgetCategory("");
         setWidgetDomain(availableDomains[0] || "General");
         setIsExecutable(false);
         setDataSourceType("none");
@@ -445,7 +466,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                     <div className="flex border border-slate-600 rounded-md bg-slate-900 focus-within:border-indigo-500 ring-1 focus-within:ring-indigo-500 overflow-hidden transition-all shadow-inner items-end">
                         <textarea
                             className="flex-1 bg-transparent border-none px-4 py-3 text-sm focus:outline-none text-slate-200 placeholder-slate-500 resize-none min-h-[44px] max-h-32 overflow-hidden"
-                            placeholder="E.g., A bar chart showing total completed units..."
+                            placeholder="Create a bar chart showing total sales..."
                             value={prompt}
                             onChange={e => {
                                 setPrompt(e.target.value);
@@ -589,11 +610,22 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Category</label>
-                                        <input
-                                            value={widgetCategory} onChange={e => setWidgetCategory(e.target.value)}
+                                        <select
+                                            value={widgetCategory === 'Custom' ? '' : widgetCategory} onChange={e => setWidgetCategory(e.target.value)}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
-                                            placeholder="e.g. Analytics"
-                                        />
+                                        >
+                                            <option value="" disabled>Select a Category...</option>
+                                            <option value="Monitoring">Monitoring</option>
+                                            <option value="Analytics">Analytics</option>
+                                            <option value="Planning">Planning</option>
+                                            <option value="AI & Automation">AI & Automation</option>
+                                            <option value="Actions">Actions</option>
+                                            <option value="Finance">Finance</option>
+                                            <option value="Operations">Operations</option>
+                                            <option value="Sales">Sales</option>
+                                            <option value="Logistics">Logistics</option>
+                                            <option value="Inventory">Inventory</option>
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Domain</label>
