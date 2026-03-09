@@ -14,9 +14,9 @@ interface WidgetTrayProps {
 }
 
 export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditWidget }) => {
-  const { tabs, activeTabId, viewingTemplate, activeDomain, addWidget, openConfigModal } = useDashboardStore();
-  const activeTab = viewingTemplate ? null : tabs.find(t => t.id === activeTabId);
-  const isLocked = !viewingTemplate && activeTab?.locked === true;
+  const { tabs, activeTabId, activeDomain, addWidget, openConfigModal } = useDashboardStore();
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const isLocked = activeTab?.locked === true;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
