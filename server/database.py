@@ -12,11 +12,13 @@ def get_db_connection(env: str = "dev"):
     db_name = config.get("database")
     if env and env in ("dev", "test", "prod"):
         base_name = db_name
-        for suffix in ("-dev", "-test", "-prod"):
+        for suffix in ("-dev", "-test", "-prod", "_dev", "_test", "_prod"):
             if base_name.endswith(suffix):
                 base_name = base_name[:-len(suffix)]
                 break
-        db_name = f"{base_name}-{env}"
+                
+        separator = "-" if "-" in base_name and "_" not in base_name else "_"
+        db_name = f"{base_name}{separator}{env}"
         
     host = config.get("host")
     port = config.get("port")
