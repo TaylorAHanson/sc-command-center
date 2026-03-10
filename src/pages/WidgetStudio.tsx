@@ -108,14 +108,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
             .then(data => {
                 if (data.domains) {
                     setAvailableDomains(data.domains);
-                    // Ensure the currently selected domain is in the list, otherwise select the first available
-                    if (!data.domains.includes(widgetDomain) && data.domains.length > 0) {
-                        setWidgetDomain(data.domains[0]);
-                    }
                 }
             })
             .catch(console.error);
-    }, [widgetDomain]);
+    }, []);
 
     // Save state changes to session storage
     useEffect(() => {
@@ -629,14 +625,20 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Domain</label>
-                                        <select
-                                            value={widgetDomain} onChange={e => setWidgetDomain(e.target.value)}
-                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
-                                        >
-                                            {availableDomains.map(d => (
-                                                <option key={d} value={d}>{d}</option>
-                                            ))}
-                                        </select>
+                                        <div className="relative">
+                                            <input
+                                                list="widget-domain-options"
+                                                value={widgetDomain}
+                                                onChange={e => setWidgetDomain(e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                placeholder="e.g. Sales, Enterprise, Data Science..."
+                                            />
+                                            <datalist id="widget-domain-options">
+                                                {availableDomains.map(d => (
+                                                    <option key={d} value={d}>{d}</option>
+                                                ))}
+                                            </datalist>
+                                        </div>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Default Width (cols)</label>
