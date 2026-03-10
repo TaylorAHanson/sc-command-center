@@ -124,7 +124,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
     // Filter by Toggles
     if (showCertifiedOnly) {
       // Always show user-published custom widgets, even when certified filter is on
-      widgets = widgets.filter(w => w.isCertified || w.category === 'Custom');
+      widgets = widgets.filter(w => w.isCertified || (currentUser && w.createdBy === currentUser) || !w.createdBy);
     }
     if (accessFilter === 'accessible') {
       widgets = widgets.filter(w => w.accessControl?.mockHasAccess !== false);
@@ -465,7 +465,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
 
                           {/* Drag Handle / Owner Actions */}
                           {hasAccess && (() => {
-                            const isOwned = widget.category === 'Custom' && currentUser && (widget.createdBy === currentUser || !widget.createdBy);
+                            const isOwned = currentUser && (widget.createdBy === currentUser || !widget.createdBy);
                             if (isOwned) {
                               return (
                                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
