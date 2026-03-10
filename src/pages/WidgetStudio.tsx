@@ -544,6 +544,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                                 id="preview-widget"
                                                 title={widgetName}
                                                 className="h-full w-full"
+                                                onConfigure={configMode !== 'none' ? () => setViewMode('config') : undefined}
                                             >
                                                 {/* */}
                                                 <WidgetErrorBoundary
@@ -559,7 +560,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                                             id: "preview-widget",
                                                             data: {
                                                                 dataSource: dataSource,
-                                                                dataSourceType: dataSourceType
+                                                                dataSourceType: dataSourceType,
+                                                                ...(configSchema || []).reduce((acc, field) => {
+                                                                    if (field.key) {
+                                                                        // Attempt to map back to number if type is number, though string will usually suffice for preview
+                                                                        acc[field.key] = field.type === 'number' && field.defaultValue ? Number(field.defaultValue) : field.defaultValue;
+                                                                    }
+                                                                    return acc;
+                                                                }, {} as Record<string, any>)
                                                             }
                                                         })}
                                                     </ExecuteActionPropInjector>

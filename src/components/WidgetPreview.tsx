@@ -5,6 +5,7 @@ interface WidgetPreviewProps {
   widgetId: string;
   component: React.ComponentType<WidgetProps>;
   className?: string;
+  defaultProps?: any;
 }
 
 class WidgetPreviewErrorBoundary extends React.Component<
@@ -36,18 +37,18 @@ class WidgetPreviewErrorBoundary extends React.Component<
   }
 }
 
-export const WidgetPreview: React.FC<WidgetPreviewProps> = ({ widgetId, component: Component, className }) => {
+export const WidgetPreview: React.FC<WidgetPreviewProps> = ({ widgetId, component: Component, className, defaultProps }) => {
   return (
     <WidgetPreviewErrorBoundary>
       <div className={`relative overflow-hidden bg-white border border-gray-200 rounded ${className || ''} h-full`}>
-        <div className="absolute inset-0 pointer-events-none" style={{ 
-          transform: 'scale(0.75)', 
+        <div className="absolute inset-0 pointer-events-none" style={{
+          transform: 'scale(0.75)',
           transformOrigin: 'top left',
           width: '133.33%',
           height: '133.33%'
         }}>
           <div className="h-full w-full">
-            <Component id={`preview-${widgetId}`} data={{}} />
+            <Component id={`preview-${widgetId}`} data={defaultProps || {}} />
           </div>
         </div>
       </div>

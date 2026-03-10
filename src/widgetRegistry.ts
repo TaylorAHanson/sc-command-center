@@ -109,10 +109,24 @@ export const loadCustomWidgets = async () => {
           component: Component,
           configurationMode: w.configuration_mode || 'none',
           configSchema: w.config_schema ? JSON.parse(w.config_schema) : undefined,
-          defaultProps: w.data_source ? {
-            dataSource: w.data_source,
-            dataSourceType: w.data_source_type || 'none'
-          } : undefined,
+          defaultProps: (() => {
+            const props: Record<string, any> = {};
+            if (w.data_source) {
+              props.dataSource = w.data_source;
+              props.dataSourceType = w.data_source_type || 'none';
+            }
+            if (w.config_schema) {
+              try {
+                const schema = JSON.parse(w.config_schema);
+                schema.forEach((field: any) => {
+                  if (field.key && field.defaultValue !== undefined && field.defaultValue !== '') {
+                    props[field.key] = field.type === 'number' ? Number(field.defaultValue) : field.defaultValue;
+                  }
+                });
+              } catch (e) { }
+            }
+            return Object.keys(props).length > 0 ? props : undefined;
+          })(),
           isCertified: w.is_certified === 1,
           isExecutable: w.is_executable === 1,
           createdBy: w.created_by || undefined,
