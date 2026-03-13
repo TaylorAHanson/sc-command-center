@@ -137,7 +137,7 @@ To run the project locally:
 
 The Enterprise Command Center no longer requires manually writing widget files into the source code. Instead, all widgets are created and managed dynamically via the built-in **Widget Studio** UI.
 
-### Creating and Editing Widgets
+### Creating and Editing Simple Widgets
 To create a new widget or modify an existing one, navigate to the **Widget Studio** within the application. 
 
 1. **Configuration (`Settings` Mode):**
@@ -158,5 +158,49 @@ To create a new widget or modify an existing one, navigate to the **Widget Studi
 3. **Preview & Publish:**
    - Use the **Preview** toggle to test your widget's appearance and functionality in real-time.
    - Once satisfied, click **Publish** (or **Update** if editing an existing widget) to save it to the database. It will immediately become available in the Widget Library for authorized users to add to their dashboard views.
+
+### Creating and Editing Complex Widgets
+
+For widgets that require a custom API or complex backend logic beyond the standard data sources, we use a highly opinionated hybrid contribution model. You will still build the UI component in the Widget Studio, but you must contribute your custom API directly to the codebase via a **fork and Pull Request (PR)**.
+
+To have your PR accepted, you **must** adhere to the following strict guidelines:
+
+1. **Single File Requirement**: Your entire custom API logic must be contained within a **single Python file** placed in the `server/routes/custom_widgets/` directory.
+2. **Zero Modifications to Existing Files**: You must not change `main.py` or any other existing files. The backend is configured to **dynamically load** any `APIRouter` found in the `custom_widgets` directory.
+3. **OBO Authentication Only**: You must use the On-Behalf-Of (OBO) authentication dependency for any Databricks interactions. Service Principal authentication is strictly prohibited for custom widget APIs.
+
+#### The Required Template
+
+Your single file must define an `APIRouter` named `router` so the dynamic loader can mount it. Here is the base template you **must** use:
+
+```python
+from fastapi import APIRouter, Depends
+from server.auth import get_current_user, get_obo_token
+
+# 1. The router MUST be named 'router' for the dynamic loader to find it
+# 2. The prefix MUST start with /api/custom/ to avoid routing conflicts
+router = APIRouter(
+    prefix="/api/custom/my_unique_widget_name",
+    tags=["Custom Widget: My Unique Widget"]
+)
+
+@router.get("/data")
+async def get_widget_data(
+    user: dict = Depends(get_current_user),
+    obo_token: str = Depends(get_obo_token)
+):
+    """
+    Fetch data for the custom widget using the user's OBO token.
+    """
+    # Use the obo_token to interact with Databricks securely on behalf of the user.
+    # DO NOT use service principal credentials here.
+    
+    return {
+        "status": "success", 
+        "user": user.get("username"),
+        "data": "Your custom data here"
+    }
+```
+
 
 Happy configuring! 🚀
