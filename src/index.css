@@ -36,3 +36,22 @@ html, body, #root {
   pointer-events: none !important;
   opacity: 0.6;
 }
+
+/* Custom Scrollbar for better visibility inside widgets */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5); /* tailwind gray-400 */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(107, 114, 128, 0.8); /* tailwind gray-500 */
+}

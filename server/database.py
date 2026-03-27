@@ -80,6 +80,16 @@ def init_db(env: str = "dev"):
         c.execute("ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS action_name TEXT")
     except:
         pass # In case IF NOT EXISTS isn't supported or other issues
+        
+    try:
+        c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS snapshot TEXT")
+    except:
+        pass
+        
+    try:
+        c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS open_in_new_tab_link TEXT")
+    except:
+        pass
     
     # Core + Custom Widgets Table with Versioning
     c.execute(f'''
@@ -97,6 +107,8 @@ def init_db(env: str = "dev"):
             config_schema TEXT,
             data_source_type TEXT DEFAULT 'api',
             data_source TEXT,
+            snapshot TEXT,
+            open_in_new_tab_link TEXT,
             is_executable INTEGER DEFAULT 0,
             is_certified INTEGER DEFAULT 0,
             is_deprecated INTEGER DEFAULT 0,

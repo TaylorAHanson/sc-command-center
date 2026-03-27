@@ -380,20 +380,22 @@ const DashboardGrid: React.FC = () => {
           }
 
           let customActions = null;
-          if (widget.type === 'iframe') {
-            const url = widget.props?.url || 'https://forecast.weather.gov/MapClick.php?lat=32.7157&lon=-117.1611';
-            customActions = (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.open(url, '_blank');
-                }}
-                className="text-gray-400 hover:text-qualcomm-blue transition-colors"
-                title="Open in New Tab"
-              >
-                <ExternalLink className="w-4 h-4" />
-              </button>
-            );
+          if (def.openInNewTabLink || widget.type === 'iframe') {
+            const url = def.openInNewTabLink || widget.props?.url || 'https://forecast.weather.gov/MapClick.php?lat=32.7157&lon=-117.1611';
+            if (url) {
+                customActions = (
+                <button
+                    onClick={(e) => {
+                    e.stopPropagation();
+                    window.open(url, '_blank');
+                    }}
+                    className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+                    title="Open in New Tab"
+                >
+                    <ExternalLink className="w-4 h-4" />
+                </button>
+                );
+            }
           }
 
           return (

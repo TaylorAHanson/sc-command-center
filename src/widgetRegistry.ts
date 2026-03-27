@@ -36,6 +36,8 @@ export interface WidgetDefinition {
   };
   isExecutable?: boolean;
   defaultProps?: Record<string, any>; // Default props passed to the component as `data` when placed on a dashboard
+  snapshot?: string; // Base64 image snapshot of the widget
+  openInNewTabLink?: string; // Optional URL to open in a new tab when the user clicks a button in the widget header
   createdBy?: string; // Username of whoever published this widget (custom widgets only)
 }
 
@@ -129,6 +131,8 @@ export const loadCustomWidgets = async () => {
           })(),
           isCertified: w.is_certified === 1,
           isExecutable: w.is_executable === 1,
+          snapshot: w.snapshot || undefined,
+          openInNewTabLink: w.open_in_new_tab_link || undefined,
           createdBy: w.created_by || undefined,
           accessControl: { mockHasAccess: true }
         });

@@ -104,7 +104,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
           )}
         </div>
       </div>
-      <div className="flex-1 p-4 overflow-auto relative">
+      <div className="flex-1 p-4 overflow-auto relative min-h-0 min-w-0">
         <ActionProvider value={initiateAction}>
           {children}
         </ActionProvider>

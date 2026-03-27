@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid, Pencil, Trash2 } from 'lucide-react';
+import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid, Pencil, Trash2, Copy } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { getWidgetCategories, getWidgetDomains, getAvailableWidgets, useWidgetRegistry } from '../widgetRegistry';
 import type { WidgetDefinition } from '../widgetRegistry';
@@ -11,9 +11,10 @@ interface WidgetTrayProps {
   isOpen: boolean;
   onClose: () => void;
   onEditWidget?: (widgetId: string) => void;
+  onCloneWidget?: (widgetId: string) => void;
 }
 
-export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditWidget }) => {
+export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditWidget, onCloneWidget }) => {
   const { tabs, activeTabId, activeDomain, addWidget, openConfigModal } = useDashboardStore();
   const activeTab = tabs.find(t => t.id === activeTabId);
   const isLocked = activeTab?.locked === true;
@@ -30,7 +31,13 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
 
   const [accessFilter, setAccessFilter] = useState<'all' | 'accessible' | 'restricted'>(() => {
     const saved = localStorage.getItem('widget_tray_access_filter');
-    return (saved as 'all' | 'accessible' | 'restricted') || 'accessible'; // Default accessible
+    if (saved) {
+      const sanitized = saved.replace(/['"]/g, '');
+      if (['all', 'accessible', 'restricted'].includes(sanitized)) {
+        return sanitized as 'all' | 'accessible' | 'restricted';
+      }
+    }
+    return 'accessible'; // Default accessible
   });
 
   // Save filters on change
@@ -138,7 +145,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
       const scoreB = popularityScores[b.id] || 0;
       return scoreB - scoreA;
     });
-  }, [allWidgets, activeDomain, searchQuery, selectedGroup, grouping, showCertifiedOnly, accessFilter, popularityScores]);
+  }, [allWidgets, activeDomain, searchQuery, selectedGroup, grouping, showCertifiedOnly, accessFilter, popularityScores, currentUser]);
 
   const handleDeleteWidget = async (e: React.MouseEvent, widget: WidgetDefinition) => {
     e.stopPropagation();
@@ -289,7 +296,18 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
               {/* Access Filter Rocker Switch */}
               <div className="flex items-center bg-gray-100 rounded-lg p-1 border border-gray-200">
                 <button
-                  onClick={() => setAccessFilter(prev => prev === 'accessible' ? 'all' : 'accessible')}
+                  onClick={() => setAccessFilter('all')}
+                  className={clsx(
+                    "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                    accessFilter === 'all'
+                      ? "bg-white text-qualcomm-blue shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  )}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setAccessFilter('accessible')}
                   className={clsx(
                     "px-3 py-1 rounded-md text-xs font-medium transition-all",
                     accessFilter === 'accessible'
@@ -300,7 +318,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                   Accessible to me
                 </button>
                 <button
-                  onClick={() => setAccessFilter(prev => prev === 'restricted' ? 'all' : 'restricted')}
+                  onClick={() => setAccessFilter('restricted')}
                   className={clsx(
                     "px-3 py-1 rounded-md text-xs font-medium transition-all",
                     accessFilter === 'restricted'
@@ -466,29 +484,37 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                           {/* Drag Handle / Owner Actions */}
                           {hasAccess && (() => {
                             const isOwned = currentUser && (widget.createdBy === currentUser || !widget.createdBy);
-                            if (isOwned) {
-                              return (
-                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
-                                  <button
-                                    title="Edit in Widget Studio"
-                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onEditWidget?.(widget.id); onClose(); }}
-                                    className="p-1 rounded bg-white/90 hover:bg-indigo-100 text-indigo-600 shadow-sm border border-indigo-200"
-                                  >
-                                    <Pencil className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    title="Delete widget"
-                                    onClick={(e) => handleDeleteWidget(e, widget)}
-                                    className="p-1 rounded bg-white/90 hover:bg-red-100 text-red-600 shadow-sm border border-red-200"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              );
-                            }
                             return (
-                              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                <GripVertical className="w-4 h-4 text-gray-400" />
+                              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
+                                <button
+                                  title="Clone widget"
+                                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); onCloneWidget?.(widget.id); onClose(); }}
+                                  className="p-1 rounded bg-white/90 hover:bg-gray-100 text-gray-600 shadow-sm border border-gray-200"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                                {isOwned ? (
+                                  <>
+                                    <button
+                                      title="Edit in Widget Studio"
+                                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); onEditWidget?.(widget.id); onClose(); }}
+                                      className="p-1 rounded bg-white/90 hover:bg-indigo-100 text-indigo-600 shadow-sm border border-indigo-200"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      title="Delete widget"
+                                      onClick={(e) => handleDeleteWidget(e, widget)}
+                                      className="p-1 rounded bg-white/90 hover:bg-red-100 text-red-600 shadow-sm border border-red-200"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <div className="p-1 flex items-center justify-center pointer-events-none drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
+                                    <GripVertical className="w-4 h-4 text-gray-400" />
+                                  </div>
+                                )}
                               </div>
                             );
                           })()}
@@ -498,6 +524,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                             <WidgetPreview
                               widgetId={widget.id}
                               component={widget.component}
+                              snapshot={widget.snapshot}
                               className={clsx("h-full", !hasAccess && "opacity-50 grayscale")}
                             />
                           </div>

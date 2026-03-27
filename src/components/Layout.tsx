@@ -31,6 +31,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [editWidgetId, setEditWidgetId] = useState<string | null>(null);
+  const [cloneWidgetId, setCloneWidgetId] = useState<string | null>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   // Sync state changes to URL hash
@@ -531,11 +532,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'admin' && <AdminPage onNavigate={(page) => setCurrentPage(page)} />}
-            {currentPage === 'studio' && <WidgetStudio editWidgetId={editWidgetId} onClose={() => { setCurrentPage(null); setEditWidgetId(null); }} />}
+            {currentPage === 'studio' && <WidgetStudio editWidgetId={editWidgetId} cloneWidgetId={cloneWidgetId} onClose={() => { setCurrentPage(null); setEditWidgetId(null); setCloneWidgetId(null); }} />}
           </main>
         ) : (
           <main
-            className="flex-1 overflow-auto bg-gray-50/50 p-6 relative"
+            className="flex-1 overflow-auto bg-gray-50/50 relative"
             onDragOver={(e) => {
               // Allow drops on main content area
               if (e.dataTransfer.types.includes('application/widget-type')) {
@@ -564,6 +565,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         onClose={() => setTrayOpen(false)}
         onEditWidget={(id) => {
           setEditWidgetId(id);
+          setCloneWidgetId(null);
+          setCurrentPage('studio');
+        }}
+        onCloneWidget={(id) => {
+          setCloneWidgetId(id);
+          setEditWidgetId(null);
           setCurrentPage('studio');
         }}
       />

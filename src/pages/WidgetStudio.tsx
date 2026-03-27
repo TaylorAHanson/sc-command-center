@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, Settings, Plus, Trash2 } from 'lucide-react';
-import { loadCustomWidgets } from '../widgetRegistry';
+import { toPng } from 'html-to-image';
+import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
 import { BaseWidget } from '../components/BaseWidget';
@@ -8,6 +9,7 @@ import { ExecuteActionPropInjector } from '../contexts/ActionContext';
 
 interface WidgetStudioProps {
     editWidgetId?: string | null;
+    cloneWidgetId?: string | null;
     onClose?: () => void;
 }
 
@@ -59,7 +61,7 @@ class WidgetErrorBoundary extends React.Component<
 const WIDGET_STUDIO_SESSION_KEY = "sc_widget_studio_session";
 
 // Basic skeleton for the page
-export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClose }) => {
+export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneWidgetId, onClose }) => {
     // Helper to genericize session storage retrieval
     const getSessionState = () => {
         const stored = sessionStorage.getItem(WIDGET_STUDIO_SESSION_KEY);
@@ -87,8 +89,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
     const [widgetName, setWidgetName] = useState(sessionState?.widgetName || "New Custom Widget");
     const [widgetDescription, setWidgetDescription] = useState(sessionState?.widgetDescription || "");
     const [widgetCategory, setWidgetCategory] = useState(sessionState?.widgetCategory || "");
-    const [widgetDomain, setWidgetDomain] = useState(sessionState?.widgetDomain || "General");
+    const [widgetDomain, setWidgetDomain] = useState(sessionState?.widgetDomain || "");
     const [isExecutable, setIsExecutable] = useState(sessionState?.isExecutable || false);
+    const [openInNewTabLink, setOpenInNewTabLink] = useState(sessionState?.openInNewTabLink || "");
     const [dataSourceType, setDataSourceType] = useState<"none" | "api" | "sql">(sessionState?.dataSourceType || "none");
     const [dataSource, setDataSource] = useState(sessionState?.dataSource || "");
     const [dataSourceSchema, setDataSourceSchema] = useState<any>(sessionState?.dataSourceSchema || null);
@@ -102,66 +105,83 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [availableDomains, setAvailableDomains] = useState<string[]>(['General']);
 
+    const { version: registryVersion } = useWidgetRegistry();
+
     useEffect(() => {
+        const existingDomains = getWidgetDomains();
         fetch('/api/roles/my-domains')
             .then(r => r.json())
             .then(data => {
                 if (data.domains) {
-                    setAvailableDomains(data.domains);
+                    setAvailableDomains(Array.from(new Set(['General', ...existingDomains, ...data.domains])));
+                } else {
+                    setAvailableDomains(Array.from(new Set(['General', ...existingDomains])));
                 }
             })
-            .catch(console.error);
-    }, []);
+            .catch(err => {
+                console.error(err);
+                setAvailableDomains(Array.from(new Set(['General', ...existingDomains])));
+            });
+    }, [registryVersion]);
 
     // Save state changes to session storage
     useEffect(() => {
-        if (!editWidgetId) { // We only automatically sync to session storage if we aren't loading an externally provided edit ID over it. Let the edit load effect take priority.
+        if (!editWidgetId && !cloneWidgetId) { // We only automatically sync to session storage if we aren't loading an externally provided edit ID over it. Let the edit load effect take priority.
             const currentState = {
                 messages, prompt, code, viewMode, widgetName, widgetDescription, widgetCategory, widgetDomain,
-                isExecutable, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId
+                isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId
             };
             sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
         }
     }, [messages, prompt, code, viewMode, widgetName, widgetDescription, widgetCategory, widgetDomain,
-        isExecutable, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId, editWidgetId]);
+        isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId, editWidgetId, cloneWidgetId]);
 
-    // Load existing widget data when editWidgetId is provided
+    // Load existing widget data when editWidgetId or cloneWidgetId is provided
     useEffect(() => {
-        if (!editWidgetId) return;
+        const targetId = editWidgetId || cloneWidgetId;
+        if (!targetId) return;
         fetch('/api/widgets/custom')
             .then(r => r.json())
             .then(data => {
-                const w = data.widgets?.find((x: any) => x.id === editWidgetId);
+                const w = data.widgets?.find((x: any) => x.id === targetId);
                 if (!w) return;
-                setEditingId(w.id);
-                setWidgetName(w.name);
+                
+                const isClone = !!cloneWidgetId;
+                
+                setEditingId(isClone ? null : w.id);
+                setWidgetName(isClone ? `Clone of ${w.name}` : w.name);
                 setWidgetDescription(w.description || '');
                 setWidgetCategory(w.category || 'Custom');
-                setWidgetDomain(w.domain || 'General');
+                setWidgetDomain(w.domain || '');
                 setCode(w.tsx_code);
                 setDataSourceType((w.data_source_type as any) || 'none');
                 setDataSource(w.data_source || '');
+                setOpenInNewTabLink(w.open_in_new_tab_link || '');
                 setIsExecutable(w.is_executable === 1);
                 setDefaultW(w.default_w || 6);
                 setDefaultH(w.default_h || 6);
                 setConfigMode(w.configuration_mode || 'none');
+                
+                let loadedSchema = [];
                 try {
-                    setConfigSchema(w.config_schema ? JSON.parse(w.config_schema) : []);
+                    loadedSchema = w.config_schema ? JSON.parse(w.config_schema) : [];
                 } catch (e) {
-                    setConfigSchema([]);
+                    loadedSchema = [];
                 }
-                const initMessages = [{ role: 'assistant' as const, content: `Loaded "${w.name}" for editing. Describe what you'd like to change.` }];
+                setConfigSchema(loadedSchema);
+                
+                const initMessages = [{ role: 'assistant' as const, content: isClone ? `Loaded a clone of "${w.name}". You are creating a new widget.` : `Loaded "${w.name}" for editing. Describe what you'd like to change.` }];
                 setMessages(initMessages);
 
                 // Overwrite the session storage right after loading existing widget
                 const currentState = {
-                    messages: initMessages, prompt: "", code: w.tsx_code, viewMode: 'preview', widgetName: w.name, widgetDescription: w.description || '', widgetCategory: w.category || 'Custom', widgetDomain: w.domain || 'General',
-                    isExecutable: w.is_executable === 1, dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: w.config_schema ? JSON.parse(w.config_schema) : [], editingId: w.id
+                    messages: initMessages, prompt: "", code: w.tsx_code, viewMode: 'preview', widgetName: isClone ? `Clone of ${w.name}` : w.name, widgetDescription: w.description || '', widgetCategory: w.category || 'Custom', widgetDomain: w.domain || '',
+                    isExecutable: w.is_executable === 1, openInNewTabLink: w.open_in_new_tab_link || '', dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: loadedSchema, editingId: isClone ? null : w.id
                 };
                 sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
             })
             .catch(console.error);
-    }, [editWidgetId]);
+    }, [editWidgetId, cloneWidgetId]);
 
     useEffect(() => {
         const timeoutId = setTimeout(() => {
@@ -301,8 +321,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
             setViewMode('config');
             return;
         }
-        if (!widgetDomain || widgetDomain.toLowerCase() === 'general' || widgetDomain.toLowerCase() === 'custom') {
-            alert('Please select a specific Domain (cannot be "General" or "Custom") before publishing.');
+        if (!widgetDomain || widgetDomain.toLowerCase() === 'custom') {
+            alert('Please select a Domain before publishing.');
             setViewMode('config');
             return;
         }
@@ -310,6 +330,23 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
         const isEditing = !!editingId;
         const url = isEditing ? `/api/widgets/custom/${editingId}` : '/api/widgets/custom';
         const method = isEditing ? 'PUT' : 'POST';
+
+        let snapshotDataUrl = null;
+        try {
+            // Ensure we're in preview mode so the node exists
+            if (viewMode !== 'preview') {
+                setViewMode('preview');
+                // Allow a brief moment for React to render the DOM
+                await new Promise(r => setTimeout(r, 300));
+            }
+            const captureArea = document.getElementById('widget-preview-capture-area');
+            if (captureArea) {
+                snapshotDataUrl = await toPng(captureArea, { cacheBust: true, pixelRatio: 1 });
+            }
+        } catch (e) {
+            console.warn("Failed to capture widget snapshot:", e);
+        }
+
         try {
             const res = await fetch(url, {
                 method,
@@ -321,25 +358,42 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                     domain: widgetDomain,
                     tsx_code: code,
                     isExecutable: isExecutable,
+                    open_in_new_tab_link: openInNewTabLink,
                     data_source_type: dataSourceType,
                     data_source: dataSource,
+                    snapshot: snapshotDataUrl,
                     default_w: defaultW,
                     default_h: defaultH,
                     configurationMode: configMode,
                     configSchema: dataSourceType !== 'none' ? JSON.stringify([{ key: 'dataSource', label: 'Data Source', type: 'textarea' }, ...configSchema]) : JSON.stringify(configSchema)
                 })
             });
+            
+            // For a new widget we need the id to update editingId, so parse response here instead of below
+            let responseData: any = null;
+            if (res.ok) {
+                try {
+                    responseData = await res.json();
+                } catch(e) {}
+            }
+
             if (res.ok) {
                 await loadCustomWidgets();
                 alert(isEditing
                     ? `"${widgetName}" updated! Changes are live in the Widget Library.`
                     : `"${widgetName}" published! Open the Widget Library (press W) to find it.`
                 );
+                
+                // If it was a new publish, update editingId so subsequent publishes are updates
+                if (!isEditing && responseData?.id) {
+                    setEditingId(responseData.id);
+                }
+                
                 // Clear session storage upon successful publish/update to avoid carrying state over for new widgets
                 sessionStorage.removeItem(WIDGET_STUDIO_SESSION_KEY);
                 if (isEditing) onClose?.();
             } else {
-                const err = await res.json().catch(() => ({ detail: res.statusText }));
+                const err = responseData || await res.json().catch(() => ({ detail: res.statusText }));
                 alert(`Failed to ${isEditing ? 'update' : 'publish'} widget: ${err.detail || res.statusText}`);
             }
         } catch (err) {
@@ -381,8 +435,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
         setWidgetName("New Custom Widget");
         setWidgetDescription("");
         setWidgetCategory("");
-        setWidgetDomain(availableDomains[0] || "General");
+        setWidgetDomain("");
         setIsExecutable(false);
+        setOpenInNewTabLink("");
         setDataSourceType("none");
         setDataSource("");
         setDataSourceSchema(null);
@@ -531,6 +586,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                 ) : previewComponent ? (
                                     <div className="min-w-min min-h-min">
                                         <div
+                                            id="widget-preview-capture-area"
                                             style={{
                                                 // Assume ~80px width per grid column, ~60px height per row to give a rough feel for Grid layout.
                                                 width: `${Math.max(300, defaultW * 80)}px`,
@@ -545,6 +601,18 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                                 title={widgetName}
                                                 className="h-full w-full"
                                                 onConfigure={configMode !== 'none' ? () => setViewMode('config') : undefined}
+                                                customActions={openInNewTabLink ? (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            window.open(openInNewTabLink, '_blank');
+                                                        }}
+                                                        className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+                                                        title="Open in New Tab"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                                                    </button>
+                                                ) : undefined}
                                             >
                                                 {/* */}
                                                 <WidgetErrorBoundary
@@ -633,20 +701,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Domain</label>
-                                        <div className="relative">
-                                            <input
-                                                list="widget-domain-options"
-                                                value={widgetDomain}
-                                                onChange={e => setWidgetDomain(e.target.value)}
-                                                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
-                                                placeholder="e.g. Sales, Enterprise, Data Science..."
-                                            />
-                                            <datalist id="widget-domain-options">
-                                                {availableDomains.map(d => (
-                                                    <option key={d} value={d}>{d}</option>
-                                                ))}
-                                            </datalist>
-                                        </div>
+                                        <select
+                                            value={widgetDomain === 'Custom' ? '' : widgetDomain} onChange={e => setWidgetDomain(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="" disabled>Select a Domain...</option>
+                                            {availableDomains.map(d => (
+                                                <option key={d} value={d}>{d}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Default Width (cols)</label>
@@ -747,6 +810,17 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, onClos
                                                 <div className="text-xs text-slate-400">Enable if this widget submits forms, triggers pipelines, or executes server actions.</div>
                                             </div>
                                         </label>
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Open in New Tab Link</label>
+                                        <input
+                                            type="url"
+                                            value={openInNewTabLink}
+                                            onChange={e => setOpenInNewTabLink(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                            placeholder="https://example.com"
+                                        />
+                                        <p className="text-xs text-slate-500 mt-1">If set, a button will appear in the widget header to open this link in a new tab.</p>
                                     </div>
                                     <div className="col-span-2 pt-4 border-t border-slate-700">
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Configuration Mode</label>
