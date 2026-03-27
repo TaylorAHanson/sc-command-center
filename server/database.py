@@ -29,20 +29,7 @@ def get_db_connection(env: str = "dev"):
     # If no password is provided and we aren't using a local db,
     # generate a short-lived OAuth token via the Databricks SDK.
     if not password and host and host != "localhost":
-        # Workaround for Databricks SDK in environments where $HOME is not set
-        if 'HOME' not in os.environ:
-            os.environ['HOME'] = '/tmp'
-            
-        db_host = os.environ.get('DATABRICKS_HOST')
-        client_id = os.environ.get('DATABRICKS_CLIENT_ID')
-        client_secret = os.environ.get('DATABRICKS_CLIENT_SECRET')
-        
-        if db_host and client_id and client_secret:
-            # Explicitly pass credentials to avoid SDK trying to resolve local profiles
-            w = WorkspaceClient(host=db_host, client_id=client_id, client_secret=client_secret)
-        else:
-            w = WorkspaceClient()
-            
+        w = WorkspaceClient()
         creds = w.database.generate_database_credential(
             request_id = str(uuid.uuid4()),
             instance_names=[instance_name] if instance_name else []
