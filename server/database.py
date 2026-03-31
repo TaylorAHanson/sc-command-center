@@ -42,7 +42,8 @@ def get_db_connection(env: str = "dev"):
             # Try Autoscaling Lakebase (the modern default)
             res = w.api_client.do(
                 "POST", 
-                f"/api/2.0/postgres/{endpoint_path}/generate-database-credential"
+                f"/api/2.0/postgres-databases/{endpoint_path}/generate-database-credential",
+                body={}
             )
             password = res.get("token")
         except Exception as e:
