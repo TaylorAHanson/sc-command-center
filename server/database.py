@@ -34,10 +34,9 @@ def get_db_connection(env: str = "dev"):
                 if base_inst.endswith(suffix):
                     base_inst = base_inst[:-len(suffix)]
                     break
-            inst_separator = "_"
-            if "-" in base_inst:
-                inst_separator = "_"
-                base_inst = base_inst.replace("-", "_")
+            inst_separator = "-"
+            # Don't replace hyphens for instance names because Databricks requires hyphens
+            # for Autoscaling project IDs, and doesn't allow underscores.
             instance_name = f"{base_inst}{inst_separator}{env}"
         
     host = config.get("host")
