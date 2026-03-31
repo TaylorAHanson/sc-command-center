@@ -85,7 +85,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
                 className={`text-[10px] font-medium bg-transparent border-none text-gray-500 py-0.5 pl-1 pr-4 focus:ring-0 cursor-pointer ${!onChangeVersion ? 'appearance-none pr-1' : ''}`}
                 style={!onChangeVersion ? { WebkitAppearance: 'none', MozAppearance: 'none' } : {}}
               >
-                {availableVersions.map(v => (
+                {availableVersions.map((v: number) => (
                   <option key={v} value={v}>v{v}</option>
                 ))}
               </select>
