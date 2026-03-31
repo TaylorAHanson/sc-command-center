@@ -43,6 +43,9 @@ def get_db_connection(env: str = "dev"):
             
             target_hyphens = f"{base_inst_hyphens}-{env}"
             target_underscores = f"{base_inst_underscores}_{env}"
+            
+            # Also just try the exact instance name provided, unmodified, since sometimes it doesn't match the env suffix
+            raw_instance_name = instance_name
         
     host = config.get("host")
     port = config.get("port")
@@ -88,7 +91,7 @@ def get_db_connection(env: str = "dev"):
             target_uid = None
             matched_name = None
             for inst in instances:
-                if inst.get("name") in (target_underscores, target_hyphens, instance_name):
+                if inst.get("name") in (target_underscores, target_hyphens, raw_instance_name, base_inst, base_inst_hyphens):
                     target_uid = inst.get("uid")
                     matched_name = inst.get("name")
                     break
@@ -160,37 +163,28 @@ def get_db_connection(env: str = "dev"):
 
         # If dynamic approaches didn't work, fall back to standard hardcoded attempts
         
-        # 1. Try Provisioned with underscores (e.g. command_center_dev)
         if not token_found:
-            try:
-                logging.info(f"Attempt 1: Provisioned with underscores '{target_underscores}'")
-                creds = w.database.generate_database_credential(
-                    request_id = str(uuid.uuid4()),
-                    instance_names=[target_underscores]
-                )
-                password = creds.token
-                token_found = True
-                logging.info(f"Success! Generated token using Provisioned SDK for '{target_underscores}'")
-            except Exception as e:
-                err_msg = str(e)
-                logging.warning(f"Attempt 1 failed: {err_msg}")
-                errors.append(f"Provisioned ({target_underscores}): {err_msg}")
-                
-        # 2. Try Provisioned with hyphens (e.g. command-center-dev)
-        if not token_found and target_hyphens != target_underscores:
-            try:
-                logging.info(f"Attempt 2: Provisioned with hyphens '{target_hyphens}'")
-                creds = w.database.generate_database_credential(
-                    request_id = str(uuid.uuid4()),
-                    instance_names=[target_hyphens]
-                )
-                password = creds.token
-                token_found = True
-                logging.info(f"Success! Generated token using Provisioned SDK for '{target_hyphens}'")
-            except Exception as e:
-                err_msg = str(e)
-                logging.warning(f"Attempt 2 failed: {err_msg}")
-                errors.append(f"Provisioned ({target_hyphens}): {err_msg}")
+            provisioned_candidates = []
+            for cand in [target_underscores, target_hyphens, raw_instance_name]:
+                if cand and cand not in provisioned_candidates:
+                    provisioned_candidates.append(cand)
+                    
+            for cand in provisioned_candidates:
+                if token_found:
+                    break
+                try:
+                    logging.info(f"Attempting Provisioned SDK for '{cand}'")
+                    creds = w.database.generate_database_credential(
+                        request_id = str(uuid.uuid4()),
+                        instance_names=[cand]
+                    )
+                    password = creds.token
+                    token_found = True
+                    logging.info(f"Success! Generated token using Provisioned SDK for '{cand}'")
+                except Exception as e:
+                    err_msg = str(e)
+                    logging.warning(f"Provisioned attempt failed for '{cand}': {err_msg}")
+                    errors.append(f"Provisioned ({cand}): {err_msg}")
 
         # 3. Try Autoscaling (requires hyphens)
         if not token_found:
@@ -285,28 +279,6 @@ def init_db(env: str = "dev"):
         )
     ''')
     
-    # Simple migration: add action_name if it doesn't exist
-    try:
-        c.execute("ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS action_name TEXT")
-        conn.commit()
-    except Exception as e:
-        conn.rollback() # MUST rollback aborted transaction before continuing
-        logging.warning(f"Migration 'action_name' skipped: {e}")
-        
-    try:
-        c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS snapshot TEXT")
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        logging.warning(f"Migration 'snapshot' skipped: {e}")
-        
-    try:
-        c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS open_in_new_tab_link TEXT")
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        logging.warning(f"Migration 'open_in_new_tab_link' skipped: {e}")
-    
     # Core + Custom Widgets Table with Versioning
     c.execute(f'''
         CREATE TABLE IF NOT EXISTS widgets (
@@ -361,8 +333,30 @@ def init_db(env: str = "dev"):
             PRIMARY KEY (id, version)
         )
     ''')
-
     
+    # Simple migrations: add columns if they don't exist
+    # Run these AFTER tables are created so they don't fail on a fresh DB
+    try:
+        c.execute("ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS action_name TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback() # MUST rollback aborted transaction before continuing
+        pass # Ignore if not supported
+        
+    try:
+        c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS snapshot TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+        
+    try:
+        c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS open_in_new_tab_link TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+
     conn.commit()
     conn.close()
 
