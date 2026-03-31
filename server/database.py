@@ -34,10 +34,8 @@ def get_db_connection(env: str = "dev"):
                 if base_inst.endswith(suffix):
                     base_inst = base_inst[:-len(suffix)]
                     break
-            inst_separator = "-"
-            # Don't replace hyphens for instance names because Databricks requires hyphens
-            # for Autoscaling project IDs, and doesn't allow underscores.
-            instance_name = f"{base_inst}{inst_separator}{env}"
+            # Use hyphens since Lakebase projects don't allow underscores
+            instance_name = f"{base_inst}-{env}"
         
     host = config.get("host")
     port = config.get("port")
@@ -67,11 +65,32 @@ def get_db_connection(env: str = "dev"):
         except Exception as e:
             # Fall back to Provisioned Lakebase (legacy)
             try:
-                creds = w.database.generate_database_credential(
-                    request_id = str(uuid.uuid4()),
-                    instance_names=[instance_name] if instance_name else []
-                )
-                password = creds.token
+                # Based on user logs, `generate_database_credential` is not finding the instance by name
+                # Let's try to query the list of instances, find the one matching the name to get its UID,
+                # and then generate the token via UID.
+                list_res = w.api_client.do("GET", "/api/2.0/database-instances/instances")
+                instances = list_res.get("instances", [])
+                
+                target_uid = None
+                for inst in instances:
+                    if inst.get("name") == instance_name:
+                        target_uid = inst.get("uid")
+                        break
+                        
+                if target_uid:
+                    # Now we have the UID, generate the token
+                    creds = w.database.generate_database_credential(
+                        request_id = str(uuid.uuid4()),
+                        database_instance_uids=[target_uid]
+                    )
+                    password = creds.token
+                else:
+                    # Absolute fallback to the SDK method just in case
+                    creds = w.database.generate_database_credential(
+                        request_id = str(uuid.uuid4()),
+                        instance_names=[instance_name] if instance_name else []
+                    )
+                    password = creds.token
             except Exception as e2:
                 raise Exception(f"Failed to generate Lakebase credentials. Autoscaling attempt failed: {str(e)}. Provisioned attempt failed: {str(e2)}")
 
