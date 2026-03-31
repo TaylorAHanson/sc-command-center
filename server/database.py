@@ -55,6 +55,13 @@ def get_db_connection(env: str = "dev"):
     if not password and host and host != "localhost":
         w = WorkspaceClient()
         
+        try:
+            me = w.api_client.do("GET", "/api/2.0/preview/scim/v2/Me")
+            user = me.get("userName", user)
+            logging.info(f"Set Postgres user to Databricks identity: {user}")
+        except Exception as e:
+            logging.warning(f"Could not get current Databricks user: {e}")
+        
         # Robust credential generation strategy:
         # Try all permutations of Legacy/Provisioned and Modern/Autoscaling
         
@@ -62,6 +69,37 @@ def get_db_connection(env: str = "dev"):
         token_found = False
         
         logging.info(f"Attempting to generate Lakebase credentials for env '{env}'. Targets -> Hyphens: '{target_hyphens}', Underscores: '{target_underscores}'")
+        
+        # Super-robust strategy: Pull all instances first to see what actually exists
+        try:
+            logging.info("Fetching list of all Provisioned Lakebase instances in workspace...")
+            list_res = w.api_client.do("GET", "/api/2.0/database-instances")
+            instances = list_res.get("database_instances", [])
+            instance_names = [inst.get("name") for inst in instances]
+            logging.info(f"Found {len(instances)} Provisioned instances: {instance_names}")
+            
+            # Check if any of our targets match an existing instance
+            target_uid = None
+            matched_name = None
+            for inst in instances:
+                if inst.get("name") in (target_underscores, target_hyphens, instance_name):
+                    target_uid = inst.get("uid")
+                    matched_name = inst.get("name")
+                    break
+                    
+            if target_uid:
+                logging.info(f"Found match! Instance '{matched_name}' has UID {target_uid}. Generating token via UID...")
+                creds = w.database.generate_database_credential(
+                    request_id=str(uuid.uuid4()),
+                    database_instance_uids=[target_uid]
+                )
+                password = creds.token
+                token_found = True
+                logging.info("Success! Generated token via UID.")
+        except Exception as e:
+            logging.warning(f"Failed to fetch/match instances by UID: {str(e)}")
+
+        # If UID approach didn't work (or it's Autoscaling), fall back to standard attempts
         
         # 1. Try Provisioned with underscores (e.g. command_center_dev)
         if not token_found:
@@ -105,8 +143,8 @@ def get_db_connection(env: str = "dev"):
                 logging.info(f"Attempt 3: Autoscaling REST API '{endpoint_path}'")
                 res = w.api_client.do(
                     "POST", 
-                    f"/api/2.0/postgres-databases/{endpoint_path}/generate-database-credential",
-                    body={}
+                    f"/api/2.0/postgres/credentials",
+                    body={"endpoint": endpoint_path}
                 )
                 password = res.get("token")
                 token_found = True
@@ -118,19 +156,7 @@ def get_db_connection(env: str = "dev"):
                 
         # 4. Try Autoscaling legacy API path just in case
         if not token_found:
-            try:
-                logging.info(f"Attempt 4: Legacy Autoscaling REST API '{endpoint_path}'")
-                res = w.api_client.do(
-                    "POST", 
-                    f"/api/2.0/postgres/{endpoint_path}/generate-database-credential",
-                    body={}
-                )
-                password = res.get("token")
-                token_found = True
-                logging.info(f"Success! Generated token using Legacy Autoscaling API for '{endpoint_path}'")
-            except Exception as e:
-                logging.warning(f"Attempt 4 failed: {str(e)}")
-                pass # Don't log this one in errors list, it's just a fallback
+            pass
 
         if not token_found:
             final_error = f"Failed to generate Lakebase credentials. Attempts: " + " | ".join(errors)
