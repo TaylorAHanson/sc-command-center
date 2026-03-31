@@ -1,5 +1,6 @@
 import os
 import uuid
+import logging
 from typing import Dict, List, Any
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -27,19 +28,22 @@ def get_db_connection(env: str = "dev"):
             
         db_name = f"{base_name}{separator}{env}"
         
-        # Format instance_name
+        # Format instance_name variations
+        target_hyphens = instance_name
+        target_underscores = instance_name
+        
         if instance_name:
             base_inst = instance_name
             for suffix in ("-dev", "-test", "-prod", "_dev", "_test", "_prod"):
                 if base_inst.endswith(suffix):
                     base_inst = base_inst[:-len(suffix)]
                     break
-            # Lakebase instance and project names CANNOT contain underscores.
-            # Convert any existing underscores to hyphens.
-            inst_separator = "-"
-            if "_" in base_inst:
-                base_inst = base_inst.replace("_", "-")
-            instance_name = f"{base_inst}{inst_separator}{env}"
+            
+            base_inst_hyphens = base_inst.replace("_", "-")
+            base_inst_underscores = base_inst.replace("-", "_")
+            
+            target_hyphens = f"{base_inst_hyphens}-{env}"
+            target_underscores = f"{base_inst_underscores}_{env}"
         
     host = config.get("host")
     port = config.get("port")
@@ -51,56 +55,89 @@ def get_db_connection(env: str = "dev"):
     if not password and host and host != "localhost":
         w = WorkspaceClient()
         
-        # Determine if this is an Autoscaling or Provisioned Lakebase.
-        # Autoscaling uses a path like projects/NAME/branches/...
-        # If the user just provided a plain name, try Autoscaling defaults first, then fall back to Provisioned.
-        endpoint_path = instance_name
-        if instance_name and not instance_name.startswith("projects/"):
-            endpoint_path = f"projects/{instance_name}/branches/production/endpoints/primary"
-            
-        try:
-            # Try Autoscaling Lakebase (the modern default)
-            res = w.api_client.do(
-                "POST", 
-                f"/api/2.0/postgres-databases/{endpoint_path}/generate-database-credential",
-                body={}
-            )
-            password = res.get("token")
-        except Exception as e:
-            # Fall back to Provisioned Lakebase (legacy)
+        # Robust credential generation strategy:
+        # Try all permutations of Legacy/Provisioned and Modern/Autoscaling
+        
+        errors = []
+        token_found = False
+        
+        logging.info(f"Attempting to generate Lakebase credentials for env '{env}'. Targets -> Hyphens: '{target_hyphens}', Underscores: '{target_underscores}'")
+        
+        # 1. Try Provisioned with underscores (e.g. command_center_dev)
+        if not token_found:
             try:
-                # Based on user logs, `generate_database_credential` is not finding the instance by name
-                # Let's try to query the list of instances, find the one matching the name to get its UID,
-                # and then generate the token via UID.
-                try:
-                    list_res = w.api_client.do("GET", "/api/2.0/database-instances")
-                    instances = list_res.get("database_instances", [])
-                except Exception:
-                    instances = []
+                logging.info(f"Attempt 1: Provisioned with underscores '{target_underscores}'")
+                creds = w.database.generate_database_credential(
+                    request_id = str(uuid.uuid4()),
+                    instance_names=[target_underscores]
+                )
+                password = creds.token
+                token_found = True
+                logging.info(f"Success! Generated token using Provisioned SDK for '{target_underscores}'")
+            except Exception as e:
+                err_msg = str(e)
+                logging.warning(f"Attempt 1 failed: {err_msg}")
+                errors.append(f"Provisioned ({target_underscores}): {err_msg}")
                 
-                target_uid = None
-                for inst in instances:
-                    if inst.get("name") == instance_name:
-                        target_uid = inst.get("uid")
-                        break
-                        
-                if target_uid:
-                    # Now we have the UID, generate the token
-                    creds = w.database.generate_database_credential(
-                        request_id = str(uuid.uuid4()),
-                        database_instance_uids=[target_uid]
-                    )
-                    password = creds.token
-                else:
-                    # Absolute fallback to the SDK method just in case
-                    creds = w.database.generate_database_credential(
-                        request_id = str(uuid.uuid4()),
-                        instance_names=[instance_name] if instance_name else []
-                    )
-                    password = creds.token
-            except Exception as e2:
-                raise Exception(f"Failed to generate Lakebase credentials. Autoscaling attempt failed: {str(e)}. Provisioned attempt failed: {str(e2)}")
+        # 2. Try Provisioned with hyphens (e.g. command-center-dev)
+        if not token_found and target_hyphens != target_underscores:
+            try:
+                logging.info(f"Attempt 2: Provisioned with hyphens '{target_hyphens}'")
+                creds = w.database.generate_database_credential(
+                    request_id = str(uuid.uuid4()),
+                    instance_names=[target_hyphens]
+                )
+                password = creds.token
+                token_found = True
+                logging.info(f"Success! Generated token using Provisioned SDK for '{target_hyphens}'")
+            except Exception as e:
+                err_msg = str(e)
+                logging.warning(f"Attempt 2 failed: {err_msg}")
+                errors.append(f"Provisioned ({target_hyphens}): {err_msg}")
 
+        # 3. Try Autoscaling (requires hyphens)
+        if not token_found:
+            endpoint_path = target_hyphens
+            if not endpoint_path.startswith("projects/"):
+                endpoint_path = f"projects/{target_hyphens}/branches/production/endpoints/primary"
+                
+            try:
+                logging.info(f"Attempt 3: Autoscaling REST API '{endpoint_path}'")
+                res = w.api_client.do(
+                    "POST", 
+                    f"/api/2.0/postgres-databases/{endpoint_path}/generate-database-credential",
+                    body={}
+                )
+                password = res.get("token")
+                token_found = True
+                logging.info(f"Success! Generated token using Autoscaling API for '{endpoint_path}'")
+            except Exception as e:
+                err_msg = str(e)
+                logging.warning(f"Attempt 3 failed: {err_msg}")
+                errors.append(f"Autoscaling ({endpoint_path}): {err_msg}")
+                
+        # 4. Try Autoscaling legacy API path just in case
+        if not token_found:
+            try:
+                logging.info(f"Attempt 4: Legacy Autoscaling REST API '{endpoint_path}'")
+                res = w.api_client.do(
+                    "POST", 
+                    f"/api/2.0/postgres/{endpoint_path}/generate-database-credential",
+                    body={}
+                )
+                password = res.get("token")
+                token_found = True
+                logging.info(f"Success! Generated token using Legacy Autoscaling API for '{endpoint_path}'")
+            except Exception as e:
+                logging.warning(f"Attempt 4 failed: {str(e)}")
+                pass # Don't log this one in errors list, it's just a fallback
+
+        if not token_found:
+            final_error = f"Failed to generate Lakebase credentials. Attempts: " + " | ".join(errors)
+            logging.error(final_error)
+            raise Exception(final_error)
+
+    logging.info(f"Connecting to Postgres host={host}, port={port}, dbname={db_name}, user={user}")
     return psycopg2.connect(
         host=host,
         port=port,
