@@ -88,9 +88,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               return;
             }
           }
-          if (!activeTabId) {
-            setActiveTabId(loadedTabs[0].id);
-          }
+          setActiveTabId(prev => {
+            if (!prev) return loadedTabs[0].id;
+            return prev;
+          });
         }
       }
     } catch (e) {
@@ -98,7 +99,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } finally {
       setIsLoading(false);
     }
-  }, [activeTabId]);
+  }, []); // Remove activeTabId dependency so it doesn't loop when activeTabId is set
 
   useEffect(() => {
     fetchViews();
@@ -184,12 +185,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const renameTab = (id: string, newName: string) => {
     if (!newName.trim()) return;
-    setTabs(prev => {
-      const newTabs = prev.map(t => t.id === id ? { ...t, name: newName.trim() } : t);
-      const updatedTab = newTabs.find(t => t.id === id);
-      if (updatedTab) apiSyncView(updatedTab);
-      return newTabs;
-    });
+    const newTabs = tabs.map(t => t.id === id ? { ...t, name: newName.trim() } : t);
+    setTabs(newTabs);
+    const updatedTab = newTabs.find(t => t.id === id);
+    if (updatedTab) apiSyncView(updatedTab);
   };
 
   const reorderTabs = (fromIndex: number, toIndex: number) => {
@@ -201,89 +200,82 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const toggleLock = (tabId: string) => {
-    setTabs(prev => {
-      const newTabs = prev.map(t => t.id === tabId ? { ...t, locked: !t.locked } : t);
-      const updatedTab = newTabs.find(t => t.id === tabId);
-      if (updatedTab) apiSyncView(updatedTab);
-      return newTabs;
-    });
+    const newTabs = tabs.map(t => t.id === tabId ? { ...t, locked: !t.locked } : t);
+    setTabs(newTabs);
+    const updatedTab = newTabs.find(t => t.id === tabId);
+    if (updatedTab) apiSyncView(updatedTab);
   };
 
   const addWidget = (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => {
-    setTabs(prev => {
-      let updatedTab: Tab | null = null;
-      const newTabs = prev.map(tab => {
-        if (tab.id !== tabId) return tab;
-        const def = widgetRegistry[type];
-        const newWidget: WidgetLayout = {
-          i: uuidv4(),
-          x: position?.x ?? (tab.widgets.length * 4) % 12,
-          y: position?.y ?? Infinity,
-          w: position?.w ?? def?.defaultW ?? 4,
-          h: position?.h ?? def?.defaultH ?? 4,
-          type,
-          props: props || {}
-        };
-        updatedTab = { ...tab, widgets: [...tab.widgets, newWidget] };
-        return updatedTab;
-      });
-      if (updatedTab) apiSyncView(updatedTab);
-      return newTabs;
+    let updatedTab: Tab | null = null;
+    const newTabs = tabs.map(tab => {
+      if (tab.id !== tabId) return tab;
+      const def = widgetRegistry[type];
+      const newWidget: WidgetLayout = {
+        i: uuidv4(),
+        x: position?.x ?? (tab.widgets.length * 4) % 12,
+        y: position?.y ?? Infinity,
+        w: position?.w ?? def?.defaultW ?? 4,
+        h: position?.h ?? def?.defaultH ?? 4,
+        type,
+        props: props || {}
+      };
+      updatedTab = { ...tab, widgets: [...tab.widgets, newWidget] };
+      return updatedTab;
     });
+    setTabs(newTabs);
+    if (updatedTab) apiSyncView(updatedTab);
   };
 
   const updateWidget = (tabId: string, widgetId: string, updates: Partial<WidgetLayout>) => {
-    setTabs(prev => {
-      let updatedTab: Tab | null = null;
-      const newTabs = prev.map(tab => {
-        if (tab.id !== tabId) return tab;
-        updatedTab = {
-          ...tab,
-          widgets: tab.widgets.map(w => w.i === widgetId ? { ...w, ...updates } : w)
-        };
-        return updatedTab;
-      });
-      if (updatedTab) apiSyncView(updatedTab);
-      return newTabs;
+    let updatedTab: Tab | null = null;
+    const newTabs = tabs.map(tab => {
+      if (tab.id !== tabId) return tab;
+      updatedTab = {
+        ...tab,
+        widgets: tab.widgets.map(w => w.i === widgetId ? { ...w, ...updates } : w)
+      };
+      return updatedTab;
     });
+    setTabs(newTabs);
+    if (updatedTab) apiSyncView(updatedTab);
   };
 
   const removeWidget = (tabId: string, widgetId: string) => {
-    setTabs(prev => {
-      let updatedTab: Tab | null = null;
-      const newTabs = prev.map(tab => {
-        if (tab.id !== tabId) return tab;
-        updatedTab = { ...tab, widgets: tab.widgets.filter(w => w.i !== widgetId) };
-        return updatedTab;
-      });
-      if (updatedTab) apiSyncView(updatedTab);
-      return newTabs;
+    let updatedTab: Tab | null = null;
+    const newTabs = tabs.map(tab => {
+      if (tab.id !== tabId) return tab;
+      updatedTab = { ...tab, widgets: tab.widgets.filter(w => w.i !== widgetId) };
+      return updatedTab;
     });
+    setTabs(newTabs);
+    if (updatedTab) apiSyncView(updatedTab);
   };
 
   const updateLayout = (tabId: string, newLayout: WidgetLayout[]) => {
-    setTabs(prev => {
-      let updatedTab: Tab | null = null;
-      let hasChanges = false;
-      const newTabs = prev.map(tab => {
-        if (tab.id !== tabId) return tab;
-        const updatedWidgets = tab.widgets.map(w => {
-          const l = newLayout.find(nl => nl.i === w.i);
-          if (l && (w.x !== l.x || w.y !== l.y || w.w !== l.w || w.h !== l.h)) {
-            hasChanges = true;
-            return { ...w, x: l.x, y: l.y, w: l.w, h: l.h };
-          }
-          return w;
-        });
-        if (hasChanges) {
-          updatedTab = { ...tab, widgets: updatedWidgets };
-          return updatedTab;
+    let updatedTab: Tab | null = null;
+    let hasChanges = false;
+    const newTabs = tabs.map(tab => {
+      if (tab.id !== tabId) return tab;
+      const updatedWidgets = tab.widgets.map(w => {
+        const l = newLayout.find(nl => nl.i === w.i);
+        if (l && (w.x !== l.x || w.y !== l.y || w.w !== l.w || w.h !== l.h)) {
+          hasChanges = true;
+          return { ...w, x: l.x, y: l.y, w: l.w, h: l.h };
         }
-        return tab;
+        return w;
       });
-      if (hasChanges && updatedTab) apiSyncView(updatedTab);
-      return hasChanges ? newTabs : prev;
+      if (hasChanges) {
+        updatedTab = { ...tab, widgets: updatedWidgets };
+        return updatedTab;
+      }
+      return tab;
     });
+    
+    if (hasChanges && updatedTab) {
+      setTabs(newTabs);
+      apiSyncView(updatedTab);
+    }
   };
 
   // Remaining tools

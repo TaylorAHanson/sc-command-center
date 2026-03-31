@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Layers, Building2, Globe } from 'lucide-react';
+import { ChevronDown, Layers, Building2, Globe, User } from 'lucide-react';
 import clsx from 'clsx';
 import { useDashboardStore } from '../store/dashboardStore';
 
@@ -15,9 +15,20 @@ export const DomainSwitcher: React.FC = () => {
     const { activeDomain, setActiveDomain } = useDashboardStore();
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const [myRoles, setMyRoles] = useState<{username?: string, groups?: string[]}>({});
 
     const currentDomain = MOCK_DOMAINS.find(d => d.id === activeDomain) || MOCK_DOMAINS[0];
     const CurrentIcon = currentDomain.icon;
+
+    useEffect(() => {
+        // Fetch user roles/groups for debugging/display
+        fetch('/api/roles/me')
+          .then(res => res.json())
+          .then(data => {
+            setMyRoles(data);
+          })
+          .catch(err => console.error("Failed to fetch my roles:", err));
+    }, []);
 
     // Close on outside click
     useEffect(() => {
@@ -42,7 +53,16 @@ export const DomainSwitcher: React.FC = () => {
     }, [isOpen]);
 
     return (
-        <div ref={containerRef} className="relative z-50">
+        <div ref={containerRef} className="relative z-50 flex items-center gap-2">
+            {myRoles.username && (
+                <div 
+                    className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-600 mr-2" 
+                    title={`Groups: ${(myRoles.groups || []).join(', ') || 'None'}`}
+                >
+                    <User className="w-4 h-4 text-qualcomm-blue" />
+                    <span className="max-w-[150px] truncate font-medium">{myRoles.username.split('@')[0]}</span>
+                </div>
+            )}
             {/* Trigger button */}
             <button
                 onClick={() => setIsOpen((prev) => !prev)}

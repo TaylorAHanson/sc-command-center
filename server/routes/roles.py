@@ -1,12 +1,19 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, Body
+from typing import List, Dict, Any
 from pydantic import BaseModel
 import psycopg2
-import os
+import datetime
 from database import get_db_connection
-from middleware.auth import get_db_client
+from middleware.auth import get_db_client, get_user_token
 from databricks.sdk import WorkspaceClient
 
 router = APIRouter()
+
+class DomainRoleMapping(BaseModel):
+    id: int
+    external_role: str
+    domain: str
+    permission_level: str
 
 class RoleMappingCreate(BaseModel):
     external_role: str
@@ -15,20 +22,82 @@ class RoleMappingCreate(BaseModel):
 
 def _get_current_username(w: WorkspaceClient) -> str:
     if w is None:
+        import os
         return "dev" if os.environ.get('DEV_MODE', '').lower() == 'true' else "unknown"
     try:
-        return w.current_user().user_name or "unknown"
+        return w.current_user.me().user_name or "unknown"
     except Exception as e:
         return "unknown"
 
-def has_role(username: str, role_name: str) -> bool:
-    """Mock implementation for checking if a user has an external role"""
-    return True
+def get_user_entitlements(w: WorkspaceClient) -> List[str]:
+    """Helper to fetch all Databricks groups and roles for the current user."""
+    if w is None:
+        return []
+    
+    # Check if we're dealing with an OBO client that has 'config.token' but maybe no groups returned
+    try:
+        me_data = w.api_client.do("GET", "/api/2.0/preview/scim/v2/Me")
+        groups = [g.get("display") for g in me_data.get("groups", []) if g.get("display")]
+        roles = [r.get("display") for r in me_data.get("roles", []) if r.get("display")]
+        return groups + roles
+    except Exception as e:
+        print(f"Warning: Failed to fetch user entitlements via API: {e}")
+        try:
+            me = w.current_user.me()
+            groups = [g.display for g in me.groups] if me.groups else []
+            roles = [r.display for r in me.roles] if me.roles else []
+            return groups + roles
+        except Exception as e2:
+            print(f"Warning: Failed to fetch user entitlements via SDK: {e2}")
+            return []
+
+@router.get("/me", summary="Get my current roles/groups from Databricks SCIM API")
+def get_my_roles(db_client: WorkspaceClient = Depends(get_db_client)):
+    try:
+        me = db_client.current_user.me()
+        
+        groups = []
+        if me.groups:
+            groups = [g.display for g in me.groups if g.display]
+            
+        roles = []
+        if me.roles:
+            roles = [r.display for r in me.roles if r.display]
+            
+        return {
+            "username": me.user_name,
+            "groups": groups,
+            "roles": roles,
+            "all_entitlements": groups + roles
+        }
+    except Exception as e:
+        # Fallback to direct API call if SDK method fails
+        try:
+            me_data = db_client.api_client.do("GET", "/api/2.0/preview/scim/v2/Me")
+            groups = [g.get("display") for g in me_data.get("groups", []) if g.get("display")]
+            roles = [r.get("display") for r in me_data.get("roles", []) if r.get("display")]
+            return {
+                "username": me_data.get("userName"),
+                "groups": groups,
+                "roles": roles,
+                "all_entitlements": groups + roles
+            }
+        except Exception as e2:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch user roles from SCIM API: {e2}")
 
 @router.get("/my-domains")
 async def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """
+    Returns a list of domains the current user has access to based on their Databricks groups.
+    If they are an admin or map to a global role, they might get all domains or a wildcard.
+    """
     try:
         username = _get_current_username(w)
+        user_entitlements = get_user_entitlements(w)
+        
+        # Include username as a role for exact-user mappings (e.g. mapping specifically taylhans@qualcomm.com to a domain)
+        user_entitlements.append(username)
+        
         conn = get_db_connection(env)
         c = conn.cursor()
         
@@ -41,7 +110,9 @@ async def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str =
             # Handle both RealDictCursor and sqlite3.Row / tuple
             domain = row['domain'] if hasattr(row, 'keys') else row[0]
             role = row['external_role'] if hasattr(row, 'keys') else row[1]
-            if has_role(username, role):
+            
+            # If the required role for this domain is one of the user's groups, roles, or their username
+            if role in user_entitlements:
                 my_domains.add(domain)
                 
         return {"domains": sorted(list(my_domains))}
