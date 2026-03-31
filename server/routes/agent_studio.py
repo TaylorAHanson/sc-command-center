@@ -1,13 +1,17 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from openai import OpenAI
 import os
 import re
+import uuid
 from typing import List, Optional, Dict, Any
 from middleware.auth import get_db_client, get_db_client_sp
 from databricks.sdk import WorkspaceClient
 
 router = APIRouter()
+
+# Store for generation jobs. In a real app, use Redis or DB, but in-memory is fine for this tool.
+generation_jobs: Dict[str, Any] = {}
 
 class Message(BaseModel):
     role: str
@@ -28,61 +32,46 @@ class DataSourceTestRequest(BaseModel):
     data_source_type: str
     data_source: str
 
-@router.post("/generate")
-async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Depends(get_db_client_sp)):
-    # Use the WorkspaceClient config to initialize the OpenAI client securely
+def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_url: str):
     try:
-        host = db_client.config.host
-        
-        # Databricks Python SDK encapsulates dynamic tokens (like OAuth/SP) inside authenticate()
-        auth_headers_fn = db_client.config.authenticate()
-        auth_headers = auth_headers_fn() if callable(auth_headers_fn) else auth_headers_fn
-        api_key = auth_headers.get("Authorization", "").replace("Bearer ", "") if auth_headers else ""
-        
-        # Some dev setups might not have a token directly accessible, fallback to env
-        api_key = api_key or db_client.config.token or os.environ.get("OPENAI_API_KEY") or os.environ.get("DATABRICKS_TOKEN") or "dummy"
-        base_url = f"{host}/serving-endpoints" if host else os.environ.get("OPENAI_BASE_URL", "https://adb-1234.1.azuredatabricks.net/serving-endpoints")
-        
         client = OpenAI(api_key=api_key, base_url=base_url)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OpenAI client init failed: {e}")
         
-    try:
-        instructions_path = os.path.join(os.path.dirname(__file__), "agent_instructions.md")
-        with open(instructions_path, "r") as f:
-            system_prompt = f.read()
-    except Exception as e:
-        print(f"Failed to load agent instructions: {e}")
-    
-    if req.error_log:
-        system_prompt += f"\n\nPrevious attempt failed with error:\n{req.error_log}\nPlease fix the issue."
+        try:
+            instructions_path = os.path.join(os.path.dirname(__file__), "agent_instructions.md")
+            with open(instructions_path, "r") as f:
+                system_prompt = f.read()
+        except Exception as e:
+            print(f"Failed to load agent instructions: {e}")
+            system_prompt = "You are an expert React developer."
         
-    if req.current_code:
-        system_prompt += f"\n\nHere is the CURRENT state of the widget code:\n```tsx\n{req.current_code}\n```\nModify this code according to the user's instructions."
+        if req.error_log:
+            system_prompt += f"\n\nPrevious attempt failed with error:\n{req.error_log}\nPlease fix the issue."
+            
+        if req.current_code:
+            system_prompt += f"\n\nHere is the CURRENT state of the widget code:\n```tsx\n{req.current_code}\n```\nModify this code according to the user's instructions."
 
-    if req.data_source:
-        # Always tell the LLM what data source is configured so it can wire it up correctly
-        ds_label = "SQL query" if req.data_source_type == "sql" else "API endpoint URL"
-        system_prompt += f"\n\nThe widget has a configured data source ({ds_label}):\n```\n{req.data_source}\n```\nYou MUST use `props.data.dataSource` directly in your fetch/query call — do NOT hardcode the SQL or URL."
+        if req.data_source:
+            # Always tell the LLM what data source is configured so it can wire it up correctly
+            ds_label = "SQL query" if req.data_source_type == "sql" else "API endpoint URL"
+            system_prompt += f"\n\nThe widget has a configured data source ({ds_label}):\n```\n{req.data_source}\n```\nYou MUST use `props.data.dataSource` directly in your fetch/query call — do NOT hardcode the SQL or URL."
 
-    if req.data_source_schema:
-        import json
-        schema_str = json.dumps(req.data_source_schema, indent=2)
-        system_prompt += f"\n\nThe data source returns the following schema (use these exact field names in your component):\n```json\n{schema_str}\n```"
+        if req.data_source_schema:
+            import json
+            schema_str = json.dumps(req.data_source_schema, indent=2)
+            system_prompt += f"\n\nThe data source returns the following schema (use these exact field names in your component):\n```json\n{schema_str}\n```"
 
-    if req.configuration_mode != "none" and req.config_schema:
-        import json
-        config_schema_str = json.dumps(req.config_schema, indent=2)
-        system_prompt += f"\n\nThe user has configured the following dynamic configuration inputs for this widget:\n```json\n{config_schema_str}\n```\nYou MUST expect these exact keys in `props.data` (e.g. `props.data.myKey`). Provide reasonable fallback values if they are undefined or empty. Do NOT hardcode colors/text if a dynamic config key exists for it."
+        if req.configuration_mode != "none" and req.config_schema:
+            import json
+            config_schema_str = json.dumps(req.config_schema, indent=2)
+            system_prompt += f"\n\nThe user has configured the following dynamic configuration inputs for this widget:\n```json\n{config_schema_str}\n```\nYou MUST expect these exact keys in `props.data` (e.g. `props.data.myKey`). Provide reasonable fallback values if they are undefined or empty. Do NOT hardcode colors/text if a dynamic config key exists for it."
 
-    messages = [{"role": "system", "content": system_prompt}]
-    # Limit history to the last 6 messages to avoid massive context payloads causing timeouts
-    history_to_keep = req.history[-6:] if len(req.history) > 6 else req.history
-    for msg in history_to_keep:
-        messages.append({"role": msg.role, "content": msg.content})
-    messages.append({"role": "user", "content": req.prompt})
+        messages = [{"role": "system", "content": system_prompt}]
+        # Limit history to the last 6 messages to avoid massive context payloads causing timeouts
+        history_to_keep = req.history[-6:] if len(req.history) > 6 else req.history
+        for msg in history_to_keep:
+            messages.append({"role": msg.role, "content": msg.content})
+        messages.append({"role": "user", "content": req.prompt})
 
-    try:
         # Databricks DBRX/Llama endpoints generally use a corresponding model string
         model_name = os.environ.get("LLM_MODEL", "databricks-claude-sonnet-4-6")
         response = client.chat.completions.create(
@@ -125,11 +114,45 @@ async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Dep
             warning = "\n\n**SYSTEM ERROR: The response exceeded the maximum token limit and was cut off. In your next response, you MUST rewrite the component to be smaller and more concise. Remove unnecessary features, comments, or complex logic patterns to fit within the generator limits.**"
             explanation = explanation + warning if explanation else warning
 
-        return {"code": code, "explanation": explanation, "raw": content}
+        generation_jobs[job_id] = {
+            "status": "completed",
+            "result": {"code": code, "explanation": explanation, "raw": content}
+        }
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        generation_jobs[job_id] = {"status": "failed", "error": str(e)}
+
+@router.post("/generate")
+async def start_generate_widget(req: GenerateRequest, background_tasks: BackgroundTasks, db_client: WorkspaceClient = Depends(get_db_client_sp)):
+    # Use the WorkspaceClient config to initialize the OpenAI client securely
+    try:
+        host = db_client.config.host
+        
+        # Databricks Python SDK encapsulates dynamic tokens (like OAuth/SP) inside authenticate()
+        auth_headers_fn = db_client.config.authenticate()
+        auth_headers = auth_headers_fn() if callable(auth_headers_fn) else auth_headers_fn
+        api_key = auth_headers.get("Authorization", "").replace("Bearer ", "") if auth_headers else ""
+        
+        # Some dev setups might not have a token directly accessible, fallback to env
+        api_key = api_key or db_client.config.token or os.environ.get("OPENAI_API_KEY") or os.environ.get("DATABRICKS_TOKEN") or "dummy"
+        base_url = f"{host}/serving-endpoints" if host else os.environ.get("OPENAI_BASE_URL", "https://adb-1234.1.azuredatabricks.net/serving-endpoints")
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OpenAI client init failed: {e}")
+        
+    job_id = str(uuid.uuid4())
+    generation_jobs[job_id] = {"status": "pending", "result": None, "error": None}
+    
+    background_tasks.add_task(run_generation_task, job_id, req, api_key, base_url)
+    
+    return {"job_id": job_id}
+
+@router.get("/generate/{job_id}")
+async def get_generate_status(job_id: str):
+    if job_id not in generation_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return generation_jobs[job_id]
 
 def extract_schema_from_json(data):
     if isinstance(data, list) and len(data) > 0:

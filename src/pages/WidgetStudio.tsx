@@ -289,18 +289,61 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 return;
             }
 
-            if (data.code) {
-                setCode(data.code);
-            }
+            if (data.job_id) {
+                // Poll for completion
+                const jobId = data.job_id;
+                let pollCount = 0;
+                
+                const pollInterval = setInterval(async () => {
+                    try {
+                        pollCount++;
+                        const statusResp = await fetch(`/api/agent/widget/generate/${jobId}`);
+                        const statusData = await statusResp.json();
 
-            if (!autoRetryError) {
-                setMessages([...newMessages, { role: 'assistant', content: data.explanation || "Widget code generated." }]);
-            } else {
-                setMessages([...newMessages, { role: 'assistant', content: data.explanation || "I've attempted to fix the compilation error." }]);
+                        if (statusData.status === 'completed') {
+                            clearInterval(pollInterval);
+                            setIsGenerating(false);
+                            
+                            const result = statusData.result;
+                            if (result.code) {
+                                setCode(result.code);
+                            }
+
+                            if (!autoRetryError) {
+                                setMessages([...newMessages, { role: 'assistant', content: result.explanation || "Widget code generated." }]);
+                            } else {
+                                setMessages([...newMessages, { role: 'assistant', content: result.explanation || "I've attempted to fix the compilation error." }]);
+                            }
+                        } else if (statusData.status === 'failed') {
+                            clearInterval(pollInterval);
+                            setIsGenerating(false);
+                            setMessages([...newMessages, { role: 'system', content: `Generation Error: ${statusData.error}` }]);
+                        }
+                        
+                        // Failsafe timeout after 5 minutes (150 polls at 2s)
+                        if (pollCount > 150) {
+                            clearInterval(pollInterval);
+                            setIsGenerating(false);
+                            setMessages([...newMessages, { role: 'system', content: `Generation timed out on server.` }]);
+                        }
+                    } catch (pollErr) {
+                        clearInterval(pollInterval);
+                        setIsGenerating(false);
+                        setMessages([...newMessages, { role: 'system', content: `Polling Error: ${pollErr}` }]);
+                    }
+                }, 2000);
+            } else if (data.code) {
+                // Fallback if backend hasn't updated yet or returns directly
+                setCode(data.code);
+                if (!autoRetryError) {
+                    setMessages([...newMessages, { role: 'assistant', content: data.explanation || "Widget code generated." }]);
+                } else {
+                    setMessages([...newMessages, { role: 'assistant', content: data.explanation || "I've attempted to fix the compilation error." }]);
+                }
+                setIsGenerating(false);
             }
         } catch (e) {
             setMessages([...newMessages, { role: 'system', content: `Network Error: ${e}` }]);
-        } finally {
             setIsGenerating(false);
         }
     };
