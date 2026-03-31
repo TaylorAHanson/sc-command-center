@@ -30,11 +30,31 @@ def get_db_connection(env: str = "dev"):
     # generate a short-lived OAuth token via the Databricks SDK.
     if not password and host and host != "localhost":
         w = WorkspaceClient()
-        creds = w.database.generate_database_credential(
-            request_id = str(uuid.uuid4()),
-            instance_names=[instance_name] if instance_name else []
-        )
-        password = creds.token
+        
+        # Determine if this is an Autoscaling or Provisioned Lakebase.
+        # Autoscaling uses a path like projects/NAME/branches/...
+        # If the user just provided a plain name, try Autoscaling defaults first, then fall back to Provisioned.
+        endpoint_path = instance_name
+        if instance_name and not instance_name.startswith("projects/"):
+            endpoint_path = f"projects/{instance_name}/branches/production/endpoints/primary"
+            
+        try:
+            # Try Autoscaling Lakebase (the modern default)
+            res = w.api_client.do(
+                "POST", 
+                f"/api/2.0/postgres/{endpoint_path}/generate-database-credential"
+            )
+            password = res.get("token")
+        except Exception as e:
+            # Fall back to Provisioned Lakebase (legacy)
+            try:
+                creds = w.database.generate_database_credential(
+                    request_id = str(uuid.uuid4()),
+                    instance_names=[instance_name] if instance_name else []
+                )
+                password = creds.token
+            except Exception as e2:
+                raise Exception(f"Failed to generate Lakebase credentials. Autoscaling attempt failed: {str(e)}. Provisioned attempt failed: {str(e2)}")
 
     return psycopg2.connect(
         host=host,
