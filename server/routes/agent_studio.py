@@ -76,7 +76,9 @@ async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Dep
         system_prompt += f"\n\nThe user has configured the following dynamic configuration inputs for this widget:\n```json\n{config_schema_str}\n```\nYou MUST expect these exact keys in `props.data` (e.g. `props.data.myKey`). Provide reasonable fallback values if they are undefined or empty. Do NOT hardcode colors/text if a dynamic config key exists for it."
 
     messages = [{"role": "system", "content": system_prompt}]
-    for msg in req.history:
+    # Limit history to the last 6 messages to avoid massive context payloads causing timeouts
+    history_to_keep = req.history[-6:] if len(req.history) > 6 else req.history
+    for msg in history_to_keep:
         messages.append({"role": msg.role, "content": msg.content})
     messages.append({"role": "user", "content": req.prompt})
 
@@ -87,7 +89,7 @@ async def generate_widget(req: GenerateRequest, db_client: WorkspaceClient = Dep
             model=model_name,
             messages=messages,
             temperature=0.1,
-            max_tokens=100000
+            max_tokens=64000
         )
         
         content = response.choices[0].message.content

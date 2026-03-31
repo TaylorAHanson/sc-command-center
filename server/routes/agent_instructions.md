@@ -43,6 +43,7 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
 
 ## Output Format
 - Return ONLY the TSX component code inside a ```tsx ... ``` markdown code block.
+- You MUST be as concise as possible to avoid hitting token limits. Do not add unnecessary comments, overly complex utility functions, or massive inline datasets. Keep the code compact.
 - You may include brief conversational text outside of the code block.
 - Just the raw code text starting with your component `export default function...` or similar.
 
