@@ -441,7 +441,7 @@ const DashboardGrid: React.FC = () => {
                   version={def.version}
                   latestVersion={def.latestVersion}
                   availableVersions={def.availableVersions}
-                  onChangeVersion={isReadOnly ? undefined : (version) => {
+                  onChangeVersion={isReadOnly ? undefined : (version: number) => {
                     updateWidget(activeTabId, widget.i, {
                       props: { ...widget.props, _version: version }
                     });
