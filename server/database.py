@@ -10,21 +10,40 @@ def get_db_connection(env: str = "dev"):
     """Get a database connection (SQLite or Lakebase/Postgres)."""
     config = get_lakebase_config()
     db_name = config.get("database")
+    instance_name = config.get("instance_name")
+
     if env and env in ("dev", "test", "prod"):
+        # Format db_name
         base_name = db_name
         for suffix in ("-dev", "-test", "-prod", "_dev", "_test", "_prod"):
             if base_name.endswith(suffix):
                 base_name = base_name[:-len(suffix)]
                 break
                 
-        separator = "-" if "-" in base_name and "_" not in base_name else "_"
+        separator = "_"
+        if "-" in base_name:
+            separator = "_"
+            base_name = base_name.replace("-", "_")
+            
         db_name = f"{base_name}{separator}{env}"
+        
+        # Format instance_name
+        if instance_name:
+            base_inst = instance_name
+            for suffix in ("-dev", "-test", "-prod", "_dev", "_test", "_prod"):
+                if base_inst.endswith(suffix):
+                    base_inst = base_inst[:-len(suffix)]
+                    break
+            inst_separator = "_"
+            if "-" in base_inst:
+                inst_separator = "_"
+                base_inst = base_inst.replace("-", "_")
+            instance_name = f"{base_inst}{inst_separator}{env}"
         
     host = config.get("host")
     port = config.get("port")
     user = config.get("user")
     password = config.get("password")
-    instance_name = config.get("instance_name")
     
     # If no password is provided and we aren't using a local db,
     # generate a short-lived OAuth token via the Databricks SDK.
