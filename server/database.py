@@ -34,8 +34,12 @@ def get_db_connection(env: str = "dev"):
                 if base_inst.endswith(suffix):
                     base_inst = base_inst[:-len(suffix)]
                     break
-            # Use hyphens since Lakebase projects don't allow underscores
-            instance_name = f"{base_inst}-{env}"
+            # Lakebase instance and project names CANNOT contain underscores.
+            # Convert any existing underscores to hyphens.
+            inst_separator = "-"
+            if "_" in base_inst:
+                base_inst = base_inst.replace("_", "-")
+            instance_name = f"{base_inst}{inst_separator}{env}"
         
     host = config.get("host")
     port = config.get("port")
@@ -68,8 +72,11 @@ def get_db_connection(env: str = "dev"):
                 # Based on user logs, `generate_database_credential` is not finding the instance by name
                 # Let's try to query the list of instances, find the one matching the name to get its UID,
                 # and then generate the token via UID.
-                list_res = w.api_client.do("GET", "/api/2.0/database-instances/instances")
-                instances = list_res.get("instances", [])
+                try:
+                    list_res = w.api_client.do("GET", "/api/2.0/database-instances")
+                    instances = list_res.get("database_instances", [])
+                except Exception:
+                    instances = []
                 
                 target_uid = None
                 for inst in instances:
