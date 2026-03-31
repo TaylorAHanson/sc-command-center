@@ -16,16 +16,15 @@ def get_db_connection(env: str = "dev"):
     if env and env in ("dev", "test", "prod"):
         # Format db_name
         base_name = db_name
+        separator = "_"
+        if db_name and "-" in db_name:
+            separator = "-"
+            
         for suffix in ("-dev", "-test", "-prod", "_dev", "_test", "_prod"):
             if base_name.endswith(suffix):
                 base_name = base_name[:-len(suffix)]
                 break
                 
-        separator = "_"
-        if "-" in base_name:
-            separator = "_"
-            base_name = base_name.replace("-", "_")
-            
         db_name = f"{base_name}{separator}{env}"
         
         # Format instance_name variations
@@ -56,11 +55,18 @@ def get_db_connection(env: str = "dev"):
         w = WorkspaceClient()
         
         try:
-            me = w.api_client.do("GET", "/api/2.0/preview/scim/v2/Me")
-            user = me.get("userName", user)
+            me = w.current_user.me()
+            user = me.user_name
             logging.info(f"Set Postgres user to Databricks identity: {user}")
         except Exception as e:
-            logging.warning(f"Could not get current Databricks user: {e}")
+            logging.warning(f"Could not get current Databricks user via SDK: {e}")
+            try:
+                # Fallback to direct API call if SDK method fails
+                me_data = w.api_client.do("GET", "/api/2.0/preview/scim/v2/Me")
+                user = me_data.get("userName", user)
+                logging.info(f"Set Postgres user to Databricks identity (fallback): {user}")
+            except Exception as e2:
+                logging.warning(f"Could not get current Databricks user via fallback API: {e2}")
         
         # Robust credential generation strategy:
         # Try all permutations of Legacy/Provisioned and Modern/Autoscaling
@@ -99,7 +105,60 @@ def get_db_connection(env: str = "dev"):
         except Exception as e:
             logging.warning(f"Failed to fetch/match instances by UID: {str(e)}")
 
-        # If UID approach didn't work (or it's Autoscaling), fall back to standard attempts
+        # Now try to dynamically discover Autoscaling endpoints
+        if not token_found:
+            try:
+                logging.info("Fetching list of all Autoscaling projects in workspace...")
+                projects_res = w.api_client.do("GET", "/api/2.0/postgres/projects")
+                projects = projects_res.get("projects", [])
+                
+                project_names = [p.get("name", "") for p in projects]
+                logging.info(f"Found {len(projects)} Autoscaling projects: {project_names}")
+                
+                # Check if any project matches our variations
+                matched_project_name = None
+                
+                # Derive base instance name without suffix
+                base_inst = instance_name if instance_name else ""
+                for suffix in ("-dev", "-test", "-prod", "_dev", "_test", "_prod"):
+                    if base_inst.endswith(suffix):
+                        base_inst = base_inst[:-len(suffix)]
+                        break
+                base_inst_hyphens = base_inst.replace("_", "-")
+                
+                potential_project_names = [
+                    target_hyphens, 
+                    target_underscores, 
+                    instance_name, 
+                    base_inst_hyphens
+                ]
+                
+                for p in projects:
+                    p_name = p.get("name", "")
+                    # Project name usually follows 'projects/my-project' format in the API, or just 'my-project'
+                    short_name = p_name.split("/")[-1] if "/" in p_name else p_name
+                    
+                    if short_name in potential_project_names:
+                        matched_project_name = short_name
+                        break
+                        
+                if matched_project_name:
+                    dynamic_endpoint_path = f"projects/{matched_project_name}/branches/production/endpoints/primary"
+                    logging.info(f"Found matching Autoscaling project '{matched_project_name}'! Attempting to generate token for {dynamic_endpoint_path}...")
+                    
+                    res = w.api_client.do(
+                        "POST", 
+                        f"/api/2.0/postgres/credentials",
+                        body={"endpoint": dynamic_endpoint_path}
+                    )
+                    password = res.get("token")
+                    token_found = True
+                    logging.info(f"Success! Generated token dynamically for '{dynamic_endpoint_path}'")
+                    
+            except Exception as e:
+                logging.warning(f"Failed to fetch/match Autoscaling projects: {str(e)}")
+
+        # If dynamic approaches didn't work, fall back to standard hardcoded attempts
         
         # 1. Try Provisioned with underscores (e.g. command_center_dev)
         if not token_found:
@@ -135,24 +194,42 @@ def get_db_connection(env: str = "dev"):
 
         # 3. Try Autoscaling (requires hyphens)
         if not token_found:
-            endpoint_path = target_hyphens
-            if not endpoint_path.startswith("projects/"):
-                endpoint_path = f"projects/{target_hyphens}/branches/production/endpoints/primary"
-                
-            try:
-                logging.info(f"Attempt 3: Autoscaling REST API '{endpoint_path}'")
-                res = w.api_client.do(
-                    "POST", 
-                    f"/api/2.0/postgres/credentials",
-                    body={"endpoint": endpoint_path}
-                )
-                password = res.get("token")
-                token_found = True
-                logging.info(f"Success! Generated token using Autoscaling API for '{endpoint_path}'")
-            except Exception as e:
-                err_msg = str(e)
-                logging.warning(f"Attempt 3 failed: {err_msg}")
-                errors.append(f"Autoscaling ({endpoint_path}): {err_msg}")
+            autoscaling_candidates = []
+            
+            if target_hyphens:
+                if target_hyphens.startswith("projects/"):
+                    autoscaling_candidates.append(target_hyphens)
+                else:
+                    autoscaling_candidates.append(f"projects/{target_hyphens}/branches/production/endpoints/primary")
+            
+            if instance_name:
+                # Try the base instance name without the -dev/-test/-prod suffix
+                base_inst = instance_name
+                for suffix in ("-dev", "-test", "-prod", "_dev", "_test", "_prod"):
+                    if base_inst.endswith(suffix):
+                        base_inst = base_inst[:-len(suffix)]
+                        break
+                base_inst_hyphens = base_inst.replace("_", "-")
+                if base_inst_hyphens and base_inst_hyphens != target_hyphens:
+                    autoscaling_candidates.append(f"projects/{base_inst_hyphens}/branches/production/endpoints/primary")
+                    
+            for endpoint_path in autoscaling_candidates:
+                if token_found:
+                    break
+                try:
+                    logging.info(f"Attempt 3: Autoscaling REST API '{endpoint_path}'")
+                    res = w.api_client.do(
+                        "POST", 
+                        f"/api/2.0/postgres/credentials",
+                        body={"endpoint": endpoint_path}
+                    )
+                    password = res.get("token")
+                    token_found = True
+                    logging.info(f"Success! Generated token using Autoscaling API for '{endpoint_path}'")
+                except Exception as e:
+                    err_msg = str(e)
+                    logging.warning(f"Attempt 3 failed for {endpoint_path}: {err_msg}")
+                    errors.append(f"Autoscaling ({endpoint_path}): {err_msg}")
                 
         # 4. Try Autoscaling legacy API path just in case
         if not token_found:
@@ -163,14 +240,19 @@ def get_db_connection(env: str = "dev"):
             logging.error(final_error)
             raise Exception(final_error)
 
-    logging.info(f"Connecting to Postgres host={host}, port={port}, dbname={db_name}, user={user}")
-    return psycopg2.connect(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        dbname=db_name
-    )
+    conn_kwargs = {
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": password,
+        "dbname": db_name
+    }
+    
+    if host and host != "localhost":
+        conn_kwargs["sslmode"] = "require"
+
+    logging.info(f"Connecting to Postgres host={host}, port={port}, dbname={db_name}, user={user}, sslmode={conn_kwargs.get('sslmode', 'default')}")
+    return psycopg2.connect(**conn_kwargs)
 
 def init_db(env: str = "dev"):
     """Initialize database tables."""
