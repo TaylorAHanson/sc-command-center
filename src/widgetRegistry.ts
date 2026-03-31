@@ -38,6 +38,9 @@ export interface WidgetDefinition {
   defaultProps?: Record<string, any>; // Default props passed to the component as `data` when placed on a dashboard
   snapshot?: string; // Base64 image snapshot of the widget
   openInNewTabLink?: string; // Optional URL to open in a new tab when the user clicks a button in the widget header
+  version?: number;
+  availableVersions?: number[];
+  latestVersion?: number;
   createdBy?: string; // Username of whoever published this widget (custom widgets only)
 }
 
@@ -75,6 +78,19 @@ export const loadCustomWidgets = async () => {
     const res = await fetch('/api/widgets/custom');
     if (!res.ok) return;
     const data = await res.json();
+    
+    const versionsByWidget: Record<string, number[]> = {};
+    const latestVersionByWidget: Record<string, number> = {};
+    data.widgets.forEach((w: any) => {
+      if (!versionsByWidget[w.id]) versionsByWidget[w.id] = [];
+      if (w.version) versionsByWidget[w.id].push(w.version);
+      if (w.version && (!latestVersionByWidget[w.id] || w.version > latestVersionByWidget[w.id])) {
+        latestVersionByWidget[w.id] = w.version;
+      }
+    });
+    
+    const seenIds = new Set<string>();
+
     data.widgets.forEach((w: any) => {
       try {
         let Component;
@@ -100,8 +116,11 @@ export const loadCustomWidgets = async () => {
           return;
         }
 
-        registerWidget({
+        const baseDef = {
           id: w.id,
+          version: w.version,
+          availableVersions: versionsByWidget[w.id]?.sort((a, b) => b - a) || [],
+          latestVersion: latestVersionByWidget[w.id] || w.version,
           name: w.name,
           description: w.description,
           category: w.category,
@@ -109,7 +128,7 @@ export const loadCustomWidgets = async () => {
           defaultW: w.default_w || 6,
           defaultH: w.default_h || 6,
           component: Component,
-          configurationMode: w.configuration_mode || 'none',
+          configurationMode: w.configuration_mode || 'none' as const,
           configSchema: w.config_schema ? JSON.parse(w.config_schema) : undefined,
           defaultProps: (() => {
             const props: Record<string, any> = {};
@@ -135,7 +154,17 @@ export const loadCustomWidgets = async () => {
           openInNewTabLink: w.open_in_new_tab_link || undefined,
           createdBy: w.created_by || undefined,
           accessControl: { mockHasAccess: true }
-        });
+        };
+
+        // Always register the versioned ID
+        registerWidget({ ...baseDef, id: `${w.id}@${w.version}` });
+
+        // If it's the first time we see this widget ID, it's the latest version
+        // so we also register it under the base ID
+        if (!seenIds.has(w.id)) {
+          seenIds.add(w.id);
+          registerWidget(baseDef);
+        }
       } catch (err) {
         console.error(`Failed to load widget ${w.id}:`, err);
       }

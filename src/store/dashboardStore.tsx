@@ -266,10 +266,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       let updatedTab: Tab | null = null;
       const newTabs = prev.map(tab => {
         if (tab.id !== tabId) return tab;
-        const updatedWidgets = newLayout.map(l => {
-          const existing = tab.widgets.find(w => w.i === l.i);
-          return existing ? { ...existing, x: l.x, y: l.y, w: l.w, h: l.h } : undefined;
-        }).filter(Boolean) as WidgetLayout[];
+        const updatedWidgets = tab.widgets.map(w => {
+          const l = newLayout.find(nl => nl.i === w.i);
+          return l ? { ...w, x: l.x, y: l.y, w: l.w, h: l.h } : w;
+        });
         updatedTab = { ...tab, widgets: updatedWidgets };
         return updatedTab;
       });

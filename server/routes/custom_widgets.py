@@ -34,15 +34,9 @@ async def get_custom_widgets(env: str = "dev"):
     conn = get_db_connection(env)
     c = conn.cursor()
     query = '''
-        SELECT w.* FROM widgets w
-        INNER JOIN (
-            SELECT id, MAX(version) as max_version 
-            FROM widgets 
-            WHERE is_deprecated = 0
-            GROUP BY id
-        ) latest ON w.id = latest.id AND w.version = latest.max_version
-        WHERE w.is_deprecated = 0
-        ORDER BY w.timestamp DESC
+        SELECT * FROM widgets 
+        WHERE is_deprecated = 0
+        ORDER BY timestamp DESC
     '''
     c.execute(query)
 

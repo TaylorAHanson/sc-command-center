@@ -67,6 +67,13 @@ const DashboardGrid: React.FC = () => {
   const activeTab = tabs.find(t => t.id === activeTabId);
   const isReadOnly = (activeTab?.is_global && !isAdmin) || activeTab?.locked === true;
 
+  const visibleWidgets = activeTab?.widgets.filter(widget => {
+    const def = widgetRegistry[widget.type];
+    if (!def) return true;
+    if (activeDomain && def.domain && def.domain !== activeDomain) return false;
+    return true;
+  }) || [];
+
   const handleLayoutChange = (layout: WidgetLayout[]) => {
     if (activeTab && !isReadOnly) {
       // Remove static property before saving (we add it dynamically)
@@ -268,6 +275,26 @@ const DashboardGrid: React.FC = () => {
     };
   }, []);
 
+  // Handle escape key for fullscreen
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && fullscreenWidget) {
+        setFullscreenWidget(null);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    if (fullscreenWidget) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'unset';
+    };
+  }, [fullscreenWidget]);
+
   // Use a ref to track if we're dragging over
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -315,7 +342,7 @@ const DashboardGrid: React.FC = () => {
       <ResponsiveGridLayout
         className="layout"
         layouts={{
-          lg: activeTab.widgets.map(w => ({
+          lg: visibleWidgets.map(w => ({
             ...w,
             static: isReadOnly || false
           }))
@@ -332,7 +359,7 @@ const DashboardGrid: React.FC = () => {
         droppingItem={droppingItem}
         onDropDragOver={handleDropDragOver as any}
       >
-        {activeTab.widgets.length === 0 && (
+        {visibleWidgets.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-400">
             <div className="text-center">
               <p className="text-lg mb-2">Empty Dashboard</p>
@@ -344,8 +371,11 @@ const DashboardGrid: React.FC = () => {
             </div>
           </div>
         )}
-        {activeTab.widgets.map((widget: WidgetLayout) => {
-          const def = widgetRegistry[widget.type];
+        {visibleWidgets.map((widget: WidgetLayout) => {
+          const versionToUse = widget.props?._version;
+          const lookupKey = versionToUse ? `${widget.type}@${versionToUse}` : widget.type;
+          const def = widgetRegistry[lookupKey] || widgetRegistry[widget.type];
+          
           if (!def) {
             if (isRegistryLoading) {
               return (
@@ -374,11 +404,6 @@ const DashboardGrid: React.FC = () => {
 
           const Component = def.component;
 
-          // Domain Filter check
-          if (activeDomain && def.domain && def.domain !== activeDomain) {
-            return null; // hide widgets not in the active domain
-          }
-
           let customActions = null;
           if (def.openInNewTabLink || widget.type === 'iframe') {
             const url = def.openInNewTabLink || widget.props?.url || 'https://forecast.weather.gov/MapClick.php?lat=32.7157&lon=-117.1611';
@@ -399,14 +424,33 @@ const DashboardGrid: React.FC = () => {
           }
 
           return (
-            <div key={widget.i}>
-              <BaseWidget
-                id={widget.i}
-                title={def.name}
-                customActions={customActions}
-                onRemove={isReadOnly ? undefined : () => removeWidget(activeTabId, widget.i)}
-                onFullscreen={() => setFullscreenWidget({ id: widget.i, type: widget.type, title: def.name })}
-                onConfigure={
+            <div 
+              key={widget.i}
+              className={fullscreenWidget?.id === widget.i ? '!fixed z-[9999] bg-black/90 p-4 flex items-center justify-center !transform-none !top-0 !left-0 !w-[100vw] !h-[100vh]' : ''}
+            >
+              <div className={fullscreenWidget?.id === widget.i ? 'w-full h-full bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden' : 'w-full h-full'}>
+                <BaseWidget
+                  id={widget.i}
+                  title={def.name}
+                  version={def.version}
+                  latestVersion={def.latestVersion}
+                  availableVersions={def.availableVersions}
+                  onChangeVersion={isReadOnly ? undefined : (version) => {
+                    updateWidget(activeTabId, widget.i, {
+                      props: { ...widget.props, _version: version }
+                    });
+                  }}
+                  customActions={customActions}
+                  isFullscreen={fullscreenWidget?.id === widget.i}
+                  onRemove={isReadOnly && fullscreenWidget?.id !== widget.i ? undefined : () => removeWidget(activeTabId, widget.i)}
+                  onFullscreen={() => {
+                    if (fullscreenWidget?.id === widget.i) {
+                      setFullscreenWidget(null);
+                    } else {
+                      setFullscreenWidget({ id: widget.i, type: widget.type, title: def.name });
+                    }
+                  }}
+                  onConfigure={
                   (def.configurationMode === 'config_required' || def.configurationMode === 'config_allowed') && !isReadOnly
                     ? () => openConfigModal(widget.type, (config) => updateWidget(activeTabId, widget.i, { props: config }), widget.props)
                     : undefined
@@ -430,89 +474,11 @@ const DashboardGrid: React.FC = () => {
                   </ExecuteActionPropInjector>
                 </React.Suspense>
               </BaseWidget>
+              </div>
             </div>
           );
         })}
       </ResponsiveGridLayout>
-
-      {/* Fullscreen Widget Modal */}
-      {fullscreenWidget && (
-        <FullscreenWidgetModal
-          widget={fullscreenWidget}
-          onClose={() => setFullscreenWidget(null)}
-        />
-      )}
-    </div>
-  );
-};
-
-// Fullscreen Widget Modal Component
-interface FullscreenWidgetModalProps {
-  widget: { id: string; type: string; title: string };
-  onClose: () => void;
-}
-
-const FullscreenWidgetModal: React.FC<FullscreenWidgetModalProps> = ({ widget, onClose }) => {
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', handleEscape);
-    // Prevent body scroll when modal is open
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [onClose]);
-
-  const def = widgetRegistry[widget.type];
-  if (!def) {
-    return null;
-  }
-
-  const Component = def.component;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-      onClick={(e) => {
-        // Close on backdrop click
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      <div className="w-full h-full max-w-[95vw] max-h-[95vh] bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="h-14 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-6">
-          <h2 className="text-lg font-semibold text-qualcomm-navy">{widget.title}</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-red-500 transition-colors p-2 hover:bg-gray-100 rounded"
-            title="Close (Esc)"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Widget Content */}
-        <div className="flex-1 overflow-auto p-6">
-          <React.Suspense fallback={
-            <div className="flex items-center justify-center h-full w-full text-gray-400">
-              <div className="animate-pulse flex flex-col items-center">
-                <div className="w-8 h-8 border-2 border-qualcomm-blue border-t-transparent rounded-full animate-spin mb-2"></div>
-                <span>Loading Widget...</span>
-              </div>
-            </div>
-          }>
-            <Component id={widget.id} data={undefined} />
-          </React.Suspense>
-        </div>
-      </div>
     </div>
   );
 };
