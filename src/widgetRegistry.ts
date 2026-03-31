@@ -179,24 +179,29 @@ export const loadCustomWidgets = async () => {
 
 // The widgetMap is completely dynamic, no hardcoded definitions here.
 
-export const getAvailableWidgets = () => Object.values(widgetRegistry);
+export const getAvailableWidgets = () => Object.values(widgetRegistry).filter(w => !w.id.includes('@'));
 
 export const getWidgetCategories = () => {
   const categories = new Set<string>();
-  Object.values(widgetRegistry).forEach(w => {
-    categories.add(w.category || 'Uncategorized');
-  });
+  Object.values(widgetRegistry)
+    .filter(w => !w.id.includes('@'))
+    .forEach(w => {
+      categories.add(w.category || 'Uncategorized');
+    });
   return Array.from(categories).sort();
 };
 
 export const getWidgetDomains = () => {
   const domains = new Set<string>();
-  Object.values(widgetRegistry).forEach(w => {
-    if (w.domain) domains.add(w.domain);
-  });
+  Object.values(widgetRegistry)
+    .filter(w => !w.id.includes('@'))
+    .forEach(w => {
+      if (w.domain) domains.add(w.domain);
+    });
   return Array.from(domains).sort();
 };
 
 export const getWidgetsByCategory = (category: string) => {
-  return Object.values(widgetRegistry).filter(w => (w.category || 'Uncategorized') === category);
+  return Object.values(widgetRegistry)
+    .filter(w => !w.id.includes('@') && (w.category || 'Uncategorized') === category);
 };
