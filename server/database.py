@@ -288,18 +288,24 @@ def init_db(env: str = "dev"):
     # Simple migration: add action_name if it doesn't exist
     try:
         c.execute("ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS action_name TEXT")
-    except:
-        pass # In case IF NOT EXISTS isn't supported or other issues
+        conn.commit()
+    except Exception as e:
+        conn.rollback() # MUST rollback aborted transaction before continuing
+        logging.warning(f"Migration 'action_name' skipped: {e}")
         
     try:
         c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS snapshot TEXT")
-    except:
-        pass
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logging.warning(f"Migration 'snapshot' skipped: {e}")
         
     try:
         c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS open_in_new_tab_link TEXT")
-    except:
-        pass
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logging.warning(f"Migration 'open_in_new_tab_link' skipped: {e}")
     
     # Core + Custom Widgets Table with Versioning
     c.execute(f'''
