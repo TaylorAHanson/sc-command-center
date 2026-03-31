@@ -264,17 +264,25 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const updateLayout = (tabId: string, newLayout: WidgetLayout[]) => {
     setTabs(prev => {
       let updatedTab: Tab | null = null;
+      let hasChanges = false;
       const newTabs = prev.map(tab => {
         if (tab.id !== tabId) return tab;
         const updatedWidgets = tab.widgets.map(w => {
           const l = newLayout.find(nl => nl.i === w.i);
-          return l ? { ...w, x: l.x, y: l.y, w: l.w, h: l.h } : w;
+          if (l && (w.x !== l.x || w.y !== l.y || w.w !== l.w || w.h !== l.h)) {
+            hasChanges = true;
+            return { ...w, x: l.x, y: l.y, w: l.w, h: l.h };
+          }
+          return w;
         });
-        updatedTab = { ...tab, widgets: updatedWidgets };
-        return updatedTab;
+        if (hasChanges) {
+          updatedTab = { ...tab, widgets: updatedWidgets };
+          return updatedTab;
+        }
+        return tab;
       });
-      if (updatedTab) apiSyncView(updatedTab);
-      return newTabs;
+      if (hasChanges && updatedTab) apiSyncView(updatedTab);
+      return hasChanges ? newTabs : prev;
     });
   };
 

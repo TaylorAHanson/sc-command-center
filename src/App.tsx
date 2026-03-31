@@ -67,12 +67,23 @@ const DashboardGrid: React.FC = () => {
   const activeTab = tabs.find(t => t.id === activeTabId);
   const isReadOnly = (activeTab?.is_global && !isAdmin) || activeTab?.locked === true;
 
-  const visibleWidgets = activeTab?.widgets.filter(widget => {
-    const def = widgetRegistry[widget.type];
-    if (!def) return true;
-    if (activeDomain && def.domain && def.domain !== activeDomain) return false;
-    return true;
-  }) || [];
+  const visibleWidgets = React.useMemo(() => {
+    return activeTab?.widgets.filter(widget => {
+      const def = widgetRegistry[widget.type];
+      if (!def) return true;
+      if (activeDomain && def.domain && def.domain !== activeDomain) return false;
+      return true;
+    }) || [];
+  }, [activeTab?.widgets, activeDomain, isRegistryLoading]);
+
+  const layouts = React.useMemo(() => {
+    return {
+      lg: visibleWidgets.map(w => ({
+        ...w,
+        static: isReadOnly || false
+      }))
+    };
+  }, [visibleWidgets, isReadOnly]);
 
   const handleLayoutChange = (layout: WidgetLayout[]) => {
     if (activeTab && !isReadOnly) {
@@ -341,12 +352,7 @@ const DashboardGrid: React.FC = () => {
     >
       <ResponsiveGridLayout
         className="layout"
-        layouts={{
-          lg: visibleWidgets.map(w => ({
-            ...w,
-            static: isReadOnly || false
-          }))
-        }}
+        layouts={layouts}
         breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
         cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
         rowHeight={60}
@@ -469,7 +475,7 @@ const DashboardGrid: React.FC = () => {
                     <Component
                       id={widget.i}
                       data={widget.props}
-                      key={`${widget.i}-${JSON.stringify(widget.props)}`}
+                      key={widget.i}
                     />
                   </ExecuteActionPropInjector>
                 </React.Suspense>
