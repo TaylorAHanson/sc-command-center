@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Award, RefreshCw, Search, Filter, MailPlus, Eye, X, ChevronDown, AlertCircle } from 'lucide-react';
 import { useScript } from '../../hooks/useScript';
 import { ConfirmModal } from '../../components/ConfirmModal';
+import { useDashboardStore } from '../../store/dashboardStore';
 
 interface Widget {
     id: string;
