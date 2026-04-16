@@ -6,6 +6,7 @@ from typing import Optional
 import uuid
 import logging
 import os
+from routes.roles import require_domain_editor, _get_current_username, _get_user_permissions
 
 router = APIRouter()
 
@@ -30,7 +31,11 @@ async def get_current_user(w: WorkspaceClient = Depends(get_db_client)):
 
 
 @router.get("/custom")
-async def get_custom_widgets(env: str = "dev"):
+async def get_custom_widgets(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    perms = _get_user_permissions(w, env)
+    is_admin = perms.get("is_admin", False)
+    domain_permissions = perms.get("domain_permissions", {})
+    
     conn = get_db_connection(env)
     c = conn.cursor()
     query = '''
@@ -41,9 +46,20 @@ async def get_custom_widgets(env: str = "dev"):
     c.execute(query)
 
     rows = [dict({k: v for k, v in zip([desc[0] for desc in c.description], row)}) for row in c.fetchall()]
-
     conn.close()
-    return {"widgets": rows}
+
+    # Filter widgets based on user permissions
+    filtered_rows = []
+    for r in rows:
+        if is_admin:
+            filtered_rows.append(r)
+            continue
+            
+        domain = r.get("domain", "General")
+        if domain in domain_permissions:
+            filtered_rows.append(r)
+
+    return {"widgets": filtered_rows}
 
 
 @router.get("/history")
@@ -63,6 +79,9 @@ async def get_widget_history(widget_id: str, env: str = "dev"):
 
 @router.post("/custom")
 async def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    domain = widget.get("domain", "General")
+    require_domain_editor(w, domain, env)
+    
     conn = get_db_connection(env)
     c = conn.cursor()
 
@@ -112,26 +131,36 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
 
     current_user = _get_current_username(w)
 
-    # Verify ownership
-    c.execute("SELECT created_by, version FROM widgets WHERE id = %s ORDER BY version DESC LIMIT 1", (widget_id,))
+    # Verify ownership / permissions
+    c.execute("SELECT created_by, version, domain FROM widgets WHERE id = %s ORDER BY version DESC LIMIT 1", (widget_id,))
 
     row = c.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Widget not found")
 
-    owner = row["created_by"] if not isinstance(row, tuple) else row[0]
-    current_version = row["version"] if not isinstance(row, tuple) else row[1]
+    if hasattr(row, 'keys'):
+        owner = row['created_by']
+        current_version = row['version']
+        existing_domain = row['domain']
+    else:
+        owner = row[0]
+        current_version = row[1]
+        existing_domain = row[2]
     
-    if owner and owner != "unknown" and owner != current_user:
-        conn.close()
-        raise HTTPException(status_code=403, detail="You do not have permission to edit this widget")
+    # Must be an editor of the existing domain
+    require_domain_editor(w, existing_domain, env)
+    
+    new_domain = widget.get("domain", "General")
+    if new_domain != existing_domain:
+        # Must also be an editor of the new domain if changing
+        require_domain_editor(w, new_domain, env)
 
     name = widget.get("name")
     tsx_code = widget.get("tsx_code")
     description = widget.get("description", "")
     category = widget.get("category", "Custom")
-    domain = widget.get("domain", "General")
+    domain = new_domain
     data_source_type = widget.get("data_source_type", "none")
     data_source = widget.get("data_source", None)
     default_w = widget.get("default_w", 6)

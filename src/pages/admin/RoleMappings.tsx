@@ -6,7 +6,7 @@ interface RoleMapping {
     id: number;
     external_role: string;
     domain: string;
-    permission_level: 'editor' | 'promoter';
+    permission_level: 'viewer' | 'editor' | 'admin';
     timestamp: string;
 }
 
@@ -15,15 +15,19 @@ export const RoleMappings: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [newRole, setNewRole] = useState('');
     const [newDomain, setNewDomain] = useState('');
-    const [newPermission, setNewPermission] = useState<'editor' | 'promoter'>('editor');
+    const [newPermission, setNewPermission] = useState<'viewer' | 'editor' | 'admin'>('editor');
     const [isSaving, setIsSaving] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<RoleMapping | null>(null);
+
+    // Global Admin state
+    const [newGlobalAdminRole, setNewGlobalAdminRole] = useState('');
+    const [isSavingGlobal, setIsSavingGlobal] = useState(false);
 
     // Editing state
     const [editingId, setEditingId] = useState<number | null>(null);
     const [editRole, setEditRole] = useState('');
     const [editDomain, setEditDomain] = useState('');
-    const [editPermission, setEditPermission] = useState<'editor' | 'promoter'>('editor');
+    const [editPermission, setEditPermission] = useState<'viewer' | 'editor' | 'admin'>('editor');
 
     const fetchMappings = async () => {
         setLoading(true);
@@ -74,6 +78,37 @@ export const RoleMappings: React.FC = () => {
             alert("Network error");
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleCreateGlobalAdmin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newGlobalAdminRole.trim()) return;
+
+        setIsSavingGlobal(true);
+        try {
+            const res = await fetch('/api/roles/mapping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    external_role: newGlobalAdminRole.trim(),
+                    domain: 'Global',
+                    permission_level: 'admin'
+                })
+            });
+
+            if (res.ok) {
+                await fetchMappings();
+                setNewGlobalAdminRole('');
+            } else {
+                const data = await res.json();
+                alert(`Error: ${data.detail}`);
+            }
+        } catch (e) {
+            console.error("Error creating global admin mapping:", e);
+            alert("Network error");
+        } finally {
+            setIsSavingGlobal(false);
         }
     };
 
@@ -157,49 +192,82 @@ export const RoleMappings: React.FC = () => {
                 </div>
 
                 <div className="p-6">
-                    <form onSubmit={handleCreate} className="flex gap-4 items-end mb-8 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">External Role Name</label>
-                            <input
-                                type="text"
-                                value={newRole}
-                                onChange={(e) => setNewRole(e.target.value)}
-                                className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
-                                placeholder="e.g. corp_sc_admins"
-                                required
-                            />
-                        </div>
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Mapped Domain</label>
-                            <input
-                                type="text"
-                                value={newDomain}
-                                onChange={(e) => setNewDomain(e.target.value)}
-                                className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
-                                placeholder="e.g. Logistics"
-                                required
-                            />
-                        </div>
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Role Type</label>
-                            <select
-                                value={newPermission}
-                                onChange={(e) => setNewPermission(e.target.value as 'editor' | 'promoter')}
-                                className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
+                    {/* Global Admin Form */}
+                    <div className="mb-8">
+                        <h3 className="text-md font-semibold text-gray-900 mb-2">Assign Global Administrator</h3>
+                        <p className="text-sm text-gray-500 mb-3">
+                            Users with this role will have full admin access across the entire application and all domains. By default, setting <code>DEV_MODE=true</code> grants you global admin rights locally.
+                        </p>
+                        <form onSubmit={handleCreateGlobalAdmin} className="flex gap-4 items-end bg-blue-50 p-4 rounded-lg border border-blue-100">
+                            <div className="flex-1">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">External Role Name</label>
+                                <input
+                                    type="text"
+                                    value={newGlobalAdminRole}
+                                    onChange={(e) => setNewGlobalAdminRole(e.target.value)}
+                                    className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
+                                    placeholder="e.g. global_app_admins"
+                                    required
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={isSavingGlobal || !newGlobalAdminRole.trim()}
+                                className="px-4 py-2 bg-qualcomm-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
                             >
-                                <option value="editor">Editor</option>
-                                <option value="promoter">Promoter</option>
-                            </select>
-                        </div>
-                        <button
-                            type="submit"
-                            disabled={isSaving || !newRole.trim() || !newDomain.trim()}
-                            className="px-4 py-2 bg-qualcomm-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
-                        >
-                            <Plus size={16} />
-                            {isSaving ? 'Adding...' : 'Add Mapping'}
-                        </button>
-                    </form>
+                                <Shield size={16} />
+                                {isSavingGlobal ? 'Adding...' : 'Grant Global Admin'}
+                            </button>
+                        </form>
+                    </div>
+
+                    <div className="mb-6">
+                        <h3 className="text-md font-semibold text-gray-900 mb-2">Create Domain Mapping</h3>
+                        <form onSubmit={handleCreate} className="flex gap-4 items-end bg-gray-50 p-4 rounded-lg border border-gray-200">
+                            <div className="flex-1">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">External Role Name</label>
+                                <input
+                                    type="text"
+                                    value={newRole}
+                                    onChange={(e) => setNewRole(e.target.value)}
+                                    className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
+                                    placeholder="e.g. corp_sc_admins"
+                                    required
+                                />
+                            </div>
+                            <div className="flex-1">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Mapped Domain</label>
+                                <input
+                                    type="text"
+                                    value={newDomain}
+                                    onChange={(e) => setNewDomain(e.target.value)}
+                                    className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
+                                    placeholder="e.g. Logistics"
+                                    required
+                                />
+                            </div>
+                            <div className="flex-1">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Role Type</label>
+                                <select
+                                    value={newPermission}
+                                    onChange={(e) => setNewPermission(e.target.value as 'viewer' | 'editor' | 'admin')}
+                                    className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
+                                >
+                                    <option value="viewer">Viewer</option>
+                                    <option value="editor">Editor</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={isSaving || !newRole.trim() || !newDomain.trim()}
+                                className="px-4 py-2 bg-qualcomm-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
+                            >
+                                <Plus size={16} />
+                                {isSaving ? 'Adding...' : 'Add Mapping'}
+                            </button>
+                        </form>
+                    </div>
 
                     <div className="overflow-hidden border border-gray-200 rounded-lg">
                         <table className="min-w-full divide-y divide-gray-200">
@@ -251,11 +319,12 @@ export const RoleMappings: React.FC = () => {
                                                     <td className="px-6 py-4 whitespace-nowrap">
                                                         <select
                                                             value={editPermission}
-                                                            onChange={(e) => setEditPermission(e.target.value as 'editor' | 'promoter')}
+                                                            onChange={(e) => setEditPermission(e.target.value as 'viewer' | 'editor' | 'admin')}
                                                             className="w-full bg-white border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:border-qualcomm-blue"
                                                         >
+                                                            <option value="viewer">Viewer</option>
                                                             <option value="editor">Editor</option>
-                                                            <option value="promoter">Promoter</option>
+                                                            <option value="admin">Admin</option>
                                                         </select>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -289,8 +358,8 @@ export const RoleMappings: React.FC = () => {
                                                         {mapping.external_role}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                        <span className={`px-2.5 py-1 rounded-md text-xs font-medium ${mapping.permission_level === 'promoter' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                            {mapping.permission_level === 'promoter' ? 'Promoter' : 'Editor'}
+                                                        <span className={`px-2.5 py-1 rounded-md text-xs font-medium ${mapping.permission_level === 'admin' ? 'bg-purple-100 text-purple-700' : mapping.permission_level === 'viewer' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                            {mapping.permission_level === 'admin' ? 'Admin' : mapping.permission_level === 'viewer' ? 'Viewer' : 'Editor'}
                                                         </span>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

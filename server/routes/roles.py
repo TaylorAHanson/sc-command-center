@@ -120,6 +120,98 @@ async def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str =
         print(f"Error fetching my domains: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def _get_user_permissions(w: WorkspaceClient, env: str) -> dict:
+    """Helper function to fetch user permissions so it can be reused."""
+    import os
+    if os.environ.get('DEV_MODE', '').lower() == 'true':
+        return {
+            "is_admin": True,
+            "domain_permissions": {}
+        }
+
+    username = _get_current_username(w)
+    user_entitlements = get_user_entitlements(w)
+    user_entitlements.append(username)
+    
+    conn = get_db_connection(env)
+    c = conn.cursor()
+    
+    format_strings = ','.join(['%s'] * len(user_entitlements))
+    c.execute(f"SELECT domain, permission_level FROM role_mappings WHERE external_role IN ({format_strings})", tuple(user_entitlements))
+    rows = c.fetchall()
+    conn.close()
+    
+    domain_permissions = {}
+    is_global_admin = False
+    
+    for row in rows:
+        domain = row['domain'] if hasattr(row, 'keys') else row[0]
+        perm = row['permission_level'] if hasattr(row, 'keys') else row[1]
+        
+        if domain.lower() in ['global', 'all', 'app'] and perm == 'admin':
+            is_global_admin = True
+            
+        # If multiple mappings exist for same domain, keep the highest privilege
+        levels = {'viewer': 1, 'editor': 2, 'admin': 3}
+        current_level = levels.get(domain_permissions.get(domain, 'none'), 0)
+        new_level = levels.get(perm, 0)
+        
+        if new_level > current_level:
+            domain_permissions[domain] = perm
+            
+    return {
+        "is_admin": is_global_admin,
+        "domain_permissions": domain_permissions
+    }
+
+def require_global_admin(w: WorkspaceClient, env: str = "dev"):
+    perms = _get_user_permissions(w, env)
+    if not perms.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Forbidden: Global Admin access required")
+    return True
+
+def require_domain_editor(w: WorkspaceClient, domain: str, env: str = "dev"):
+    perms = _get_user_permissions(w, env)
+    if perms.get("is_admin"):
+        return True
+    domain_perm = perms.get("domain_permissions", {}).get(domain, "none")
+    if domain_perm not in ["editor", "admin"]:
+        raise HTTPException(status_code=403, detail=f"Forbidden: Editor or Admin access required for domain '{domain}'")
+    return True
+
+def require_domain_admin(w: WorkspaceClient, domain: str, env: str = "dev"):
+    perms = _get_user_permissions(w, env)
+    if perms.get("is_admin"):
+        return True
+    domain_perm = perms.get("domain_permissions", {}).get(domain, "none")
+    if domain_perm != "admin":
+        raise HTTPException(status_code=403, detail=f"Forbidden: Admin access required for domain '{domain}'")
+    return True
+
+def require_domain_viewer(w: WorkspaceClient, domain: str, env: str = "dev"):
+    perms = _get_user_permissions(w, env)
+    if perms.get("is_admin"):
+        return True
+    domain_perm = perms.get("domain_permissions", {}).get(domain, "none")
+    if domain_perm not in ["viewer", "editor", "admin"]:
+        raise HTTPException(status_code=403, detail=f"Forbidden: Viewer, Editor or Admin access required for domain '{domain}'")
+    return True
+
+@router.get("/my-permissions")
+async def get_my_permissions(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """
+    Returns the user's detailed permission structure.
+    {
+      "is_admin": bool, # true if they have 'admin' on 'Global' or 'All'
+      "domain_permissions": { "DomainName": "admin" | "editor" | "viewer" }
+    }
+    """
+    try:
+        return _get_user_permissions(w, env)
+    except Exception as e:
+        print(f"Error fetching my permissions: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/mapping")
 async def get_role_mappings(env: str = "dev"):
     try:
@@ -137,7 +229,8 @@ async def get_role_mappings(env: str = "dev"):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/mapping")
-async def create_role_mapping(mapping: RoleMappingCreate, env: str = "dev"):
+async def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    require_global_admin(w, env)
     try:
         conn = get_db_connection(env)
         c = conn.cursor()
@@ -170,7 +263,8 @@ async def create_role_mapping(mapping: RoleMappingCreate, env: str = "dev"):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/mapping/{mapping_id}")
-async def delete_role_mapping(mapping_id: int, env: str = "dev"):
+async def delete_role_mapping(mapping_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    require_global_admin(w, env)
     try:
         conn = get_db_connection(env)
         c = conn.cursor()
@@ -195,7 +289,8 @@ async def delete_role_mapping(mapping_id: int, env: str = "dev"):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/mapping/{mapping_id}")
-async def update_role_mapping(mapping_id: int, mapping: RoleMappingCreate, env: str = "dev"):
+async def update_role_mapping(mapping_id: int, mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    require_global_admin(w, env)
     try:
         conn = get_db_connection(env)
         c = conn.cursor()

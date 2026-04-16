@@ -46,7 +46,8 @@ export interface WidgetDefinition {
 
 export const widgetRegistry: Record<string, WidgetDefinition> = {};
 let registryVersion = 0;
-let isRegistryLoading = false;
+let isRegistryLoading = true;
+let initialLoadStarted = false;
 const listeners = new Set<() => void>();
 
 export const getRegistryLoading = () => isRegistryLoading;
@@ -70,7 +71,8 @@ export const useWidgetRegistry = () => {
 };
 
 export const loadCustomWidgets = async () => {
-  if (isRegistryLoading) return;
+  if (isRegistryLoading && initialLoadStarted) return;
+  initialLoadStarted = true;
   isRegistryLoading = true;
   listeners.forEach(l => l());
 

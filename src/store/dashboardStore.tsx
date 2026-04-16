@@ -31,6 +31,7 @@ interface DashboardContextType {
   setActiveDomain: (domainId: string | null) => void;
   isLoading: boolean;
   isAdmin: boolean;
+  domainPermissions: Record<string, string>;
   fetchViews: () => Promise<void>;
 
   addTab: (name: string, domain?: string, is_global?: boolean) => void;
@@ -61,7 +62,21 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
-  const isAdmin = true; // TODO: Fetch from actual auth
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [domainPermissions, setDomainPermissions] = useState<Record<string, string>>({});
+
+  const fetchPermissions = useCallback(async () => {
+    try {
+      const response = await fetch('/api/roles/my-permissions');
+      if (response.ok) {
+        const data = await response.json();
+        setIsAdmin(data.is_admin);
+        setDomainPermissions(data.domain_permissions || {});
+      }
+    } catch (e) {
+      console.error('Failed to load permissions:', e);
+    }
+  }, []);
 
   const fetchViews = useCallback(async () => {
     try {
@@ -102,8 +117,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []); // Remove activeTabId dependency so it doesn't loop when activeTabId is set
 
   useEffect(() => {
+    fetchPermissions();
     fetchViews();
-  }, [fetchViews]);
+  }, [fetchPermissions, fetchViews]);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -323,7 +339,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   return (
     <DashboardContext.Provider value={{
-      tabs, activeTabId, activeDomain, setActiveDomain, isLoading, isAdmin, fetchViews,
+      tabs, activeTabId, activeDomain, setActiveDomain, isLoading, isAdmin, domainPermissions, fetchViews,
       addTab, removeTab, renameTab, reorderTabs, setActiveTabId: handleSetActiveTabId,
       duplicateView, addWidget, removeWidget, updateWidget, updateLayout,
       toggleLock, generateShareLink, loadSharedDashboard, configModal, openConfigModal, closeConfigModal

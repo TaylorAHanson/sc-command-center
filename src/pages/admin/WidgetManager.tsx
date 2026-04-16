@@ -358,7 +358,10 @@ export const WidgetManager: React.FC = () => {
     } | null>(null);
     const [pendingCertify, setPendingCertify] = useState<{ widgetId: string; version: number; name: string } | null>(null);
 
-    const isPromoter = true;
+    const { isAdmin, domainPermissions } = useDashboardStore();
+    const checkIsPromoter = (domain: string) => {
+        return isAdmin || domainPermissions[domain] === 'admin' || domainPermissions[domain] === 'editor';
+    };
 
     const consolidatedWidgets = useMemo<ConsolidatedWidget[]>(() => {
         const map = new Map<string, ConsolidatedWidget>();
@@ -502,7 +505,7 @@ export const WidgetManager: React.FC = () => {
     const renderVersionCell = (w: ConsolidatedWidget, env: 'dev' | 'test' | 'prod') => {
         const currentVersion = w[env]?.version ?? 0;
 
-        if (!isPromoter) {
+        if (!checkIsPromoter(w.domain)) {
             return (
                 <div className="flex items-center gap-2">
                     <span className="px-2 py-1 bg-gray-100 rounded-md font-mono text-xs">
@@ -524,7 +527,7 @@ export const WidgetManager: React.FC = () => {
                     maxVersion={w.maxVersion}
                     onChange={(v) => handleVersionChange(w.id, w.name, v, env, w)}
                 />
-                {env === 'prod' && isPromoter && w.prod && !w.is_certified && (
+                {env === 'prod' && checkIsPromoter(w.domain) && w.prod && !w.is_certified && (
                     <button
                         onClick={() => handleCertify(w.id, w.prod!.version, w.name)}
                         className="text-[11px] px-2 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded hover:bg-green-100 transition flex items-center gap-1 w-fit"

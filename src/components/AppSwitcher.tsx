@@ -38,13 +38,22 @@ const APPS: AppEntry[] = [
         accentBg: '#E3F9F0',
     },
     {
-        id: 'third-app',
-        name: 'Third App',
-        description: 'Third App',
+        id: 'biz-ai',
+        name: 'BizAI',
+        description: 'BizAI',
         Icon: FileCode,
         href: 'https://qualcomm.com/',
         accentColor: '#00875A',
         accentBg: '#E3F9F0',
+    },
+    {
+        id: 'databricks',
+        name: 'Databricks',
+        description: 'Databricks Accounts',
+        Icon: FileCode,
+        href: 'https://accounts.databricks.com/',
+        accentColor: '#FF3621',
+        accentBg: '#FFE6E3',
     },
 ];
 

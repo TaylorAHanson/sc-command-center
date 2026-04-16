@@ -124,7 +124,7 @@ export const ViewManager: React.FC = () => {
     const [selectedDomain, setSelectedDomain] = useState('All');
 
     // Dashboard store to trigger sidebar reloads
-    const { fetchViews: refreshGlobalSidebar } = useDashboardStore();
+    const { fetchViews: refreshGlobalSidebar, isAdmin, domainPermissions } = useDashboardStore();
 
     // Modal state
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -132,8 +132,10 @@ export const ViewManager: React.FC = () => {
     const [newViewDomain, setNewViewDomain] = useState('General');
     const [isCreating, setIsCreating] = useState(false);
 
-    // Mock role check
-    const isPromoter = true;
+    const checkIsPromoter = (domain: string) => {
+        return isAdmin || domainPermissions[domain] === 'admin' || domainPermissions[domain] === 'editor';
+    };
+    const canCreateGlobalView = isAdmin || Object.values(domainPermissions).some(p => p === 'admin' || p === 'editor');
 
     // Preview + History modal state
     const [previewView, setPreviewView] = useState<ConsolidatedView | null>(null);
@@ -325,7 +327,7 @@ export const ViewManager: React.FC = () => {
         const currentVersion = viewEntry[env]?.version ?? 0;
         const options = Array.from({ length: viewEntry.maxVersion }, (_, i) => i + 1);
 
-        if (!isPromoter) {
+        if (!checkIsPromoter(viewEntry.domain)) {
             return (
                 <div className="flex items-center gap-2">
                     <span className="px-2 py-1 bg-gray-100 rounded-md font-mono text-xs">
@@ -371,13 +373,15 @@ export const ViewManager: React.FC = () => {
                     <p className="text-sm text-gray-500 mt-1">Manage global view lifecycles across Dev, Test, and Prod.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => setIsCreateModalOpen(true)}
-                        className="px-4 py-2 bg-qualcomm-blue text-white rounded-md hover:bg-blue-700 transition text-sm font-medium flex items-center gap-2"
-                    >
-                        <Plus size={16} />
-                        Create Global View
-                    </button>
+                    {canCreateGlobalView && (
+                        <button
+                            onClick={() => setIsCreateModalOpen(true)}
+                            className="px-4 py-2 bg-qualcomm-blue text-white rounded-md hover:bg-blue-700 transition text-sm font-medium flex items-center gap-2"
+                        >
+                            <Plus size={16} />
+                            Create Global View
+                        </button>
+                    )}
                     <button
                         onClick={loadAll}
                         className="p-2 text-gray-500 hover:text-qualcomm-blue hover:bg-blue-50 rounded-md transition"

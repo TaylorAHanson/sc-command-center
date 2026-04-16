@@ -6,7 +6,7 @@ import uuid
 from database import get_db_connection
 from middleware.auth import get_db_client
 from databricks.sdk import WorkspaceClient
-from routes.roles import _get_current_username
+from routes.roles import _get_current_username, require_domain_editor, _get_user_permissions
 
 router = APIRouter()
 
@@ -25,22 +25,17 @@ class ViewUpdate(BaseModel):
     is_locked: Optional[bool] = None
     widgets: Optional[List[Dict[str, Any]]] = None
 
-def _is_admin(username: str) -> bool:
-    # Basic mockup for Admin check
-    # In a real app, you would check a specific user group or role mapping
-    return True
-
 @router.get("/")
 async def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     """Fetch all views accessible to the user (their own + matching global views)."""
     username = _get_current_username(w)
+    perms = _get_user_permissions(w, env)
+    is_admin = perms.get("is_admin", False)
+    domain_permissions = perms.get("domain_permissions", {})
     
     try:
         conn = get_db_connection(env)
         c = conn.cursor()
-        
-        # Get user's active domains (mocked logic or fetch from role_mappings if needed)
-        # For now, we return all global views + user's own views
         
         c.execute("""
             SELECT dv.id, dv.version, dv.name, dv.domain, dv.username, dv.is_global, dv.widgets_json, dv.is_locked, dv.timestamp
@@ -58,9 +53,16 @@ async def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev
             
         conn.close()
         
-        # Parse JSON
+        # Parse JSON and filter global views
         result = []
         for v in views:
+            # If it's a global view and the user is NOT a global admin,
+            # they must have some explicit domain access to see it
+            if v['is_global'] and not is_admin:
+                domain = v.get('domain', 'General')
+                if domain not in domain_permissions:
+                    continue
+                    
             try:
                 widgets = json.loads(v.get('widgets_json', '[]'))
             except:
@@ -104,8 +106,8 @@ async def get_view_history(view_id: str, env: str = "dev"):
 async def create_view(view: ViewCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     username = _get_current_username(w)
     
-    if view.is_global and not _is_admin(username):
-        raise HTTPException(status_code=403, detail="Only admins can create global views")
+    if view.is_global:
+        require_domain_editor(w, view.domain, env)
         
     actual_username = 'system' if view.is_global else username
     view_id = view.id if view.id else str(uuid.uuid4())
@@ -150,9 +152,8 @@ async def update_view(view_id: str, view: ViewUpdate, w: WorkspaceClient = Depen
             conn.close()
             raise HTTPException(status_code=404, detail="View not found")
         
-        if existing['is_global'] and not _is_admin(username):
-            conn.close()
-            raise HTTPException(status_code=403, detail="Only admins can edit global views")
+        if existing['is_global']:
+            require_domain_editor(w, existing.get('domain', 'General'), env)
             
         if not existing['is_global'] and existing['username'] != username:
             conn.close()
@@ -203,7 +204,7 @@ async def delete_view(view_id: str, w: WorkspaceClient = Depends(get_db_client),
         conn = get_db_connection(env)
         c = conn.cursor()
         
-        c.execute("SELECT username, is_global FROM dashboard_views WHERE id = %s LIMIT 1", (view_id,))
+        c.execute("SELECT username, is_global, domain FROM dashboard_views WHERE id = %s LIMIT 1", (view_id,))
         row = c.fetchone()
         if row:
             existing = dict(zip([column[0] for column in c.description], row))
@@ -214,9 +215,8 @@ async def delete_view(view_id: str, w: WorkspaceClient = Depends(get_db_client),
             conn.close()
             raise HTTPException(status_code=404, detail="View not found")
         
-        if existing['is_global'] and not _is_admin(username):
-            conn.close()
-            raise HTTPException(status_code=403, detail="Only admins can delete global views")
+        if existing['is_global']:
+            require_domain_editor(w, existing.get('domain', 'General'), env)
             
         if not existing['is_global'] and existing['username'] != username:
             conn.close()

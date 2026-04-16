@@ -4,6 +4,7 @@ from typing import Optional
 from database import get_db_connection
 from middleware.auth import get_db_client
 from databricks.sdk import WorkspaceClient
+from routes.roles import require_domain_editor
 
 router = APIRouter()
 
@@ -38,6 +39,9 @@ async def transfer_widget(request: TransferRequest, w: WorkspaceClient = Depends
     if "timestamp" in keys: keys.remove("timestamp")
     
     source_conn.close()
+
+    # RBAC Enforcement: must be editor/admin in the target environment for this domain
+    require_domain_editor(w, widget.get('domain', 'General'), request.target_env)
 
     # Connect to the target environment to fetch the latest version there
     target_conn = get_db_connection(request.target_env)
@@ -97,6 +101,12 @@ async def certify_widget(request: CertifyRequest, w: WorkspaceClient = Depends(g
     conn = get_db_connection('prod')
     c = conn.cursor()
     
+    c.execute("SELECT domain FROM widgets WHERE id = %s LIMIT 1", (request.widget_id,))
+    row = c.fetchone()
+    if row:
+        domain = row['domain'] if hasattr(row, 'keys') else row[0]
+        require_domain_editor(w, domain, 'prod')
+    
     c.execute("UPDATE widgets SET is_certified = 1 WHERE id = %s AND version = %s AND is_deprecated = 0", (request.widget_id, request.version))
         
     if c.rowcount == 0:
@@ -136,6 +146,9 @@ async def transfer_view(request: ViewTransferRequest, w: WorkspaceClient = Depen
     if "timestamp" in keys: keys.remove("timestamp")
     
     source_conn.close()
+
+    # RBAC Enforcement: must be editor/admin in the target environment for this domain
+    require_domain_editor(w, view.get('domain', 'General'), request.target_env)
 
     target_conn = get_db_connection(request.target_env)
     c_target = target_conn.cursor()
