@@ -22,4 +22,4 @@ env:
   - name: LAKEBASE_ENABLED
     value: "true"
   - name: LAKEBASE_INSTANCE_NAME
-    value: "scm-oltp"
+    value: "command-center"
