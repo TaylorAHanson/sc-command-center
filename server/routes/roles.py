@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import List, Dict, Any
 from pydantic import BaseModel
 import psycopg2
+from psycopg2.extras import RealDictCursor
 import datetime
 from database import get_db_connection
 from middleware.auth import get_db_client, get_user_token
@@ -216,7 +217,7 @@ async def get_my_permissions(w: WorkspaceClient = Depends(get_db_client), env: s
 async def get_role_mappings(env: str = "dev"):
     try:
         conn = get_db_connection(env)
-        c = conn.cursor()
+        c = conn.cursor(cursor_factory=RealDictCursor)
         
         c.execute("SELECT id, external_role, domain, permission_level, timestamp FROM role_mappings ORDER BY domain, external_role")
         rows = c.fetchall()
@@ -233,7 +234,7 @@ async def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = D
     require_global_admin(w, env)
     try:
         conn = get_db_connection(env)
-        c = conn.cursor()
+        c = conn.cursor(cursor_factory=RealDictCursor)
         
         # Check if exists
         c.execute("SELECT id FROM role_mappings WHERE external_role = %s AND domain = %s AND permission_level = %s", 
