@@ -52,7 +52,12 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
 
         if req.data_source:
             # Always tell the LLM what data source is configured so it can wire it up correctly
-            ds_label = "SQL query" if req.data_source_type == "sql" else "API endpoint URL"
+            if req.data_source_type == "sql":
+                ds_label = "SQL query"
+            elif req.data_source_type == "databricks_api":
+                ds_label = "Databricks API path"
+            else:
+                ds_label = "API endpoint URL"
             system_prompt += f"\n\nThe widget has a configured data source ({ds_label}):\n```\n{req.data_source}\n```\nYou MUST use `props.data.dataSource` directly in your fetch/query call — do NOT hardcode the SQL or URL."
 
         if req.data_source_schema:
@@ -178,6 +183,19 @@ async def test_datasource(req: DataSourceTestRequest, db_client: WorkspaceClient
                 return {"schema": schema, "sample": data[:2] if isinstance(data, list) else data}
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"API request failed: {e}")
+    elif req.data_source_type == "databricks_api":
+        try:
+            path = req.data_source
+            if not path.startswith('/'):
+                path = '/' + path
+            
+            # Use db_client to make an authenticated request
+            res = db_client.api_client.do(method="GET", path=path)
+            
+            schema = extract_schema_from_json(res)
+            return {"schema": schema, "sample": res[:2] if isinstance(res, list) else res}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Databricks API request failed: {e}")
     elif req.data_source_type == "sql":
         try:
             from databricks.sdk.service.sql import StatementExecutionAPI, Disposition

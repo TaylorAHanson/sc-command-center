@@ -92,7 +92,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [widgetDomain, setWidgetDomain] = useState(sessionState?.widgetDomain || "");
     const [isExecutable, setIsExecutable] = useState(sessionState?.isExecutable || false);
     const [openInNewTabLink, setOpenInNewTabLink] = useState(sessionState?.openInNewTabLink || "");
-    const [dataSourceType, setDataSourceType] = useState<"none" | "api" | "sql">(sessionState?.dataSourceType || "none");
+    const [dataSourceType, setDataSourceType] = useState<"none" | "api" | "sql" | "databricks_api">(sessionState?.dataSourceType || "none");
     const [dataSource, setDataSource] = useState(sessionState?.dataSource || "");
     const [dataSourceSchema, setDataSourceSchema] = useState<any>(sessionState?.dataSourceSchema || null);
     const [isTestingDataSource, setIsTestingDataSource] = useState(false);
@@ -551,8 +551,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     {/* Data source context pill */}
                     {dataSourceType !== 'none' && dataSource && (
                         <div className="mb-2 flex items-center gap-2 px-3 py-1.5 bg-slate-700/60 border border-slate-600 rounded-md text-xs text-slate-300">
-                            <span className={`px-1.5 py-0.5 rounded font-mono font-bold text-[10px] ${dataSourceType === 'sql' ? 'bg-indigo-900 text-indigo-300' : 'bg-emerald-900 text-emerald-300'}`}>
-                                {dataSourceType.toUpperCase()}
+                            <span className={`px-1.5 py-0.5 rounded font-mono font-bold text-[10px] ${dataSourceType === 'sql' ? 'bg-indigo-900 text-indigo-300' : dataSourceType === 'databricks_api' ? 'bg-orange-900 text-orange-300' : 'bg-emerald-900 text-emerald-300'}`}>
+                                {dataSourceType === 'databricks_api' ? 'DATABRICKS API' : dataSourceType.toUpperCase()}
                             </span>
                             <span className="truncate text-slate-400 font-mono">{dataSource.replace(/\s+/g, ' ').slice(0, 80)}{dataSource.length > 80 ? '…' : ''}</span>
                         </div>
@@ -775,7 +775,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                     <div className="col-span-2">
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Data Source</label>
                                         <div className="flex gap-4 mb-4">
-                                            {["none", "api", "sql"].map(type => (
+                                            {["none", "api", "databricks_api", "sql"].map(type => (
                                                 <label key={type} className="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
                                                     <input
                                                         type="radio"
@@ -788,7 +788,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                         }}
                                                         className="text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-600"
                                                     />
-                                                    {type.toUpperCase()}
+                                                    {type === 'databricks_api' ? 'DATABRICKS API' : type.toUpperCase()}
                                                 </label>
                                             ))}
                                         </div>
@@ -796,13 +796,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                         {dataSourceType !== "none" && (
                                             <div className="space-y-4 p-4 border border-slate-600 rounded-lg bg-slate-800/50">
                                                 <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                                                    {dataSourceType === 'api' ? 'API Endpoint URL' : 'SQL Query'}
+                                                    {dataSourceType === 'api' ? 'API Endpoint URL' : dataSourceType === 'databricks_api' ? 'Databricks API Path' : 'SQL Query'}
                                                 </label>
-                                                {dataSourceType === 'api' ? (
+                                                {dataSourceType === 'api' || dataSourceType === 'databricks_api' ? (
                                                     <input
                                                         value={dataSource} onChange={e => setDataSource(e.target.value)}
                                                         className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
-                                                        placeholder="https://api.example.com/data"
+                                                        placeholder={dataSourceType === 'api' ? "https://api.example.com/data" : "/api/2.0/serving-endpoints/endpoint-name/invocations"}
                                                     />
                                                 ) : (
                                                     <textarea

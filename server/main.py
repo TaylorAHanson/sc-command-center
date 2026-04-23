@@ -108,10 +108,12 @@ from routes import custom_widgets
 from routes import agent_studio
 from routes import promotion
 from routes import views
+from routes import databricks_api
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(agent_studio.router, prefix="/api/agent/widget", tags=["agent_studio"])
 app.include_router(promotion.router, prefix="/api/promotion", tags=["promotion"])
 app.include_router(views.router, prefix="/api/views", tags=["views"])
+app.include_router(databricks_api.router, prefix="/api/databricks", tags=["databricks_api"])
 
 
 # Serve Frontend
