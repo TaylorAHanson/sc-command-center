@@ -155,12 +155,12 @@ echo ""
 echo -e "${CYAN}Cleaning up any orphaned artifacts on remote...${NC}"
 # Since they are ignored locally, databricks sync --full doesn't delete them from the remote.
 # This prevents ENOTEMPTY errors during deployment build steps.
-databricks workspace rm -r "$SYNC_TARGET/node_modules" --profile "$PROFILE" 2>/dev/null || true
-databricks workspace rm -r "$SYNC_TARGET/server/venv" --profile "$PROFILE" 2>/dev/null || true
-databricks workspace rm -r "$SYNC_TARGET/venv" --profile "$PROFILE" 2>/dev/null || true
-databricks workspace rm -r "$SYNC_TARGET/env" --profile "$PROFILE" 2>/dev/null || true
-databricks workspace rm -r "$SYNC_TARGET/.venv" --profile "$PROFILE" 2>/dev/null || true
-databricks workspace rm "$SYNC_TARGET/package-lock.json" --profile "$PROFILE" 2>/dev/null || true
+databricks workspace delete "$SYNC_TARGET/node_modules" --recursive --profile "$PROFILE" 2>/dev/null || true
+databricks workspace delete "$SYNC_TARGET/server/venv" --recursive --profile "$PROFILE" 2>/dev/null || true
+databricks workspace delete "$SYNC_TARGET/venv" --recursive --profile "$PROFILE" 2>/dev/null || true
+databricks workspace delete "$SYNC_TARGET/env" --recursive --profile "$PROFILE" 2>/dev/null || true
+databricks workspace delete "$SYNC_TARGET/.venv" --recursive --profile "$PROFILE" 2>/dev/null || true
+databricks workspace delete "$SYNC_TARGET/package-lock.json" --profile "$PROFILE" 2>/dev/null || true
 echo -e "${GREEN}✓ Cleanup complete${NC}"
 echo ""
 
