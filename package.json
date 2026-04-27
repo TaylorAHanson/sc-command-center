@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "preinstall": "rm -rf node_modules && npm cache clean --force",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

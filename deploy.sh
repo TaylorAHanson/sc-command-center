@@ -150,21 +150,6 @@ echo -e "${GREEN}✓ Code synced to $SYNC_TARGET${NC}"
 echo ""
 
 # ─────────────────────────────────────────────
-# Clean up ignored artifacts from remote workspace
-# ─────────────────────────────────────────────
-echo -e "${CYAN}Cleaning up any orphaned artifacts on remote...${NC}"
-# Since they are ignored locally, databricks sync --full doesn't delete them from the remote.
-# This prevents ENOTEMPTY errors during deployment build steps.
-databricks workspace delete "$SYNC_TARGET/node_modules" --recursive --profile "$PROFILE" 2>/dev/null || true
-databricks workspace delete "$SYNC_TARGET/server/venv" --recursive --profile "$PROFILE" 2>/dev/null || true
-databricks workspace delete "$SYNC_TARGET/venv" --recursive --profile "$PROFILE" 2>/dev/null || true
-databricks workspace delete "$SYNC_TARGET/env" --recursive --profile "$PROFILE" 2>/dev/null || true
-databricks workspace delete "$SYNC_TARGET/.venv" --recursive --profile "$PROFILE" 2>/dev/null || true
-databricks workspace delete "$SYNC_TARGET/package-lock.json" --profile "$PROFILE" 2>/dev/null || true
-echo -e "${GREEN}✓ Cleanup complete${NC}"
-echo ""
-
-# ─────────────────────────────────────────────
 # Deploy the app
 # ─────────────────────────────────────────────
 echo -e "${CYAN}Deploying app '$APP_NAME'...${NC}"
