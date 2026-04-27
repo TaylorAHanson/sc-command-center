@@ -110,6 +110,11 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [editingId, setEditingId] = useState<string | null>(sessionState?.editingId || null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [availableDomains, setAvailableDomains] = useState<string[]>(['General']);
+    const [variables, setVariables] = useState<Record<string, any>>({});
+
+    const setVariable = React.useCallback((key: string, value: any) => {
+        setVariables(prev => ({ ...prev, [key]: value }));
+    }, []);
 
     const { version: registryVersion } = useWidgetRegistry();
 
@@ -695,7 +700,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                                     }
                                                                     return acc;
                                                                 }, {} as Record<string, any>),
-                                                                username: username
+                                                                username: username,
+                                                                variables: variables,
+                                                                setVariable: setVariable
                                                             }
                                                         })}
                                                     </ExecuteActionPropInjector>

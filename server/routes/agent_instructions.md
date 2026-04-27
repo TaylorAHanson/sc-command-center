@@ -45,6 +45,23 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
 - **CRITICAL**: Use this for any "Submit", "Run", "Sync", or "Update" buttons. It will automatically handle showing a confirmation modal, collecting a mandatory explanation from the user, and logging the action to the audit trail.
 - Example: `<button onClick={() => props.executeAction("Sync Data", () => handleSync())}>Sync Now</button>`
 
+### Emitters and Receivers (Dashboard Variables)
+
+- Widgets can share state using global dashboard variables.
+- **Emitters** update a variable: `props.data.setVariable('selected_region', 'NA')`
+- **Receivers** read a variable: `const region = props.data.variables?.selected_region || 'All'`
+- When an emitter updates a variable, receiver widgets will automatically re-render with the new value.
+- Use this mechanism when the user asks for a widget to "filter", "control", or "affect" another widget, or when a widget should "listen to" or "react to" changes from another widget.
+- **CRITICAL**: Emitter widgets MUST initialize their variable on mount if it is not already set, so that receivers get the correct initial value on load.
+  ```tsx
+  React.useEffect(() => {
+    if (props.data.variables?.selected_region === undefined) {
+      props.data.setVariable('selected_region', 'NA');
+    }
+  }, []);
+  ```
+- Since we only know about the current widget, be clear with the user about names for both Emitters and Receivers being used.
+
 ## Output Format
 
 - Return ONLY the TSX component code inside a `tsx ...`  markdown code block.

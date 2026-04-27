@@ -6,6 +6,8 @@ export interface WidgetProps {
   id: string;
   data?: any;
   executeAction?: (actionName: string, callback: () => void) => void;
+  variables?: Record<string, any>;
+  setVariable?: (key: string, value: any) => void;
 }
 
 export interface ConfigField {

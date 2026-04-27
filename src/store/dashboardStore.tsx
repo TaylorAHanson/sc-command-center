@@ -34,6 +34,9 @@ interface DashboardContextType {
   username: string;
   domainPermissions: Record<string, string>;
   fetchViews: () => Promise<void>;
+  
+  variables: Record<string, any>;
+  setVariable: (key: string, value: any) => void;
 
   addTab: (name: string, domain?: string, is_global?: boolean) => void;
   removeTab: (id: string) => void;
@@ -66,6 +69,11 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isAdmin, setIsAdmin] = useState(false);
   const [username, setUsername] = useState('unknown');
   const [domainPermissions, setDomainPermissions] = useState<Record<string, string>>({});
+  const [variables, setVariables] = useState<Record<string, any>>({});
+
+  const setVariable = useCallback((key: string, value: any) => {
+    setVariables(prev => ({ ...prev, [key]: value }));
+  }, []);
 
   const fetchPermissions = useCallback(async () => {
     try {
@@ -358,6 +366,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   return (
     <DashboardContext.Provider value={{
       tabs, activeTabId, activeDomain, setActiveDomain, isLoading, isAdmin, username, domainPermissions, fetchViews,
+      variables, setVariable,
       addTab, removeTab, renameTab, reorderTabs, setActiveTabId: handleSetActiveTabId,
       duplicateView, addWidget, removeWidget, updateWidget, updateLayout,
       toggleLock, generateShareLink, loadSharedDashboard, configModal, openConfigModal, closeConfigModal
