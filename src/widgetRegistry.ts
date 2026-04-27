@@ -35,6 +35,7 @@ export interface WidgetDefinition {
     mockHasAccess?: boolean;
   };
   isExecutable?: boolean;
+  helpText?: string; // Optional help text for the widget
   defaultProps?: Record<string, any>; // Default props passed to the component as `data` when placed on a dashboard
   snapshot?: string; // Base64 image snapshot of the widget
   openInNewTabLink?: string; // Optional URL to open in a new tab when the user clicks a button in the widget header
@@ -132,6 +133,7 @@ export const loadCustomWidgets = async () => {
           component: Component,
           configurationMode: w.configuration_mode || 'none' as const,
           configSchema: w.config_schema ? JSON.parse(w.config_schema) : undefined,
+          helpText: w.help_text || undefined,
           defaultProps: (() => {
             const props: Record<string, any> = {};
             if (w.data_source) {

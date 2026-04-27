@@ -31,6 +31,7 @@ interface DashboardContextType {
   setActiveDomain: (domainId: string | null) => void;
   isLoading: boolean;
   isAdmin: boolean;
+  username: string;
   domainPermissions: Record<string, string>;
   fetchViews: () => Promise<void>;
 
@@ -63,6 +64,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [username, setUsername] = useState('unknown');
   const [domainPermissions, setDomainPermissions] = useState<Record<string, string>>({});
 
   const fetchPermissions = useCallback(async () => {
@@ -71,6 +73,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (response.ok) {
         const data = await response.json();
         setIsAdmin(data.is_admin);
+        setUsername(data.username || 'unknown');
         setDomainPermissions(data.domain_permissions || {});
       }
     } catch (e) {
@@ -354,7 +357,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   return (
     <DashboardContext.Provider value={{
-      tabs, activeTabId, activeDomain, setActiveDomain, isLoading, isAdmin, domainPermissions, fetchViews,
+      tabs, activeTabId, activeDomain, setActiveDomain, isLoading, isAdmin, username, domainPermissions, fetchViews,
       addTab, removeTab, renameTab, reorderTabs, setActiveTabId: handleSetActiveTabId,
       duplicateView, addWidget, removeWidget, updateWidget, updateLayout,
       toggleLock, generateShareLink, loadSharedDashboard, configModal, openConfigModal, closeConfigModal

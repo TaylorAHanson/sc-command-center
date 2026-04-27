@@ -6,3 +6,6 @@ python-multipart
 httpx
 psycopg2-binary
 openai
+langchain
+langchain-openai
+langchain-core

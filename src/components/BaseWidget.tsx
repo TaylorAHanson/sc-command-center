@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, GripHorizontal, Maximize2, Minimize2, Settings } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, GripHorizontal, Maximize2, Minimize2, Settings, HelpCircle } from 'lucide-react';
 import { useActionLogger } from '../hooks/useActionLogger';
 import { ActionConfirmationModal } from './ActionConfirmationModal';
 import { ActionProvider } from '../contexts/ActionContext';
@@ -16,6 +16,7 @@ interface BaseWidgetProps {
   latestVersion?: number;
   availableVersions?: number[];
   onChangeVersion?: (version: number) => void;
+  helpText?: string;
 
   customActions?: React.ReactNode;
   className?: string;
@@ -41,6 +42,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
   latestVersion,
   availableVersions,
   onChangeVersion,
+  helpText,
   customActions,
   className,
   style,
@@ -54,6 +56,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
     widgetId: id,
     widgetName: title
   });
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   return (
     <div
@@ -65,7 +68,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
       onTouchEnd={onTouchEnd}
       {...props}
     >
-      <div className={`drag-handle select-none h-8 bg-gray-50 border-b border-gray-100 flex items-center justify-between px-3 ${className?.includes('locked-widget') ? 'cursor-default pointer-events-none' : 'cursor-move'}`}>
+      <div className={`drag-handle select-none h-8 bg-gray-50 border-b border-gray-100 flex items-center justify-between px-3 ${className?.includes('locked-widget') ? 'cursor-default' : 'cursor-move'}`}>
         <div className="flex items-center gap-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">
           <GripHorizontal className="w-4 h-4 text-gray-400" />
           {title}
@@ -101,6 +104,18 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
             <div className="flex items-center gap-1 mr-1 border-r border-gray-200 pr-1">
               {customActions}
             </div>
+          )}
+          {helpText && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsHelpOpen(true);
+              }}
+              className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+              title="Help"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
           )}
           {onConfigure && (
             <button
@@ -164,6 +179,45 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
         actionName={actionName}
         widgetName={title}
       />
+
+      {isHelpOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setIsHelpOpen(false); }}>
+          <div 
+            className="bg-white rounded-xl shadow-2xl border border-gray-100 w-full max-w-2xl max-h-[80vh] flex flex-col mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-qualcomm-blue/10 rounded-lg">
+                  <HelpCircle className="w-5 h-5 text-qualcomm-blue" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 tracking-tight">{title} - Help</h3>
+              </div>
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsHelpOpen(false); }}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-gray-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto bg-white">
+              <div className="prose prose-sm md:prose-base max-w-none text-gray-600 space-y-4 whitespace-pre-wrap leading-relaxed">
+                {helpText}
+              </div>
+            </div>
+            
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end">
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsHelpOpen(false); }}
+                className="px-5 py-2.5 bg-white text-gray-700 font-medium rounded-lg border border-gray-200 hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

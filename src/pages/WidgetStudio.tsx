@@ -6,6 +6,9 @@ import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
 import { BaseWidget } from '../components/BaseWidget';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
+import { useDashboardStore } from '../store/dashboardStore';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface WidgetStudioProps {
     editWidgetId?: string | null;
@@ -72,6 +75,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     };
 
     const sessionState = getSessionState();
+    const { username } = useDashboardStore();
 
     const [messages, setMessages] = useState<{ role: 'user' | 'assistant' | 'system', content: string }[]>(sessionState?.messages || [{
         role: 'assistant',
@@ -80,6 +84,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
     const [prompt, setPrompt] = useState(sessionState?.prompt || "");
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isPublishing, setIsPublishing] = useState(false);
     const [code, setCode] = useState<string>(sessionState?.code || "export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}");
     const [viewMode, setViewMode] = useState<'preview' | 'code' | 'config'>(sessionState?.viewMode || 'preview');
     const [previewComponent, setPreviewComponent] = useState<React.ComponentType | null>(null);
@@ -88,6 +93,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // Widget Settings State
     const [widgetName, setWidgetName] = useState(sessionState?.widgetName || "New Custom Widget");
     const [widgetDescription, setWidgetDescription] = useState(sessionState?.widgetDescription || "");
+    const [widgetHelpText, setWidgetHelpText] = useState(sessionState?.widgetHelpText || "");
     const [widgetCategory, setWidgetCategory] = useState(sessionState?.widgetCategory || "");
     const [widgetDomain, setWidgetDomain] = useState(sessionState?.widgetDomain || "");
     const [isExecutable, setIsExecutable] = useState(sessionState?.isExecutable || false);
@@ -128,12 +134,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     useEffect(() => {
         if (!editWidgetId && !cloneWidgetId) { // We only automatically sync to session storage if we aren't loading an externally provided edit ID over it. Let the edit load effect take priority.
             const currentState = {
-                messages, prompt, code, viewMode, widgetName, widgetDescription, widgetCategory, widgetDomain,
+                messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
                 isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId
             };
             sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
         }
-    }, [messages, prompt, code, viewMode, widgetName, widgetDescription, widgetCategory, widgetDomain,
+    }, [messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
         isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId, editWidgetId, cloneWidgetId]);
 
     // Load existing widget data when editWidgetId or cloneWidgetId is provided
@@ -175,7 +181,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
                 // Overwrite the session storage right after loading existing widget
                 const currentState = {
-                    messages: initMessages, prompt: "", code: w.tsx_code, viewMode: 'preview', widgetName: isClone ? `Clone of ${w.name}` : w.name, widgetDescription: w.description || '', widgetCategory: w.category || 'Custom', widgetDomain: w.domain || '',
+                    messages: initMessages, prompt: "", code: w.tsx_code, viewMode: 'preview', widgetName: isClone ? `Clone of ${w.name}` : w.name, widgetDescription: w.description || '', widgetHelpText: w.helpText || '', widgetCategory: w.category || 'Custom', widgetDomain: w.domain || '',
                     isExecutable: w.is_executable === 1, openInNewTabLink: w.open_in_new_tab_link || '', dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: loadedSchema, editingId: isClone ? null : w.id
                 };
                 sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
@@ -374,6 +380,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         const url = isEditing ? `/api/widgets/custom/${editingId}` : '/api/widgets/custom';
         const method = isEditing ? 'PUT' : 'POST';
 
+        setIsPublishing(true);
         let snapshotDataUrl = null;
         try {
             // Ensure we're in preview mode so the node exists
@@ -397,6 +404,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 body: JSON.stringify({
                     name: widgetName,
                     description: widgetDescription,
+                    help_text: widgetHelpText,
                     category: widgetCategory,
                     domain: widgetDomain,
                     tsx_code: code,
@@ -441,6 +449,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             }
         } catch (err) {
             alert(`Error: ${err}`);
+        } finally {
+            setIsPublishing(false);
         }
     };
 
@@ -516,9 +526,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         </button>
                         <button
                             onClick={handlePublish}
-                            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 rounded-md transition-colors font-medium">
-                            <Save size={14} />
-                            {editingId ? 'Update' : 'Publish'}
+                            disabled={isPublishing}
+                            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors font-medium ${isPublishing ? 'bg-indigo-400 cursor-not-allowed text-indigo-100' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
+                            {isPublishing ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                            {isPublishing ? (editingId ? 'Updating...' : 'Publishing...') : (editingId ? 'Update' : 'Publish')}
                         </button>
                     </div>
                 </div>
@@ -527,11 +538,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
                     {messages.map((m, i) => (
                         <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                            <div className={`max-w-[85%] rounded-lg p-3 text-sm shadow-sm whitespace-pre-wrap ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' :
+                            <div className={`max-w-[85%] rounded-lg p-3 text-sm shadow-sm ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' :
                                 m.role === 'system' ? 'bg-slate-700/50 text-slate-300 border border-slate-600/50 rounded-bl-none' :
                                     'bg-slate-700 text-slate-200 rounded-bl-none border border-slate-600'
                                 }`}>
-                                {m.content}
+                                <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {m.content}
+                                    </ReactMarkdown>
+                                </div>
                             </div>
                         </div>
                     ))}
@@ -642,6 +657,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                             <BaseWidget
                                                 id="preview-widget"
                                                 title={widgetName}
+                                                helpText={widgetHelpText}
                                                 className="h-full w-full"
                                                 onConfigure={configMode !== 'none' ? () => setViewMode('config') : undefined}
                                                 customActions={openInNewTabLink ? (
@@ -678,7 +694,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                                         acc[field.key] = field.type === 'number' && field.defaultValue ? Number(field.defaultValue) : field.defaultValue;
                                                                     }
                                                                     return acc;
-                                                                }, {} as Record<string, any>)
+                                                                }, {} as Record<string, any>),
+                                                                username: username
                                                             }
                                                         })}
                                                     </ExecuteActionPropInjector>
@@ -720,6 +737,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Description</label>
                                         <textarea
                                             value={widgetDescription} onChange={e => setWidgetDescription(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-24"
+                                        />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Help Text (Optional)</label>
+                                        <textarea
+                                            value={widgetHelpText} onChange={e => setWidgetHelpText(e.target.value)}
+                                            placeholder="Markdown supported. Provide instructions on how to use this widget."
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-24"
                                         />
                                     </div>

@@ -33,8 +33,6 @@ html, body, #root {
 /* Locked widget styling */
 .locked-widget .drag-handle {
   cursor: default !important;
-  pointer-events: none !important;
-  opacity: 0.6;
 }
 
 /* Custom Scrollbar for better visibility inside widgets */

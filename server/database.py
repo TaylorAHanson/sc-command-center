@@ -165,7 +165,7 @@ def get_db_connection(env: str = "dev"):
         
         if not token_found:
             provisioned_candidates = []
-            for cand in [target_underscores, target_hyphens, raw_instance_name]:
+            for cand in [target_underscores, target_hyphens, raw_instance_name, base_inst, base_inst_hyphens]:
                 if cand and cand not in provisioned_candidates:
                     provisioned_candidates.append(cand)
                     
@@ -351,11 +351,35 @@ def init_db(env: str = "dev"):
         pass
         
     try:
+        c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS help_text TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+
+    try:
         c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS open_in_new_tab_link TEXT")
         conn.commit()
     except Exception as e:
         conn.rollback()
         pass
+
+    # Seed default global admin if none exists yet
+    try:
+        c.execute(
+            "SELECT COUNT(*) FROM role_mappings WHERE LOWER(domain) IN ('global', 'all', 'app') AND permission_level = 'admin'"
+        )
+        count = c.fetchone()[0]
+        if count == 0:
+            logging.info("No global admin mapping found - seeding default global admin for group 'users'")
+            c.execute(
+                "INSERT INTO role_mappings (external_role, domain, permission_level) VALUES (%s, %s, %s)",
+                ("users", "Global", "admin")
+            )
+            conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logging.warning(f"Could not seed default global admin mapping: {e}")
 
     conn.commit()
     conn.close()

@@ -7,6 +7,39 @@ import uuid
 from typing import List, Optional, Dict, Any
 from middleware.auth import get_db_client, get_db_client_sp
 from databricks.sdk import WorkspaceClient
+from database import get_db_connection
+
+# LangChain imports
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+
+@tool
+def search_widgets(query: str) -> str:
+    """Search for existing widgets by name or description to suggest before creating a new one."""
+    try:
+        conn = get_db_connection("dev")
+        c = conn.cursor()
+        search_term = f"%{query}%"
+        # We query the widgets table.
+        c.execute("SELECT id, name, description FROM widgets WHERE (name ILIKE %s OR description ILIKE %s) AND is_deprecated = 0 LIMIT 5", (search_term, search_term))
+        results = c.fetchall()
+        conn.close()
+        
+        if not results:
+            return f"No matching widgets found for '{query}'."
+            
+        output = f"Found the following widgets matching '{query}':\n"
+        for r in results:
+            # handle both RealDictCursor or tuple
+            if hasattr(r, 'keys'):
+                output += f"- Name: {r['name']}, Description: {r['description']}\n"
+            else:
+                output += f"- Name: {r[1]}, Description: {r[2]}\n"
+        return output
+    except Exception as e:
+        return f"Error searching widgets: {str(e)}"
 
 router = APIRouter()
 
@@ -34,7 +67,16 @@ class DataSourceTestRequest(BaseModel):
 
 def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_url: str):
     try:
-        client = OpenAI(api_key=api_key, base_url=base_url)
+        # Databricks DBRX/Llama endpoints generally use a corresponding model string
+        model_name = os.environ.get("LLM_MODEL", "databricks-claude-sonnet-4-6")
+        
+        llm = ChatOpenAI(
+            api_key=api_key, 
+            base_url=base_url, 
+            model=model_name,
+            temperature=0.1,
+            max_tokens=16000
+        )
         
         try:
             instructions_path = os.path.join(os.path.dirname(__file__), "agent_instructions.md")
@@ -43,6 +85,8 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
         except Exception as e:
             print(f"Failed to load agent instructions: {e}")
             system_prompt = "You are an expert React developer."
+        
+        system_prompt += "\n\nIf the user is asking to build a widget that sounds like it might already exist, use the search_widgets tool to find similar widgets and suggest them before proceeding. If they explicitly want to build it anyway, then generate the code."
         
         if req.error_log:
             system_prompt += f"\n\nPrevious attempt failed with error:\n{req.error_log}\nPlease fix the issue."
@@ -70,23 +114,30 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
             config_schema_str = json.dumps(req.config_schema, indent=2)
             system_prompt += f"\n\nThe user has configured the following dynamic configuration inputs for this widget:\n```json\n{config_schema_str}\n```\nYou MUST expect these exact keys in `props.data` (e.g. `props.data.myKey`). Provide reasonable fallback values if they are undefined or empty. Do NOT hardcode colors/text if a dynamic config key exists for it."
 
-        messages = [{"role": "system", "content": system_prompt}]
+        system_prompt += "\n\nThe widget receives the current user's username via `props.data.username`. You can use this to personalize the widget or make user-specific API calls."
+
+        tools = [search_widgets]
+        agent = create_react_agent(
+            model=llm,
+            tools=tools,
+            prompt=system_prompt
+        )
+
         # Limit history to the last 6 messages to avoid massive context payloads causing timeouts
         history_to_keep = req.history[-6:] if len(req.history) > 6 else req.history
+        lc_history = []
         for msg in history_to_keep:
-            messages.append({"role": msg.role, "content": msg.content})
-        messages.append({"role": "user", "content": req.prompt})
-
-        # Databricks DBRX/Llama endpoints generally use a corresponding model string
-        model_name = os.environ.get("LLM_MODEL", "databricks-claude-sonnet-4-6")
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            temperature=0.1,
-            max_tokens=64000
-        )
+            if msg.role == 'user':
+                lc_history.append(HumanMessage(content=msg.content))
+            elif msg.role in ('assistant', 'system'):
+                lc_history.append(AIMessage(content=msg.content))
+                
+        response = agent.invoke({
+            "messages": lc_history + [HumanMessage(content=req.prompt)]
+        })
         
-        content = response.choices[0].message.content
+        last_message = response["messages"][-1]
+        content = last_message.content
 
         # Prefer explicitly tagged tsx/ts/jsx/js code blocks to avoid matching SQL or other plain ``` blocks
         code_match = re.search(r'```(?:tsx|jsx|typescript|javascript|ts|js)\n(.*?)```', content, re.DOTALL | re.IGNORECASE)
@@ -114,11 +165,6 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
             code = re.sub(r'^```[a-zA-Z]*\n?', '', code)
             code = re.sub(r'\n?```$', '', code)
             
-        finish_reason = response.choices[0].finish_reason
-        if finish_reason == "length":
-            warning = "\n\n**SYSTEM ERROR: The response exceeded the maximum token limit and was cut off. In your next response, you MUST rewrite the component to be smaller and more concise. Remove unnecessary features, comments, or complex logic patterns to fit within the generator limits.**"
-            explanation = explanation + warning if explanation else warning
-
         generation_jobs[job_id] = {
             "status": "completed",
             "result": {"code": code, "explanation": explanation, "raw": content}

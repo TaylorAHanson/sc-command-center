@@ -98,6 +98,7 @@ async def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db
     data_source_type = widget.get("data_source_type", "none")
     data_source = widget.get("data_source", None)
     snapshot = widget.get("snapshot", None)
+    help_text = widget.get("help_text", None)
     open_in_new_tab_link = widget.get("open_in_new_tab_link", None)
     is_executable = 1 if widget.get("isExecutable", False) else 0
     created_by = _get_current_username(w)
@@ -115,9 +116,9 @@ async def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db
 
     c.execute('''
         INSERT INTO widgets 
-        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, open_in_new_tab_link, is_executable, created_by) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, config_mode, config_schema, data_source_type, data_source, snapshot, open_in_new_tab_link, is_executable, created_by))
+        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, is_executable, created_by) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, config_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, is_executable, created_by))
 
     conn.commit()
     conn.close()
@@ -168,6 +169,7 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
     configuration_mode = widget.get("configurationMode", widget.get("configuration_mode", "none"))
     config_schema = widget.get("configSchema", widget.get("config_schema", None))
     snapshot = widget.get("snapshot", widget.get("snapshot", None))
+    help_text = widget.get("help_text", widget.get("help_text", None))
     open_in_new_tab_link = widget.get("open_in_new_tab_link", widget.get("open_in_new_tab_link", None))
     is_executable = 1 if widget.get("isExecutable", widget.get("is_executable", False)) else 0
 
@@ -179,9 +181,9 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
 
     c.execute('''
         INSERT INTO widgets 
-        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, open_in_new_tab_link, is_executable, created_by) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, open_in_new_tab_link, is_executable, owner))
+        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, is_executable, created_by) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, is_executable, owner))
 
     conn.commit()
     conn.close()

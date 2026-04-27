@@ -125,7 +125,13 @@ def _get_user_permissions(w: WorkspaceClient, env: str) -> dict:
     """Helper function to fetch user permissions so it can be reused."""
     import os
     if os.environ.get('DEV_MODE', '').lower() == 'true':
+        username = "dev"
+        try:
+            username = _get_current_username(w)
+        except:
+            pass
         return {
+            "username": username,
             "is_admin": True,
             "domain_permissions": {}
         }

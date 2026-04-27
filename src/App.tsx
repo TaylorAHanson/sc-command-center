@@ -57,7 +57,7 @@ const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
 const DashboardGrid: React.FC = () => {
-  const { tabs, activeTabId, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin } = useDashboardStore();
+  const { tabs, activeTabId, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin, username } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
@@ -442,6 +442,7 @@ const DashboardGrid: React.FC = () => {
                   version={def.version}
                   latestVersion={def.latestVersion}
                   availableVersions={def.availableVersions}
+                  helpText={def.helpText}
                   onChangeVersion={isReadOnly ? undefined : (version: number) => {
                     updateWidget(activeTabId, widget.i, {
                       props: { ...widget.props, _version: version }
@@ -475,7 +476,7 @@ const DashboardGrid: React.FC = () => {
                   <ExecuteActionPropInjector>
                     <Component
                       id={widget.i}
-                      data={widget.props}
+                      data={{ ...widget.props, username }}
                       key={widget.i}
                     />
                   </ExecuteActionPropInjector>
