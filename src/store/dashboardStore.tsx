@@ -20,6 +20,7 @@ export interface Tab {
   locked?: boolean;
   domain?: string;
   is_global?: boolean;
+  is_shared?: boolean;
   username?: string;
   version?: number;
 }
@@ -52,7 +53,6 @@ interface DashboardContextType {
   updateLayout: (tabId: string, newLayout: WidgetLayout[]) => void;
 
   generateShareLink: () => string;
-  loadSharedDashboard: (sharedData: string) => void;
 
   configModal: { isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null };
   openConfigModal: (widgetId: string, onSave: (config: any) => void, initialConfig?: any) => void;
@@ -96,7 +96,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const data = await response.json();
         const loadedTabs = data.views.map((v: any) => ({
           ...v,
-          locked: v.is_locked
+          locked: v.is_locked || v.is_shared // Shared views are always locked for the subscriber
         }));
         setTabs(loadedTabs);
 
@@ -111,8 +111,8 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             const id = hash.replace('#/view/', '');
             if (loadedTabs.some((t: Tab) => t.id === id)) {
               setActiveTabId(id);
-              return;
             }
+            return; // Don't fall back to tab 0 if a specific hash was requested
           }
           setActiveTabId(prev => {
             if (!prev) return loadedTabs[0].id;
@@ -134,14 +134,23 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const shareParam = urlParams.get('share');
-    if (shareParam && !isLoading) {
-      setTimeout(() => {
-        loadSharedDashboard(shareParam);
-        window.history.replaceState({}, '', window.location.pathname);
-      }, 0);
+    const shareParam = urlParams.get('shared_view');
+    if (shareParam) {
+      // Immediately clear the query param and set the hash so the URL looks clean
+      window.history.replaceState({}, '', window.location.pathname + `#/view/${shareParam}`);
+      
+      const subscribeAndLoad = async () => {
+        try {
+          await fetch(`/api/views/shared/${shareParam}`, { method: 'POST' });
+          await fetchViews(); // Refresh views to pull the new shared view in
+          setActiveTabId(shareParam);
+        } catch (e) {
+          console.error('Failed to subscribe to shared view', e);
+        }
+      };
+      subscribeAndLoad();
     }
-  }, [isLoading]);
+  }, [fetchViews]);
 
   const apiSyncView = async (tab: Tab, method: string = 'PUT') => {
     try {
@@ -197,6 +206,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const removeTab = async (id: string) => {
+    const tabToRemove = tabs.find(t => t.id === id);
     const newTabs = tabs.filter(t => t.id !== id);
     setTabs(newTabs);
     if (activeTabId === id && newTabs.length > 0) {
@@ -204,7 +214,11 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
 
     try {
-      await fetch(`/api/views/${id}`, { method: 'DELETE' });
+      if (tabToRemove?.is_shared) {
+        await fetch(`/api/views/shared/${id}`, { method: 'DELETE' });
+      } else {
+        await fetch(`/api/views/${id}`, { method: 'DELETE' });
+      }
     } catch (e) {
       console.error('Failed to delete view', e);
     }
@@ -212,6 +226,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const renameTab = (id: string, newName: string) => {
     if (!newName.trim()) return;
+    const tab = tabs.find(t => t.id === id);
+    if (tab?.is_shared) return; // Cannot rename shared tabs
+
     const newTabs = tabs.map(t => t.id === id ? { ...t, name: newName.trim() } : t);
     setTabs(newTabs);
     const updatedTab = newTabs.find(t => t.id === id);
@@ -227,6 +244,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const toggleLock = (tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab?.is_shared) return; // Cannot unlock shared tabs
+
     const newTabs = tabs.map(t => t.id === tabId ? { ...t, locked: !t.locked } : t);
     setTabs(newTabs);
     const updatedTab = newTabs.find(t => t.id === tabId);
@@ -234,6 +254,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const addWidget = (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab?.is_shared) return;
+
     setTabs(prevTabs => {
       let updatedTab: Tab | null = null;
       const newTabs = prevTabs.map(tab => {
@@ -259,6 +282,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const updateWidget = (tabId: string, widgetId: string, updates: Partial<WidgetLayout>) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab?.is_shared) return;
+
     setTabs(prevTabs => {
       let updatedTab: Tab | null = null;
       const newTabs = prevTabs.map(tab => {
@@ -277,6 +303,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const removeWidget = (tabId: string, widgetId: string) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab?.is_shared) return;
+
     setTabs(prevTabs => {
       let updatedTab: Tab | null = null;
       const newTabs = prevTabs.map(tab => {
@@ -292,6 +321,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const updateLayout = (tabId: string, newLayout: WidgetLayout[]) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab?.is_shared) return;
+
     setTabs(prevTabs => {
       let updatedTab: Tab | null = null;
       let hasChanges = false;
@@ -324,31 +356,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const generateShareLink = (): string => {
     const activeTab = tabs.find(t => t.id === activeTabId);
     if (!activeTab) return '';
-    const shareData = {
-      name: activeTab.name,
-      widgets: activeTab.widgets.map(w => ({ type: w.type, x: w.x, y: w.y, w: w.w, h: w.h, props: w.props }))
-    };
-    const encoded = btoa(JSON.stringify(shareData)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-    return `${window.location.origin}${window.location.pathname}?share=${encoded}`;
-  };
-
-  const loadSharedDashboard = (sharedData: string) => {
-    try {
-      const decoded = atob(sharedData.replace(/-/g, '+').replace(/_/g, '/'));
-      const parsedData = JSON.parse(decoded);
-      const newTab: Tab = {
-        id: uuidv4(),
-        name: `${parsedData.name} (Shared)`,
-        widgets: parsedData.widgets.map((w: any) => ({
-          i: uuidv4(), type: w.type, x: w.x, y: w.y, w: w.w, h: w.h, props: w.props || {}
-        }))
-      };
-      setTabs([...tabs, newTab]);
-      setActiveTabId(newTab.id);
-      apiSyncView(newTab, 'POST');
-    } catch (error) {
-      console.error('Failed to load shared dashboard:', error);
-    }
+    return `${window.location.origin}${window.location.pathname}?shared_view=${activeTab.id}`;
   };
 
   const [configModal, setConfigModal] = useState<{ isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null }>({
@@ -369,7 +377,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       variables, setVariable,
       addTab, removeTab, renameTab, reorderTabs, setActiveTabId: handleSetActiveTabId,
       duplicateView, addWidget, removeWidget, updateWidget, updateLayout,
-      toggleLock, generateShareLink, loadSharedDashboard, configModal, openConfigModal, closeConfigModal
+      toggleLock, generateShareLink, configModal, openConfigModal, closeConfigModal
     }}>
       {children}
     </DashboardContext.Provider>

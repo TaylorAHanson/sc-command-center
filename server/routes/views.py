@@ -38,16 +38,19 @@ async def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev
         c = conn.cursor()
         
         c.execute("""
-            SELECT dv.id, dv.version, dv.name, dv.domain, dv.username, dv.is_global, dv.widgets_json, dv.is_locked, dv.timestamp
+            SELECT dv.id, dv.version, dv.name, dv.domain, dv.username, dv.is_global, dv.widgets_json, dv.is_locked, dv.timestamp,
+                   CASE WHEN dv.username != %s AND dv.is_global = 0 AND sv.username IS NOT NULL THEN 1 ELSE 0 END as is_shared
             FROM dashboard_views dv
             INNER JOIN (
                 SELECT id, MAX(version) as max_version
                 FROM dashboard_views
                 GROUP BY id
             ) latest ON dv.id = latest.id AND dv.version = latest.max_version
+            LEFT JOIN shared_views sv ON dv.id = sv.view_id AND sv.username = %s
             WHERE (dv.username = %s) 
                OR (dv.is_global = 1)
-        """, (username,))
+               OR (sv.username IS NOT NULL)
+        """, (username, username, username))
         rows = c.fetchall()
         views = [dict(zip([column[0] for column in c.description], row)) for row in rows]
             
@@ -76,6 +79,7 @@ async def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev
                 "username": v['username'],
                 "is_global": bool(v['is_global']),
                 "is_locked": bool(v['is_locked']),
+                "is_shared": bool(v['is_shared']),
                 "widgets": widgets
             })
             
@@ -100,6 +104,60 @@ async def get_view_history(view_id: str, env: str = "dev"):
         return {"history": rows, "env": env}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching view history: {str(e)}")
+
+
+@router.post("/shared/{view_id}")
+async def add_shared_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """Subscribe to a shared view."""
+    username = _get_current_username(w)
+    try:
+        conn = get_db_connection(env)
+        c = conn.cursor()
+        
+        # Check if the view exists
+        c.execute("SELECT id FROM dashboard_views WHERE id = %s", (view_id,))
+        if not c.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="View not found")
+            
+        c.execute("""
+            INSERT INTO shared_views (username, view_id)
+            VALUES (%s, %s)
+            ON CONFLICT (username, view_id) DO NOTHING
+        """, (username, view_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return {"status": "success", "message": f"Subscribed to shared view {view_id}"}
+    except Exception as e:
+        if 'conn' in locals() and conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=f"Error subscribing to shared view: {str(e)}")
+
+@router.delete("/shared/{view_id}")
+async def remove_shared_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """Unsubscribe from a shared view."""
+    username = _get_current_username(w)
+    try:
+        conn = get_db_connection(env)
+        c = conn.cursor()
+            
+        c.execute("""
+            DELETE FROM shared_views
+            WHERE username = %s AND view_id = %s
+        """, (username, view_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return {"status": "success"}
+    except Exception as e:
+        if 'conn' in locals() and conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=f"Error unsubscribing from shared view: {str(e)}")
 
 
 @router.post("/")

@@ -100,7 +100,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   // Separate user tabs from global templates
   const activeTab = tabs.find(t => t.id === activeTabId);
-  const userTabs = tabs.filter(t => !t.is_global);
+  const myTabs = tabs.filter(t => !t.is_global && !t.is_shared);
+  const sharedTabs = tabs.filter(t => !t.is_global && t.is_shared);
   const effectiveDomain = activeDomain || 'All';
   const globalTemplates = tabs.filter(t => t.is_global && (effectiveDomain === 'All' || !t.domain || t.domain === effectiveDomain));
 
@@ -130,7 +131,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   My Views
                 </div>
                 <div className="space-y-1">
-                  {userTabs.map((tab, index) => {
+                  {myTabs.map((tab, index) => {
                     const isEditing = editingTabId === tab.id;
                     const isDragging = draggedTabIndex === index;
                     const isDragOver = dragOverIndex === index;
@@ -259,7 +260,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     );
                   })}
                   <button
-                    onClick={() => addTab(`View ${userTabs.length + 1}`)}
+                    onClick={() => addTab(`View ${myTabs.length + 1}`)}
                     className="w-full text-left px-3 py-2 rounded-md text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
@@ -267,6 +268,49 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   </button>
                 </div>
               </div>
+
+              {/* Shared Views */}
+              {sharedTabs.length > 0 && (
+                <div className="p-3 border-b border-gray-700">
+                  <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
+                    <Share2 className="w-3 h-3" />
+                    Shared Views
+                  </div>
+                  <div className="space-y-1">
+                    {sharedTabs.map(tab => {
+                      const isViewing = activeTabId === tab.id;
+                      return (
+                        <div key={tab.id} className="group relative">
+                          <button
+                            onClick={() => {
+                              setActiveTabId(tab.id);
+                              setCurrentPage(null);
+                            }}
+                            className={clsx(
+                              "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
+                              isViewing && currentPage === null
+                                ? "bg-qualcomm-blue text-white"
+                                : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                            )}
+                          >
+                            <span className="truncate flex-1">{tab.name}</span>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeTab(tab.id);
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-500/20 rounded transition-all text-gray-400 hover:text-red-400"
+                            title="Remove Shared View"
+                          >
+                            <Plus className="w-3.5 h-3.5 rotate-45" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Global Views (Templates) */}
               <div className="p-3 border-b border-gray-700">
@@ -390,7 +434,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
 
             <div className="flex items-center gap-3">
-              {(!activeTab?.is_global || isAdmin) && (
+              {(!activeTab?.is_global || isAdmin) && !activeTab?.is_shared && (
                 <>
                   <button
                     onClick={() => {

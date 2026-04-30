@@ -333,6 +333,17 @@ def init_db(env: str = "dev"):
             PRIMARY KEY (id, version)
         )
     ''')
+
+    # Shared Views Table
+    # Tracks which users have subscribed to which shared views
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS shared_views (
+            username TEXT NOT NULL,
+            view_id TEXT NOT NULL,
+            timestamp TIMESTAMP {default_ts},
+            PRIMARY KEY (username, view_id)
+        )
+    ''')
     
     # Simple migrations: add columns if they don't exist
     # Run these AFTER tables are created so they don't fail on a fresh DB
