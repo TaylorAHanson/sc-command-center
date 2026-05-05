@@ -1,0 +1,262 @@
+bundle:
+  name: sc-command-center
+  # Require minimum CLI version for Databricks Apps with app.config support
+  databricks_cli_version: ">=0.283.0"
+
+# Resources
+resources:
+  
+  database_instances:
+    command_center_db:
+      name: "command-center-${var.environment}-v1"
+      enable_pg_native_login: true
+      capacity: "CU_1"
+      lifecycle:
+        prevent_destroy: true
+      permissions:
+        - level: CAN_USE
+          group_name: "users"
+
+  # Apps
+  apps:
+    sc-command-center:
+      name: ${var.app_name}
+      description: "sc-command-center - Command Center for ${var.environment}"
+      source_code_path: "${var.source_code_path}"
+      resources:
+        - name: postgres
+          database:
+            database_name: databricks_postgres
+            instance_name: ${resources.database_instances.command_center_db.name}
+            permission: CAN_CONNECT_AND_CREATE
+      config:
+        command:
+          - uvicorn
+          - server.main:app
+          - --host
+          - 0.0.0.0
+          - --port
+          - "8000"
+          - --proxy-headers
+          - --forwarded-allow-ips
+          - "*"
+        env:
+          - name: PYTHONPATH
+            value: ".:server"
+          - name: SQL_WAREHOUSE_ID
+            value: "${var.sql_warehouse_id}"
+          - name: N8N_BASE_URL
+            value: "${var.n8n_base_url}"
+          - name: TABLEAU_SERVER_URL
+            value: "${var.tableau_server_url}"
+          - name: USE_SP_FOR_JOBS
+            value: "${var.use_sp_for_jobs}"
+          - name: LAKEBASE_ENABLED
+            value: "${var.lakebase_enabled}"
+          - name: LAKEBASE_INSTANCE_NAME
+            value: "${resources.database_instances.command_center_db.name}"
+
+      user_api_scopes:
+        - "sql"
+        - "sql.statement-execution"
+        - "sql.warehouses"
+        - "files.files"
+
+      permissions:
+        - level: CAN_MANAGE
+          user_name: "${workspace.current_user.userName}"
+        - level: CAN_USE
+          group_name: "users"
+
+# Sync configuration
+sync:
+  include:
+    - package.json
+    - vite.config.ts
+    - tsconfig.json
+    - tsconfig.app.json
+    - tsconfig.node.json
+    - tailwind.config.js
+    - postcss.config.js
+    - eslint.config.js
+    - index.html
+    - requirements.txt
+    - src/**
+    - public/**
+    # Include all backend code
+    - server/**
+  exclude:
+    # Python cache and compiled files
+    - __pycache__/**
+    - server/__pycache__/**
+    - server/**/__pycache__/**
+    - server/**/*.pyc
+    - server/**/*.pyo
+    # Virtual environment
+    - venv/**
+    - .venv/**
+    # Environment and config files
+    - .env
+    - .env.*
+    - server/.env
+    - server/.env.*
+    # Database files
+    - server/*.db
+    # IDE and OS files
+    - .DS_Store
+    - **/.DS_Store
+    # Test and cache directories
+    - .pytest_cache/**
+    - .mypy_cache/**
+    - server/.pytest_cache/**
+    - server/.mypy_cache/**
+    # Build artifacts
+    - *.egg-info/**
+    - server/*.egg-info/**
+    - dist/**
+    - build/**
+    - server/dist/**
+    - server/build/**
+    # Logs
+    - *.log
+    - server/*.log
+    - backend.log
+    - frontend.log
+    # Git files
+    - .git/**
+    - server/.git/**
+    - .gitignore
+    - server/.gitignore
+    - .databricksignore
+    # Node
+    - node_modules/**
+
+# Variables
+variables:
+  dev_user:
+    description: "Developer username for personal dev instances"
+    default: "taylor"
+  app_name:
+    description: "Application name"
+    default: "sc-command-center"
+  environment:
+    description: "Environment name (local, dev, stage, prod)"
+    default: "local"
+  source_code_path:
+    description: "Path to source code in workspace"
+    default: "."
+  sql_warehouse_id:
+    description: "Databricks SQL Warehouse ID"
+  n8n_base_url:
+    description: "N8N base URL"
+    default: ""
+  tableau_server_url:
+    description: "Tableau server URL"
+    default: ""
+  use_sp_for_jobs:
+    description: "Use Service Principal for job execution"
+    default: "true"
+  lakebase_enabled:
+    description: "Lakebase Enabled"
+    default: "true"
+
+# Target environments
+targets:
+
+  local:
+    mode: development
+    default: true
+    presets:
+      tags:
+        version: "VERSION_TAG"
+        Repo_name: "${bundle.name}"
+        deployed_via: "local"
+        Environment: "local"
+        Application: "sc-command-center"
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      app_name: "sc-command-center-local-${var.dev_user}"
+      environment: "local"
+      source_code_path: "."
+      sql_warehouse_id:
+        lookup:
+          warehouse: "Serverless Starter Warehouse"
+
+  enterprise-dev:
+    mode: production
+    presets:
+      tags:
+        version: "VERSION_TAG"
+        Repo_name: "${bundle.name}"
+        deployed_via: "CICD"
+        Environment: "dev"
+        Application: "sc-command-center"
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      app_name: "sc-command-center-dev"
+      environment: "dev"
+      source_code_path: "."
+      sql_warehouse_id:
+        lookup:
+          warehouse: "Serverless Starter Warehouse"
+
+  supply-dev:
+    mode: production
+    presets:
+      tags:
+        version: "VERSION_TAG"
+        Repo_name: "${bundle.name}"
+        deployed_via: "CICD"
+        Environment: "dev"
+        Application: "sc-command-center"
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      app_name: "sc-command-center-dev"
+      environment: "dev"
+      source_code_path: "."
+      sql_warehouse_id:
+        lookup:
+          warehouse: "Serverless Starter Warehouse"
+
+  # Staging environment
+  stage:
+    mode: production
+    presets:
+      tags:
+        version: "VERSION_TAG"
+        Repo_name: "${bundle.name}"
+        deployed_via: "CICD"
+        Environment: "stage"
+        Application: "sc-command-center"
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      app_name: "sc-command-center-stage"
+      environment: "stage"
+      source_code_path: "."
+      sql_warehouse_id:
+        lookup:
+          warehouse: "Serverless Starter Warehouse"
+
+  # Production environment
+  prod:
+    mode: production
+    presets:
+      tags:
+        version: "VERSION_TAG"
+        Repo_name: "${bundle.name}"
+        deployed_via: "CICD"
+        Environment: "prod"
+        Application: "sc-command-center"
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      app_name: "sc-command-center-prod"
+      environment: "prod"
+      source_code_path: "."
+      sql_warehouse_id:
+        lookup:
+          warehouse: "Serverless Starter Warehouse"

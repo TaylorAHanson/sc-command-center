@@ -40,11 +40,14 @@ async def databricks_api_proxy(
         logging.info(f"Proxying {req.method} request to Databricks URL: {url}")
 
         if "/serving-endpoints/" in url:
+            headers = w.config.authenticate()
+            logging.info(f"Proxying serving endpoint request. Method: {req.method.upper()}, URL: {url}, Payload keys: {list(req.body.keys()) if req.body else []}")
+            
             resp = requests.request(
                 method=req.method.upper(),
                 url=url,
                 json=req.body,
-                auth=w.config.authenticate
+                headers=headers
             )
             try:
                 data = resp.json()
@@ -52,6 +55,7 @@ async def databricks_api_proxy(
                 data = {"result": resp.text}
             
             if not resp.ok:
+                logging.error(f"Serving endpoint error response: {resp.status_code} - {resp.text}")
                 raise HTTPException(status_code=resp.status_code, detail=str(data))
             return data
         else:
