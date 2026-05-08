@@ -12,6 +12,10 @@ class DatabricksApiRequest(BaseModel):
     path: str
     method: str = "GET"
     body: Optional[Dict[str, Any]] = None
+    fileUpload: Optional[bool] = False
+    fileBase64: Optional[str] = None
+    fileName: Optional[str] = None
+    fileSize: Optional[int] = None
 
 @router.post("/proxy", summary="Proxy an arbitrary API request to Databricks using OBO")
 async def databricks_api_proxy(
@@ -60,12 +64,24 @@ async def databricks_api_proxy(
             return data
         else:
             path = urlparse(url).path
-            response = w.api_client.do(
-                method=req.method.upper(),
-                path=path,
-                body=req.body
-            )
-            return response
+            
+            if req.fileUpload and req.fileBase64:
+                import base64
+                file_data = base64.b64decode(req.fileBase64)
+                response = w.api_client.do(
+                    method=req.method.upper(),
+                    path=path,
+                    data=file_data,
+                    headers={"Content-Type": "application/octet-stream"}
+                )
+                return response
+            else:
+                response = w.api_client.do(
+                    method=req.method.upper(),
+                    path=path,
+                    body=req.body
+                )
+                return response
     except HTTPException:
         raise
     except Exception as e:
