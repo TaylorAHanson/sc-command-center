@@ -67,7 +67,13 @@ async def databricks_api_proxy(
             
             if req.fileUpload and req.fileBase64:
                 import base64
-                file_data = base64.b64decode(req.fileBase64)
+                
+                # Handle data URI scheme if present (e.g., data:image/png;base64,...)
+                b64_data = req.fileBase64
+                if "," in b64_data:
+                    b64_data = b64_data.split(",", 1)[1]
+                    
+                file_data = base64.b64decode(b64_data)
                 response = w.api_client.do(
                     method=req.method.upper(),
                     path=path,
