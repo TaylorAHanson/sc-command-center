@@ -36,10 +36,14 @@ async def databricks_api_proxy(
         if parsed_url.scheme and parsed_url.netloc:
             url = req.path
         else:
-            path = parsed_url.path
-            if not path.startswith('/'):
-                path = '/' + path
-            url = f"{w.config.host.rstrip('/')}{path}"
+            path_with_query = req.path
+            if not path_with_query.startswith('/'):
+                path_with_query = '/' + path_with_query
+                
+            import re
+            path_with_query = re.sub("^/api/2.0/fs/files//", "/api/2.0/fs/files/", path_with_query)
+            
+            url = f"{w.config.host.rstrip('/')}{path_with_query}"
 
         logging.info(f"Proxying {req.method} request to Databricks URL: {url}")
 
@@ -63,8 +67,6 @@ async def databricks_api_proxy(
                 raise HTTPException(status_code=resp.status_code, detail=str(data))
             return data
         else:
-            path = urlparse(url).path
-            
             if req.fileUpload and req.fileBase64:
                 import base64
                 
@@ -76,7 +78,7 @@ async def databricks_api_proxy(
                 file_data = base64.b64decode(b64_data)
                 response = w.api_client.do(
                     method=req.method.upper(),
-                    path=path,
+                    url=url,
                     data=file_data,
                     headers={"Content-Type": "application/octet-stream"}
                 )
@@ -84,7 +86,7 @@ async def databricks_api_proxy(
             else:
                 response = w.api_client.do(
                     method=req.method.upper(),
-                    path=path,
+                    url=url,
                     body=req.body
                 )
                 return response

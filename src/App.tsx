@@ -357,7 +357,15 @@ const DashboardGrid: React.FC = () => {
         breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
         cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
         rowHeight={60}
-        onLayoutChange={(layout: any) => handleLayoutChange(layout as WidgetLayout[])}
+        onLayoutChange={(currentLayout: any, allLayouts: any) => {
+          // Always use the lg layout as the source of truth to avoid
+          // smaller breakpoints overwriting the desktop layout when the screen resizes.
+          if (allLayouts && allLayouts.lg) {
+            handleLayoutChange(allLayouts.lg as WidgetLayout[]);
+          } else {
+            handleLayoutChange(currentLayout as WidgetLayout[]);
+          }
+        }}
         draggableHandle={isReadOnly ? "" : ".drag-handle"}
         margin={[16, 16]}
         isDroppable={!isReadOnly} // Disable drops when viewing template or locked
