@@ -190,6 +190,35 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
     return {"status": "success"}
 
 
+@router.post("/custom/{widget_id}/snapshot")
+async def update_widget_snapshot(widget_id: str, payload: dict, env: str = "dev"):
+    """Backfill or refresh a thumbnail snapshot for an existing widget. Updates
+    the latest version row in place rather than creating a new version, since
+    the snapshot is presentation-only and not part of the published code."""
+    snapshot = payload.get("snapshot")
+    if not snapshot:
+        raise HTTPException(status_code=400, detail="snapshot is required")
+    conn = get_db_connection(env)
+    c = conn.cursor()
+    try:
+        c.execute("SELECT MAX(version) FROM widgets WHERE id = %s AND is_deprecated = 0", (widget_id,))
+        row = c.fetchone()
+        max_version = row[0] if (row and row[0] is not None) else None
+        if max_version is None:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Widget not found")
+        c.execute("UPDATE widgets SET snapshot = %s WHERE id = %s AND version = %s", (snapshot, widget_id, max_version))
+        conn.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+    conn.close()
+    return {"status": "success", "id": widget_id, "version": max_version}
+
+
 @router.delete("/custom/{widget_id}")
 async def delete_custom_widget(widget_id: str, user_token: Optional[str] = Depends(get_user_token), env: str = "dev"):
     conn = get_db_connection(env)

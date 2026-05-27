@@ -344,6 +344,41 @@ def init_db(env: str = "dev"):
             PRIMARY KEY (username, view_id)
         )
     ''')
+
+    # Widget Categories (managed by admins, surfaced in Widget Studio + Library)
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS widget_categories (
+            id {auto_inc},
+            name TEXT NOT NULL UNIQUE,
+            timestamp TIMESTAMP {default_ts}
+        )
+    ''')
+
+    # Widget Domains (managed by admins, surfaced in Widget Studio + Library)
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS widget_domains (
+            id {auto_inc},
+            name TEXT NOT NULL UNIQUE,
+            timestamp TIMESTAMP {default_ts}
+        )
+    ''')
+
+    # Seed defaults the first time the tables are created
+    try:
+        c.execute("SELECT COUNT(*) FROM widget_categories")
+        if c.fetchone()[0] == 0:
+            for name in [
+                "Monitoring", "Analytics", "Planning", "AI & Automation",
+                "Actions", "Finance", "Operations", "Sales", "Logistics", "Inventory"
+            ]:
+                c.execute("INSERT INTO widget_categories (name) VALUES (%s) ON CONFLICT (name) DO NOTHING", (name,))
+        c.execute("SELECT COUNT(*) FROM widget_domains")
+        if c.fetchone()[0] == 0:
+            for name in ["General", "Supply Chain", "Engineering", "Sales"]:
+                c.execute("INSERT INTO widget_domains (name) VALUES (%s) ON CONFLICT (name) DO NOTHING", (name,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
     
     # Simple migrations: add columns if they don't exist
     # Run these AFTER tables are created so they don't fail on a fresh DB

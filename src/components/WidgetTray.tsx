@@ -525,6 +525,8 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                               widgetId={widget.id}
                               component={widget.component}
                               snapshot={widget.snapshot}
+                              widget={widget}
+                              canRefresh={!!currentUser && (widget.createdBy === currentUser || !widget.createdBy)}
                               className={clsx("h-full", !hasAccess && "opacity-50 grayscale")}
                             />
                           </div>

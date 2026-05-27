@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Responsive } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
-import { X, ExternalLink } from 'lucide-react';
+import { ExternalLink, Link2, Check } from 'lucide-react';
 import { useDashboardStore, type WidgetLayout } from './store/dashboardStore';
 import { widgetRegistry, useWidgetRegistry } from './widgetRegistry';
 import { Layout } from './components/Layout';
 import { BaseWidget } from './components/BaseWidget';
 import { ExecuteActionPropInjector } from './contexts/ActionContext';
+import { ThumbnailCaptureHost } from './components/ThumbnailCapture';
 
 // Custom WidthProvider since it's missing in RGL v2.1.0 exports
 const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
@@ -56,21 +57,59 @@ const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
+const ShareWidgetButton: React.FC<{ onShare: () => Promise<boolean> }> = ({ onShare }) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={async (e) => {
+        e.stopPropagation();
+        const ok = await onShare();
+        if (ok) {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1800);
+        }
+      }}
+      className={`transition-colors ${copied ? 'text-green-600' : 'text-gray-400 hover:text-qualcomm-blue'}`}
+      title={copied ? 'Link copied!' : 'Copy direct link to this widget'}
+    >
+      {copied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+    </button>
+  );
+};
+
 const DashboardGrid: React.FC = () => {
-  const { tabs, activeTabId, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin, username, variables, setVariable } = useDashboardStore();
+  const { tabs, activeTabId, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin, username, variables, setVariable, generateWidgetShareLink } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
+  const [sharedWidgetId, setSharedWidgetId] = useState<string | null>(null);
 
   // Get active tab
   const activeTab = tabs.find(t => t.id === activeTabId);
   const isReadOnly = (activeTab?.is_global && !isAdmin) || activeTab?.locked === true;
 
+  // Once the widget registry is loaded, any widget on the current tab whose type no
+  // longer exists in the registry is an orphan (widget was deleted). We clean those
+  // up automatically and persist the cleanup so empty placeholders never appear.
+  useEffect(() => {
+    if (isRegistryLoading || !activeTab || isReadOnly) return;
+    const orphans = activeTab.widgets.filter(w => {
+      const versionedKey = w.props?._version ? `${w.type}@${w.props._version}` : w.type;
+      return !widgetRegistry[versionedKey] && !widgetRegistry[w.type];
+    });
+    if (orphans.length === 0) return;
+    const cleaned = activeTab.widgets.filter(w => !orphans.includes(w));
+    updateLayout(activeTab.id, cleaned as WidgetLayout[]);
+  }, [isRegistryLoading, activeTab?.id, activeTab?.widgets, isReadOnly]);
+
   const visibleWidgets = React.useMemo(() => {
     return activeTab?.widgets.filter(widget => {
-      const def = widgetRegistry[widget.type];
-      if (!def) return true;
+      const versionedKey = widget.props?._version ? `${widget.type}@${widget.props._version}` : widget.type;
+      const def = widgetRegistry[versionedKey] || widgetRegistry[widget.type];
+      // Hide widgets whose definition is missing once the registry has finished loading.
+      // While loading we keep them so we don't render an empty grid mid-load.
+      if (!def) return isRegistryLoading;
       if (activeDomain && def.domain && def.domain !== activeDomain) return false;
       return true;
     }) || [];
@@ -286,6 +325,31 @@ const DashboardGrid: React.FC = () => {
     };
   }, []);
 
+  // Look for a ?widget=... param on initial load. When present, store it so we
+  // can auto-fullscreen the widget once the targeted view has been loaded.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const w = params.get('widget');
+    if (w) {
+      setSharedWidgetId(w);
+      // Clean it out of the URL once captured so refreshes don't repeatedly fullscreen.
+      params.delete('widget');
+      const qs = params.toString();
+      const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
+
+  // When the desired shared widget appears in the active tab, fullscreen it.
+  useEffect(() => {
+    if (!sharedWidgetId || !activeTab) return;
+    const target = activeTab.widgets.find(w => w.i === sharedWidgetId);
+    if (!target) return;
+    const def = widgetRegistry[target.type];
+    setFullscreenWidget({ id: target.i, type: target.type, title: def?.name || target.type });
+    setSharedWidgetId(null);
+  }, [sharedWidgetId, activeTab?.id, activeTab?.widgets.length]);
+
   // Handle escape key for fullscreen
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -350,27 +414,31 @@ const DashboardGrid: React.FC = () => {
       }}
       style={{ position: 'relative', minHeight: '100%' }}
     >
+      {/*
+        We use a single breakpoint so the user's layout is the single source of truth.
+        The grid is always 12 columns wide; column width simply scales with viewport
+        width. This eliminates the previous behavior where shrinking below 1200px
+        triggered RGL to re-flow widgets into an "md" layout that then never reverted
+        when the window widened again. The result: drag/resize-friendly at any size
+        and an automatic snap-back when the window grows because the saved layout
+        never changes with viewport width.
+      */}
       <ResponsiveGridLayout
         className="layout"
         layouts={layouts}
         useCSSTransforms={false}
-        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-        cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+        breakpoints={{ lg: 0 }}
+        cols={{ lg: 12 }}
         rowHeight={60}
-        onLayoutChange={(currentLayout: any, allLayouts: any) => {
-          // Always use the lg layout as the source of truth to avoid
-          // smaller breakpoints overwriting the desktop layout when the screen resizes.
-          if (allLayouts && allLayouts.lg) {
-            handleLayoutChange(allLayouts.lg as WidgetLayout[]);
-          } else {
-            handleLayoutChange(currentLayout as WidgetLayout[]);
-          }
+        onLayoutChange={(currentLayout: any) => {
+          handleLayoutChange(currentLayout as WidgetLayout[]);
         }}
         draggableHandle={isReadOnly ? "" : ".drag-handle"}
-        margin={[16, 16]}
-        isDroppable={!isReadOnly} // Disable drops when viewing template or locked
-        isDraggable={!isReadOnly} // Disable dragging when viewing template or locked
-        isResizable={!isReadOnly} // Disable resizing when viewing template or locked
+        margin={[8, 8]}
+        containerPadding={[4, 4]}
+        isDroppable={!isReadOnly}
+        isDraggable={!isReadOnly}
+        isResizable={!isReadOnly}
         droppingItem={droppingItem}
         onDropDragOver={handleDropDragOver as any}
       >
@@ -392,51 +460,58 @@ const DashboardGrid: React.FC = () => {
           const def = widgetRegistry[lookupKey] || widgetRegistry[widget.type];
           
           if (!def) {
-            if (isRegistryLoading) {
-              return (
-                <div key={widget.i} className="bg-gray-50 border border-gray-100 p-4 rounded h-full animate-pulse flex flex-col justify-center items-center">
-                  <div className="w-8 h-8 bg-gray-200 rounded-full mb-2"></div>
-                  <div className="h-2 bg-gray-200 rounded w-24"></div>
-                </div>
-              );
-            }
+            // Registry is still loading - render a lightweight skeleton placeholder.
+            // Once loading completes the parent effect removes the widget entirely.
             return (
-              <div key={widget.i} className="bg-red-50 border border-red-200 p-4 rounded text-red-500 h-full relative group">
-                <p className="font-medium">Unknown Widget Type</p>
-                <p className="text-xs mt-1 text-red-400">{widget.type}</p>
-                {!isReadOnly && (
-                  <button
-                    onClick={() => removeWidget(activeTabId, widget.i)}
-                    className="absolute top-2 right-2 p-1.5 hover:bg-red-100 rounded-md transition-colors text-red-500"
-                    title="Remove Widget"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
+              <div key={widget.i} className="bg-gray-50 border border-gray-100 p-4 rounded h-full animate-pulse flex flex-col justify-center items-center">
+                <div className="w-8 h-8 bg-gray-200 rounded-full mb-2"></div>
+                <div className="h-2 bg-gray-200 rounded w-24"></div>
               </div>
             );
           }
 
           const Component = def.component;
 
-          let customActions = null;
+          const extraActions: React.ReactNode[] = [];
           if (def.openInNewTabLink || widget.type === 'iframe') {
             const url = def.openInNewTabLink || widget.props?.url || 'https://forecast.weather.gov/MapClick.php?lat=32.7157&lon=-117.1611';
             if (url) {
-                customActions = (
+              extraActions.push(
                 <button
-                    onClick={(e) => {
+                  key="open-new-tab"
+                  onClick={(e) => {
                     e.stopPropagation();
                     window.open(url, '_blank');
-                    }}
-                    className="text-gray-400 hover:text-qualcomm-blue transition-colors"
-                    title="Open in New Tab"
+                  }}
+                  className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+                  title="Open in New Tab"
                 >
-                    <ExternalLink className="w-4 h-4" />
+                  <ExternalLink className="w-4 h-4" />
                 </button>
-                );
+              );
             }
           }
+          extraActions.push(
+            <ShareWidgetButton
+              key="share-widget"
+              onShare={async () => {
+                const link = generateWidgetShareLink(widget.i);
+                if (!link) return false;
+                try {
+                  await navigator.clipboard.writeText(link);
+                } catch {
+                  const ta = document.createElement('textarea');
+                  ta.value = link;
+                  document.body.appendChild(ta);
+                  ta.select();
+                  document.execCommand('copy');
+                  document.body.removeChild(ta);
+                }
+                return true;
+              }}
+            />
+          );
+          const customActions = extraActions.length > 0 ? <>{extraActions}</> : null;
 
           return (
             <div 
@@ -507,9 +582,19 @@ function App() {
   }, []);
 
   return (
-    <Layout>
-      <DashboardGrid />
-    </Layout>
+    <>
+      <Layout>
+        <DashboardGrid />
+      </Layout>
+      {/* Mounted as a SIBLING of Layout — not as one of its children — because
+          Layout only renders its `children` when no full-page (admin/studio/
+          settings/etc.) is active. Putting the host inside `children` made it
+          unmount the moment the user navigated to the Admin page, which is
+          exactly where backfill is invoked. Sitting outside Layout keeps it
+          alive across all routes while remaining inside the DashboardProvider
+          tree set up in main.tsx (so BaseWidget's hooks still work). */}
+      <ThumbnailCaptureHost />
+    </>
   );
 }
 

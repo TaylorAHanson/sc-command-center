@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { AdminPage } from '../pages/AdminPage';
 import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen } from 'lucide-react';
@@ -10,7 +10,6 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { HelpPage } from '../pages/HelpPage';
 import { AboutPage } from '../pages/AboutPage';
 import { WidgetStudio } from '../pages/WidgetStudio';
-import { AppSwitcher } from './AppSwitcher';
 import { UserGuidePage } from '../pages/UserGuidePage';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -47,6 +46,22 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       window.location.hash = newHash;
     }
   }, [currentPage, activeTabId]);
+
+  // Auto-collapse the sidebar while in Widget Studio so it can use the full
+  // viewport, and restore the user's previous sidebar state when they leave.
+  const prevSidebarOpen = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (currentPage === 'studio') {
+      if (prevSidebarOpen.current === null) {
+        prevSidebarOpen.current = isSidebarOpen;
+      }
+      if (isSidebarOpen) setSidebarOpen(false);
+    } else if (prevSidebarOpen.current !== null) {
+      setSidebarOpen(prevSidebarOpen.current);
+      prevSidebarOpen.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
 
   // Handle browser back/forward buttons (hash changes)
   useEffect(() => {
@@ -497,9 +512,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </>
               )}
 
-              <div className="h-6 w-px bg-gray-300 mx-1"></div>
-
-              <AppSwitcher />
             </div>
           </header>
         )}
@@ -532,7 +544,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               }
             }}
           >
-            <div className="max-w-[1920px] mx-auto h-full">
+            <div className="w-full h-full px-2">
               {children}
             </div>
           </main>

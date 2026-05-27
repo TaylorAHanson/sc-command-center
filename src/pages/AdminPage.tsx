@@ -3,15 +3,18 @@ import { ActionLogs } from './ActionLogs';
 import { RoleMappings } from './admin/RoleMappings';
 import { WidgetManager } from './admin/WidgetManager';
 import { ViewManager } from './admin/ViewManager';
+import { TaxonomyManager } from './admin/TaxonomyManager';
 import clsx from 'clsx';
-import { List, Shield, Layers, LayoutGrid } from 'lucide-react';
+import { List, Shield, Layers, LayoutGrid, Tag } from 'lucide-react';
 
 interface AdminPageProps {
     onNavigate: (page: string | null) => void;
 }
 
+type AdminTab = 'logs' | 'roles' | 'widgets' | 'views' | 'taxonomy';
+
 export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
-    const [activeTab, setActiveTab] = useState<'logs' | 'roles' | 'widgets' | 'views'>('views');
+    const [activeTab, setActiveTab] = useState<AdminTab>('views');
 
     return (
         <div className="flex flex-col h-full bg-gray-50">
@@ -42,6 +45,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         Widget Promotion
                     </button>
                     <button
+                        onClick={() => setActiveTab('taxonomy')}
+                        className={clsx(
+                            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
+                            activeTab === 'taxonomy' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                        )}
+                    >
+                        <Tag size={16} />
+                        Categories &amp; Domains
+                    </button>
+                    <button
                         onClick={() => setActiveTab('roles')}
                         className={clsx(
                             "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
@@ -68,6 +81,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             <div className="flex-1 overflow-auto p-6 lg:p-8">
                 {activeTab === 'views' && <ViewManager />}
                 {activeTab === 'widgets' && <WidgetManager />}
+                {activeTab === 'taxonomy' && <TaxonomyManager />}
                 {activeTab === 'roles' && <RoleMappings />}
                 {activeTab === 'logs' && <div className="bg-white border text-gray-900 border-gray-200 rounded-lg h-full overflow-hidden"><ActionLogs onNavigate={onNavigate} /></div>}
             </div>

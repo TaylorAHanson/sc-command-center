@@ -25,7 +25,7 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
     useEffect(() => {
         const fetchLogs = async () => {
             try {
-                const response = await fetch('http://localhost:8000/api/actions/');
+                const response = await fetch('/api/actions/');
                 if (response.ok) {
                     const data = await response.json();
                     setLogs(data);

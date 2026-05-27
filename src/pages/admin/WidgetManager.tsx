@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Award, RefreshCw, Search, Filter, MailPlus, Eye, X, ChevronDown, AlertCircle } from 'lucide-react';
+import { Award, RefreshCw, Search, Filter, MailPlus, Eye, X, ChevronDown, AlertCircle, Camera } from 'lucide-react';
 import { useScript } from '../../hooks/useScript';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { useDashboardStore } from '../../store/dashboardStore';
+import { captureWidgetThumbnail } from '../../components/ThumbnailCapture';
+import { widgetRegistry } from '../../widgetRegistry';
 
 interface Widget {
     id: string;
@@ -15,6 +17,7 @@ interface Widget {
     timestamp: string;
     is_certified: boolean;
     tsx_code?: string;
+    snapshot?: string | null;
 }
 
 interface ConsolidatedWidget {
@@ -29,6 +32,7 @@ interface ConsolidatedWidget {
     maxVersion: number;
     latestAuthor: string;
     latestTimestamp: string;
+    hasSnapshot: boolean;
 }
 
 // ─── Live Widget Renderer ────────────────────────────────────────────────────
@@ -364,6 +368,16 @@ export const WidgetManager: React.FC = () => {
         return isAdmin || domainPermissions[domain] === 'admin' || domainPermissions[domain] === 'editor';
     };
 
+    // Bulk thumbnail backfill state. We process widgets one at a time through
+    // the global ThumbnailCapture queue to keep memory and CPU bounded.
+    const [backfillState, setBackfillState] = useState<{
+        running: boolean;
+        total: number;
+        completed: number;
+        failed: number;
+        cancelRequested: boolean;
+    }>({ running: false, total: 0, completed: 0, failed: 0, cancelRequested: false });
+
     const consolidatedWidgets = useMemo<ConsolidatedWidget[]>(() => {
         const map = new Map<string, ConsolidatedWidget>();
 
@@ -379,10 +393,12 @@ export const WidgetManager: React.FC = () => {
                         maxVersion: w.version,
                         latestAuthor: w.created_by,
                         latestTimestamp: w.timestamp,
+                        hasSnapshot: !!w.snapshot,
                     });
                 }
                 const entry = map.get(w.id)!;
                 entry[env] = w;
+                if (w.snapshot) entry.hasSnapshot = true;
                 if (w.version > entry.maxVersion) {
                     entry.maxVersion = w.version;
                     entry.latestAuthor = w.created_by;
@@ -503,6 +519,87 @@ export const WidgetManager: React.FC = () => {
         alert(`Promotion request for '${widgetName}' to ${target.toUpperCase()} has been submitted.`);
     };
 
+    const startBackfill = async (mode: 'missing' | 'all' = 'missing') => {
+        // Determine targets: either only the widgets without a snapshot, or
+        // every widget (used to re-run after a failed/partial backfill).
+        const targets = mode === 'all'
+            ? consolidatedWidgets
+            : consolidatedWidgets.filter(w => !w.hasSnapshot);
+
+        if (targets.length === 0) {
+            alert('Every widget already has a thumbnail. Use "Regenerate all" to refresh them.');
+            return;
+        }
+        const label = mode === 'all' ? 'Regenerate' : 'Backfill';
+        if (!confirm(
+            `${label} thumbnails for ${targets.length} widget${targets.length === 1 ? '' : 's'}? ` +
+            `Widgets will render one at a time. You can keep working — this runs in the background.`
+        )) return;
+
+        console.log('[Backfill] starting', { mode, count: targets.length, registrySize: Object.keys(widgetRegistry).length });
+        setBackfillState({ running: true, total: targets.length, completed: 0, failed: 0, cancelRequested: false });
+
+        let completed = 0;
+        let failed = 0;
+
+        for (const w of targets) {
+            // Bail out if the operator clicked cancel between iterations.
+            if (backfillStateRef.current.cancelRequested) break;
+
+            const def = widgetRegistry[w.id];
+            if (!def || !def.component) {
+                console.warn('[Backfill] no registered component for', w.id, w.name);
+                failed++;
+                setBackfillState(s => ({ ...s, completed: completed, failed }));
+                continue;
+            }
+
+            console.log('[Backfill] capturing', w.id, w.name);
+            try {
+                const dataUrl = await captureWidgetThumbnail({
+                    component: def.component,
+                    defaultProps: def.defaultProps,
+                    widgetId: w.id,
+                    widgetName: def.name || w.name,
+                });
+                console.log('[Backfill] capture result for', w.id, dataUrl ? `data url (${Math.round(dataUrl.length / 1024)}kb)` : 'null');
+                if (dataUrl) {
+                    const res = await fetch(`/api/widgets/custom/${w.id}/snapshot`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ snapshot: dataUrl }),
+                    });
+                    if (!res.ok) failed++;
+                } else {
+                    failed++;
+                }
+            } catch (err) {
+                console.warn('Backfill failed for', w.id, err);
+                failed++;
+            }
+
+            completed++;
+            setBackfillState(s => ({ ...s, completed, failed }));
+        }
+
+        // Refresh the widget list so the new snapshot column populates.
+        await loadAll();
+        setBackfillState(s => ({ ...s, running: false }));
+    };
+
+    // Mirror the running flag into a ref so the loop above can observe cancel.
+    const backfillStateRef = React.useRef(backfillState);
+    React.useEffect(() => { backfillStateRef.current = backfillState; }, [backfillState]);
+
+    const cancelBackfill = () => {
+        setBackfillState(s => ({ ...s, cancelRequested: true }));
+    };
+
+    const widgetsMissingThumbnails = useMemo(
+        () => consolidatedWidgets.filter(w => !w.hasSnapshot).length,
+        [consolidatedWidgets]
+    );
+
     const renderVersionCell = (w: ConsolidatedWidget, env: 'dev' | 'test' | 'prod') => {
         const currentVersion = w[env]?.version ?? 0;
 
@@ -548,14 +645,58 @@ export const WidgetManager: React.FC = () => {
 
     return (
         <div className="h-full flex flex-col bg-gray-50">
-            <div className="p-6 border-b border-gray-200 bg-white flex justify-between items-center shrink-0">
+            <div className="p-6 border-b border-gray-200 bg-white flex justify-between items-center shrink-0 gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Widget Promotion</h1>
                     <p className="text-sm text-gray-500 mt-1">Manage widget lifecycles across Dev, Test, and Prod.</p>
                 </div>
-                <button onClick={loadAll} className="p-2 text-gray-500 hover:text-qualcomm-blue hover:bg-blue-50 rounded-md transition" title="Refresh">
-                    <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-                </button>
+                <div className="flex items-center gap-3">
+                    {backfillState.running ? (
+                        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-md px-3 py-1.5">
+                            <RefreshCw size={14} className="animate-spin text-qualcomm-blue" />
+                            <div className="text-xs text-gray-700">
+                                <div className="font-medium">Backfilling thumbnails…</div>
+                                <div className="text-gray-500">
+                                    {backfillState.completed}/{backfillState.total} done
+                                    {backfillState.failed > 0 ? ` · ${backfillState.failed} failed` : ''}
+                                </div>
+                            </div>
+                            <button
+                                onClick={cancelBackfill}
+                                disabled={backfillState.cancelRequested}
+                                className="text-xs px-2 py-1 border border-blue-300 text-blue-700 rounded hover:bg-blue-100 disabled:opacity-50"
+                            >
+                                {backfillState.cancelRequested ? 'Stopping…' : 'Cancel'}
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="inline-flex rounded-md shadow-sm">
+                            <button
+                                onClick={() => startBackfill('missing')}
+                                disabled={widgetsMissingThumbnails === 0}
+                                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 border border-gray-200 text-gray-700 rounded-l-md hover:border-qualcomm-blue hover:text-qualcomm-blue transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                title={widgetsMissingThumbnails === 0 ? 'All widgets have thumbnails' : `Generate thumbnails for ${widgetsMissingThumbnails} widget${widgetsMissingThumbnails === 1 ? '' : 's'} missing one`}
+                            >
+                                <Camera size={14} />
+                                Backfill missing
+                                {widgetsMissingThumbnails > 0 && (
+                                    <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">{widgetsMissingThumbnails}</span>
+                                )}
+                            </button>
+                            <button
+                                onClick={() => startBackfill('all')}
+                                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 border border-l-0 border-gray-200 text-gray-700 rounded-r-md hover:border-qualcomm-blue hover:text-qualcomm-blue transition"
+                                title="Re-render and capture thumbnails for every widget. Useful after a partial backfill or large widget code changes."
+                            >
+                                <RefreshCw size={14} />
+                                Regenerate all
+                            </button>
+                        </div>
+                    )}
+                    <button onClick={loadAll} className="p-2 text-gray-500 hover:text-qualcomm-blue hover:bg-blue-50 rounded-md transition" title="Refresh">
+                        <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+                    </button>
+                </div>
             </div>
 
             <div className="bg-white border-b border-gray-200 px-6 py-3 flex flex-col sm:flex-row gap-3">

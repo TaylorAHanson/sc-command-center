@@ -53,6 +53,7 @@ interface DashboardContextType {
   updateLayout: (tabId: string, newLayout: WidgetLayout[]) => void;
 
   generateShareLink: () => string;
+  generateWidgetShareLink: (widgetId: string) => string;
 
   configModal: { isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null };
   openConfigModal: (widgetId: string, onSave: (config: any) => void, initialConfig?: any) => void;
@@ -136,8 +137,15 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const urlParams = new URLSearchParams(window.location.search);
     const shareParam = urlParams.get('shared_view');
     if (shareParam) {
-      // Immediately clear the query param and set the hash so the URL looks clean
-      window.history.replaceState({}, '', window.location.pathname + `#/view/${shareParam}`);
+      // Clear shared_view from the query string but preserve any other params
+      // (e.g. ?widget=... is consumed by App.tsx after the view loads).
+      urlParams.delete('shared_view');
+      const remaining = urlParams.toString();
+      window.history.replaceState(
+        {},
+        '',
+        window.location.pathname + (remaining ? `?${remaining}` : '') + `#/view/${shareParam}`
+      );
       
       const subscribeAndLoad = async () => {
         try {
@@ -359,6 +367,14 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return `${window.location.origin}${window.location.pathname}?shared_view=${activeTab.id}`;
   };
 
+  // Build a URL that opens a specific widget within the active view, fullscreened.
+  // We piggy-back on shared_view so non-owners subscribe to it automatically.
+  const generateWidgetShareLink = (widgetId: string): string => {
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if (!activeTab) return '';
+    return `${window.location.origin}${window.location.pathname}?shared_view=${activeTab.id}&widget=${widgetId}`;
+  };
+
   const [configModal, setConfigModal] = useState<{ isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null }>({
     isOpen: false, widgetId: null, initialConfig: {}, onSave: null
   });
@@ -377,7 +393,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       variables, setVariable,
       addTab, removeTab, renameTab, reorderTabs, setActiveTabId: handleSetActiveTabId,
       duplicateView, addWidget, removeWidget, updateWidget, updateLayout,
-      toggleLock, generateShareLink, configModal, openConfigModal, closeConfigModal
+      toggleLock, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
     }}>
       {children}
     </DashboardContext.Provider>

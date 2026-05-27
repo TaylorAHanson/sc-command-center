@@ -110,6 +110,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [editingId, setEditingId] = useState<string | null>(sessionState?.editingId || null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [availableDomains, setAvailableDomains] = useState<string[]>(['General']);
+    const [availableCategories, setAvailableCategories] = useState<string[]>([]);
     const [variables, setVariables] = useState<Record<string, any>>({});
 
     const setVariable = React.useCallback((key: string, value: any) => {
@@ -120,19 +121,26 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
     useEffect(() => {
         const existingDomains = getWidgetDomains();
-        fetch('/api/roles/my-domains')
-            .then(r => r.json())
+
+        // Merge admin-managed domains, role-derived domains, and any seen on existing widgets.
+        const fetchDomains = Promise.all([
+            fetch('/api/taxonomy/domains').then(r => r.ok ? r.json() : { domains: [] }).catch(() => ({ domains: [] })),
+            fetch('/api/roles/my-domains').then(r => r.ok ? r.json() : { domains: [] }).catch(() => ({ domains: [] })),
+        ]);
+
+        fetchDomains.then(([adminRes, rolesRes]) => {
+            const adminDomains: string[] = (adminRes.domains || []).map((d: any) => d.name).filter(Boolean);
+            const roleDomains: string[] = rolesRes.domains || [];
+            setAvailableDomains(Array.from(new Set(['General', ...adminDomains, ...existingDomains, ...roleDomains])));
+        });
+
+        fetch('/api/taxonomy/categories')
+            .then(r => r.ok ? r.json() : { categories: [] })
             .then(data => {
-                if (data.domains) {
-                    setAvailableDomains(Array.from(new Set(['General', ...existingDomains, ...data.domains])));
-                } else {
-                    setAvailableDomains(Array.from(new Set(['General', ...existingDomains])));
-                }
+                const names: string[] = (data.categories || []).map((c: any) => c.name).filter(Boolean);
+                setAvailableCategories(names);
             })
-            .catch(err => {
-                console.error(err);
-                setAvailableDomains(Array.from(new Set(['General', ...existingDomains])));
-            });
+            .catch(() => setAvailableCategories([]));
     }, [registryVersion]);
 
     // Save state changes to session storage
@@ -762,16 +770,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
                                         >
                                             <option value="" disabled>Select a Category...</option>
-                                            <option value="Monitoring">Monitoring</option>
-                                            <option value="Analytics">Analytics</option>
-                                            <option value="Planning">Planning</option>
-                                            <option value="AI & Automation">AI & Automation</option>
-                                            <option value="Actions">Actions</option>
-                                            <option value="Finance">Finance</option>
-                                            <option value="Operations">Operations</option>
-                                            <option value="Sales">Sales</option>
-                                            <option value="Logistics">Logistics</option>
-                                            <option value="Inventory">Inventory</option>
+                                            {availableCategories.map(c => (
+                                                <option key={c} value={c}>{c}</option>
+                                            ))}
+                                            {/* If a widget already references a category that is no longer managed,
+                                                still expose it so the editor can keep the selection. */}
+                                            {widgetCategory && widgetCategory !== 'Custom' && !availableCategories.includes(widgetCategory) && (
+                                                <option value={widgetCategory}>{widgetCategory} (legacy)</option>
+                                            )}
                                         </select>
                                     </div>
                                     <div>
