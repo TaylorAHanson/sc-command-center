@@ -47,6 +47,22 @@ The backend natively integrates with various enterprise tools:
 - **Genie & Custom Agents**: Invoking localized intelligent assistants for data analysis and proactive actions.
 - **Anything else**: If you need to integrate with another tool, you can add it. This may require adding a new API endpoint in the backend.
 
+#### AI Assistant Panel
+The right-hand **Assistant** panel is a native chat experience backed by an
+external agent service (e.g. the Supply Chain Agent), kept in its own codebase
+so it stays reusable as a template. The Command Center never talks to the agent
+from the browser directly — requests are proxied through the FastAPI backend
+(`server/routes/agent_proxy.py`) so the agent's URL and credentials stay
+server-side, per the governance rules above. Configure the target with the
+`AGENT_BASE_URL` environment variable (defaults to `http://localhost:8001`).
+Locally, run the agent backend on a port other than `8000` to avoid colliding
+with this app's backend.
+
+On every message, the panel transparently emits the active view's context
+(widget titles, descriptions, and configurations, plus the user's email and
+roles — see *Emitters and Receivers*) as a hidden preamble, so the assistant is
+always grounded in what the user is currently looking at.
+
 #### Integration Security & Governance
 When building new widgets and integrating with external tools, you must adhere to strict security and governance standards. The integration paradigm depends on whether the integration requires sensitive credentials:
 

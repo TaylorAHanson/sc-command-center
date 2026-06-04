@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { AdminPage } from '../pages/AdminPage';
-import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen } from 'lucide-react';
+import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot } from 'lucide-react';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
+import { AgentPanel } from './AgentPanel';
+import { useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -24,6 +26,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
   const canAccessAdmin = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin');
   const [isSidebarOpen, setSidebarOpen] = useState(true);
+  const [isAgentOpen, setAgentOpen] = useState(false);
+  const [agentHinted, setAgentHinted] = useState(false);
+  const [agentWidth, setAgentWidth] = useState(400);
+  const [isResizingAgent, setIsResizingAgent] = useState(false);
   const [isTrayOpen, setTrayOpen] = useState(false);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -32,6 +38,39 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [editWidgetId, setEditWidgetId] = useState<string | null>(null);
   const [cloneWidgetId, setCloneWidgetId] = useState<string | null>(null);
+
+  // Held at the Layout level so the conversation survives collapsing the panel.
+  const agentChat = useAgentChat();
+
+  // Briefly pulse the assistant launcher on first load to draw attention, then settle.
+  useEffect(() => {
+    setAgentHinted(true);
+    const t = window.setTimeout(() => setAgentHinted(false), 6000);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  // Drag-to-resize the assistant panel. Width is the distance from the right
+  // edge of the viewport to the cursor, clamped to a sensible range.
+  useEffect(() => {
+    if (!isResizingAgent) return;
+    const MIN = 320;
+    const MAX = 900;
+    const onMove = (e: MouseEvent) => {
+      const next = window.innerWidth - e.clientX;
+      setAgentWidth(Math.min(MAX, Math.max(MIN, next)));
+    };
+    const onUp = () => setIsResizingAgent(false);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isResizingAgent]);
 
   // Sync state changes to URL hash
   useEffect(() => {
@@ -550,6 +589,49 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </main>
         )}
       </div>
+
+      {/* Agent Assistant panel (hidden in Widget Studio, which needs the full viewport) */}
+      {currentPage !== 'studio' && isAgentOpen && (
+        <div
+          className="relative border-l border-gray-200 bg-white flex flex-col shrink-0"
+          style={{ width: agentWidth }}
+        >
+          {/* Drag handle to resize the panel */}
+          <div
+            onMouseDown={(e) => { e.preventDefault(); setIsResizingAgent(true); }}
+            className={clsx(
+              'absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-10 group',
+              'hover:bg-qualcomm-blue/30 transition-colors',
+              isResizingAgent && 'bg-qualcomm-blue/40'
+            )}
+            title="Drag to resize"
+          >
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-10 w-1 rounded-full bg-gray-300 group-hover:bg-qualcomm-blue transition-colors" />
+          </div>
+          <AgentPanel chat={agentChat} onCollapse={() => setAgentOpen(false)} />
+        </div>
+      )}
+
+      {/* Floating launcher — shown whenever the panel is collapsed */}
+      {currentPage !== 'studio' && !isAgentOpen && (
+        <button
+          onClick={() => setAgentOpen(true)}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-4 pr-5 py-3 bg-qualcomm-navy text-white rounded-full shadow-lg shadow-qualcomm-navy/40 hover:bg-qualcomm-blue hover:shadow-xl transition-all group"
+          title="Open EDH Agent"
+        >
+          {agentHinted && !agentChat.isLoading && (
+            <span className="absolute inset-0 rounded-full bg-qualcomm-navy animate-ping opacity-40 pointer-events-none" />
+          )}
+          {agentChat.isLoading && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+            </span>
+          )}
+          <Bot className="w-5 h-5 relative" />
+          <span className="text-sm font-semibold relative">EDH Agent</span>
+        </button>
+      )}
 
       {/* Widget Tray */}
       <WidgetTray

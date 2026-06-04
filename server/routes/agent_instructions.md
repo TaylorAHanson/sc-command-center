@@ -62,6 +62,15 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
   ```
 - Since we only know about the current widget, be clear with the user about names for both Emitters and Receivers being used.
 
+#### Automatic emission to the Assistant
+Beyond the opt-in variable mechanism above, the platform automatically emits a
+broader context snapshot of the active view to the built-in AI Assistant panel:
+every widget's **title, description, and configuration**, plus the current
+**user's email and roles**, and all dashboard variables. You do not need to
+write any code for this — placing a widget on a view is enough for the Assistant
+to "see" it. Giving your widget a clear `name` and `description` directly
+improves how well the Assistant can reason about it.
+
 ## Output Format
 
 - Return ONLY the TSX component code inside a `tsx ...`  markdown code block.
