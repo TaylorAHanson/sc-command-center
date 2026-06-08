@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { widgetRegistry } from '../widgetRegistry';
+import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 
 /**
  * The "emitted" snapshot of everything happening on the active view.
@@ -55,6 +55,9 @@ const sanitizeConfiguration = (props?: Record<string, any>): Record<string, any>
  */
 export const useDashboardContext = (): DashboardContext => {
     const { tabs, activeTabId, username, isAdmin, domainPermissions, variables } = useDashboardStore();
+    // Subscribe to the widget registry so titles/descriptions resolve correctly
+    // once custom widgets have loaded (otherwise they fall back to raw type IDs).
+    const { version: registryVersion } = useWidgetRegistry();
 
     const activeTab = useMemo(
         () => tabs.find(t => t.id === activeTabId) || null,
@@ -85,7 +88,7 @@ export const useDashboardContext = (): DashboardContext => {
             widgets,
             variables: variables || {},
         };
-    }, [activeTab, username, isAdmin, domainPermissions, variables]);
+    }, [activeTab, username, isAdmin, domainPermissions, variables, registryVersion]);
 };
 
 /**
@@ -96,32 +99,52 @@ export const useDashboardContext = (): DashboardContext => {
  */
 export const buildContextPreamble = (ctx: DashboardContext): string => {
     const lines: string[] = [];
-    lines.push('[DASHBOARD CONTEXT — for your awareness, not shown to the user]');
-
+    lines.push('[DASHBOARD CONTEXT]');
     lines.push(
-        `User: ${ctx.user.email} | Admin: ${ctx.user.isAdmin ? 'yes' : 'no'} | ` +
-        `Roles: ${Object.keys(ctx.user.roles).length ? JSON.stringify(ctx.user.roles) : 'none'}`
+        'The following describes what the signed-in user is currently looking at. ' +
+        'Use it to ground your answers. Always refer to widgets by their name (never ' +
+        'their internal ID). This context is not shown to the user, so do not repeat it verbatim.'
     );
+    lines.push('');
 
-    if (ctx.view) {
-        lines.push(`Active view: "${ctx.view.name}"`);
-    }
+    // Identity — the email is the verified signed-in user; treat it as known.
+    const roleNames = Object.keys(ctx.user.roles);
+    lines.push('## Signed-in user');
+    lines.push(`- Identity (verified): ${ctx.user.email || 'unknown'}`);
+    lines.push(`- Administrator: ${ctx.user.isAdmin ? 'yes' : 'no'}`);
+    lines.push(
+        `- Domain roles: ${roleNames.length
+            ? roleNames.map(d => `${d}=${ctx.user.roles[d]}`).join(', ')
+            : 'none assigned'}`
+    );
+    lines.push('');
 
+    // View + widgets.
+    lines.push(`## Active view: ${ctx.view ? `"${ctx.view.name}"` : 'none'}`);
     if (ctx.widgets.length) {
-        lines.push(`Widgets currently on screen (${ctx.widgets.length}):`);
+        lines.push(`Widgets on screen (${ctx.widgets.length}):`);
         ctx.widgets.forEach((w, i) => {
-            const cfg = Object.keys(w.configuration).length
-                ? ` | config: ${JSON.stringify(w.configuration)}`
-                : '';
-            const desc = w.description ? ` — ${w.description}` : '';
-            lines.push(`  ${i + 1}. ${w.title}${desc}${cfg}`);
+            lines.push(`${i + 1}. ${w.title}`);
+            if (w.description) lines.push(`   - Purpose: ${w.description}`);
+            const meta = [w.domain && `domain: ${w.domain}`, w.category && `category: ${w.category}`]
+                .filter(Boolean)
+                .join(', ');
+            if (meta) lines.push(`   - ${meta}`);
+            if (Object.keys(w.configuration).length) {
+                lines.push(`   - Configuration: ${JSON.stringify(w.configuration)}`);
+            }
+            // Internal ID kept last and clearly labeled so the agent can correlate
+            // but won't surface it to the user.
+            lines.push(`   - (internal id: ${w.id})`);
         });
     } else {
-        lines.push('Widgets currently on screen: none');
+        lines.push('No widgets are currently on this view.');
     }
 
     if (Object.keys(ctx.variables).length) {
-        lines.push(`Shared dashboard variables: ${JSON.stringify(ctx.variables)}`);
+        lines.push('');
+        lines.push(`## Shared dashboard variables`);
+        lines.push(JSON.stringify(ctx.variables));
     }
 
     lines.push('[END DASHBOARD CONTEXT]');
