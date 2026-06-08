@@ -40,8 +40,12 @@ def _forwarded_headers(request: Request) -> dict:
         or request.headers.get("X-Forwarded-Access-Token")
     )
     if token:
+        # The agent is a separate Databricks App; its OAuth proxy STRIPS/overwrites the standard
+        # X-Forwarded-* headers, so the agent never sees the user token there. Forward it under a
+        # custom header the platform leaves untouched (the agent reads X-OBO-Token first).
+        headers["X-OBO-Token"] = token
         headers["X-Forwarded-Access-Token"] = token
-        # Also pass as a Bearer token so a protected agent App accepts the call.
+        # Also pass as a Bearer token so the protected agent App accepts the call.
         headers["Authorization"] = f"Bearer {token}"
     return headers
 

@@ -61,6 +61,14 @@ resources:
         - "sql.statement-execution"
         - "sql.warehouses"
         - "files.files"
+        # Forwarded to the EDH agent (OBO) so it can run Genie, the managed-MCP SQL/Genie
+        # servers, and the LLM as the signed-in user. Without these the agent's Genie/MCP/LLM
+        # calls fail under OBO when driven through Command Center. Mirrors the agent's own scopes.
+        - "genie"
+        - "mcp.functions"
+        - "mcp.external"
+        - "model-serving"
+        - "ai-gateway"
 
       permissions:
         - level: CAN_MANAGE
