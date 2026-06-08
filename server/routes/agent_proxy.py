@@ -22,7 +22,8 @@ router = APIRouter()
 
 # Base URL of the external agent service. Defaults to the agent's local dev
 # backend. NOTE: the agent backend must run on a different port than the
-# Command Center backend (which uses 8000) when developing locally.
+# Command Center backend (which uses 8000) when developing locally. In
+# production, set this in app.yaml to the deployed agent App's URL.
 AGENT_BASE_URL = os.environ.get("AGENT_BASE_URL", "http://localhost:8001").rstrip("/")
 
 

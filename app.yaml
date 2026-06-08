@@ -23,3 +23,5 @@ env:
     value: "true"
   - name: LAKEBASE_INSTANCE_NAME
     value: "command-center"
+  - name: AGENT_BASE_URL
+    value: ""  # URL of the EDH Agent app, e.g. https://supply-chain-agent-1234567890.<region>.databricksapps.com
