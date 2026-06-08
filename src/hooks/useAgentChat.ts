@@ -58,6 +58,85 @@ export const useAgentChat = () => {
         const controller = new AbortController();
         abortRef.current = controller;
 
+        // Mutate just the trailing assistant message (the in-flight turn).
+        const updateLast = (mutate: (m: AgentMessage) => void) => setMessages(prev => {
+            const next = [...prev];
+            const i = next.length - 1;
+            if (next[i]?.role !== 'assistant') return prev;
+            const last = { ...next[i] };
+            mutate(last);
+            next[i] = last;
+            return next;
+        });
+
+        const sleep = (ms: number, signal: AbortSignal) => new Promise<void>(resolve => {
+            const t = setTimeout(resolve, ms);
+            signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+        });
+
+        // Drains an async Genie turn after the agent halted with a pending_poll handle. Each poll
+        // is a short request, so no single request is ever held open past the platform's ~5-min
+        // cap — this is what makes long Genie answers reliable instead of timing out.
+        const drainGeniePoll = async (handle: any, signal: AbortSignal) => {
+            const startedAt = Date.now();
+            const TIMEOUT_MS = 270_000;
+            const INTERVAL_MS = 3000;
+            while (!signal.aborted) {
+                if (Date.now() - startedAt > TIMEOUT_MS) {
+                    updateLast(m => { m.content = 'Genie did not respond in time. Please try again or narrow the question.'; m.isError = true; });
+                    return;
+                }
+                let res: any;
+                try {
+                    const r = await fetch('/api/agent/genie/poll', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal,
+                        body: JSON.stringify({
+                            conversation_id: handle.conversation_id,
+                            response_id: handle.response_id,
+                            space_id: handle.space_id || '',
+                            question: handle.question || '',
+                        }),
+                    });
+                    res = await r.json();
+                } catch (e: any) {
+                    if (signal.aborted) return;
+                    updateLast(m => { m.content = 'Sorry, I lost the connection while waiting on Genie.'; m.isError = true; });
+                    return;
+                }
+                if (signal.aborted) return;
+
+                if (res.status === 'complete') {
+                    const answer = res.answer || '_Genie returned no answer._';
+                    const link = res.deep_link ? `\n\n[Open in Databricks Genie ↗](${res.deep_link})` : '';
+                    const full = answer + link;
+                    updateLast(m => { m.content = full; });
+                    // Record the answer in the agent's server-side history so follow-ups have context.
+                    try {
+                        await fetch('/api/agent/genie/resume', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ session_id: sessionId, answer: full }),
+                        });
+                    } catch { /* best-effort */ }
+                    return;
+                }
+                if (res.status === 'failed') {
+                    updateLast(m => { m.content = `Genie could not answer: ${res.error || 'unknown error'}`; m.isError = true; });
+                    return;
+                }
+                // Still running: render Genie's partial answer live (REPLACE — it can change
+                // non-additively). Empty partial falls back to the typing indicator.
+                const partial: string = res.answer || '';
+                if (partial) updateLast(m => { m.content = partial; });
+                await sleep(res.attempt_after_ms || INTERVAL_MS, signal);
+            }
+        };
+
+        // Set when the agent halts on an async tool and hands us a poll handle.
+        let pendingPoll: any = null;
+
         try {
             const response = await fetch('/api/agent/chat', {
                 method: 'POST',
@@ -88,6 +167,13 @@ export const useAgentChat = () => {
                     if (dataStr === '[DONE]') continue;
                     let data: any;
                     try { data = JSON.parse(dataStr); } catch { continue; }
+
+                    if (data.type === 'pending_poll') {
+                        // The agent started Genie and halted; remember the handle and drive the
+                        // poll loop once this (short) stream closes.
+                        pendingPoll = data;
+                        continue;
+                    }
 
                     setMessages(prev => {
                         const next = [...prev];
@@ -128,6 +214,12 @@ export const useAgentChat = () => {
                         return next;
                     });
                 }
+            }
+
+            // The agent halted on an async Genie call: drain it via short poll requests so the
+            // answer streams in reliably instead of timing out a single long-held request.
+            if (pendingPoll && !controller.signal.aborted) {
+                await drainGeniePoll(pendingPoll, controller.signal);
             }
         } catch (err: any) {
             if (err?.name === 'AbortError') {

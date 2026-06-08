@@ -98,6 +98,54 @@ async def proxy_chat(request: Request):
     )
 
 
+@router.post("/genie/poll")
+async def proxy_genie_poll(request: Request):
+    """Proxy a single Genie poll to the agent (short request; the client loops these).
+
+    Carries the user's OBO token so Genie runs as the signed-in user and the conversation
+    shows up in their Databricks One history.
+    """
+    try:
+        body = await request.body()
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{AGENT_BASE_URL}/genie/poll",
+                content=body,
+                headers=_forwarded_headers(request),
+            )
+        return JSONResponse(
+            content=resp.json() if resp.content else {"status": "failed", "error": "empty response"},
+            status_code=resp.status_code,
+        )
+    except httpx.ConnectError:
+        return JSONResponse({"status": "failed", "error": "Could not reach the agent service."}, status_code=502)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Error proxying genie poll")
+        return JSONResponse({"status": "failed", "error": str(e)}, status_code=500)
+
+
+@router.post("/genie/resume")
+async def proxy_genie_resume(request: Request):
+    """Proxy a Genie resume (records the completed answer in the agent's session history)."""
+    try:
+        body = await request.body()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{AGENT_BASE_URL}/genie/resume",
+                content=body,
+                headers=_forwarded_headers(request),
+            )
+        return JSONResponse(
+            content=resp.json() if resp.content else {"status": "ok"},
+            status_code=resp.status_code,
+        )
+    except httpx.ConnectError:
+        return JSONResponse({"error": "Could not reach the agent service."}, status_code=502)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Error proxying genie resume")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @router.post("/clear_chat")
 async def proxy_clear_chat(request: Request):
     """Proxy a clear-chat request to the agent."""
