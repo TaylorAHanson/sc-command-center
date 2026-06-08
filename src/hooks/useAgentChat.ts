@@ -79,8 +79,29 @@ export const useAgentChat = () => {
         // cap — this is what makes long Genie answers reliable instead of timing out.
         const drainGeniePoll = async (handle: any, signal: AbortSignal) => {
             const startedAt = Date.now();
-            const TIMEOUT_MS = 270_000;
+            // Each poll is its own short request, so the TOTAL window is NOT bound by the
+            // platform's ~5-min per-request cap — only by how long the user will wait.
+            const TIMEOUT_MS = 900_000; // 15 min
             const INTERVAL_MS = 3000;
+            // Genie's terminal status lags well past when the answer is ready, so also complete
+            // once a non-empty answer has stopped changing for several polls (~15s).
+            const STABLE_POLLS_TO_COMPLETE = 5;
+            let lastAnswer = '';
+            let stableCount = 0;
+
+            const finish = async (text: string, deepLink?: string) => {
+                const link = deepLink ? `\n\n[Open in Databricks Genie ↗](${deepLink})` : '';
+                const full = (text || '_Genie returned no answer._') + link;
+                updateLast(m => { m.content = full; });
+                try {
+                    await fetch('/api/agent/genie/resume', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: sessionId, answer: full }),
+                    });
+                } catch { /* best-effort */ }
+            };
+
             while (!signal.aborted) {
                 if (Date.now() - startedAt > TIMEOUT_MS) {
                     updateLast(m => { m.content = 'Genie did not respond in time. Please try again or narrow the question.'; m.isError = true; });
@@ -108,28 +129,30 @@ export const useAgentChat = () => {
                 if (signal.aborted) return;
 
                 if (res.status === 'complete') {
-                    const answer = res.answer || '_Genie returned no answer._';
-                    const link = res.deep_link ? `\n\n[Open in Databricks Genie ↗](${res.deep_link})` : '';
-                    const full = answer + link;
-                    updateLast(m => { m.content = full; });
-                    // Record the answer in the agent's server-side history so follow-ups have context.
-                    try {
-                        await fetch('/api/agent/genie/resume', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ session_id: sessionId, answer: full }),
-                        });
-                    } catch { /* best-effort */ }
+                    await finish(res.answer, res.deep_link);
                     return;
                 }
                 if (res.status === 'failed') {
                     updateLast(m => { m.content = `Genie could not answer: ${res.error || 'unknown error'}`; m.isError = true; });
                     return;
                 }
-                // Still running: render Genie's partial answer live (REPLACE — it can change
-                // non-additively). Empty partial falls back to the typing indicator.
-                const partial: string = res.answer || '';
-                if (partial) updateLast(m => { m.content = partial; });
+                // Still running: show the live feed — the real partial answer if Genie has one,
+                // else the progress narration (steps + SQL). REPLACE each poll (non-additive).
+                const display: string = res.answer || '';
+                if (display) updateLast(m => { m.content = display; });
+                // Early completion keys on the REAL answer only (res.final), never the narration,
+                // so we never settle the turn on progress text. Genie's COMPLETED status lags.
+                const finalAns: string = res.final || '';
+                if (finalAns && finalAns === lastAnswer) {
+                    stableCount += 1;
+                    if (stableCount >= STABLE_POLLS_TO_COMPLETE) {
+                        await finish(finalAns, res.deep_link);
+                        return;
+                    }
+                } else {
+                    lastAnswer = finalAns;
+                    stableCount = 0;
+                }
                 await sleep(res.attempt_after_ms || INTERVAL_MS, signal);
             }
         };
