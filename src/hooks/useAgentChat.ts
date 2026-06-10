@@ -21,6 +21,9 @@ export interface AgentMessage {
     tool_calls?: ToolCall[];
     trace_id?: string;
     isError?: boolean;
+    // True once the agent has emitted its authoritative answer. Until then any
+    // streamed `content` is intermediate scaffolding shown as live "thinking".
+    finalized?: boolean;
 }
 
 const GREETING: AgentMessage = {
@@ -274,6 +277,7 @@ export const useAgentChat = () => {
                             }
                             case 'final':
                                 last.content = data.content;
+                                last.finalized = true;
                                 break;
                             case 'tool_calls':
                                 last.tool_calls = data.content;

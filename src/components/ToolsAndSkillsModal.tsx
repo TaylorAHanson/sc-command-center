@@ -124,9 +124,9 @@ export const ToolsAndSkillsModal: React.FC<ToolsAndSkillsModalProps> = ({
                             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-qualcomm-blue" />
                         </div>
                     ) : (
-                        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 min-h-0">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {/* Tools */}
-                            <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm flex flex-col min-h-0">
+                            <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm flex flex-col h-96">
                                 <div className="flex items-center mb-4 border-b border-gray-100 pb-3">
                                     <div className="w-9 h-9 bg-qualcomm-blue/10 text-qualcomm-blue rounded-md flex items-center justify-center mr-3 border border-qualcomm-blue/20">
                                         <Wrench className="w-4 h-4" />
@@ -169,7 +169,7 @@ export const ToolsAndSkillsModal: React.FC<ToolsAndSkillsModalProps> = ({
                             </div>
 
                             {/* Skills */}
-                            <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm flex flex-col min-h-0">
+                            <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm flex flex-col h-96">
                                 <div className="flex items-center mb-4 border-b border-gray-100 pb-3">
                                     <div className="w-9 h-9 bg-qualcomm-blue/10 text-qualcomm-blue rounded-md flex items-center justify-center mr-3 border border-qualcomm-blue/20">
                                         <BookOpen className="w-4 h-4" />

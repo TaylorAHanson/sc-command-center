@@ -20,7 +20,7 @@ const ThinkingDisclosure: React.FC<{ text: string; label: string; defaultOpen: b
                 <span>{label}</span>
             </button>
             {open && (
-                <div className="mt-1.5 rounded-md bg-gray-50 border border-gray-100 px-3 py-2 text-[12px] text-gray-500 whitespace-pre-wrap leading-relaxed">
+                <div className="mt-1.5 max-h-64 overflow-y-auto rounded-md bg-gray-50 border border-gray-100 px-3 py-2 text-[12px] text-gray-500 whitespace-pre-wrap leading-relaxed">
                     {trimmed}
                 </div>
             )}
@@ -109,25 +109,34 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                         >
                             {msg.role === 'user' ? (
                                 <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                            ) : (
+                            ) : (() => {
+                                // While the agent is still working on the last turn, any streamed
+                                // `content` is intermediate scaffolding (e.g. "Running SQL…"),
+                                // not the answer. Show it as live progress under "Thinking…" and
+                                // keep the dots going until the authoritative answer arrives.
+                                const working = isLoading && idx === messages.length - 1 && !msg.finalized && !msg.isError;
+                                const thinkingText = working
+                                    ? [msg.reasoning, msg.content].filter(Boolean).join('\n\n')
+                                    : (msg.reasoning || '');
+                                return (
                                 <>
-                                    {msg.reasoning && (
+                                    {thinkingText && (
                                         <ThinkingDisclosure
-                                            text={msg.reasoning}
-                                            label={isLoading && idx === messages.length - 1 && !msg.content ? 'Thinking…' : 'Thoughts'}
-                                            defaultOpen={isLoading && idx === messages.length - 1 && !msg.content}
+                                            text={thinkingText}
+                                            label={working ? 'Thinking…' : 'Thoughts'}
+                                            defaultOpen={working}
                                         />
                                     )}
                                     <div className="prose prose-sm max-w-none leading-relaxed">
-                                        {msg.content ? (
-                                            msg.isError ? (
-                                                <div className="flex items-start gap-1.5">
-                                                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                                                    <span>{msg.content}</span>
-                                                </div>
-                                            ) : (
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                                            )
+                                        {working ? (
+                                            <TypingDots />
+                                        ) : msg.isError ? (
+                                            <div className="flex items-start gap-1.5">
+                                                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                                <span>{msg.content}</span>
+                                            </div>
+                                        ) : msg.content ? (
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                                         ) : (
                                             <TypingDots />
                                         )}
@@ -145,7 +154,8 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                                         </div>
                                     )}
                                 </>
-                            )}
+                                );
+                            })()}
                         </div>
                     </div>
                 ))}
