@@ -6,6 +6,14 @@ export interface ToolCall {
     status?: string;
 }
 
+export interface AvailableTool {
+    name: string;
+    type: string;
+    always_on?: boolean;
+}
+
+const CUSTOM_INSTRUCTIONS_KEY = 'edh-agent-custom-instructions';
+
 export interface AgentMessage {
     role: 'user' | 'assistant';
     content: string;
@@ -32,6 +40,16 @@ export const useAgentChat = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [sessionId] = useState(() => 'sccc-' + Math.random().toString(36).substring(2, 10));
 
+    // Tools & skills (discovered per-user from the agent via Unity Catalog).
+    const [availableTools, setAvailableTools] = useState<AvailableTool[]>([]);
+    const [availableSkills, setAvailableSkills] = useState<string[]>([]);
+    const [selectedTools, setSelectedTools] = useState<string[]>([]);
+    const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+    const [toolsLoading, setToolsLoading] = useState(true);
+    const [customInstructions, setCustomInstructions] = useState<string>(
+        () => { try { return localStorage.getItem(CUSTOM_INSTRUCTIONS_KEY) || ''; } catch { return ''; } }
+    );
+
     const abortRef = useRef<AbortController | null>(null);
 
     // Keep the latest emitted context in a ref so send() always reads fresh
@@ -40,12 +58,44 @@ export const useAgentChat = () => {
     const ctxRef = useRef<DashboardContext>(dashboardContext);
     useEffect(() => { ctxRef.current = dashboardContext; }, [dashboardContext]);
 
+    // Discover the user's tools & skills once on mount.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const r = await fetch('/api/agent/tools-and-skills');
+                if (r.ok && !cancelled) {
+                    const d = await r.json();
+                    setAvailableTools(d.tools || []);
+                    setAvailableSkills(d.skills || []);
+                    setSelectedTools(d.default_tools || []);
+                    setSelectedSkills(d.default_skills || []);
+                }
+            } catch {
+                /* leave empty; the panel shows an empty state */
+            } finally {
+                if (!cancelled) setToolsLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
+    // Persist custom instructions in the browser (parity with the source agent UI).
+    useEffect(() => {
+        try { localStorage.setItem(CUSTOM_INSTRUCTIONS_KEY, customInstructions); } catch { /* ignore */ }
+    }, [customInstructions]);
+
     const send = useCallback(async (text: string) => {
         const trimmed = text.trim();
         if (!trimmed || isLoading) return;
 
         const ctx = ctxRef.current;
+        // The agent's `user_prompt` carries both the dashboard context and any
+        // user-authored custom instructions (appended last so they take precedence).
         const preamble = buildContextPreamble(ctx);
+        const userPrompt = customInstructions.trim()
+            ? `${preamble}\n\n## User custom instructions\n${customInstructions.trim()}`
+            : preamble;
 
         setInput('');
         setMessages(prev => [
@@ -168,7 +218,13 @@ export const useAgentChat = () => {
                 // Context rides in `user_prompt` (a dedicated agent field) instead of
                 // the query, so it never pollutes the user-visible message or the
                 // agent's stored conversation history.
-                body: JSON.stringify({ session_id: sessionId, query: trimmed, user_prompt: preamble }),
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    query: trimmed,
+                    user_prompt: userPrompt,
+                    selected_tools: selectedTools,
+                    selected_skills: selectedSkills,
+                }),
             });
 
             if (!response.ok || !response.body) throw new Error(`Agent responded ${response.status}`);
@@ -270,7 +326,7 @@ export const useAgentChat = () => {
             setIsLoading(false);
             abortRef.current = null;
         }
-    }, [isLoading, sessionId]);
+    }, [isLoading, sessionId, selectedTools, selectedSkills, customInstructions]);
 
     const stop = useCallback(() => {
         abortRef.current?.abort();
@@ -299,6 +355,16 @@ export const useAgentChat = () => {
         stop,
         clear,
         widgetCount: dashboardContext.widgets.length,
+        // Tools & skills
+        availableTools,
+        availableSkills,
+        selectedTools,
+        setSelectedTools,
+        selectedSkills,
+        setSelectedSkills,
+        toolsLoading,
+        customInstructions,
+        setCustomInstructions,
     };
 };
 

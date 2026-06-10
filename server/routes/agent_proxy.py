@@ -172,6 +172,103 @@ async def proxy_clear_chat(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@router.get("/tools-and-skills")
+async def proxy_tools_and_skills(request: Request):
+    """
+    Proxy the agent's tool/skill discovery. Forwards the user's OBO token so the
+    agent returns only the Unity Catalog functions/volumes the signed-in user is
+    entitled to (per-user governance).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{AGENT_BASE_URL}/tools-and-skills",
+                headers=_forwarded_headers(request),
+            )
+        return JSONResponse(
+            content=resp.json() if resp.content else {"tools": [], "skills": []},
+            status_code=resp.status_code,
+        )
+    except httpx.ConnectError:
+        return JSONResponse(
+            {"tools": [], "skills": [], "error": "Could not reach the agent service."},
+            status_code=502,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Error proxying tools-and-skills")
+        return JSONResponse({"tools": [], "skills": [], "error": str(e)}, status_code=500)
+
+
+@router.get("/user-skills")
+async def proxy_list_user_skills(request: Request):
+    """List the signed-in user's personal skills (stored in their workspace folder)."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{AGENT_BASE_URL}/user-skills",
+                headers=_forwarded_headers(request),
+            )
+        return JSONResponse(content=resp.json() if resp.content else {"skills": []}, status_code=resp.status_code)
+    except httpx.ConnectError:
+        return JSONResponse({"skills": [], "error": "Could not reach the agent service."}, status_code=502)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Error proxying list user-skills")
+        return JSONResponse({"skills": [], "error": str(e)}, status_code=500)
+
+
+@router.get("/user-skills/{name}")
+async def proxy_get_user_skill(name: str, request: Request):
+    """Read the content of one personal skill."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{AGENT_BASE_URL}/user-skills/{name}",
+                headers=_forwarded_headers(request),
+            )
+        return JSONResponse(content=resp.json() if resp.content else {}, status_code=resp.status_code)
+    except httpx.ConnectError:
+        return JSONResponse({"error": "Could not reach the agent service."}, status_code=502)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Error proxying get user-skill")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.put("/user-skills")
+async def proxy_save_user_skill(request: Request):
+    """Create or update a personal skill."""
+    try:
+        body = await request.body()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.put(
+                f"{AGENT_BASE_URL}/user-skills",
+                content=body,
+                headers=_forwarded_headers(request),
+            )
+        return JSONResponse(content=resp.json() if resp.content else {"status": "saved"}, status_code=resp.status_code)
+    except httpx.ConnectError:
+        return JSONResponse({"error": "Could not reach the agent service."}, status_code=502)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Error proxying save user-skill")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.delete("/user-skills/{name}")
+async def proxy_delete_user_skill(name: str, request: Request):
+    """Delete a personal skill."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.delete(
+                f"{AGENT_BASE_URL}/user-skills/{name}",
+                headers=_forwarded_headers(request),
+            )
+        return JSONResponse(content=resp.json() if resp.content else {"status": "deleted"}, status_code=resp.status_code)
+    except httpx.ConnectError:
+        return JSONResponse({"error": "Could not reach the agent service."}, status_code=502)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Error proxying delete user-skill")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @router.get("/health")
 async def agent_health():
     """Report whether the configured agent service is reachable."""

@@ -27,7 +27,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const canAccessAdmin = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin');
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [isAgentOpen, setAgentOpen] = useState(false);
-  const [agentHinted, setAgentHinted] = useState(false);
   const [agentWidth, setAgentWidth] = useState(400);
   const [isResizingAgent, setIsResizingAgent] = useState(false);
   const [isTrayOpen, setTrayOpen] = useState(false);
@@ -41,13 +40,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   // Held at the Layout level so the conversation survives collapsing the panel.
   const agentChat = useAgentChat();
-
-  // Briefly pulse the assistant launcher on first load to draw attention, then settle.
-  useEffect(() => {
-    setAgentHinted(true);
-    const t = window.setTimeout(() => setAgentHinted(false), 6000);
-    return () => window.clearTimeout(t);
-  }, []);
 
   // Drag-to-resize the assistant panel. Width is the distance from the right
   // edge of the viewport to the cursor, clamped to a sensible range.
@@ -619,9 +611,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-4 pr-5 py-3 bg-qualcomm-navy text-white rounded-full shadow-lg shadow-qualcomm-navy/40 hover:bg-qualcomm-blue hover:shadow-xl transition-all group"
           title="Open EDH Agent"
         >
-          {agentHinted && !agentChat.isLoading && (
-            <span className="absolute inset-0 rounded-full bg-qualcomm-navy animate-ping opacity-40 pointer-events-none" />
-          )}
           {agentChat.isLoading && (
             <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />

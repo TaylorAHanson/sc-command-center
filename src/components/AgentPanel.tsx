@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, Send, Trash2, PanelRightClose, ChevronRight, Square, AlertCircle } from 'lucide-react';
+import { Bot, Send, Trash2, PanelRightClose, ChevronRight, Square, AlertCircle, Wrench } from 'lucide-react';
 import type { AgentChat, AgentMessage } from '../hooks/useAgentChat';
+import { ToolsAndSkillsModal } from './ToolsAndSkillsModal';
 
 const ThinkingDisclosure: React.FC<{ text: string; label: string; defaultOpen: boolean }> = ({ text, label, defaultOpen }) => {
     const [openOverride, setOpenOverride] = useState<boolean | null>(null);
@@ -36,8 +37,13 @@ const TypingDots: React.FC = () => (
 );
 
 export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> = ({ chat, onCollapse }) => {
-    const { messages, input, setInput, isLoading, send, stop, clear, widgetCount } = chat;
+    const {
+        messages, input, setInput, isLoading, send, stop, clear, widgetCount,
+        availableTools, availableSkills, selectedTools, setSelectedTools,
+        selectedSkills, setSelectedSkills, toolsLoading, customInstructions, setCustomInstructions,
+    } = chat;
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [showTools, setShowTools] = useState(false);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -64,6 +70,13 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                     </div>
                 </div>
                 <div className="flex items-center gap-1">
+                    <button
+                        onClick={() => setShowTools(true)}
+                        className="p-1.5 text-gray-400 hover:text-qualcomm-blue hover:bg-qualcomm-blue/10 rounded-md transition-colors"
+                        title="Tools & Skills"
+                    >
+                        <Wrench className="w-4 h-4" />
+                    </button>
                     <button
                         onClick={clear}
                         className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
@@ -176,6 +189,21 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                     )}
                 </div>
             </form>
+
+            {showTools && (
+                <ToolsAndSkillsModal
+                    onClose={() => setShowTools(false)}
+                    availableTools={availableTools}
+                    availableSkills={availableSkills}
+                    selectedTools={selectedTools}
+                    selectedSkills={selectedSkills}
+                    onToolsChange={setSelectedTools}
+                    onSkillsChange={setSelectedSkills}
+                    customInstructions={customInstructions}
+                    onCustomInstructionsChange={setCustomInstructions}
+                    isLoading={toolsLoading}
+                />
+            )}
         </div>
     );
 };
