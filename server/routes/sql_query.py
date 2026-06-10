@@ -90,9 +90,13 @@ async def get_query_config(query_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+# NOTE: defined as a sync `def` (not `async def`). The Databricks SDK call below
+# is blocking and waits up to 50s; FastAPI runs sync handlers in a worker thread,
+# so this no longer stalls the event loop (and the agent's SSE streams) while it
+# waits. Do not add `await` here without also reverting to `async def`.
 @router.post("/execute", response_model=SqlQueryResponse, summary="Execute a SQL query")
 @router.post("/execute/", response_model=SqlQueryResponse, summary="Execute a SQL query (trailing slash)")
-async def execute_sql_query(
+def execute_sql_query(
     query_request: SqlQueryRequest,
     w: WorkspaceClient = Depends(get_db_client)
 ):
@@ -190,7 +194,7 @@ async def execute_sql_query(
 
 
 @router.post("/execute/{query_id}", response_model=SqlQueryResponse, summary="Execute a SQL query by ID")
-async def execute_sql_query_by_id(
+def execute_sql_query_by_id(
     query_id: str,
     parameters: Optional[Dict[str, Any]] = None,
     w: WorkspaceClient = Depends(get_db_client)
@@ -200,7 +204,7 @@ async def execute_sql_query_by_id(
     Parameters can be passed as query parameters or in the request body.
     """
     query_request = SqlQueryRequest(query_id=query_id, parameters=parameters or {})
-    return await execute_sql_query(query_request, w)
+    return execute_sql_query(query_request, w)
 
 
 class RawSqlRequest(BaseModel):
@@ -211,7 +215,7 @@ class RawSqlRequest(BaseModel):
 
 
 @router.post("/execute-raw", summary="Execute a raw SQL string against Databricks")
-async def execute_raw_sql(
+def execute_raw_sql(
     req: RawSqlRequest,
     w: WorkspaceClient = Depends(get_db_client)
 ):

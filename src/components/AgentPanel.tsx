@@ -36,6 +36,17 @@ const TypingDots: React.FC = () => (
     </div>
 );
 
+// The agent wraps embedded result tables in HTML comment markers
+// (e.g. <!-- begin-embedded:query_b94a8c --> ... <!-- end-embedded:query_b94a8c -->).
+// We render with react-markdown (no raw HTML), so those markers would otherwise
+// show up as literal text. Strip all HTML comments before display; collapse the
+// blank lines they leave behind.
+const stripAgentMarkers = (text: string): string =>
+    text
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
 export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> = ({ chat, onCollapse }) => {
     const {
         messages, input, setInput, isLoading, send, stop, clear, widgetCount,
@@ -136,7 +147,7 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                                                 <span>{msg.content}</span>
                                             </div>
                                         ) : msg.content ? (
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{stripAgentMarkers(msg.content)}</ReactMarkdown>
                                         ) : (
                                             <TypingDots />
                                         )}

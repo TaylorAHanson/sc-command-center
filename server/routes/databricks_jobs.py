@@ -61,8 +61,13 @@ from fastapi import APIRouter, HTTPException, Depends
 
 # --- API Endpoints ---
 
+# NOTE: the handlers in this router are sync `def` on purpose. Every one makes a
+# blocking Databricks SDK call (run_now/get_run/submit/etc.); FastAPI runs sync
+# handlers in a worker thread, keeping the event loop free for the agent's SSE
+# streams. Don't switch these back to `async def` unless you also offload the SDK
+# calls with run_in_threadpool/asyncio.to_thread.
 @router.post("/trigger", response_model=JobTriggerResponse, summary="Trigger a Databricks job")
-async def trigger_job(
+def trigger_job(
     request: JobTriggerRequest, 
     w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
@@ -101,7 +106,7 @@ async def trigger_job(
         raise HTTPException(status_code=500, detail=f"Failed to trigger job: {str(e)}")
 
 @router.get("/status/{run_id}", response_model=JobStatusResponse, summary="Get job run status")
-async def get_job_status(
+def get_job_status(
     run_id: int, 
     w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
@@ -168,7 +173,7 @@ async def get_job_status(
         raise HTTPException(status_code=500, detail=f"Failed to get job status: {str(e)}")
 
 @router.get("/output/{run_id}", response_model=JobOutputResponse, summary="Get job run output")
-async def get_job_output(
+def get_job_output(
     run_id: int, 
     w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
@@ -219,7 +224,7 @@ async def get_job_output(
         raise HTTPException(status_code=500, detail=f"Failed to get job output: {str(e)}")
 
 @router.delete("/cancel/{run_id}", summary="Cancel a running job")
-async def cancel_job(
+def cancel_job(
     run_id: int, 
     w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
@@ -243,7 +248,7 @@ async def cancel_job(
         raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
 
 @router.get("/job/{job_id}", summary="Get job details")
-async def get_job_details(
+def get_job_details(
     job_id: int,
     w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
@@ -271,7 +276,7 @@ class ExecuteNotebookRequest(BaseModel):
     parameters: Optional[Dict[str, str]] = None
 
 @router.post("/execute-notebook", summary="Execute a Databricks notebook")
-async def execute_notebook(
+def execute_notebook(
     request: ExecuteNotebookRequest,
     w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):
@@ -306,7 +311,7 @@ async def execute_notebook(
         raise HTTPException(status_code=500, detail=f"Failed to execute notebook: {str(e)}")
 
 @router.get("/notebooks", summary="List Databricks notebooks")
-async def list_notebooks(
+def list_notebooks(
     path: str = "/Users",
     w: WorkspaceClient = Depends(get_db_client_for_jobs)
 ):

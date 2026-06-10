@@ -8,6 +8,12 @@ command:
   - --proxy-headers
   - --forwarded-allow-ips
   - "*"
+  # Run multiple worker processes so one slow/blocking request can't stall the
+  # whole app. Each worker is an independent event loop + thread pool. App state
+  # lives in Postgres/Lakebase (not in-process), so workers are safe to scale.
+  # Tune up if the app container has more CPU/memory headroom.
+  - --workers
+  - "2"
 env:
   - name: PYTHONPATH
     value: .:server

@@ -42,9 +42,30 @@ app = FastAPI(
 
 @app.on_event("startup")
 async def startup_event():
+    # Sync route handlers (e.g. the blocking Databricks SDK calls in the SQL,
+    # Genie, and jobs routers) run in Starlette's anyio thread pool. The default
+    # cap is 40 threads; raise it so a burst of dashboard widgets each firing a
+    # blocking SQL/Genie call doesn't queue behind one another (and so they never
+    # contend with the agent's async SSE proxying, which stays on the event loop).
+    try:
+        from anyio import to_thread
+        to_thread.current_default_thread_limiter().total_tokens = 64
+    except Exception as e:  # noqa: BLE001
+        logging.warning(f"Could not raise anyio thread-pool limit: {e}")
+
     init_db("dev")
     init_db("test")
     init_db("prod")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # Cleanly close the shared HTTP client used by the agent proxy.
+    try:
+        from routes.agent_proxy import close_http_client
+        await close_http_client()
+    except Exception as e:  # noqa: BLE001
+        logging.warning(f"Error closing agent HTTP client: {e}")
 
 # Add proxy headers middleware first
 app.add_middleware(ProxyHeadersMiddleware)

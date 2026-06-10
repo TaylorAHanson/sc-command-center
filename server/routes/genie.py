@@ -75,9 +75,12 @@ async def list_genies():
 
 from databricks.sdk.errors import PermissionDenied
 
+# NOTE: sync `def` on purpose — the Genie `*_and_wait` calls below block for up
+# to 60s. FastAPI runs sync handlers in a worker thread, so this doesn't freeze
+# the event loop (and the agent chat streams) while Genie is thinking.
 @router.post("/query", response_model=GenieQueryResponse, summary="Ask a question to a Genie Space")
 @router.post("/query/", response_model=GenieQueryResponse, summary="Ask a question to a Genie Space (trailing slash)")
-async def ask_genie(
+def ask_genie(
     query: GenieQueryRequest,
     w: WorkspaceClient = Depends(get_db_client)
 ):
