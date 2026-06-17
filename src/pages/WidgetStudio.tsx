@@ -228,20 +228,43 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     return;
                 }
 
-                // Use Babel to transpile TSX to JS
+                // Two-pass Babel transform (mirrors widgetRegistry.ts so the preview
+                // matches what dashboards run). Pass 1 strips TS types/type-only imports
+                // and compiles JSX; pass 2 converts any remaining runtime ES `import`/
+                // `export` to CommonJS so widgets authored with `import` statements don't
+                // throw "Cannot use import statement outside a module".
                 // @ts-ignore
-                const transpiled = window.Babel.transform(code, {
+                const stripped = window.Babel.transform(code, {
                     filename: 'widget.tsx',
                     presets: ['react', 'typescript']
                 }).code;
-
-                // We evaluate the code in a closure providing React
-                // We replace "export default" to be able to extract the component
-                const executableCode = transpiled.replace(/export\s+default\s+(function|class|identifier)/, 'return $1').replace(/export\s+default\s+/, 'return ');
+                // @ts-ignore
+                const transpiled = window.Babel.transform(stripped, {
+                    filename: 'widget.js',
+                    plugins: ['transform-modules-commonjs']
+                }).code;
 
                 // Fallback to window object if globals aren't directly available in module scope
                 // @ts-ignore
                 const HC = typeof Highcharts !== 'undefined' ? Highcharts : window.Highcharts;
+
+                // Minimal CommonJS sandbox: `require` resolves to injected React or
+                // runtime globals (e.g. window.Highcharts via useScript), else throws.
+                const executableCode = `
+                    var module = { exports: {} };
+                    var exports = module.exports;
+                    var require = function (name) {
+                      if (name === 'react') return React;
+                      if (name === 'react-dom') return (typeof window !== 'undefined' ? window.ReactDOM : undefined);
+                      if (typeof window !== 'undefined') {
+                        var g = window[name] || window[name.charAt(0).toUpperCase() + name.slice(1)];
+                        if (g) return g;
+                      }
+                      throw new Error("Module '" + name + "' is not available in this sandbox. Use the useScript() hook for external libraries.");
+                    };
+                    ${transpiled}
+                    return (module.exports && module.exports.default) ? module.exports.default : module.exports;
+                `;
 
                 // eslint-disable-next-line no-new-func
                 const createComponent = new Function('React', 'useScript', 'Highcharts', executableCode);

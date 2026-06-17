@@ -63,7 +63,10 @@ class WidgetErrorBoundary extends React.Component<
 
 const LiveWidgetRenderer: React.FC<{ tsxCode: string }> = ({ tsxCode }) => {
     const [babelLoaded] = useScript(
-        'https://unpkg.com/@babel/standalone/babel.min.js',
+        // Pinned on purpose — see index.html. An unpinned "latest" URL let an
+        // upstream Babel release silently change import transpilation and break
+        // widget loading everywhere at once.
+        'https://unpkg.com/@babel/standalone@7.29.4/babel.min.js',
         'Babel'
     );
     const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
@@ -73,16 +76,40 @@ const LiveWidgetRenderer: React.FC<{ tsxCode: string }> = ({ tsxCode }) => {
         if (!babelLoaded) return;
         try {
             setCompileError(null);
+            // Two-pass Babel transform (mirrors widgetRegistry.ts). Pass 1 strips TS
+            // types/type-only imports and compiles JSX; pass 2 converts remaining
+            // runtime ES `import`/`export` to CommonJS so widgets authored with
+            // `import` statements don't throw "Cannot use import statement outside a
+            // module".
             // @ts-ignore
-            const transpiled = window.Babel.transform(tsxCode, {
+            const stripped = window.Babel.transform(tsxCode, {
                 filename: 'widget.tsx',
                 presets: ['react', 'typescript']
             }).code;
-            const executableCode = transpiled
-                .replace(/export\s+default\s+(function|class)/, 'return $1')
-                .replace(/export\s+default\s+/, 'return ');
+            // @ts-ignore
+            const transpiled = window.Babel.transform(stripped, {
+                filename: 'widget.js',
+                plugins: ['transform-modules-commonjs']
+            }).code;
             // @ts-ignore
             const HC = typeof Highcharts !== 'undefined' ? Highcharts : (window as any).Highcharts;
+            // Minimal CommonJS sandbox: `require` resolves to injected React or
+            // runtime globals (e.g. window.Highcharts via useScript), else throws.
+            const executableCode = `
+                var module = { exports: {} };
+                var exports = module.exports;
+                var require = function (name) {
+                  if (name === 'react') return React;
+                  if (name === 'react-dom') return (typeof window !== 'undefined' ? window.ReactDOM : undefined);
+                  if (typeof window !== 'undefined') {
+                    var g = window[name] || window[name.charAt(0).toUpperCase() + name.slice(1)];
+                    if (g) return g;
+                  }
+                  throw new Error("Module '" + name + "' is not available in this sandbox. Use the useScript() hook for external libraries.");
+                };
+                ${transpiled}
+                return (module.exports && module.exports.default) ? module.exports.default : module.exports;
+            `;
             // eslint-disable-next-line no-new-func
             const createComp = new Function('React', 'useScript', 'Highcharts', executableCode);
             const Comp = createComp(React, useScript, HC);

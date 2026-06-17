@@ -6,8 +6,12 @@
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>client</title>
-  <!-- Babel Standalone for Widget Studio runtime TSX compilation -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Babel Standalone for Widget Studio runtime TSX compilation.
+       PIN THE VERSION. The URL was previously unpinned ("latest"), so an upstream
+       @babel/standalone release silently changed how widget `import` statements
+       were transpiled and broke widget loading across every environment at once.
+       Keep this pinned and bump deliberately. -->
+  <script src="https://unpkg.com/@babel/standalone@7.29.4/babel.min.js"></script>
   <!-- Highcharts required for Widget Studio Previews -->
   <script src="https://code.highcharts.com/highcharts.js"></script>
   <script src="https://code.highcharts.com/highcharts-more.js"></script>

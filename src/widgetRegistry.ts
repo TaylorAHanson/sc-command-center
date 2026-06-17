@@ -102,17 +102,45 @@ export const loadCustomWidgets = async () => {
         if (w.tsx_code) {
           // @ts-ignore
           if (!window.Babel) return;
+          // Two-pass transform. Pass 1 (react + typescript presets) strips TS types
+          // and *type-only* imports (e.g. `import { WidgetProps }`) and compiles JSX.
+          // Pass 2 converts any remaining runtime ES module `import`/`export` to
+          // CommonJS. This ordering matters: Babel runs plugins before presets, so
+          // doing the module transform in the same pass would rewrite the WidgetProps
+          // type import into a real require() before the TS preset could elide it.
+          // Without pass 2, a widget with a runtime import (like `import React, {
+          // useState } from 'react'`) keeps the `import` and throws "Cannot use import
+          // statement outside a module" inside new Function().
           // @ts-ignore
-          const transpiled = window.Babel.transform(w.tsx_code, {
+          const stripped = window.Babel.transform(w.tsx_code, {
             filename: `${w.id}.tsx`,
-            presets: ['react', 'typescript']
+            presets: ['react', 'typescript'],
           }).code;
-          // Convert `export default function Foo` → `var __widget = function Foo ...; return __widget`
-          let executableCode = transpiled
-            .replace(/export\s+default\s+function\s*(\w*)/, 'var __widget = function $1')
-            .replace(/export\s+default\s+class\s*(\w*)/, 'var __widget = class $1')
-            .replace(/export\s+default\s+/, 'var __widget = ');
-          executableCode += '\nreturn __widget;';
+          // @ts-ignore
+          const transpiled = window.Babel.transform(stripped, {
+            filename: `${w.id}.js`,
+            plugins: ['transform-modules-commonjs'],
+          }).code;
+
+          // Minimal CommonJS sandbox. `require` resolves to the injected React, to
+          // runtime globals loaded via the useScript() hook (e.g. window.Highcharts),
+          // or throws a clear error — so a widget that imports something unavailable
+          // fails on its own rather than taking down the whole registry load.
+          const executableCode = `
+            var module = { exports: {} };
+            var exports = module.exports;
+            var require = function (name) {
+              if (name === 'react') return React;
+              if (name === 'react-dom') return (typeof window !== 'undefined' ? window.ReactDOM : undefined);
+              if (typeof window !== 'undefined') {
+                var g = window[name] || window[name.charAt(0).toUpperCase() + name.slice(1)];
+                if (g) return g;
+              }
+              throw new Error("Module '" + name + "' is not available in this sandbox. Use the useScript() hook for external libraries.");
+            };
+            ${transpiled}
+            return (module.exports && module.exports.default) ? module.exports.default : module.exports;
+          `;
           // eslint-disable-next-line no-new-func
           const createComponent = new (Function as any)('React', 'useScript', executableCode);
           Component = createComponent(React, useScript);
