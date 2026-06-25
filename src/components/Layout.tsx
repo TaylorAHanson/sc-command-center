@@ -12,21 +12,31 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { HelpPage } from '../pages/HelpPage';
 import { AboutPage } from '../pages/AboutPage';
 import { WidgetStudio } from '../pages/WidgetStudio';
+import { AgentStudio } from '../pages/AgentStudio';
 import { UserGuidePage } from '../pages/UserGuidePage';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<string | null>(() => {
     const hash = window.location.hash;
-    if (['#/admin', '#/studio', '#/settings', '#/help', '#/about'].includes(hash)) {
+    if (['#/admin', '#/studio', '#/agent-studio', '#/settings', '#/help', '#/about'].includes(hash)) {
       return hash.substring(2);
     }
     return null;
   });
+  // Pages that take over the full screen (no header, no agent drawer).
+  const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
   const { tabs, activeTabId, setActiveTabId, addTab, removeTab, renameTab, reorderTabs, duplicateView, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions } = useDashboardStore();
   const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
   const canAccessAdmin = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin');
   const [isSidebarOpen, setSidebarOpen] = useState(true);
-  const [isAgentOpen, setAgentOpen] = useState(false);
+  // Persist the assistant drawer's open/closed state so it reopens if the user
+  // left it open last session.
+  const [isAgentOpen, setAgentOpen] = useState(() => {
+    try { return localStorage.getItem('sccc-agent-open') === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('sccc-agent-open', String(isAgentOpen)); } catch { /* ignore */ }
+  }, [isAgentOpen]);
   const [agentWidth, setAgentWidth] = useState(400);
   const [isResizingAgent, setIsResizingAgent] = useState(false);
   const [isTrayOpen, setTrayOpen] = useState(false);
@@ -82,7 +92,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   // viewport, and restore the user's previous sidebar state when they leave.
   const prevSidebarOpen = useRef<boolean | null>(null);
   useEffect(() => {
-    if (currentPage === 'studio') {
+    if (isFullScreenStudio) {
       if (prevSidebarOpen.current === null) {
         prevSidebarOpen.current = isSidebarOpen;
       }
@@ -420,6 +430,15 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     Widget Studio
                   </button>
                 )}
+                {canCreateWidgets && (
+                  <button
+                    onClick={() => setCurrentPage('agent-studio')}
+                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'agent-studio' ? "bg-qualcomm-blue border-transparent text-white" : "border-gray-600 hover:border-qualcomm-blue hover:text-qualcomm-blue text-gray-400")}
+                  >
+                    <Bot className="w-4 h-4 group-hover:text-qualcomm-blue" />
+                    Agent Studio
+                  </button>
+                )}
               </div>
 
               {/* Resources */}
@@ -441,33 +460,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </div>
               </div>
             </>
-          ) : (
-            <div className="flex flex-col gap-4 items-center p-3">
-              <button
-                onClick={() => setTrayOpen(true)}
-                className="p-2 bg-gray-800 hover:bg-qualcomm-blue rounded-md border border-gray-700"
-                title="Widget Library"
-              >
-                <LayoutGrid className="w-5 h-5" />
-              </button>
-              {canAccessAdmin && (
-                <button
-                  onClick={() => setCurrentPage('admin')}
-                  className={clsx("p-2 rounded-md border border-gray-700", currentPage === 'admin' ? "bg-qualcomm-blue border-transparent" : "bg-gray-800 hover:bg-qualcomm-blue")}
-                  title="Admin Panel"
-                >
-                  <Shield className="w-5 h-5" />
-                </button>
-              )}
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header */}
-        {currentPage !== 'studio' && (
+        {!isFullScreenStudio && (
           <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
             <div className="flex items-center gap-4">
               <h1 className="text-lg font-semibold text-qualcomm-navy">
@@ -556,6 +556,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'admin' && <AdminPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'studio' && <WidgetStudio editWidgetId={editWidgetId} cloneWidgetId={cloneWidgetId} onClose={() => { setCurrentPage(null); setEditWidgetId(null); setCloneWidgetId(null); }} />}
+            {currentPage === 'agent-studio' && <AgentStudio />}
           </main>
         ) : (
           <main
@@ -582,8 +583,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         )}
       </div>
 
-      {/* Agent Assistant panel (hidden in Widget Studio, which needs the full viewport) */}
-      {currentPage !== 'studio' && isAgentOpen && (
+      {/* Agent Assistant panel (hidden in Studios, which need the full viewport) */}
+      {!isFullScreenStudio && isAgentOpen && (
         <div
           className="relative border-l border-gray-200 bg-white flex flex-col shrink-0"
           style={{ width: agentWidth }}
@@ -605,7 +606,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       )}
 
       {/* Floating launcher — shown whenever the panel is collapsed */}
-      {currentPage !== 'studio' && !isAgentOpen && (
+      {!isFullScreenStudio && !isAgentOpen && (
         <button
           onClick={() => setAgentOpen(true)}
           className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-4 pr-5 py-3 bg-qualcomm-navy text-white rounded-full shadow-lg shadow-qualcomm-navy/40 hover:bg-qualcomm-blue hover:shadow-xl transition-all group"

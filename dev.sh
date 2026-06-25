@@ -49,19 +49,19 @@ if [ -f ".env" ]; then
     echo -e "${GREEN}✓ Environment variables loaded from .env${NC}"
 fi
 
-# Check and kill processes on ports 8000 and 5173
-echo -e "${CYAN}Checking for processes on ports 8000 and 5173...${NC}"
-BACKEND_PORT_PID=$(lsof -ti:8000 2>/dev/null || true)
-FRONTEND_PORT_PID=$(lsof -ti:5173 2>/dev/null || true)
+# Check and kill processes on ports 8001 and 5174
+echo -e "${CYAN}Checking for processes on ports 8001 and 5174...${NC}"
+BACKEND_PORT_PID=$(lsof -ti:8001 2>/dev/null || true)
+FRONTEND_PORT_PID=$(lsof -ti:5174 2>/dev/null || true)
 
 if [ ! -z "$BACKEND_PORT_PID" ]; then
-    echo -e "${YELLOW}Killing process on port 8000 (PID: $BACKEND_PORT_PID)...${NC}"
+    echo -e "${YELLOW}Killing process on port 8001 (PID: $BACKEND_PORT_PID)...${NC}"
     kill -9 $BACKEND_PORT_PID 2>/dev/null || true
     sleep 1
 fi
 
 if [ ! -z "$FRONTEND_PORT_PID" ]; then
-    echo -e "${YELLOW}Killing process on port 5173 (PID: $FRONTEND_PORT_PID)...${NC}"
+    echo -e "${YELLOW}Killing process on port 5174 (PID: $FRONTEND_PORT_PID)...${NC}"
     kill -9 $FRONTEND_PORT_PID 2>/dev/null || true
     sleep 1
 fi
@@ -242,7 +242,7 @@ fi
 # Add timestamp to log file
 echo "=== Backend started at $(date) ===" > ../backend.log
 # Running from server directory, imports are relative, so we use main:app
-PYTHONUNBUFFERED=1 $LOCAL_UVICORN_CMD main:app --reload --port 8000 >> ../backend.log 2>&1 &
+PYTHONUNBUFFERED=1 $LOCAL_UVICORN_CMD main:app --reload --port 8001 >> ../backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
 
@@ -293,9 +293,9 @@ if ! kill -0 $FRONTEND_PID 2>/dev/null; then
 fi
 
 echo -e "\n${GREEN}✓ Development environment is running!${NC}\n"
-echo -e "${CYAN}Frontend:${NC}  ${BLUE}http://localhost:5173${NC}"
-echo -e "${CYAN}Backend API:${NC} ${BLUE}http://localhost:8000${NC}"
-echo -e "${CYAN}API Docs:${NC}   ${BLUE}http://localhost:8000/docs${NC}"
+echo -e "${CYAN}Frontend:${NC}  ${BLUE}http://localhost:5174${NC}"
+echo -e "${CYAN}Backend API:${NC} ${BLUE}http://localhost:8001${NC}"
+echo -e "${CYAN}API Docs:${NC}   ${BLUE}http://localhost:8001/docs${NC}"
 echo -e "\n${YELLOW}Press Ctrl+C to stop all services${NC}\n"
 echo -e "${CYAN}────────────────────────────────────────────${NC}\n"
 echo -e "${CYAN}Logs are being written to:${NC}"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, Settings, Plus, Trash2 } from 'lucide-react';
+import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, Settings, Plus, Trash2, Download, Upload } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
@@ -109,6 +109,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [configSchema, setConfigSchema] = useState<ConfigField[]>(sessionState?.configSchema || []);
     const [editingId, setEditingId] = useState<string | null>(sessionState?.editingId || null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const importInputRef = useRef<HTMLInputElement>(null);
     const [availableDomains, setAvailableDomains] = useState<string[]>(['General']);
     const [availableCategories, setAvailableCategories] = useState<string[]>([]);
     const [variables, setVariables] = useState<Record<string, any>>({});
@@ -544,6 +545,79 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setPreviewError(null);
     };
 
+    // Export the current widget definition (code + all settings) as a portable
+    // JSON file so it can be moved between environments or shared, then imported
+    // back via the Import button below.
+    const handleExport = () => {
+        const payload = {
+            __type: 'sccc-widget',
+            version: 1,
+            exported_at: new Date().toISOString(),
+            widget: {
+                name: widgetName,
+                description: widgetDescription,
+                help_text: widgetHelpText,
+                category: widgetCategory,
+                domain: widgetDomain,
+                tsx_code: code,
+                is_executable: isExecutable,
+                open_in_new_tab_link: openInNewTabLink,
+                data_source_type: dataSourceType,
+                data_source: dataSource,
+                default_w: defaultW,
+                default_h: defaultH,
+                configuration_mode: configMode,
+                config_schema: configSchema,
+            },
+        };
+        const slug = (widgetName || 'widget').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'widget';
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${slug}.widget.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleImportFile = async (file: File) => {
+        try {
+            const parsed = JSON.parse(await file.text());
+            // Tolerate either our wrapper ({ widget: {...} }) or a raw widget object.
+            const w = (parsed && typeof parsed === 'object' && parsed.widget) ? parsed.widget : parsed;
+            if (!w || typeof w !== 'object' || (!w.tsx_code && !w.name)) {
+                throw new Error('This does not look like an exported widget file.');
+            }
+            // An import always creates a NEW widget; clear editingId so Publish inserts.
+            setEditingId(null);
+            setWidgetName(w.name || 'Imported Widget');
+            setWidgetDescription(w.description || '');
+            setWidgetHelpText(w.help_text || '');
+            setWidgetCategory(w.category || '');
+            setWidgetDomain(w.domain || '');
+            setCode(w.tsx_code || code);
+            setIsExecutable(w.is_executable === true || w.is_executable === 1);
+            setOpenInNewTabLink(w.open_in_new_tab_link || '');
+            setDataSourceType((w.data_source_type as any) || 'none');
+            setDataSource(w.data_source || '');
+            setDataSourceSchema(null);
+            setDefaultW(w.default_w || 6);
+            setDefaultH(w.default_h || 6);
+            setConfigMode(w.configuration_mode || 'none');
+            let schema: ConfigField[] = [];
+            if (Array.isArray(w.config_schema)) schema = w.config_schema;
+            else if (typeof w.config_schema === 'string') { try { schema = JSON.parse(w.config_schema); } catch { schema = []; } }
+            setConfigSchema(schema || []);
+            setViewMode('preview');
+            setPreviewError(null);
+            setMessages([{ role: 'assistant', content: `Imported "${w.name || 'widget'}" from file. Review it, then Publish to save it as a new widget.` }]);
+        } catch (e: any) {
+            alert(`Could not import widget: ${e.message || e}`);
+        }
+    };
+
     return (
         <div className="flex h-full w-full bg-slate-900 text-slate-100 overflow-hidden font-sans">
             {/* LEFT PANE: Chat Interface (1/3 width) */}
@@ -554,6 +628,25 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         <span>Widget Studio</span>
                     </div>
                     <div className="flex items-center gap-2">
+                        <input
+                            ref={importInputRef}
+                            type="file"
+                            accept="application/json,.json"
+                            className="hidden"
+                            onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ''; }}
+                        />
+                        <button
+                            onClick={() => importInputRef.current?.click()}
+                            title="Import a widget from a .json file"
+                            className="flex items-center justify-center p-1.5 text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors">
+                            <Upload size={14} />
+                        </button>
+                        <button
+                            onClick={handleExport}
+                            title="Export this widget to a .json file"
+                            className="flex items-center justify-center p-1.5 text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors">
+                            <Download size={14} />
+                        </button>
                         <button
                             onClick={handleReset}
                             className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-md transition-colors font-medium">

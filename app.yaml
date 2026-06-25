@@ -29,5 +29,13 @@ env:
     value: "true"
   - name: LAKEBASE_INSTANCE_NAME
     value: "command-center"
+  - name: CONSOLIDATED_AGENT_URL
+    value: ""  # URL of the consolidated Self-Service agent runtime app, e.g. https://self-service-1234567890.<region>.databricksapps.com
   - name: AGENT_BASE_URL
-    value: ""  # URL of the EDH Agent app, e.g. https://supply-chain-agent-1234567890.<region>.databricksapps.com
+    value: ""  # Deprecated fallback for CONSOLIDATED_AGENT_URL (legacy standalone agent app URL)
+  - name: AGENT_STUDIO_PROMOTION_TARGETS
+    value: ""  # Optional: pinned Agent Studio promotion targets, e.g. "Prod=/Volumes/main/agents/prod/.agents,Staging=/Volumes/main/agents/staging/.agents". If empty, the user's writable shared volumes are offered.
+  - name: AGENT_STUDIO_PROFILE_LOCATIONS
+    value: ""  # Optional: pinned shared ".agents" dirs to list INSTEAD of crawling the metastore, e.g. "/Volumes/main/agents/shared/.agents,/Volumes/main/agents/prod/.agents". Strongly recommended in production — turns an O(catalogs×schemas×volumes) scan into a few directory listings. If empty, falls back to the bounded crawl.
+  - name: AGENT_STUDIO_MAX_VERSIONS
+    value: ""  # Optional: how many AGENT.md history snapshots to keep per profile under ".versions" (default 20; "0" disables versioning).
