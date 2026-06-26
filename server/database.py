@@ -24,9 +24,15 @@ def get_db_connection(env: str = "dev"):
             if base_name.endswith(suffix):
                 base_name = base_name[:-len(suffix)]
                 break
-                
-        db_name = f"{base_name}{separator}{env}"
-        
+
+        # Only synthesize a per-env database name for the legacy/local default.
+        # When the Databricks Apps `postgres` resource injects a real PGDATABASE
+        # (e.g. "databricks_postgres"), that logical database already exists and
+        # must be used verbatim — appending "_dev" yields "databricks_postgres_dev",
+        # which does not exist and fails startup with "database ... does not exist".
+        if not os.environ.get("PGDATABASE"):
+            db_name = f"{base_name}{separator}{env}"
+
         # Format instance_name variations
         target_hyphens = instance_name
         target_underscores = instance_name
