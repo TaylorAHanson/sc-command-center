@@ -70,22 +70,45 @@ export const useAgentChat = () => {
     const messagesRef = useRef<AgentMessage[]>(messages);
     useEffect(() => { messagesRef.current = messages; }, [messages]);
 
+    // Per-agent transcript store: switching the active agent stashes the
+    // outgoing agent's chat and restores the incoming agent's (or a fresh
+    // greeting), so each agent keeps its own conversation rather than bleeding
+    // one agent's history into another. ``prevProfileIdRef`` tracks which agent
+    // the current ``messages`` belong to.
+    const historyRef = useRef<Record<string, AgentMessage[]>>({});
+    const prevProfileIdRef = useRef<string>(selectedProfileId);
+
     // Keep the latest emitted context in a ref so send() always reads fresh
     // values without needing to be re-created on every dashboard change.
     const dashboardContext = useDashboardContext();
     const ctxRef = useRef<DashboardContext>(dashboardContext);
     useEffect(() => { ctxRef.current = dashboardContext; }, [dashboardContext]);
 
-    // Keep the opening greeting in sync with the selected agent, but only while
-    // the conversation is still fresh (just the greeting) so we never clobber an
-    // in-progress chat or a "Chat cleared" notice.
+    // React to (a) the selected agent changing and (b) the profile list loading
+    // in after mount. On an actual agent switch we stash the outgoing chat and
+    // restore the incoming agent's chat (or greet fresh). When the agent is
+    // unchanged we only refresh the opening greeting while the chat is still
+    // fresh, so we never clobber an in-progress conversation.
     useEffect(() => {
         const active = availableProfiles.find(p => p.id === selectedProfileId);
-        const text = greetingFor(active?.name, active?.description);
-        setMessages(prev => {
-            if (prev.length !== 1 || prev[0].role !== 'assistant') return prev;
-            return prev[0].content === text ? prev : [{ role: 'assistant', content: text }];
-        });
+        const greetingText = greetingFor(active?.name, active?.description);
+        const prevId = prevProfileIdRef.current;
+
+        if (prevId === selectedProfileId) {
+            setMessages(prev => {
+                if (prev.length !== 1 || prev[0].role !== 'assistant') return prev;
+                return prev[0].content === greetingText ? prev : [{ role: 'assistant', content: greetingText }];
+            });
+            return;
+        }
+
+        // Agent switched: save the outgoing agent's transcript so it's there when
+        // the user comes back, then load the incoming agent's transcript (or a
+        // fresh greeting if it has none yet).
+        historyRef.current[prevId] = messagesRef.current;
+        const restored = historyRef.current[selectedProfileId];
+        setMessages(restored && restored.length ? restored : [{ role: 'assistant', content: greetingText }]);
+        prevProfileIdRef.current = selectedProfileId;
     }, [selectedProfileId, availableProfiles]);
 
     // Agent Studio profile discovery is LAZY: listing them triggers a UC scan
@@ -384,8 +407,11 @@ export const useAgentChat = () => {
         } catch {
             // best-effort
         }
+        // Drop the stashed transcript for this agent so switching away and back
+        // doesn't resurrect the cleared conversation.
+        delete historyRef.current[selectedProfileId];
         setMessages([{ ...GREETING, content: 'Chat cleared. How can I help?' }]);
-    }, [sessionId]);
+    }, [sessionId, selectedProfileId]);
 
     return {
         messages,

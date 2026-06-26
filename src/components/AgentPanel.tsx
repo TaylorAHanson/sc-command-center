@@ -136,7 +136,7 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                 {messages.map((msg: AgentMessage, idx: number) => (
                     <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div
-                            className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
+                            className={`max-w-[90%] min-w-0 break-words [overflow-wrap:anywhere] rounded-lg px-3 py-2 text-sm ${
                                 msg.role === 'user'
                                     ? 'bg-qualcomm-blue text-white'
                                     : msg.isError
@@ -145,7 +145,7 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                             }`}
                         >
                             {msg.role === 'user' ? (
-                                <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                                <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">{msg.content}</p>
                             ) : (() => {
                                 // While the agent is still working on the last turn, any streamed
                                 // `content` is intermediate scaffolding (e.g. "Running SQL…"),
@@ -164,7 +164,7 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                                             defaultOpen={working}
                                         />
                                     )}
-                                    <div className="prose prose-sm max-w-none leading-relaxed">
+                                    <div className="prose prose-sm max-w-none leading-relaxed break-words [overflow-wrap:anywhere] [&_code]:[overflow-wrap:anywhere] [&_code]:break-words [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:overflow-x-auto [&_table]:block [&_table]:overflow-x-auto">
                                         {working ? (
                                             <TypingDots />
                                         ) : msg.isError ? (
