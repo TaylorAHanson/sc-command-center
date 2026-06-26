@@ -101,9 +101,12 @@ resources:
           #
           # Agent integration (consolidated from the former app.yaml):
           # CONSOLIDATED_AGENT_URL — URL of the consolidated Self-Service agent
-          #   runtime app, e.g. https://self-service-1234567890.<region>.databricksapps.com
-          # - name: CONSOLIDATED_AGENT_URL
-          #   value: "${var.consolidated_agent_url}"
+          #   runtime app (the edh-ssc / qc-selfservice-v3 Databricks App). The
+          #   Command Center proxies all /api/v1/agent calls here. MUST be set, or
+          #   the proxy falls back to http://localhost:8000 (itself) and every
+          #   agent request 405s.
+          - name: CONSOLIDATED_AGENT_URL
+            value: "${var.consolidated_agent_url}"
           # AGENT_BASE_URL — deprecated fallback for CONSOLIDATED_AGENT_URL
           #   (legacy standalone agent app URL).
           # - name: AGENT_BASE_URL
@@ -129,6 +132,12 @@ resources:
         - "sql.statement-execution"
         - "sql.warehouses"
         - "files.files"
+        # Workspace API (import/export/mkdirs). Required for OBO PERSONAL agent
+        # profiles/skills, which live under /Workspace/Users/<user>/.agents.
+        # Without this the user's forwarded token is downscoped and saving a
+        # personal agent fails with "OAuth token does not have required scopes:
+        # workspace". (files.files only covers UC Volumes via the Files API.)
+        - "workspace.workspace"
         # Forwarded to the EDH agent (OBO) so it can run Genie, the managed-MCP SQL/Genie
         # servers, and the LLM as the signed-in user. Without these the agent's Genie/MCP/LLM
         # calls fail under OBO when driven through Command Center. Mirrors the agent's own scopes.
@@ -236,8 +245,8 @@ variables:
     description: "Lakebase Enabled"
     default: "true"
   consolidated_agent_url:
-    description: "URL of the consolidated Self-Service agent runtime app"
-    default: ""
+    description: "URL of the consolidated Self-Service agent runtime app (edh-ssc). The Command Center proxies /api/v1/agent calls here. Override per-target for stage/prod."
+    default: "https://edh-ssc-dev-todo.aws.databricksapps.com"
   agent_base_url:
     description: "Deprecated fallback for consolidated_agent_url (legacy standalone agent app URL)"
     default: ""
