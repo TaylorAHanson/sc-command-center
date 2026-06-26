@@ -252,7 +252,29 @@ def get_db_connection(env: str = "dev"):
         conn_kwargs["sslmode"] = "require"
 
     logging.info(f"Connecting to Postgres host={host}, port={port}, dbname={db_name}, user={user}, sslmode={conn_kwargs.get('sslmode', 'default')}")
-    return psycopg2.connect(**conn_kwargs)
+    conn = psycopg2.connect(**conn_kwargs)
+
+    # On managed Lakebase the app's role can CONNECT + CREATE but is NOT the owner
+    # of the `public` schema, so an unqualified CREATE TABLE fails with
+    # "permission denied for schema public" (Postgres 15+ no longer grants CREATE
+    # on `public` to PUBLIC). Use a dedicated, role-owned schema per environment
+    # and pin search_path to it so every table/query lives there. This also keeps
+    # dev/test/prod isolated now that they all share the one injected
+    # `databricks_postgres` database. Skipped locally (no PGDATABASE), where the
+    # default `public` schema is owned by the connecting user.
+    if os.environ.get("PGDATABASE"):
+        schema = env if env in ("dev", "test", "prod") else "app"
+        try:
+            cur = conn.cursor()
+            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+            cur.execute(f'SET search_path TO "{schema}"')
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            conn.rollback()
+            logging.warning(f"Could not ensure/select schema '{schema}': {e}")
+
+    return conn
 
 def init_db(env: str = "dev"):
     """Initialize database tables."""
