@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 AGENT_FILE = "AGENT.md"
 SKILL_FILE = "SKILL.md"
 SKILLS_SUBDIR = "skills"
+PY_TOOLS_SUBDIR = "tools"           # author-written Python tools (tools/<slug>.py)
 VERSIONS_SUBDIR = ".versions"      # per-profile AGENT.md history snapshots
 PROMOTIONS_FILE = "PROMOTIONS.jsonl"  # append-only promotion audit (per target dir)
 
@@ -148,6 +149,30 @@ class SkillFile:
 
 
 @dataclass
+class PythonToolFile:
+    """An author-written Python tool inside a profile's ``tools/`` folder.
+
+    A tool is a single ``.py`` file: a small, self-contained Python function the
+    consolidated runtime can call via its ``execute_python`` sandbox. The
+    ``code`` is the pristine function body (our metadata header is stripped on
+    read and rebuilt on write).
+    """
+
+    slug: str
+    name: str
+    description: str = ""
+    code: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "slug": self.slug,
+            "name": self.name,
+            "description": self.description,
+            "code": self.code,
+        }
+
+
+@dataclass
 class ProfileRef:
     """An agent profile (folder + parsed metadata).
 
@@ -161,6 +186,11 @@ class ProfileRef:
     description: str = ""
     model: str = ""
     tools: List[str] = field(default_factory=list)
+    # How the profile body combines with the runtime's structural prompt:
+    # "full" (default) layers the persona on top of the runtime scaffold;
+    # "none"/"standalone"/etc. makes the body the entire system prompt. Carried
+    # through so the consolidated runtime honors it when we run the profile.
+    base: str = "full"
     location_label: str = ""
     writable: bool = True
     # Provenance: the email of whoever last saved the profile, and whether that
@@ -175,6 +205,7 @@ class ProfileRef:
     # Populated only when a single profile is fetched (list views omit these).
     prompt: Optional[str] = None
     skills: Optional[List[SkillFile]] = None
+    python_tools: Optional[List[PythonToolFile]] = None
 
     @property
     def agent_md_path(self) -> str:
@@ -203,6 +234,8 @@ class ProfileRef:
             d["prompt"] = self.prompt
         if self.skills is not None:
             d["skills"] = [s.to_dict() for s in self.skills]
+        if self.python_tools is not None:
+            d["python_tools"] = [t.to_dict() for t in self.python_tools]
         return d
 
 
@@ -333,6 +366,59 @@ def build_skill_markdown(name: str, description: str, body: str = "") -> str:
     else:
         lines.append(f"# {name.strip()}\n\nStep-by-step instructions for the agent.")
     return "\n".join(lines) + "\n"
+
+
+_PY_TOOL_BANNER = "# Agent Studio Python tool (generated — edit in Agent Studio)"
+
+
+def build_python_tool_file(name: str, description: str, code: str = "") -> str:
+    """Compose a ``tools/<slug>.py`` file: a metadata header + the tool code."""
+    safe_name = (name or "").strip()
+    safe_desc = (description or "").replace("\n", " ").strip()
+    body = (code or "").strip("\n")
+    header = "\n".join([
+        _PY_TOOL_BANNER,
+        f"# @name: {safe_name}",
+        f"# @description: {safe_desc}",
+    ])
+    if not body:
+        body = (
+            "def my_tool(value: str) -> str:\n"
+            '    """Describe what this tool does and its arguments."""\n'
+            "    return value"
+        )
+    return f"{header}\n\n{body}\n"
+
+
+def parse_python_tool(path: str, text: str) -> "PythonToolFile":
+    """Parse a ``tools/<slug>.py`` file back into name/description/code.
+
+    Strips the generated metadata header (a leading comment run containing our
+    ``# @name:`` / ``# @description:`` markers) so the editor binds to pristine
+    code; the writer rebuilds the header from the name/description fields.
+    """
+    slug = _basename(path)
+    if slug.endswith(".py"):
+        slug = slug[:-3]
+    name, description = slug, ""
+    lines = text.split("\n")
+    i = 0
+    saw_meta = False
+    while i < len(lines) and lines[i].lstrip().startswith("#"):
+        s = lines[i].strip()
+        if s.startswith("# @name:"):
+            name = s[len("# @name:"):].strip() or slug
+            saw_meta = True
+        elif s.startswith("# @description:"):
+            description = s[len("# @description:"):].strip()
+            saw_meta = True
+        i += 1
+    if not saw_meta:
+        return PythonToolFile(slug=slug, name=name, description=description, code=text.strip("\n"))
+    while i < len(lines) and lines[i].strip() == "":
+        i += 1
+    code = "\n".join(lines[i:]).strip("\n")
+    return PythonToolFile(slug=slug, name=name, description=description, code=code)
 
 
 def _ws_path_variants(path: str) -> List[str]:
@@ -577,6 +663,7 @@ class AgentStudioStore:
             description=meta.get("description") or "",
             model=meta.get("model") or "",
             tools=meta.get("tools") or [],
+            base=meta.get("base") or "full",
             location_label=label,
             writable=True,
             author=meta.get("author") or "",
@@ -603,6 +690,7 @@ class AgentStudioStore:
         )
         ref.prompt = meta.get("body", "")
         ref.skills = self._read_skills(client, store, dir_path.rstrip("/"))
+        ref.python_tools = self._read_python_tools(client, store, dir_path.rstrip("/"))
         return ref
 
     def _read_skills(self, client, store: str, dir_path: str) -> List[SkillFile]:
@@ -664,6 +752,47 @@ class AgentStudioStore:
             content=meta.get("body", text),
         )
 
+    def _read_python_tools(self, client, store: str, dir_path: str) -> List[PythonToolFile]:
+        tools_dir = f"{dir_path}/{PY_TOOLS_SUBDIR}"
+        out: List[PythonToolFile] = []
+        if store == STORE_WORKSPACE:
+            from databricks.sdk.service.workspace import ObjectType
+
+            entries: List[Any] = []
+            for cand in _ws_path_variants(tools_dir):
+                try:
+                    listed = list(client.workspace.list(cand))
+                except Exception:  # noqa: BLE001
+                    continue
+                if listed:
+                    entries = listed
+                    break
+            for obj in entries:
+                if obj.object_type == ObjectType.DIRECTORY:
+                    continue
+                path = getattr(obj, "path", "")
+                text = self._read_workspace_text(client, path)
+                if text is None:
+                    continue
+                out.append(parse_python_tool(path, text))
+        else:
+            try:
+                vol_entries = list(client.files.list_directory_contents(tools_dir))
+            except Exception:  # noqa: BLE001
+                vol_entries = []
+            for entry in vol_entries:
+                if getattr(entry, "is_directory", False):
+                    continue
+                path = getattr(entry, "path", "")
+                if not path.endswith(".py"):
+                    continue
+                text = self._read_volume_text(client, path)
+                if text is None:
+                    continue
+                out.append(parse_python_tool(path, text))
+        out.sort(key=lambda t: t.name.lower())
+        return out
+
     # ---- write ------------------------------------------------------------
     def save_profile(
         self,
@@ -675,6 +804,7 @@ class AgentStudioStore:
         model: str = "",
         tools: Optional[List[str]] = None,
         skills: Optional[List[Dict[str, Any]]] = None,
+        python_tools: Optional[List[Dict[str, Any]]] = None,
         store: str = STORE_VOLUME,
         base_path: Optional[str] = None,
         profile_id: Optional[str] = None,
@@ -734,6 +864,8 @@ class AgentStudioStore:
         # invisible/old rather than half-written.
         if skills is not None:
             self._write_skills(client, store, dir_path, skills)
+        if python_tools is not None:
+            self._write_python_tools(client, store, dir_path, python_tools)
         if store == STORE_WORKSPACE:
             self._write_workspace(client, dir_path, agent_path, data)
         else:
@@ -746,6 +878,7 @@ class AgentStudioStore:
         ref.owned_by_me = True  # the caller just saved it
         ref.prompt = meta.get("body", "")
         ref.skills = self._read_skills(client, store, dir_path)
+        ref.python_tools = self._read_python_tools(client, store, dir_path)
         self._shared_cache.clear()
         return ref
 
@@ -815,6 +948,71 @@ class AgentStudioStore:
                             logger.debug("prune skill %s failed: %s", path, exc)
         except Exception as exc:  # noqa: BLE001
             logger.debug("prune skills in %s failed: %s", skills_dir, exc)
+
+    def _write_python_tools(self, client, store: str, dir_path: str, py_tools: List[Dict[str, Any]]) -> None:
+        tools_dir = f"{dir_path}/{PY_TOOLS_SUBDIR}"
+        keep_slugs: set = set()
+        for pt in py_tools:
+            pt_name = (pt.get("name") or "").strip()
+            if not pt_name:
+                continue
+            slug = pt.get("slug") or slugify(pt_name)
+            keep_slugs.add(slug)
+            document = build_python_tool_file(pt_name, pt.get("description") or "", pt.get("code") or "")
+            data = document.encode("utf-8")
+            py_path = f"{tools_dir}/{slug}.py"
+            if store == STORE_WORKSPACE:
+                self._write_workspace(client, tools_dir, py_path, data)
+            else:
+                self._write_volume(client, py_path, data)
+        # Reconcile: drop tool files removed in the editor. Empty list prunes all.
+        self._prune_files(client, store, tools_dir, keep_slugs, ".py")
+
+    def _prune_files(self, client, store: str, target_dir: str, keep_slugs: set, ext: str) -> None:
+        """Delete files in ``target_dir`` whose ``<slug><ext>`` is not in keep."""
+        try:
+            if store == STORE_WORKSPACE:
+                from databricks.sdk.service.workspace import ObjectType
+
+                entries: List[Any] = []
+                for cand in _ws_path_variants(target_dir):
+                    try:
+                        listed = list(client.workspace.list(cand))
+                    except Exception:  # noqa: BLE001
+                        continue
+                    if listed:
+                        entries = listed
+                        break
+                for obj in entries:
+                    if getattr(obj, "object_type", None) == ObjectType.DIRECTORY:
+                        continue
+                    base = _basename(getattr(obj, "path", "") or "")
+                    if not base.endswith(ext):
+                        continue
+                    if base[: -len(ext)] not in keep_slugs:
+                        try:
+                            client.workspace.delete(getattr(obj, "path", ""))
+                        except Exception as exc:  # noqa: BLE001
+                            logger.debug("prune file %s failed: %s", base, exc)
+            else:
+                try:
+                    entries = list(client.files.list_directory_contents(target_dir))
+                except Exception:  # noqa: BLE001
+                    entries = []
+                for entry in entries:
+                    if getattr(entry, "is_directory", False):
+                        continue
+                    path = getattr(entry, "path", "") or ""
+                    base = _basename(path)
+                    if not base.endswith(ext):
+                        continue
+                    if base[: -len(ext)] not in keep_slugs:
+                        try:
+                            client.files.delete(path)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.debug("prune file %s failed: %s", path, exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("prune files in %s failed: %s", target_dir, exc)
 
     def delete_profile(self, obo_token: Optional[str], profile_id: str) -> None:
         store, dir_path = decode_id(profile_id)

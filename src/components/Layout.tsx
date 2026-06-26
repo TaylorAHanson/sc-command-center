@@ -88,11 +88,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     }
   }, [currentPage, activeTabId]);
 
-  // Auto-collapse the sidebar while in Widget Studio so it can use the full
-  // viewport, and restore the user's previous sidebar state when they leave.
+  // Auto-collapse the sidebar only in Agent Studio (it needs the full viewport),
+  // and restore the user's previous sidebar state when they leave. Widget Studio
+  // deliberately does NOT auto-collapse — users found that jarring.
+  const autoCollapseSidebar = currentPage === 'agent-studio';
   const prevSidebarOpen = useRef<boolean | null>(null);
   useEffect(() => {
-    if (isFullScreenStudio) {
+    if (autoCollapseSidebar) {
       if (prevSidebarOpen.current === null) {
         prevSidebarOpen.current = isSidebarOpen;
       }

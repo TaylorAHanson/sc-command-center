@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     Bot, Send, Save, RefreshCw, Trash2, Plus, Settings, FileText, Sparkles,
     ListChecks, AlertTriangle, Wrench, ChevronDown, FolderOpen, Rocket, X, Play,
+    Code2, ShieldCheck,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -16,6 +17,13 @@ interface SkillDraft {
     name: string;
     description: string;
     content: string;
+}
+
+interface PythonToolDraft {
+    slug?: string;
+    name: string;
+    description: string;
+    code: string;
 }
 
 interface ToolInfo {
@@ -51,12 +59,15 @@ interface ReviewReport {
     missing?: string[];
     ambiguities?: string[];
     schema_checks?: { query: string; columns?: string[]; ok?: boolean }[];
+    safety?: string[];
 }
 
 const API = '/api/agent/studio';
 const DEFAULT_PROMPT = '# New Agent\n\nDescribe how this agent should behave, what data it can access, and the tone it should use.';
 
-type RightTab = 'prompt' | 'skills' | 'review' | 'settings' | 'tryit';
+type RightTab = 'prompt' | 'skills' | 'pytools' | 'review' | 'settings' | 'tryit';
+
+const DEFAULT_PY_TOOL = 'def my_tool(value: str) -> str:\n    """Describe what this tool does and its arguments."""\n    return value';
 
 export const AgentStudio: React.FC = () => {
     const [messages, setMessages] = useState<ChatMessage[]>([
@@ -80,6 +91,8 @@ export const AgentStudio: React.FC = () => {
     const [agentPrompt, setAgentPrompt] = useState(DEFAULT_PROMPT);
     const [skills, setSkills] = useState<SkillDraft[]>([]);
     const [activeSkillIdx, setActiveSkillIdx] = useState<number | null>(null);
+    const [pythonTools, setPythonTools] = useState<PythonToolDraft[]>([]);
+    const [activePyToolIdx, setActivePyToolIdx] = useState<number | null>(null);
     const [review, setReview] = useState<ReviewReport | null>(null);
 
     // Try-it: a multi-turn chat that runs the current (unsaved) draft against the
@@ -169,6 +182,8 @@ export const AgentStudio: React.FC = () => {
         setAgentPrompt(DEFAULT_PROMPT);
         setSkills([]);
         setActiveSkillIdx(null);
+        setPythonTools([]);
+        setActivePyToolIdx(null);
         setReview(null);
         setMessages([{ role: 'assistant', content: 'Starting a fresh agent. Describe what you want it to do.' }]);
         setRightTab('prompt');
@@ -188,8 +203,10 @@ export const AgentStudio: React.FC = () => {
             setSelectedTools(d.tools || []);
             setAgentPrompt(d.prompt || DEFAULT_PROMPT);
             setSkills((d.skills || []).map((s: any) => ({ slug: s.slug, name: s.name, description: s.description, content: s.content })));
+            setPythonTools((d.python_tools || []).map((t: any) => ({ slug: t.slug, name: t.name, description: t.description, code: t.code })));
             setStore(d.store);
             setActiveSkillIdx(null);
+            setActivePyToolIdx(null);
             setReview(null);
             setMessages([{ role: 'assistant', content: `Loaded "${d.name}". Tell me what you'd like to change, or edit directly on the right.` }]);
             setRightTab('prompt');
@@ -207,6 +224,9 @@ export const AgentStudio: React.FC = () => {
         if (typeof draft.prompt === 'string' && draft.prompt) setAgentPrompt(draft.prompt);
         if (Array.isArray(draft.skills)) {
             setSkills(draft.skills.map((s: any) => ({ name: s.name, description: s.description || '', content: s.content || '' })));
+        }
+        if (Array.isArray(draft.python_tools)) {
+            setPythonTools(draft.python_tools.map((t: any) => ({ name: t.name, description: t.description || '', code: t.code || '' })));
         }
         if (draft.review) setReview(draft.review as ReviewReport);
     };
@@ -232,6 +252,7 @@ export const AgentStudio: React.FC = () => {
                     history,
                     current_prompt: agentPrompt,
                     current_skills: skills,
+                    current_python_tools: pythonTools,
                     confirm_schema: true,
                 }),
             });
@@ -290,7 +311,7 @@ export const AgentStudio: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name, prompt: agentPrompt, description, model,
-                    tools: selectedTools, skills,
+                    tools: selectedTools, skills, python_tools: pythonTools,
                     store, base_path: basePath || null,
                     profile_id: profileId,
                     expected_updated_at: loadedUpdatedAt || null,
@@ -429,6 +450,7 @@ export const AgentStudio: React.FC = () => {
                         prompt: agentPrompt,
                         tools: selectedTools,
                         skills: skills.map(s => ({ name: s.name, content: s.content })),
+                        python_tools: pythonTools.map(t => ({ name: t.name, description: t.description, code: t.code })),
                         model,
                     },
                     conversation_history: priorHistory,
@@ -485,6 +507,22 @@ export const AgentStudio: React.FC = () => {
     const removeSkill = (idx: number) => {
         setSkills(prev => prev.filter((_, i) => i !== idx));
         setActiveSkillIdx(null);
+    };
+
+    const addPyTool = () => {
+        const next = [...pythonTools, { name: 'my_tool', description: '', code: DEFAULT_PY_TOOL }];
+        setPythonTools(next);
+        setActivePyToolIdx(next.length - 1);
+        setRightTab('pytools');
+    };
+
+    const updatePyTool = (idx: number, patch: Partial<PythonToolDraft>) => {
+        setPythonTools(prev => prev.map((t, i) => i === idx ? { ...t, ...patch } : t));
+    };
+
+    const removePyTool = (idx: number) => {
+        setPythonTools(prev => prev.filter((_, i) => i !== idx));
+        setActivePyToolIdx(null);
     };
 
     const tabBtn = (id: RightTab, label: string, Icon: any) => (
@@ -560,6 +598,7 @@ export const AgentStudio: React.FC = () => {
                     <div className="flex gap-2 items-end">
                         {tabBtn('prompt', 'Prompt', FileText)}
                         {tabBtn('skills', `Skills${skills.length ? ` (${skills.length})` : ''}`, Sparkles)}
+                        {tabBtn('pytools', `Python tools${pythonTools.length ? ` (${pythonTools.length})` : ''}`, Code2)}
                         {tabBtn('tryit', 'Try it', Play)}
                         {tabBtn('review', 'Review', ListChecks)}
                         {tabBtn('settings', 'Settings', Settings)}
@@ -688,6 +727,67 @@ export const AgentStudio: React.FC = () => {
                         </div>
                     )}
 
+                    {rightTab === 'pytools' && (
+                        <div className="absolute inset-0 flex">
+                            <div className="w-1/3 border-r border-slate-800 flex flex-col">
+                                <div className="p-3 border-b border-slate-800 flex items-center justify-between">
+                                    <span className="text-sm font-medium text-slate-300">Python tools</span>
+                                    <button onClick={addPyTool} className="flex items-center gap-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs">
+                                        <Plus size={12} /> Add
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto">
+                                    {pythonTools.length === 0 ? (
+                                        <div className="p-4 text-xs text-slate-500 italic">No Python tools. Each is a single function the agent runs via a sandboxed <span className="font-mono">execute_python</span>. Ask the assistant to draft one, or add it here.</div>
+                                    ) : pythonTools.map((t, i) => (
+                                        <button key={i} onClick={() => setActivePyToolIdx(i)}
+                                            className={`w-full text-left px-3 py-2 border-b border-slate-800/60 ${activePyToolIdx === i ? 'bg-slate-800' : 'hover:bg-slate-800/50'}`}>
+                                            <div className="text-sm text-slate-200 truncate font-mono">{t.name || 'untitled'}</div>
+                                            <div className="text-xs text-slate-500 truncate">{t.description || 'No description'}</div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="flex-1 flex flex-col bg-[#1e1e1e]">
+                                {activePyToolIdx === null || !pythonTools[activePyToolIdx] ? (
+                                    <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Select or add a Python tool to edit.</div>
+                                ) : (
+                                    <div className="flex-1 flex flex-col p-4 gap-3">
+                                        <div className="flex items-start gap-2 text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2">
+                                            <ShieldCheck size={14} className="mt-0.5 shrink-0" />
+                                            <span>Keep tools pure and deterministic. Never hardcode credentials, tokens, or secrets — pass governed data in as arguments. The runtime runs these in a sandbox.</span>
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <input
+                                                value={pythonTools[activePyToolIdx].name}
+                                                onChange={e => updatePyTool(activePyToolIdx, { name: e.target.value })}
+                                                placeholder="tool_name"
+                                                className="flex-1 bg-slate-900 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
+                                            />
+                                            <button onClick={() => removePyTool(activePyToolIdx)}
+                                                className="px-2 py-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 rounded">
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                        <input
+                                            value={pythonTools[activePyToolIdx].description}
+                                            onChange={e => updatePyTool(activePyToolIdx, { description: e.target.value })}
+                                            placeholder="One-line description of what this tool does"
+                                            className="bg-slate-900 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                        />
+                                        <textarea
+                                            value={pythonTools[activePyToolIdx].code}
+                                            onChange={e => updatePyTool(activePyToolIdx, { code: e.target.value })}
+                                            spellCheck={false}
+                                            placeholder={DEFAULT_PY_TOOL}
+                                            className="flex-1 bg-transparent text-slate-300 font-mono text-sm resize-none focus:outline-none border border-slate-800 rounded p-3"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {rightTab === 'review' && (
                         <div className="absolute inset-0 overflow-y-auto p-6">
                             {!review ? (
@@ -718,6 +818,11 @@ export const AgentStudio: React.FC = () => {
                                                     <div className="text-xs text-slate-500 ml-6">columns: {c.columns.join(', ')}</div>
                                                 )}
                                             </li>
+                                        ))}
+                                    </ReviewSection>
+                                    <ReviewSection title="Python tool safety" icon={ShieldCheck} empty="No Python tools to evaluate.">
+                                        {(review.safety || []).map((s, i) => (
+                                            <li key={i} className="text-sm text-slate-300">{s}</li>
                                         ))}
                                     </ReviewSection>
                                 </div>

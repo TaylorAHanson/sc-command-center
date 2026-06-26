@@ -129,6 +129,13 @@ class SkillPayload(BaseModel):
     content: str = ""
 
 
+class PythonToolPayload(BaseModel):
+    slug: Optional[str] = None
+    name: str
+    description: str = ""
+    code: str = ""
+
+
 class SaveProfileRequest(BaseModel):
     name: str
     prompt: str
@@ -136,6 +143,7 @@ class SaveProfileRequest(BaseModel):
     model: str = ""
     tools: List[str] = []
     skills: Optional[List[SkillPayload]] = None
+    python_tools: Optional[List[PythonToolPayload]] = None
     store: str = STORE_VOLUME
     base_path: Optional[str] = None
     profile_id: Optional[str] = None
@@ -155,6 +163,7 @@ class AuthorRequest(BaseModel):
     history: List[AuthorMessage] = []
     current_prompt: Optional[str] = None        # existing AGENT.md body, if editing
     current_skills: Optional[List[SkillPayload]] = None
+    current_python_tools: Optional[List[PythonToolPayload]] = None
     confirm_schema: bool = True                 # run live SQL/Genie probes
 
 
@@ -171,9 +180,11 @@ def _mcp_server_urls(host: str) -> List[str]:
 
     Configurable via ``AGENT_STUDIO_MCP_SERVERS`` (comma-separated). Entries may
     be absolute URLs or workspace-relative paths (joined to ``host``). Defaults
-    to the managed SQL MCP server.
+    to the managed SQL MCP server **and** the general Genie MCP server
+    (``/api/2.0/mcp/genie``), which searches across the caller's accessible
+    Genie spaces — restored after a refactor dropped it.
     """
-    raw = os.environ.get("AGENT_STUDIO_MCP_SERVERS", "/api/2.0/mcp/sql")
+    raw = os.environ.get("AGENT_STUDIO_MCP_SERVERS", "/api/2.0/mcp/sql,/api/2.0/mcp/genie")
     urls: List[str] = []
     for entry in raw.split(","):
         entry = entry.strip()
@@ -252,6 +263,73 @@ def _server_label(server_url: str) -> str:
     return parts[-1] if parts else "mcp"
 
 
+def _python_sandbox_timeout() -> int:
+    try:
+        return int(os.environ.get("AGENT_STUDIO_PY_SANDBOX_TIMEOUT", "6"))
+    except ValueError:
+        return 6
+
+
+def _run_python_sandbox(code: str, timeout_s: int = 6) -> Dict[str, Any]:
+    """Execute a short Python snippet in an isolated subprocess.
+
+    This is a *validation* sandbox for authoring, not a hardened jail. It runs
+    a fresh interpreter in isolated mode (``-I``: ignores PYTHON* env vars and
+    user site-packages) with a **credential-free environment** (no DATABRICKS_*,
+    PG*, tokens, secrets — only a minimal PATH/HOME), a wall-clock timeout, and
+    (on POSIX) CPU + address-space rlimits. It lets the authoring assistant
+    confirm an author's Python tool imports, runs, and returns sane output
+    without exposing the app's credentials or hanging the request.
+    """
+    import subprocess
+    import sys
+    import tempfile
+
+    if not (code or "").strip():
+        return {"exit_code": -1, "stdout": "", "stderr": "No code provided."}
+
+    safe_env = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "/tmp",
+        "LC_ALL": "C.UTF-8",
+        "LANG": "C.UTF-8",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+
+    preexec = None
+    if os.name == "posix":
+        def _apply_limits() -> None:  # pragma: no cover - child process
+            try:
+                import resource
+                resource.setrlimit(resource.RLIMIT_CPU, (timeout_s, timeout_s + 1))
+                mem = 512 * 1024 * 1024
+                resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+                resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))  # no file writes
+            except Exception:
+                pass
+        preexec = _apply_limits
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-I", "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            env=safe_env,
+            cwd=tempfile.gettempdir(),
+            preexec_fn=preexec,
+        )
+        return {
+            "exit_code": proc.returncode,
+            "stdout": (proc.stdout or "")[-4000:],
+            "stderr": (proc.stderr or "")[-4000:],
+        }
+    except subprocess.TimeoutExpired:
+        return {"exit_code": -1, "stdout": "", "stderr": f"Timed out after {timeout_s}s."}
+    except Exception as exc:  # noqa: BLE001
+        return {"exit_code": -1, "stdout": "", "stderr": f"Sandbox error: {exc}"}
+
+
 def _probe_sql_schema(ws: WorkspaceClient, sql: str) -> Dict[str, Any]:
     """Run a bounded ``LIMIT 1`` probe to confirm a query/table shape under OBO."""
     from databricks.sdk.service.sql import Disposition, StatementExecutionAPI
@@ -325,6 +403,33 @@ Skill quality and length budget:
 - Keep each skill content under ~250 words. Keep the whole draft compact to
   avoid truncation; prefer fewer, tighter skills over many long ones.
 
+Authoring Python tools (custom code tools):
+- When a needed capability is NOT available as an MCP tool, you may define a
+  small Python function as a tool under `python_tools`. Each entry is a single,
+  self-contained function with a typed signature and a docstring stating what it
+  does and its arguments. The runtime exposes these to the agent through a
+  sandboxed `execute_python`.
+- ALWAYS validate a Python tool before proposing it: call the `execute_python`
+  tool with the function plus a tiny test call that `print()`s a sample result.
+  Iterate until it runs cleanly. Record the check under `review.schema_checks`
+  (use the test snippet as the `query`) and note any remaining concerns under
+  `review.safety`.
+- Safety rules for Python tools (NON-NEGOTIABLE — this is the evaluation gate):
+  - NEVER hardcode credentials, tokens, API keys, passwords, or connection
+    strings. NEVER read secrets from environment variables, files, or args.
+  - Keep tools pure and deterministic: inputs in, value out. No destructive
+    filesystem writes, no shelling out / subprocess, no network calls, no
+    unbounded loops.
+  - Prefer the Python standard library. If a tool needs governed data, it must
+    accept that data as an argument (fetched via an MCP/SQL tool upstream), not
+    fetch it itself with embedded credentials.
+  - If the author asks for something unsafe (e.g. "just paste my token in the
+    code"), REFUSE that part, implement it the safe way, and explain why under
+    `review.safety`.
+- Use Python tools sparingly. Good ones are deterministic transforms or
+  calculations (date math, unit conversion, parsing, formatting, scoring), NOT
+  data fetchers. Prefer MCP tools for anything touching governed data.
+
 `review.schema_checks[].ok` semantics: set `ok` to true ONLY if the probe
 returned and the columns the agent relies on are present; set it to false if the
 probe errored or an expected column is missing. Do not mark `ok: true` for
@@ -346,14 +451,19 @@ Output contract (STRICT):
   "tools": ["<exact AI Gateway MCP tool ids>"],
   "prompt": "the AGENT.md body (markdown, no frontmatter)",
   "skills": [{"name": "Skill name", "description": "one line", "content": "markdown body"}],
+  "python_tools": [{"name": "Tool name", "description": "one line", "code": "def tool(x: int) -> int:\\n    \\"\\"\\"docstring\\"\\"\\"\\n    return x"}],
   "review": {
     "suggested_tools": [{"name": "tool", "why": "reason"}],
     "missing": ["capabilities requested but not available as MCP tools"],
     "ambiguities": ["questions the author should resolve"],
-    "schema_checks": [{"query": "...", "columns": ["..."], "ok": true}]
+    "schema_checks": [{"query": "...", "columns": ["..."], "ok": true}],
+    "safety": ["Python-tool safety notes: anything refused/changed, or 'No issues — no hardcoded secrets, pure functions'"]
   }
 }
 ```
+- `python_tools` is OPTIONAL — include it only when you actually defined custom
+  code tools; otherwise use `[]`. The `code` value is a JSON string, so escape
+  newlines as \\n and quotes as needed.
 
 Worked example (abbreviated — your `prompt` should be fuller than this):
 ```json
@@ -364,11 +474,13 @@ Worked example (abbreviated — your `prompt` should be fuller than this):
   "tools": ["sql/execute_sql"],
   "prompt": "# Orders Analyst\\n\\n## Role\\nYou answer supply-chain questions about customer orders for internal ops staff.\\n\\n## Capabilities & tools\\nUse `sql/execute_sql` to query the `orders` table. Confirmed columns: order_id, status, region, total_amount, created_at.\\n\\n## How to answer\\nWrite a single SQL query scoped to the user's question, then summarize the result in plain language and show the key numbers. Default to the last 90 days unless the user gives a range.\\n\\n## Boundaries\\nOnly answer from the orders data. If a question needs data you cannot reach, say so. If a query returns no rows, say the result was empty rather than inventing numbers.",
   "skills": [],
+  "python_tools": [],
   "review": {
     "suggested_tools": [{"name": "sql/execute_sql", "why": "Needed to read the orders table."}],
     "missing": [],
     "ambiguities": ["Should 'recent' default to 90 days?"],
-    "schema_checks": [{"query": "SELECT * FROM orders", "columns": ["order_id", "status", "region", "total_amount", "created_at"], "ok": true}]
+    "schema_checks": [{"query": "SELECT * FROM orders", "columns": ["order_id", "status", "region", "total_amount", "created_at"], "ok": true}],
+    "safety": []
   }
 }
 ```
@@ -419,7 +531,25 @@ def _make_tools(ws: WorkspaceClient, confirm_schema: bool):
         cols = result.get("columns") or []
         return "Confirmed columns: " + (", ".join(cols) if cols else "(none returned)")
 
-    return [list_available_tools, probe_sql_schema]
+    @tool
+    def execute_python(code: str) -> str:
+        """Run a short Python snippet in an isolated, credential-free sandbox.
+
+        Use this to VALIDATE an author's Python tool before proposing it: paste
+        the tool function plus a tiny test call that `print()`s a sample result,
+        and confirm it runs cleanly. The sandbox has no credentials and a strict
+        timeout, so never rely on secrets, network, or the filesystem here.
+        Returns the exit code, stdout, and stderr.
+        """
+        result = _run_python_sandbox(code, _python_sandbox_timeout())
+        parts = [f"exit_code={result['exit_code']}"]
+        if result.get("stdout"):
+            parts.append("stdout:\n" + result["stdout"])
+        if result.get("stderr"):
+            parts.append("stderr:\n" + result["stderr"])
+        return "\n".join(parts)
+
+    return [list_available_tools, probe_sql_schema, execute_python]
 
 
 def _build_authoring_system_prompt(req: AuthorRequest) -> str:
@@ -430,6 +560,11 @@ def _build_authoring_system_prompt(req: AuthorRequest) -> str:
     if req.current_skills:
         existing = "\n".join(f"- {s.name}: {s.description}" for s in req.current_skills)
         system_prompt += f"\n\nExisting skills:\n{existing}"
+    if req.current_python_tools:
+        existing_pt = "\n".join(
+            f"- {t.name}: {t.description}" for t in req.current_python_tools
+        )
+        system_prompt += f"\n\nExisting Python tools:\n{existing_pt}"
     return system_prompt
 
 
@@ -483,6 +618,7 @@ def _sse(payload: Dict[str, Any]) -> bytes:
 _FRIENDLY_TOOL = {
     "list_available_tools": "Listing available tools",
     "probe_sql_schema": "Confirming schema",
+    "execute_python": "Testing Python tool",
 }
 
 
@@ -677,6 +813,9 @@ def save_profile(
     store = get_agent_studio_store()
     email = _user_email(obo_token)
     skills = [s.dict() for s in req.skills] if req.skills is not None else None
+    python_tools = (
+        [t.dict() for t in req.python_tools] if req.python_tools is not None else None
+    )
     try:
         profile = store.save_profile(
             obo_token,
@@ -687,6 +826,7 @@ def save_profile(
             model=req.model,
             tools=req.tools,
             skills=skills,
+            python_tools=python_tools,
             store=req.store,
             base_path=req.base_path,
             profile_id=req.profile_id,
@@ -752,6 +892,7 @@ def promote_profile(
     try:
         source = store.get_profile(obo_token, req.profile_id)
         skills = [s.to_dict() for s in (source.skills or [])]
+        python_tools = [t.to_dict() for t in (source.python_tools or [])]
         promoted = store.save_profile(
             obo_token,
             email,
@@ -761,6 +902,7 @@ def promote_profile(
             model=source.model,
             tools=source.tools,
             skills=skills,
+            python_tools=python_tools,
             store=req.target_store,
             base_path=req.target_base_path,
             profile_id=None,  # always create/overwrite at the target path

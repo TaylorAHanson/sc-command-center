@@ -298,7 +298,7 @@ targets:
           # permissions; stage/prod stay restricted to explicit grants.
           permissions:
             - level: CAN_USE
-              group_name: "All account users"
+              group_name: "account users"
 
   enterprise-dev:
     mode: production
@@ -326,7 +326,7 @@ targets:
           # permissions; stage/prod stay restricted to explicit grants.
           permissions:
             - level: CAN_USE
-              group_name: "All account users"
+              group_name: "account users"
 
   supply-dev:
     mode: production
@@ -354,7 +354,7 @@ targets:
           # permissions; stage/prod stay restricted to explicit grants.
           permissions:
             - level: CAN_USE
-              group_name: "All account users"
+              group_name: "account users"
 
   # Staging environment
   stage:

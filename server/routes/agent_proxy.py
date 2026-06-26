@@ -25,8 +25,10 @@ Cutover notes:
 """
 import os
 import json
+import hashlib
 import logging
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Request
@@ -69,6 +71,61 @@ async def close_http_client() -> None:
     if _client is not None and not _client.is_closed:
         await _client.aclose()
     _client = None
+
+
+# Saved-profile resolution cache. A selected Agent Studio profile is resolved
+# to its full content HERE (in-process, under the user's own OBO token) and
+# forwarded to the runtime as an ``inline_profile`` — the same path the Studio
+# "Try it" uses, which avoids making the runtime re-read the profile file under
+# a forwarded, app-to-app token (Databricks Apps re-derives the forwarded token
+# on app->app calls, so the runtime would often read as its own SP and fail to
+# see the user's personal ``.agents`` folder). Keyed by (token fingerprint,
+# profile_ref) so each caller only ever resolves what their own grants permit.
+_PROFILE_RESOLVE_TTL_S = 30.0
+_profile_resolve_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+
+def _resolve_inline_profile(token: Optional[str], profile_ref: str) -> Optional[Dict[str, Any]]:
+    """Resolve a saved ``profile_ref`` to an inline profile spec, or None.
+
+    Returns the runtime's inline_profile shape (name/prompt/tools/skills/
+    python_tools/model/base). On any failure returns None so the caller can fall back to forwarding
+    the raw ``profile_ref`` (and the runtime's own "profile unavailable"
+    fail-safe still applies).
+    """
+    if not profile_ref:
+        return None
+    key = hashlib.sha256(f"{token or 'anon'}|{profile_ref}".encode("utf-8")).hexdigest()
+    now = time.monotonic()
+    hit = _profile_resolve_cache.get(key)
+    if hit and (now - hit[0]) < _PROFILE_RESOLVE_TTL_S:
+        return hit[1]
+    try:
+        from agent_studio_store import get_agent_studio_store
+
+        ref = get_agent_studio_store().get_profile(token, profile_ref)
+        spec: Dict[str, Any] = {
+            "name": ref.name,
+            "prompt": ref.prompt or "",
+            "tools": list(ref.tools or []),
+            "model": ref.model or "",
+            "base": getattr(ref, "base", "full") or "full",
+            "skills": [
+                {"name": s.name, "content": s.content}
+                for s in (ref.skills or [])
+            ],
+            "python_tools": [
+                {"name": t.name, "description": t.description, "code": t.code}
+                for t in (getattr(ref, "python_tools", None) or [])
+            ],
+        }
+    except Exception as exc:  # noqa: BLE001 - never break chat on resolve failure
+        logger.warning("Could not resolve profile_ref %s to inline: %s", profile_ref, exc)
+        return None
+    if len(_profile_resolve_cache) > 200:
+        _profile_resolve_cache.clear()
+    _profile_resolve_cache[key] = (now, spec)
+    return spec
 
 
 def _forwarded_headers(request: Request) -> dict:
@@ -145,6 +202,22 @@ async def proxy_chat(request: Request):
     # runtime applies it with the same governance as a saved profile.
     inline_profile = incoming.get("inline_profile")
 
+    forwarded = _forwarded_headers(request)
+
+    # Resolve a SAVED profile here (in-process, under the user's own OBO token)
+    # and send it inline, so the runtime never has to re-read the profile file
+    # under a forwarded app->app token. If resolution fails we fall back to
+    # forwarding the raw ref and let the runtime's fail-safe surface the error.
+    if profile_ref and not inline_profile:
+        token = (
+            request.headers.get("x-forwarded-access-token")
+            or request.headers.get("X-Forwarded-Access-Token")
+        )
+        resolved = _resolve_inline_profile(token, profile_ref)
+        if resolved is not None:
+            inline_profile = resolved
+            profile_ref = None  # inline takes precedence; avoid an ambiguous body
+
     # Forward the drawer's transcript so the stateless runtime has multi-turn
     # context. The drawer sends ChatMessage-shaped entries (id/type/content/
     # timestamp); pass them through verbatim (already bounded client-side).
@@ -157,7 +230,6 @@ async def proxy_chat(request: Request):
         "inline_profile": inline_profile,
         "conversation_history": conversation_history,
     }
-    forwarded = _forwarded_headers(request)
     last_query = query
 
     async def event_stream():
