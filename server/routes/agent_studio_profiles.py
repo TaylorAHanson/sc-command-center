@@ -1049,12 +1049,20 @@ async def stream_authoring(
                     full += "\n\n"
                 last_content_id = msg_id
                 full += content
-                # Stream only the prose before the JSON payload. Hold back a
-                # couple chars while no boundary is seen yet, so a partial fence
-                # or brace never leaks before we can detect it.
+                # Stream only the prose before the JSON payload. The boundary
+                # (`{` or a ``` fence) is detected by _prose_cut and never
+                # emitted. The only thing that could leak across chunks is the
+                # START of a fence, so hold back ONLY a trailing run of 1-2
+                # backticks (a partial ```); everything else is emitted verbatim.
+                # (The old `prose[:-2]` dropped the last 2 chars of every chunk,
+                # which surfaced as the final 1-2 letters going missing.)
                 cut = _prose_cut(full)
-                prose = full if cut == -1 else full[:cut]
-                emittable = prose if cut != -1 else prose[:-2]
+                if cut != -1:
+                    emittable = full[:cut]
+                else:
+                    stripped = full.rstrip("`")
+                    trailing_ticks = len(full) - len(stripped)
+                    emittable = stripped if 0 < trailing_ticks < 3 else full
                 if len(emittable) > emitted:
                     yield _sse({"type": "chunk", "content": emittable[emitted:]})
                     emitted = len(emittable)

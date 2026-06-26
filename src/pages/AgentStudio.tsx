@@ -6,11 +6,10 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useAgentChat } from '../hooks/useAgentChat';
+import { AgentConversation } from '../components/AgentConversation';
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string };
-
-// A single turn in the "Try it" draft-agent conversation.
-type TryMessage = { role: 'user' | 'assistant'; content: string; toolCalls?: string[] };
 
 interface SkillDraft {
     slug?: string;
@@ -96,11 +95,21 @@ export const AgentStudio: React.FC = () => {
     const [review, setReview] = useState<ReviewReport | null>(null);
 
     // Try-it: a multi-turn chat that runs the current (unsaved) draft against the
-    // consolidated runtime, so authoring feels like a normal agent conversation.
-    const [tryMessages, setTryMessages] = useState<TryMessage[]>([]);
-    const [tryInput, setTryInput] = useState('');
-    const [tryRunning, setTryRunning] = useState(false);
-    const tryEndRef = useRef<HTMLDivElement>(null);
+    // consolidated runtime, reusing the SAME hook + conversation UI as the
+    // Command Center drawer — so streaming, tool pills, reasoning, and async
+    // Genie poll draining all behave identically. The inline-profile getter is
+    // read fresh on each turn, so edits to the draft take effect immediately.
+    const tryChat = useAgentChat({
+        greeting: "Testing the unsaved draft. Ask it something to see how it responds — nothing is saved.",
+        inlineProfile: () => ({
+            name: name || 'Draft',
+            prompt: agentPrompt,
+            tools: selectedTools,
+            skills: skills.map(s => ({ name: s.name, content: s.content })),
+            python_tools: pythonTools.map(t => ({ name: t.name, description: t.description, code: t.code })),
+            model,
+        }),
+    });
 
     // Target location for new profiles
     const [store, setStore] = useState<string>('workspace');
@@ -131,10 +140,6 @@ export const AgentStudio: React.FC = () => {
         const t = setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         return () => clearTimeout(t);
     }, [messages, isGenerating]);
-
-    useEffect(() => {
-        tryEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [tryMessages]);
 
     const refreshProfiles = async () => {
         try {
@@ -398,99 +403,6 @@ export const AgentStudio: React.FC = () => {
                 ? prev.filter(x => x !== t.id && x !== t.name)
                 : [...prev, t.id]
         );
-    };
-
-    // Run the current draft (unsaved) against the consolidated runtime via the
-    // agent proxy. The runtime applies the inline profile with the same
-    // governance as a saved one (tool intersection + model allowlist).
-    const runTryIt = async () => {
-        const q = tryInput.trim();
-        if (!q || tryRunning) return;
-
-        // Prior turns become conversation_history so the draft agent is multi-turn
-        // (the runtime is stateless; the client owns the transcript).
-        const nowIso = new Date().toISOString();
-        const priorHistory = tryMessages
-            .filter(m => m.content.trim())
-            .slice(-20)
-            .map((m, i) => ({
-                id: `try-${i}`,
-                type: m.role === 'user' ? 'user' : 'agent',
-                content: m.content,
-                timestamp: nowIso,
-            }));
-
-        setTryInput('');
-        setTryMessages(prev => [
-            ...prev,
-            { role: 'user', content: q },
-            { role: 'assistant', content: '', toolCalls: [] },
-        ]);
-        setTryRunning(true);
-
-        // Mutate just the trailing assistant message (the in-flight turn).
-        const updateLast = (mutate: (m: TryMessage) => void) => setTryMessages(prev => {
-            const next = [...prev];
-            const i = next.length - 1;
-            if (next[i]?.role !== 'assistant') return prev;
-            const last = { ...next[i] };
-            mutate(last);
-            next[i] = last;
-            return next;
-        });
-
-        try {
-            const resp = await fetch('/api/agent/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    query: q,
-                    inline_profile: {
-                        name: name || 'Draft',
-                        prompt: agentPrompt,
-                        tools: selectedTools,
-                        skills: skills.map(s => ({ name: s.name, content: s.content })),
-                        python_tools: pythonTools.map(t => ({ name: t.name, description: t.description, code: t.code })),
-                        model,
-                    },
-                    conversation_history: priorHistory,
-                }),
-            });
-            if (!resp.ok || !resp.body) {
-                updateLast(m => { m.content = `Error: runtime returned ${resp.status}.`; });
-                return;
-            }
-            const reader = resp.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            for (;;) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const frames = buffer.split('\n\n');
-                buffer = frames.pop() || '';
-                for (const frame of frames) {
-                    const line = frame.split('\n').find(l => l.startsWith('data:'));
-                    if (!line) continue;
-                    const payload = line.slice('data:'.length).trim();
-                    if (payload === '[DONE]') continue;
-                    try {
-                        const evt = JSON.parse(payload);
-                        if (evt.type === 'final') updateLast(m => { m.content = evt.content || ''; });
-                        else if (evt.type === 'chunk') updateLast(m => { m.content += (evt.content || ''); });
-                        else if (evt.type === 'tool_calls' && Array.isArray(evt.content)) {
-                            updateLast(m => { m.toolCalls = evt.content.map((c: any) => `${c.tool_name} · ${c.status}`); });
-                        } else if (evt.type === 'error') {
-                            updateLast(m => { m.content = `Error: ${evt.content}`; });
-                        }
-                    } catch { /* ignore non-JSON keepalives */ }
-                }
-            }
-        } catch (e) {
-            updateLast(m => { m.content = `Network error: ${e}`; });
-        } finally {
-            setTryRunning(false);
-        }
     };
 
     const addSkill = () => {
@@ -907,75 +819,16 @@ export const AgentStudio: React.FC = () => {
                                 <div className="text-xs text-slate-400">
                                     Testing the <span className="text-slate-200 font-medium">unsaved</span> draft — tools stay constrained to your access; nothing is saved.
                                 </div>
-                                {tryMessages.length > 0 && (
-                                    <button
-                                        onClick={() => setTryMessages([])}
-                                        disabled={tryRunning}
-                                        className="flex items-center gap-1 text-xs text-slate-400 hover:text-rose-400 disabled:opacity-40">
-                                        <Trash2 size={12} /> Clear
-                                    </button>
-                                )}
+                                <button
+                                    onClick={tryChat.clear}
+                                    disabled={tryChat.isLoading}
+                                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-rose-400 disabled:opacity-40">
+                                    <Trash2 size={12} /> Clear
+                                </button>
                             </div>
-
-                            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                                {tryMessages.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-center text-slate-600">
-                                        <Bot size={28} className="mb-2 text-slate-700" />
-                                        <p className="text-sm">Ask the draft agent something to see how it responds.</p>
-                                    </div>
-                                ) : tryMessages.map((m, idx) => (
-                                    <div key={idx} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                                            m.role === 'user'
-                                                ? 'bg-indigo-600 text-white'
-                                                : 'bg-slate-800 border border-slate-700 text-slate-200'
-                                        }`}>
-                                            {m.role === 'user' ? (
-                                                <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
-                                            ) : (
-                                                <>
-                                                    {m.content ? (
-                                                        <div className="prose prose-invert prose-sm max-w-none leading-relaxed">
-                                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="inline-flex items-center gap-1.5 text-slate-500 text-xs">
-                                                            <RefreshCw size={12} className="animate-spin" /> Thinking…
-                                                        </span>
-                                                    )}
-                                                    {m.toolCalls && m.toolCalls.length > 0 && (
-                                                        <div className="mt-2 pt-2 border-t border-slate-700 flex flex-wrap gap-1.5">
-                                                            {m.toolCalls.map((t, i) => (
-                                                                <span key={i} className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300">{t}</span>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                                <div ref={tryEndRef} />
-                            </div>
-
-                            <div className="border-t border-slate-800 p-4 shrink-0">
-                                <div className="flex items-end gap-2">
-                                    <textarea
-                                        value={tryInput}
-                                        onChange={e => setTryInput(e.target.value)}
-                                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runTryIt(); } }}
-                                        rows={1}
-                                        placeholder="Ask the draft agent something…"
-                                        disabled={tryRunning}
-                                        className="flex-1 resize-none bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50 max-h-32"
-                                    />
-                                    <button
-                                        onClick={runTryIt}
-                                        disabled={tryRunning || !tryInput.trim()}
-                                        className="flex items-center justify-center p-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-lg shrink-0">
-                                        {tryRunning ? <RefreshCw size={16} className="animate-spin" /> : <Send size={16} />}
-                                    </button>
-                                </div>
+                            {/* Same conversation UI + streaming as the Command Center drawer. */}
+                            <div className="flex-1 min-h-0">
+                                <AgentConversation chat={tryChat} placeholder="Ask the draft agent something…" />
                             </div>
                         </div>
                     )}

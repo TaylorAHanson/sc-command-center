@@ -27,6 +27,27 @@ export interface AgentMessage {
     finalized?: boolean;
 }
 
+// An UNSAVED draft profile to run a turn as (Agent Studio "Try it"). When the
+// hook is given an `inlineProfile` getter, each turn forwards this instead of a
+// saved `profile_ref`, and the profile picker / dashboard context are skipped.
+export interface InlineProfileSpec {
+    name?: string;
+    prompt?: string;
+    tools?: string[];
+    skills?: { name: string; content: string }[];
+    python_tools?: { name: string; description?: string; code: string }[];
+    model?: string;
+}
+
+export interface UseAgentChatOptions {
+    // When provided, the hook runs in "draft" mode: it forwards the latest
+    // inline profile (read fresh at send time) rather than a saved profile_ref,
+    // and omits dashboard context. Used by the Agent Studio "Try it" tab.
+    inlineProfile?: () => InlineProfileSpec;
+    // Opening greeting shown in a fresh transcript.
+    greeting?: string;
+}
+
 // Generic greeting used when no specific Agent Studio profile is active. The
 // active agent's name is shown in the picker, so the default doesn't claim to be
 // any particular agent.
@@ -51,8 +72,16 @@ const GREETING: AgentMessage = {
  * re-mounted. Also centralizes context injection, error handling, cancellation,
  * and telemetry.
  */
-export const useAgentChat = () => {
-    const [messages, setMessages] = useState<AgentMessage[]>([GREETING]);
+export const useAgentChat = (options: UseAgentChatOptions = {}) => {
+    // Keep the latest options in a ref so send() reads the freshest inline draft
+    // without being re-created (and without churning the callback's deps).
+    const optionsRef = useRef(options);
+    optionsRef.current = options;
+    const isDraftMode = !!options.inlineProfile;
+
+    const [messages, setMessages] = useState<AgentMessage[]>(
+        () => [{ role: 'assistant', content: options.greeting || DEFAULT_GREETING }],
+    );
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [sessionId] = useState(() => 'sccc-' + Math.random().toString(36).substring(2, 10));
@@ -90,6 +119,10 @@ export const useAgentChat = () => {
     // unchanged we only refresh the opening greeting while the chat is still
     // fresh, so we never clobber an in-progress conversation.
     useEffect(() => {
+        // Draft mode ("Try it") has no profile picker — the inline draft IS the
+        // agent — so never run the picker's greeting/transcript switching, which
+        // would otherwise clobber the custom greeting.
+        if (isDraftMode) return;
         const active = availableProfiles.find(p => p.id === selectedProfileId);
         const greetingText = greetingFor(active?.name, active?.description);
         const prevId = prevProfileIdRef.current;
@@ -141,10 +174,12 @@ export const useAgentChat = () => {
         const trimmed = text.trim();
         if (!trimmed || isLoading) return;
 
+        const draftProfile = optionsRef.current.inlineProfile?.();
         const ctx = ctxRef.current;
         // The agent's `user_prompt` carries the dashboard context, kept out of the
-        // user-visible query and the agent's stored conversation history.
-        const userPrompt = buildContextPreamble(ctx);
+        // user-visible query and the agent's stored conversation history. In draft
+        // mode ("Try it") there is no dashboard, so we send no context.
+        const userPrompt = draftProfile ? '' : buildContextPreamble(ctx);
 
         // Build prior-turn history (the runtime is stateless, so we own the
         // transcript). Shape each entry as the runtime's ChatMessage and keep
@@ -285,7 +320,10 @@ export const useAgentChat = () => {
                     session_id: sessionId,
                     query: trimmed,
                     user_prompt: userPrompt,
-                    profile_ref: selectedProfileId || undefined,
+                    // Draft mode forwards the unsaved profile inline; otherwise we
+                    // reference the selected saved profile (if any).
+                    inline_profile: draftProfile || undefined,
+                    profile_ref: draftProfile ? undefined : (selectedProfileId || undefined),
                     conversation_history: conversationHistory,
                 }),
             });
