@@ -131,6 +131,12 @@ resources:
           #   per profile under ".versions" (default 20; "0" disables versioning).
           # - name: AGENT_STUDIO_MAX_VERSIONS
           #   value: "${var.agent_studio_max_versions}"
+          # AGENT_INJECT_HOUSE_STYLE — when true (default), the proxy appends global
+          #   output rules (currently: NO emojis) to every agent turn — saved
+          #   profiles, Agent Studio "Try it" drafts, and the default agent. Set to
+          #   "false" to let individual profiles control formatting entirely.
+          - name: AGENT_INJECT_HOUSE_STYLE
+            value: "true"
 
       user_api_scopes:
         - "sql"

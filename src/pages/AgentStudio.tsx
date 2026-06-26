@@ -105,8 +105,14 @@ export const AgentStudio: React.FC = () => {
     // Command Center drawer — so streaming, tool pills, reasoning, and async
     // Genie poll draining all behave identically. The inline-profile getter is
     // read fresh on each turn, so edits to the draft take effect immediately.
+    // Greeting reflects whether we're testing a loaded/saved agent or a brand-new
+    // unsaved draft. (Either way the run uses the CURRENT editor config, so we note
+    // that unsaved edits are included rather than claiming "nothing is saved".)
+    const tryGreeting = profileId
+        ? `Testing "${name || 'this agent'}". This runs the current configuration on the right — including any unsaved edits. Ask it something to see how it responds.`
+        : "Testing a new unsaved draft. Ask it something to see how it responds — nothing is saved yet.";
     const tryChat = useAgentChat({
-        greeting: "Testing the unsaved draft. Ask it something to see how it responds — nothing is saved.",
+        greeting: tryGreeting,
         inlineProfile: () => ({
             name: name || 'Draft',
             prompt: agentPrompt,
@@ -910,7 +916,11 @@ export const AgentStudio: React.FC = () => {
                         <div className="absolute inset-0 flex flex-col">
                             <div className="px-6 py-2.5 border-b border-slate-800 flex items-center justify-between shrink-0">
                                 <div className="text-xs text-slate-400">
-                                    Testing the <span className="text-slate-200 font-medium">unsaved</span> draft — tools stay constrained to your access; nothing is saved.
+                                    {profileId ? (
+                                        <>Testing <span className="text-slate-200 font-medium">{name || 'this agent'}</span> — runs the current config (including unsaved edits); tools stay constrained to your access.</>
+                                    ) : (
+                                        <>Testing a <span className="text-slate-200 font-medium">new unsaved</span> draft — tools stay constrained to your access; nothing is saved.</>
+                                    )}
                                 </div>
                                 <button
                                     onClick={tryChat.clear}

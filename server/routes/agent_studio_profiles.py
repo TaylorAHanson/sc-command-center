@@ -376,6 +376,9 @@ Hard rules:
 - Skills are SINGLE markdown files. Keep each focused; do not invent folders or
   multi-file skills.
 - Prefer reusing/clarifying the author's existing prompt and skills when editing.
+- Never use emojis, emoticons, or decorative Unicode symbols — neither in your
+  own replies to the author nor in the AGENT.md body, skills, or any text you
+  generate. Plain, professional text only.
 
 Handling ambiguity:
 - Do NOT block on missing detail. Make a reasonable, explicitly-stated

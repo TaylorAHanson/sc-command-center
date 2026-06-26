@@ -120,9 +120,18 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
     // fresh, so we never clobber an in-progress conversation.
     useEffect(() => {
         // Draft mode ("Try it") has no profile picker — the inline draft IS the
-        // agent — so never run the picker's greeting/transcript switching, which
-        // would otherwise clobber the custom greeting.
-        if (isDraftMode) return;
+        // agent — so skip the picker's transcript switching. We DO keep the
+        // opening greeting in sync with the latest options.greeting (e.g. when the
+        // user loads a saved agent), but only while the transcript is still fresh
+        // (just the greeting bubble) so we never clobber an in-progress chat.
+        if (isDraftMode) {
+            const g = optionsRef.current.greeting || DEFAULT_GREETING;
+            setMessages(prev => {
+                if (prev.length !== 1 || prev[0].role !== 'assistant') return prev;
+                return prev[0].content === g ? prev : [{ role: 'assistant', content: g }];
+            });
+            return;
+        }
         const active = availableProfiles.find(p => p.id === selectedProfileId);
         const greetingText = greetingFor(active?.name, active?.description);
         const prevId = prevProfileIdRef.current;
@@ -142,7 +151,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         const restored = historyRef.current[selectedProfileId];
         setMessages(restored && restored.length ? restored : [{ role: 'assistant', content: greetingText }]);
         prevProfileIdRef.current = selectedProfileId;
-    }, [selectedProfileId, availableProfiles]);
+    }, [selectedProfileId, availableProfiles, isDraftMode, options.greeting]);
 
     // Agent Studio profile discovery is LAZY: listing them triggers a UC scan
     // (or a pinned-location lookup) server-side, so we don't pay it on every

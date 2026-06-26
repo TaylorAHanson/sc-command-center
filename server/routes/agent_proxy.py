@@ -52,6 +52,24 @@ CONSOLIDATED_AGENT_URL = (
 # All Self-Service agent endpoints live under this prefix.
 API = "/api/v1"
 
+# House style appended to every agent turn. The consolidated runtime is shared
+# infrastructure we don't own, and individual profiles shouldn't have to repeat
+# basic formatting rules, so we inject them here for every turn — saved profile,
+# Agent Studio "Try it" draft, or the default agent. Driven by an env flag so it
+# can be tuned/disabled without a code change.
+HOUSE_STYLE = (
+    "\n\n## Output style (non-negotiable)\n"
+    "- Do NOT use emojis, emoticons, or decorative Unicode symbols anywhere in "
+    "your responses — not in prose, headings, bullets, tables, or status lines. "
+    "Use plain text only.\n"
+    "- Prefer clear, professional prose over emoji-driven formatting."
+)
+INJECT_HOUSE_STYLE = os.environ.get("AGENT_INJECT_HOUSE_STYLE", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+)
+
 _client: "httpx.AsyncClient | None" = None
 
 
@@ -217,6 +235,18 @@ async def proxy_chat(request: Request):
         if resolved is not None:
             inline_profile = resolved
             profile_ref = None  # inline takes precedence; avoid an ambiguous body
+
+    # Inject global house style (e.g. "no emojis") so every agent obeys it
+    # without each profile having to restate it. When a profile is active we
+    # append to its system prompt (most authoritative); for the default agent
+    # (no inline profile) we ride along on ui_context, which the runtime appends
+    # to the prompt.
+    if INJECT_HOUSE_STYLE:
+        if isinstance(inline_profile, dict):
+            inline_profile["prompt"] = f"{(inline_profile.get('prompt') or '').rstrip()}{HOUSE_STYLE}"
+        else:
+            existing = context.get("ui_context") or ""
+            context["ui_context"] = f"{existing.rstrip()}{HOUSE_STYLE}" if existing else HOUSE_STYLE.lstrip()
 
     # Forward the drawer's transcript so the stateless runtime has multi-turn
     # context. The drawer sends ChatMessage-shaped entries (id/type/content/
