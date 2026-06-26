@@ -69,21 +69,60 @@ resources:
           - --proxy-headers
           - --forwarded-allow-ips
           - "*"
+          # Run multiple worker processes so one slow/blocking request can't stall
+          # the whole app. Each worker is an independent event loop + thread pool.
+          # State lives in Postgres/Lakebase (not in-process), so workers are safe
+          # to scale. Tune up if the app container has more CPU/memory headroom.
+          - --workers
+          - "2"
         env:
           - name: PYTHONPATH
             value: ".:server"
           - name: SQL_WAREHOUSE_ID
             value: "${var.sql_warehouse_id}"
-          - name: N8N_BASE_URL
-            value: "${var.n8n_base_url}"
-          - name: TABLEAU_SERVER_URL
-            value: "${var.tableau_server_url}"
           - name: USE_SP_FOR_JOBS
             value: "${var.use_sp_for_jobs}"
           - name: LAKEBASE_ENABLED
             value: "${var.lakebase_enabled}"
           - name: LAKEBASE_INSTANCE_NAME
             value: "${resources.database_instances.command_center_db.name}"
+          # ── Optional env (omitted when blank) ──────────────────────────────────
+          # Databricks Apps rejects an env entry whose value renders empty
+          # ("Must specify ... value or valueFrom"), so the vars below stay
+          # commented while their defaults are blank. The app code already defaults
+          # each of these to "" / a local fallback, so leaving them out is
+          # equivalent. To enable one, set the corresponding var (in `variables:`
+          # or a target's `variables:`) and uncomment its entry here.
+          #
+          # - name: N8N_BASE_URL
+          #   value: "${var.n8n_base_url}"
+          # - name: TABLEAU_SERVER_URL
+          #   value: "${var.tableau_server_url}"
+          #
+          # Agent integration (consolidated from the former app.yaml):
+          # CONSOLIDATED_AGENT_URL — URL of the consolidated Self-Service agent
+          #   runtime app, e.g. https://self-service-1234567890.<region>.databricksapps.com
+          # - name: CONSOLIDATED_AGENT_URL
+          #   value: "${var.consolidated_agent_url}"
+          # AGENT_BASE_URL — deprecated fallback for CONSOLIDATED_AGENT_URL
+          #   (legacy standalone agent app URL).
+          # - name: AGENT_BASE_URL
+          #   value: "${var.agent_base_url}"
+          # AGENT_STUDIO_PROMOTION_TARGETS — pinned promotion targets, e.g.
+          #   "Prod=/Volumes/main/agents/prod/.agents,Staging=/Volumes/main/agents/staging/.agents".
+          #   Empty = offer the user's writable shared volumes.
+          # - name: AGENT_STUDIO_PROMOTION_TARGETS
+          #   value: "${var.agent_studio_promotion_targets}"
+          # AGENT_STUDIO_PROFILE_LOCATIONS — pinned shared ".agents" dirs to list
+          #   INSTEAD of crawling the metastore. Strongly recommended in production —
+          #   turns an O(catalogs×schemas×volumes) scan into a few directory listings.
+          #   Empty = bounded crawl.
+          # - name: AGENT_STUDIO_PROFILE_LOCATIONS
+          #   value: "${var.agent_studio_profile_locations}"
+          # AGENT_STUDIO_MAX_VERSIONS — how many AGENT.md history snapshots to keep
+          #   per profile under ".versions" (default 20; "0" disables versioning).
+          # - name: AGENT_STUDIO_MAX_VERSIONS
+          #   value: "${var.agent_studio_max_versions}"
 
       user_api_scopes:
         - "sql"
@@ -141,21 +180,21 @@ sync:
     - server/*.db
     # IDE and OS files
     - .DS_Store
-    - **/.DS_Store
+    - "**/.DS_Store"
     # Test and cache directories
     - .pytest_cache/**
     - .mypy_cache/**
     - server/.pytest_cache/**
     - server/.mypy_cache/**
     # Build artifacts
-    - *.egg-info/**
+    - "*.egg-info/**"
     - server/*.egg-info/**
     - dist/**
     - build/**
     - server/dist/**
     - server/build/**
     # Logs
-    - *.log
+    - "*.log"
     - server/*.log
     - backend.log
     - frontend.log
@@ -196,6 +235,21 @@ variables:
   lakebase_enabled:
     description: "Lakebase Enabled"
     default: "true"
+  consolidated_agent_url:
+    description: "URL of the consolidated Self-Service agent runtime app"
+    default: ""
+  agent_base_url:
+    description: "Deprecated fallback for consolidated_agent_url (legacy standalone agent app URL)"
+    default: ""
+  agent_studio_promotion_targets:
+    description: "Pinned Agent Studio promotion targets (label=path, comma-separated). Empty = offer the user's writable shared volumes."
+    default: ""
+  agent_studio_profile_locations:
+    description: "Pinned shared '.agents' dirs to list instead of crawling the metastore (comma-separated). Empty = bounded crawl."
+    default: ""
+  agent_studio_max_versions:
+    description: "AGENT.md history snapshots to keep per profile (default 20; 0 disables versioning)."
+    default: ""
 
 # Target environments
 targets:

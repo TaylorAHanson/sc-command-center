@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Base URL of the consolidated Self-Service agent runtime. In production set
-# CONSOLIDATED_AGENT_URL in app.yaml to the deployed Self-Service App URL. For
+# CONSOLIDATED_AGENT_URL in databricks.yml to the deployed Self-Service App URL. For
 # local dev it must point at the Self-Service backend (a different port than the
 # Command Center backend). AGENT_BASE_URL is kept as a fallback for compatibility
 # with the pre-cutover configuration.

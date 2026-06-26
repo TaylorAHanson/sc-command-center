@@ -134,7 +134,7 @@ def execute_sql_query(
         if not warehouse_id:
             raise HTTPException(
                 status_code=500,
-                detail="No SQL Warehouse ID configured. Set SQL_WAREHOUSE_ID in app.yaml"
+                detail="No SQL Warehouse ID configured. Set SQL_WAREHOUSE_ID in databricks.yml"
             )
        
         # Execute the SQL statement

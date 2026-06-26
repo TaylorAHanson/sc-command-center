@@ -8,7 +8,7 @@
    - id: Unique identifier (lowercase, underscores)
    - name: Display name shown in UI
    - sql: Your SQL query (can be multi-line)
-   - warehouse_id: Leave as None to use default from app.yaml, or specify a different one
+   - warehouse_id: Leave as None to use default from databricks.yml, or specify a different one
    - description: What this query shows
    - category: Widget category (e.g., "Analytics", "Monitoring")
    - refresh_interval: Optional auto-refresh in seconds
@@ -18,7 +18,7 @@
 The query results will be available to both table and chart widgets.
 
 === CONFIGURATION ===
-Set SQL_WAREHOUSE_ID in app.yaml to configure the default warehouse for all queries.
+Set SQL_WAREHOUSE_ID in databricks.yml to configure the default warehouse for all queries.
 """
 import os
 from typing import List, Optional, Dict, Any
@@ -55,7 +55,7 @@ class SqlQueryConfig(BaseModel):
 
 
 # Define all available SQL queries here
-# NOTE: Set SQL_WAREHOUSE_ID in app.yaml to configure the default warehouse
+# NOTE: Set SQL_WAREHOUSE_ID in databricks.yml to configure the default warehouse
 # Individual queries can override by setting warehouse_id explicitly
 SQL_QUERY_CONFIGS: List[SqlQueryConfig] = [
     # Simple test query using samples catalog (available in most workspaces)
@@ -74,7 +74,7 @@ SQL_QUERY_CONFIGS: List[SqlQueryConfig] = [
             ORDER BY trip_count DESC
             LIMIT 20
         """,
-        warehouse_id=None,  # Uses default from app.yaml
+        warehouse_id=None,  # Uses default from databricks.yml
         description="Test query using NYC taxi sample data",
         category="Analytics",
         refresh_interval=None,
@@ -97,7 +97,7 @@ SQL_QUERY_CONFIGS: List[SqlQueryConfig] = [
             ORDER BY on_time_delivery_pct DESC
             LIMIT 100
         """,
-        warehouse_id=None,  # Uses default from app.yaml
+        warehouse_id=None,  # Uses default from databricks.yml
         description="Real-time supplier performance metrics and ratings",
         category="Analytics",
         refresh_interval=300,  # Refresh every 5 minutes
@@ -116,7 +116,7 @@ SQL_QUERY_CONFIGS: List[SqlQueryConfig] = [
             WHERE date >= CURRENT_DATE - INTERVAL 30 DAYS
             ORDER BY date, product_name
         """,
-        warehouse_id=None,  # Uses default from app.yaml
+        warehouse_id=None,  # Uses default from databricks.yml
         description="30-day inventory level trends by product and region",
         category="Analytics",
         refresh_interval=600,  # Refresh every 10 minutes
@@ -145,7 +145,7 @@ SQL_QUERY_CONFIGS: List[SqlQueryConfig] = [
             WHERE status IN ('In Transit', 'Delayed', 'Pending')
             ORDER BY expected_delivery
         """,
-        warehouse_id=None,  # Uses default from app.yaml
+        warehouse_id=None,  # Uses default from databricks.yml
         description="Current status of active shipments",
         category="Logistics",
         refresh_interval=180,  # Refresh every 3 minutes
@@ -169,7 +169,7 @@ SQL_QUERY_CONFIGS: List[SqlQueryConfig] = [
             GROUP BY region, product_category
             ORDER BY total_sales DESC
         """,
-        warehouse_id=None,  # Uses default from app.yaml
+        warehouse_id=None,  # Uses default from databricks.yml
         description="Sales analysis by region and product category",
         category="Analytics",
         parameters=[

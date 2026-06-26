@@ -15,7 +15,7 @@
 5. Save and deploy - the dashboard will automatically appear in the widget library!
 
 === CONFIGURATION ===
-Set TABLEAU_SERVER_URL in app.yaml for your Tableau Cloud instance.
+Set TABLEAU_SERVER_URL in databricks.yml for your Tableau Cloud instance.
 Example: https://10ax.online.tableau.com
 """
 import os

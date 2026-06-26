@@ -16,7 +16,7 @@
 
 === CONFIGURATION ===
 N8N workflows can be triggered directly from the frontend or proxied through the backend.
-Set N8N_BASE_URL in app.yaml if you want to use relative webhook paths.
+Set N8N_BASE_URL in databricks.yml if you want to use relative webhook paths.
 """
 import os
 from typing import List, Optional, Dict, Any
