@@ -282,6 +282,15 @@ targets:
       sql_warehouse_id:
         lookup:
           warehouse: "Serverless Starter Warehouse"
+    resources:
+      apps:
+        sc-command-center:
+          # Dev-only: "Anyone in my organization can use" (grants the
+          # `All account users` group CAN_USE). Appended to the base app
+          # permissions; stage/prod stay restricted to explicit grants.
+          permissions:
+            - level: CAN_USE
+              group_name: "All account users"
 
   enterprise-dev:
     mode: production
@@ -301,6 +310,15 @@ targets:
       sql_warehouse_id:
         lookup:
           warehouse: "Serverless Starter Warehouse"
+    resources:
+      apps:
+        sc-command-center:
+          # Dev-only: "Anyone in my organization can use" (grants the
+          # `All account users` group CAN_USE). Appended to the base app
+          # permissions; stage/prod stay restricted to explicit grants.
+          permissions:
+            - level: CAN_USE
+              group_name: "All account users"
 
   supply-dev:
     mode: production
@@ -320,6 +338,15 @@ targets:
       sql_warehouse_id:
         lookup:
           warehouse: "Serverless Starter Warehouse"
+    resources:
+      apps:
+        sc-command-center:
+          # Dev-only: "Anyone in my organization can use" (grants the
+          # `All account users` group CAN_USE). Appended to the base app
+          # permissions; stage/prod stay restricted to explicit grants.
+          permissions:
+            - level: CAN_USE
+              group_name: "All account users"
 
   # Staging environment
   stage:
