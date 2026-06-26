@@ -10,6 +10,16 @@ from databricks.sdk import WorkspaceClient
 
 router = APIRouter()
 
+
+def _permissions_disabled() -> bool:
+    """TEMPORARY demo kill-switch. When DISABLE_PERMISSION_CHECKS is truthy, every
+    caller is treated as a global admin and every domain is visible. Set via
+    databricks.yml (var.disable_permission_checks). MUST be turned off after the
+    demo — it removes all role-based access control."""
+    import os
+    return os.environ.get("DISABLE_PERMISSION_CHECKS", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 class DomainRoleMapping(BaseModel):
     id: int
     external_role: str
@@ -93,6 +103,24 @@ async def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str =
     If they are an admin or map to a global role, they might get all domains or a wildcard.
     """
     try:
+        # TEMPORARY demo kill-switch: expose every known domain to everyone.
+        if _permissions_disabled():
+            conn = get_db_connection(env)
+            c = conn.cursor()
+            domains = {"General"}
+            for query, col in (("SELECT name FROM widget_domains", "name"),
+                               ("SELECT DISTINCT domain FROM role_mappings", "domain")):
+                try:
+                    c.execute(query)
+                    for row in c.fetchall():
+                        val = row[col] if hasattr(row, "keys") else row[0]
+                        if val:
+                            domains.add(val)
+                except Exception:
+                    pass
+            conn.close()
+            return {"domains": sorted(domains)}
+
         username = _get_current_username(w)
         user_entitlements = get_user_entitlements(w)
         
@@ -124,7 +152,7 @@ async def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str =
 def _get_user_permissions(w: WorkspaceClient, env: str) -> dict:
     """Helper function to fetch user permissions so it can be reused."""
     import os
-    if os.environ.get('DEV_MODE', '').lower() == 'true':
+    if _permissions_disabled() or os.environ.get('DEV_MODE', '').lower() == 'true':
         username = "dev"
         try:
             username = _get_current_username(w)

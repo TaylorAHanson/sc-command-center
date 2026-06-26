@@ -86,6 +86,11 @@ resources:
             value: "${var.lakebase_enabled}"
           - name: LAKEBASE_INSTANCE_NAME
             value: "${resources.database_instances.command_center_db.name}"
+          # ⚠️ TEMPORARY demo kill-switch — when "true", ALL role/permission checks
+          # are bypassed and every signed-in user is treated as a global admin.
+          # REVERT TO "false" (or remove) AFTER THE DEMO. See var.disable_permission_checks.
+          - name: DISABLE_PERMISSION_CHECKS
+            value: "${var.disable_permission_checks}"
           # ── Optional env (omitted when blank) ──────────────────────────────────
           # Databricks Apps rejects an env entry whose value renders empty
           # ("Must specify ... value or valueFrom"), so the vars below stay
@@ -243,6 +248,9 @@ variables:
     default: "true"
   lakebase_enabled:
     description: "Lakebase Enabled"
+    default: "true"
+  disable_permission_checks:
+    description: "⚠️ TEMPORARY: when 'true', bypass ALL role/permission checks (everyone is a global admin). Revert to 'false' after the demo."
     default: "true"
   consolidated_agent_url:
     description: "URL of the consolidated Self-Service agent runtime app (edh-ssc). The Command Center proxies /api/v1/agent calls here. Override per-target for stage/prod."
