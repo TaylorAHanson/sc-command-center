@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     Bot, Send, Save, RefreshCw, Trash2, Plus, Settings, FileText, Sparkles,
     ListChecks, AlertTriangle, Wrench, ChevronDown, FolderOpen, Rocket, X, Play,
-    Code2, ShieldCheck,
+    Code2, ShieldCheck, Search,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -93,6 +93,12 @@ export const AgentStudio: React.FC = () => {
     const [pythonTools, setPythonTools] = useState<PythonToolDraft[]>([]);
     const [activePyToolIdx, setActivePyToolIdx] = useState<number | null>(null);
     const [review, setReview] = useState<ReviewReport | null>(null);
+    // A review is a snapshot from the last AI design pass; it isn't persisted
+    // with the profile. Rather than blanking it on load/edit, we keep the last
+    // one and mark it "stale" once the draft diverges from what it described.
+    const [reviewStale, setReviewStale] = useState(false);
+    const skipStaleRef = useRef(false);   // set when a change is itself a fresh review
+    const reviewMountRef = useRef(true);
 
     // Try-it: a multi-turn chat that runs the current (unsaved) draft against the
     // consolidated runtime, reusing the SAME hook + conversation UI as the
@@ -120,6 +126,8 @@ export const AgentStudio: React.FC = () => {
     const [locations, setLocations] = useState<StudioLocation[]>([]);
     const [tools, setTools] = useState<ToolInfo[]>([]);
     const [toolsLoading, setToolsLoading] = useState(false);
+    const [toolFilter, setToolFilter] = useState('');
+    const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
     const [showProfileMenu, setShowProfileMenu] = useState(false);
 
     // Promotion
@@ -140,6 +148,22 @@ export const AgentStudio: React.FC = () => {
         const t = setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         return () => clearTimeout(t);
     }, [messages, isGenerating]);
+
+    // Whenever the parts the review describes change, mark the existing review
+    // stale (unless the change WAS a fresh review — applyDraft sets skipStaleRef).
+    const reviewSignature = JSON.stringify({
+        p: agentPrompt,
+        t: selectedTools,
+        s: skills.map(s => [s.name, s.description, s.content]),
+        y: pythonTools.map(t => [t.name, t.description, t.code]),
+        n: name, d: description, m: model,
+    });
+    useEffect(() => {
+        if (reviewMountRef.current) { reviewMountRef.current = false; return; }
+        if (skipStaleRef.current) { skipStaleRef.current = false; return; }
+        setReviewStale(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [reviewSignature]);
 
     const refreshProfiles = async () => {
         try {
@@ -190,6 +214,8 @@ export const AgentStudio: React.FC = () => {
         setPythonTools([]);
         setActivePyToolIdx(null);
         setReview(null);
+        setReviewStale(false);
+        skipStaleRef.current = true;   // resetting fields shouldn't mark anything stale
         setMessages([{ role: 'assistant', content: 'Starting a fresh agent. Describe what you want it to do.' }]);
         setRightTab('prompt');
     };
@@ -212,7 +238,9 @@ export const AgentStudio: React.FC = () => {
             setStore(d.store);
             setActiveSkillIdx(null);
             setActivePyToolIdx(null);
-            setReview(null);
+            // Keep any prior review visible but mark it stale — it described a
+            // different draft. (Reviews aren't saved with the profile.) The
+            // signature effect will flip the flag once the loaded fields land.
             setMessages([{ role: 'assistant', content: `Loaded "${d.name}". Tell me what you'd like to change, or edit directly on the right.` }]);
             setRightTab('prompt');
         } catch (e) {
@@ -233,7 +261,13 @@ export const AgentStudio: React.FC = () => {
         if (Array.isArray(draft.python_tools)) {
             setPythonTools(draft.python_tools.map((t: any) => ({ name: t.name, description: t.description || '', code: t.code || '' })));
         }
-        if (draft.review) setReview(draft.review as ReviewReport);
+        if (draft.review) {
+            setReview(draft.review as ReviewReport);
+            setReviewStale(false);
+            // The field updates above change reviewSignature; don't let that mark
+            // this brand-new review stale.
+            skipStaleRef.current = true;
+        }
     };
 
     const handleGenerate = async () => {
@@ -512,7 +546,7 @@ export const AgentStudio: React.FC = () => {
                         {tabBtn('skills', `Skills${skills.length ? ` (${skills.length})` : ''}`, Sparkles)}
                         {tabBtn('pytools', `Python tools${pythonTools.length ? ` (${pythonTools.length})` : ''}`, Code2)}
                         {tabBtn('tryit', 'Try it', Play)}
-                        {tabBtn('review', 'Review', ListChecks)}
+                        {tabBtn('review', `Review${review && reviewStale ? ' • stale' : ''}`, ListChecks)}
                         {tabBtn('settings', 'Settings', Settings)}
                     </div>
                     <div className="flex items-center gap-2 pb-2">
@@ -706,6 +740,12 @@ export const AgentStudio: React.FC = () => {
                                 <div className="text-sm text-slate-500 italic">No review yet. Ask the assistant to design or refine the agent and it will report suggested tools, gaps, and schema checks here.</div>
                             ) : (
                                 <div className="max-w-3xl space-y-6">
+                                    {reviewStale && (
+                                        <div className="flex items-start gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-md px-3 py-2">
+                                            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                                            <span>This review reflects an earlier draft — the agent has changed since. Ask the assistant to redesign or refine it to refresh the review.</span>
+                                        </div>
+                                    )}
                                     <ReviewSection title="Suggested tools" icon={Wrench} empty="No tool suggestions.">
                                         {(review.suggested_tools || []).map((t, i) => (
                                             <li key={i} className="text-sm text-slate-300"><span className="font-mono text-indigo-300">{t.name}</span> — {t.why}</li>
@@ -744,7 +784,7 @@ export const AgentStudio: React.FC = () => {
 
                     {rightTab === 'settings' && (
                         <div className="absolute inset-0 overflow-y-auto p-8">
-                            <div className="max-w-3xl space-y-6">
+                            <div className="max-w-4xl space-y-6">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-300 mb-1.5">Agent Name</label>
                                     <input value={name} onChange={e => setName(e.target.value)}
@@ -781,27 +821,80 @@ export const AgentStudio: React.FC = () => {
 
                                 <div>
                                     <div className="flex items-center justify-between mb-1.5">
-                                        <label className="block text-sm font-medium text-slate-300">Tools (AI Gateway MCP)</label>
+                                        <label className="block text-sm font-medium text-slate-300">
+                                            Tools (AI Gateway MCP)
+                                            {selectedTools.length > 0 && (
+                                                <span className="ml-2 text-xs font-normal text-indigo-300">{selectedTools.length} selected</span>
+                                            )}
+                                        </label>
                                         <button onClick={refreshTools} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
                                             <RefreshCw size={12} className={toolsLoading ? 'animate-spin' : ''} /> Refresh
                                         </button>
                                     </div>
-                                    <div className="border border-slate-700 rounded-lg max-h-72 overflow-y-auto divide-y divide-slate-800">
+                                    {tools.length > 0 && (
+                                        <div className="relative mb-2">
+                                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                                            <input
+                                                value={toolFilter}
+                                                onChange={e => setToolFilter(e.target.value)}
+                                                placeholder="Filter tools by name or description…"
+                                                className="w-full bg-slate-900 border border-slate-700 rounded-md pl-8 pr-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                                            />
+                                        </div>
+                                    )}
+                                    <div className="border border-slate-700 rounded-lg max-h-[28rem] overflow-y-auto divide-y divide-slate-800">
                                         {tools.length === 0 ? (
                                             <div className="p-3 text-xs text-slate-500 italic">
                                                 {toolsLoading ? 'Discovering tools...' : 'No tools discovered from the AI Gateway MCP. The agent will have no tools until some are exposed.'}
                                             </div>
-                                        ) : tools.map(t => (
-                                            <label key={t.id} className="flex items-start gap-3 p-3 cursor-pointer hover:bg-slate-800/50">
-                                                <input type="checkbox" checked={toolIsSelected(t)} onChange={() => toggleTool(t)}
-                                                    className="mt-0.5 text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-600 rounded" />
-                                                <div>
-                                                    <div className="text-sm text-slate-200 font-mono">{t.name}</div>
-                                                    <div className="text-[10px] text-slate-500 font-mono">{t.id}</div>
-                                                    <div className="text-xs text-slate-500">{t.description}</div>
-                                                </div>
-                                            </label>
-                                        ))}
+                                        ) : (() => {
+                                            const q = toolFilter.trim().toLowerCase();
+                                            const shown = q
+                                                ? tools.filter(t => `${t.name} ${t.id} ${t.description}`.toLowerCase().includes(q))
+                                                : tools;
+                                            if (shown.length === 0) {
+                                                return <div className="p-3 text-xs text-slate-500 italic">No tools match “{toolFilter}”.</div>;
+                                            }
+                                            return shown.map(t => {
+                                                const selected = toolIsSelected(t);
+                                                const expanded = expandedTools.has(t.id);
+                                                const longDesc = (t.description || '').length > 120;
+                                                return (
+                                                    <div key={t.id} className={`flex items-start gap-3 p-3 transition-colors ${selected ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'}`}>
+                                                        <input type="checkbox" checked={selected} onChange={() => toggleTool(t)}
+                                                            className="mt-1 shrink-0 text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-600 rounded cursor-pointer" />
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span onClick={() => toggleTool(t)} className="text-sm text-slate-100 font-mono font-medium cursor-pointer hover:text-indigo-300">{t.name}</span>
+                                                                {t.server_label && (
+                                                                    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-700/70 text-slate-300 border border-slate-600/60">{t.server_label}</span>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-500 font-mono truncate">{t.id}</div>
+                                                            {t.description && (
+                                                                <>
+                                                                    <p className={`text-xs text-slate-400 mt-1 whitespace-pre-wrap ${expanded ? '' : 'line-clamp-2'}`}>
+                                                                        {t.description}
+                                                                    </p>
+                                                                    {longDesc && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setExpandedTools(prev => {
+                                                                                const n = new Set(prev);
+                                                                                if (n.has(t.id)) n.delete(t.id); else n.add(t.id);
+                                                                                return n;
+                                                                            })}
+                                                                            className="text-[11px] text-indigo-400 hover:text-indigo-300 mt-0.5">
+                                                                            {expanded ? 'Show less' : 'Show more'}
+                                                                        </button>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
                                     </div>
                                     {selectedTools.filter(sel => !tools.some(av => av.id === sel || av.name === sel)).length > 0 && (
                                         <p className="text-xs text-amber-400 mt-2">
