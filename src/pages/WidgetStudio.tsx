@@ -110,6 +110,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [editingId, setEditingId] = useState<string | null>(sessionState?.editingId || null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const importInputRef = useRef<HTMLInputElement>(null);
+    // Bounds the compile-error auto-retry loop. Each failed compile can kick off
+    // a fresh generation; if the model keeps returning code that won't compile
+    // this would otherwise call the LLM forever. Reset on a clean compile or a
+    // manual generate.
+    const autoRetryCountRef = useRef(0);
+    const MAX_AUTO_RETRIES = 3;
     const [availableDomains, setAvailableDomains] = useState<string[]>(['General']);
     const [availableCategories, setAvailableCategories] = useState<string[]>([]);
     const [variables, setVariables] = useState<Record<string, any>>({});
@@ -271,14 +277,19 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 const createComponent = new Function('React', 'useScript', 'Highcharts', executableCode);
                 const Component = createComponent(React, useScript, HC);
                 setPreviewComponent(() => Component);
+                // Clean compile: clear the auto-retry budget for the next error.
+                autoRetryCountRef.current = 0;
             } catch (err: any) {
                 const errorMsg = err.message || String(err);
                 if (previewError !== errorMsg) {
                     setPreviewError(errorMsg);
                     setPreviewComponent(null);
 
-                    // Trigger auto-retry after a small delay to let state settle
-                    if (!isGenerating) {
+                    // Trigger auto-retry after a small delay to let state settle,
+                    // but cap consecutive attempts so a persistently-uncompilable
+                    // widget can't loop the generation endpoint forever.
+                    if (!isGenerating && autoRetryCountRef.current < MAX_AUTO_RETRIES) {
+                        autoRetryCountRef.current += 1;
                         setTimeout(() => handleGenerate(errorMsg), 1000);
                     }
                 }
@@ -303,6 +314,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             setPrompt("");
             // Clear any old preview errors on a fresh prompt
             setPreviewError(null);
+            // A manual generate restarts the auto-retry budget.
+            autoRetryCountRef.current = 0;
         }
 
         setIsGenerating(true);

@@ -124,6 +124,22 @@ const DashboardGrid: React.FC = () => {
     };
   }, [visibleWidgets, isReadOnly]);
 
+  // Stable `data` object per widget. Previously we built `{ ...props, username,
+  // variables, setVariable }` inline in the render map, so EVERY DashboardGrid
+  // re-render (drag-hover, fullscreen toggle, share-copy, any store change)
+  // handed each widget a brand-new object reference. Widgets that key an effect
+  // on `data` (a common generated pattern) then re-ran that effect — refetching
+  // SQL / redrawing charts — on every render, which compounds into the gradual
+  // slowdown. Memoizing keeps each widget's `data` referentially stable unless
+  // its own props (or the shared username/variables) actually change.
+  const dataById = React.useMemo(() => {
+    const map: Record<string, any> = {};
+    for (const w of visibleWidgets) {
+      map[w.i] = { ...w.props, username, variables, setVariable };
+    }
+    return map;
+  }, [visibleWidgets, username, variables, setVariable]);
+
   const handleLayoutChange = (layout: WidgetLayout[]) => {
     if (activeTab && !isReadOnly) {
       // Remove static property before saving (we add it dynamically)
@@ -559,7 +575,7 @@ const DashboardGrid: React.FC = () => {
                   <ExecuteActionPropInjector>
                     <Component
                       id={widget.i}
-                      data={{ ...widget.props, username, variables, setVariable }}
+                      data={dataById[widget.i]}
                       key={widget.i}
                     />
                   </ExecuteActionPropInjector>

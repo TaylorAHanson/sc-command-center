@@ -73,7 +73,13 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [variables, setVariables] = useState<Record<string, any>>({});
 
   const setVariable = useCallback((key: string, value: any) => {
-    setVariables(prev => ({ ...prev, [key]: value }));
+    // Skip the update when the value is unchanged. Widgets share this map, so a
+    // new `variables` object re-renders every widget on the view; an unguarded
+    // write of the SAME value from a widget effect (a common generated-widget
+    // pattern) would otherwise loop forever — new object -> new widget `data`
+    // -> effect re-runs -> writes again -> ... pegging a CPU core and dragging
+    // the whole machine down the longer the app stays open.
+    setVariables(prev => (Object.is(prev[key], value) ? prev : { ...prev, [key]: value }));
   }, []);
 
   const fetchPermissions = useCallback(async () => {
