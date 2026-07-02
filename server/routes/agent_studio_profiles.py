@@ -24,6 +24,8 @@ the Review reflects what *this user* can actually see and run.
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -769,6 +771,13 @@ def _sse(payload: Dict[str, Any]) -> bytes:
     return f"data: {json.dumps(payload)}\n\n".encode("utf-8")
 
 
+# How long the authoring stream may stay silent before we emit an SSE comment
+# heartbeat. Long tool calls (each governed SQL probe waits up to 50s) and slow
+# model turns produce byte-free gaps; without a keepalive an idle intermediary
+# or the browser drops the connection and the client sees "network error".
+_AUTHORING_HEARTBEAT_SECS = float(os.environ.get("AGENT_STUDIO_HEARTBEAT_SECS", "10") or "10")
+
+
 _FRIENDLY_TOOL = {
     "list_available_tools": "Listing available tools",
     "list_tables": "Listing tables",
@@ -1139,7 +1148,13 @@ async def stream_authoring(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"LLM client init failed: {exc}")
 
-    async def event_stream():
+    async def produce(queue: "asyncio.Queue[Optional[bytes]]") -> None:
+        """Run the authoring agent, pushing SSE frames onto ``queue``.
+
+        Runs as its own task so the outer generator can interleave heartbeat
+        comments during byte-free gaps (long tool calls / model turns). A final
+        ``None`` sentinel signals completion.
+        """
         try:
             from langchain_core.messages import AIMessage, HumanMessage
             from langgraph.prebuilt import create_react_agent
@@ -1182,7 +1197,7 @@ async def stream_authoring(
                         for tc in tool_calls:
                             if tc["tool_name"] == label:
                                 tc["status"] = "done"
-                        yield _sse({"type": "tool_calls", "content": tool_calls})
+                        await queue.put(_sse({"type": "tool_calls", "content": tool_calls}))
                     continue
 
                 # New tool call requested by the model.
@@ -1191,7 +1206,7 @@ async def stream_authoring(
                     if nm and nm not in tool_seen:
                         tool_seen.add(nm)
                         tool_calls.append({"tool_name": _FRIENDLY_TOOL.get(nm, nm), "status": "running"})
-                        yield _sse({"type": "tool_calls", "content": tool_calls})
+                        await queue.put(_sse({"type": "tool_calls", "content": tool_calls}))
 
                 content = getattr(msg, "content", "") or ""
                 if isinstance(content, list):
@@ -1220,17 +1235,39 @@ async def stream_authoring(
                     trailing_ticks = len(full) - len(stripped)
                     emittable = stripped if 0 < trailing_ticks < 3 else full
                 if len(emittable) > emitted:
-                    yield _sse({"type": "chunk", "content": emittable[emitted:]})
+                    await queue.put(_sse({"type": "chunk", "content": emittable[emitted:]}))
                     emitted = len(emittable)
 
             draft = _extract_json_block(full)
             explanation = _split_explanation(full) or "Draft updated."
-            yield _sse({"type": "final", "draft": draft, "explanation": explanation})
-            yield b"data: [DONE]\n\n"
+            await queue.put(_sse({"type": "final", "draft": draft, "explanation": explanation}))
+            await queue.put(b"data: [DONE]\n\n")
         except Exception as exc:  # noqa: BLE001
             logger.exception("Authoring stream failed")
-            yield _sse({"type": "error", "content": str(exc)})
-            yield b"data: [DONE]\n\n"
+            await queue.put(_sse({"type": "error", "content": str(exc)}))
+            await queue.put(b"data: [DONE]\n\n")
+        finally:
+            await queue.put(None)
+
+    async def event_stream():
+        queue: "asyncio.Queue[Optional[bytes]]" = asyncio.Queue()
+        task = asyncio.create_task(produce(queue))
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=_AUTHORING_HEARTBEAT_SECS)
+                except asyncio.TimeoutError:
+                    # SSE comment (line starting with ':'). Clients ignore it,
+                    # but it keeps the connection warm through long silent gaps.
+                    yield b": keepalive\n\n"
+                    continue
+                if item is None:
+                    break
+                yield item
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
 
     return StreamingResponse(
         event_stream(),
