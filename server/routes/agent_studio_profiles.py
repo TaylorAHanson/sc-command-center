@@ -330,8 +330,13 @@ def _run_python_sandbox(code: str, timeout_s: int = 6) -> Dict[str, Any]:
         return {"exit_code": -1, "stdout": "", "stderr": f"Sandbox error: {exc}"}
 
 
-def _probe_sql_schema(ws: WorkspaceClient, sql: str) -> Dict[str, Any]:
-    """Run a bounded ``LIMIT 1`` probe to confirm a query/table shape under OBO."""
+def _run_probe_sql(ws: WorkspaceClient, sql: str, max_rows: int = 1) -> Dict[str, Any]:
+    """Run a bounded, read-only probe under OBO, returning columns AND rows.
+
+    Wraps arbitrary queries in ``SELECT * FROM (...) LIMIT N`` when they lack a
+    ``LIMIT`` so a probe can never scan a whole table. Returns
+    ``{"columns": [...], "rows": [[...], ...]}`` or ``{"error": ...}``.
+    """
     from databricks.sdk.service.sql import Disposition, StatementExecutionAPI
 
     warehouse_id = os.environ.get("SQL_WAREHOUSE_ID", "")
@@ -340,8 +345,9 @@ def _probe_sql_schema(ws: WorkspaceClient, sql: str) -> Dict[str, Any]:
     query = (sql or "").strip().rstrip(";")
     if not query:
         return {"error": "Empty query."}
+    limit = max(1, min(int(max_rows or 1), 50))
     if not re.search(r"\bLIMIT\b", query, re.IGNORECASE):
-        query = f"SELECT * FROM ({query}) AS _schema_probe LIMIT 1"
+        query = f"SELECT * FROM ({query}) AS _schema_probe LIMIT {limit}"
     try:
         sql_api = StatementExecutionAPI(ws.api_client)
         stmt = sql_api.execute_statement(
@@ -353,9 +359,75 @@ def _probe_sql_schema(ws: WorkspaceClient, sql: str) -> Dict[str, Any]:
         columns: List[str] = []
         if stmt.manifest and stmt.manifest.schema and stmt.manifest.schema.columns:
             columns = [c.name for c in stmt.manifest.schema.columns]
-        return {"columns": columns}
+        rows: List[List[Any]] = []
+        if stmt.result and stmt.result.data_array:
+            rows = stmt.result.data_array
+        return {"columns": columns, "rows": rows}
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
+
+
+def _probe_sql_schema(ws: WorkspaceClient, sql: str) -> Dict[str, Any]:
+    """Confirm a query/table shape under OBO (columns only, backward-compat)."""
+    return _run_probe_sql(ws, sql, max_rows=1)
+
+
+# UC identifiers we interpolate into information_schema queries. Restricting to
+# word chars keeps the discovery helpers injection-safe (they already run under
+# the caller's OBO token, but defense-in-depth is cheap).
+_IDENT_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def _valid_ident(name: str) -> bool:
+    return bool(name and _IDENT_RE.match(name))
+
+
+def _list_tables(ws: WorkspaceClient, catalog: str, schema: str) -> Dict[str, Any]:
+    """List table names in ``catalog.schema`` via information_schema (read-only)."""
+    catalog = (catalog or "").strip()
+    schema = (schema or "").strip()
+    if not _valid_ident(catalog) or not _valid_ident(schema):
+        return {"error": "catalog and schema must be simple identifiers (letters, digits, underscore)."}
+    q = (
+        f"SELECT table_name FROM {catalog}.information_schema.tables "
+        f"WHERE table_schema = '{schema}' ORDER BY table_name LIMIT 500"
+    )
+    result = _run_probe_sql(ws, q, max_rows=500)
+    if result.get("error"):
+        return result
+    tables = [r[0] for r in (result.get("rows") or []) if r and r[0] is not None]
+    return {"tables": tables}
+
+
+def _describe_table(ws: WorkspaceClient, catalog: str, schema: str, table: str) -> Dict[str, Any]:
+    """List a table's columns/types via information_schema (read-only)."""
+    catalog = (catalog or "").strip()
+    schema = (schema or "").strip()
+    table = (table or "").strip()
+    if not (_valid_ident(catalog) and _valid_ident(schema) and _valid_ident(table)):
+        return {"error": "catalog, schema, and table must be simple identifiers (letters, digits, underscore)."}
+    q = (
+        f"SELECT column_name, data_type FROM {catalog}.information_schema.columns "
+        f"WHERE table_schema = '{schema}' AND table_name = '{table}' "
+        f"ORDER BY ordinal_position LIMIT 1000"
+    )
+    result = _run_probe_sql(ws, q, max_rows=1000)
+    if result.get("error"):
+        return result
+    cols = [
+        {"name": r[0], "type": r[1] if len(r) > 1 else ""}
+        for r in (result.get("rows") or [])
+        if r and r[0] is not None
+    ]
+    return {"columns": cols}
+
+
+def _fmt_cell(value: Any, limit: int = 40) -> str:
+    """Render one probe cell for display: NULL-safe and length-capped."""
+    if value is None:
+        return "NULL"
+    s = str(value)
+    return s if len(s) <= limit else s[: limit - 1] + "…"
 
 
 # ------------------------------------------------------------ authoring agent
@@ -370,9 +442,14 @@ Hard rules:
   recommending any tool, call `list_available_tools` and choose ONLY from the
   returned names. Never invent tool names. If a needed capability is missing,
   record it under `review.missing` instead of pretending it exists.
-- When the agent will query data, confirm the relevant schema with
-  `probe_sql_schema` and reflect the confirmed columns in the prompt/skills.
-  Record each probe under `review.schema_checks`.
+- When the agent will query data, DISCOVER and CONFIRM the real schema before
+  writing any SQL — never guess table or column names:
+  - `list_tables(catalog, schema)` to enumerate the actual table names.
+  - `describe_table(catalog, schema, table)` to get a table's real columns/types.
+  - `probe_sql_schema(sql)` to validate a specific query and preview a few rows.
+  Reflect the confirmed columns in the prompt/skills and record each check under
+  `review.schema_checks`. If a table/schema cannot be confirmed with these tools,
+  record it under `review.ambiguities` rather than inventing names.
 - Skills are SINGLE markdown files. Keep each focused; do not invent folders or
   multi-file skills.
 - Prefer reusing/clarifying the author's existing prompt and skills when editing.
@@ -524,15 +601,63 @@ def _make_tools(ws: WorkspaceClient, confirm_schema: bool):
         )
 
     @tool
-    def probe_sql_schema(sql: str) -> str:
-        """Confirm a SQL query/table's columns by running a bounded LIMIT 1 probe."""
+    def list_tables(catalog: str, schema: str) -> str:
+        """List the real table names in a Unity Catalog schema.
+
+        Call this to DISCOVER actual table names before referencing them — never
+        guess. Runs a read-only information_schema query under your access.
+        `catalog` and `schema` are the two-level names (e.g. catalog="main",
+        schema="sales").
+        """
         if not confirm_schema:
             return "Schema confirmation is disabled for this run."
-        result = _probe_sql_schema(ws, sql)
+        result = _list_tables(ws, catalog, schema)
+        if result.get("error"):
+            return f"list_tables failed: {result['error']}"
+        names = result.get("tables") or []
+        if not names:
+            return f"No tables found in {catalog}.{schema} (empty schema or no access)."
+        return f"Tables in {catalog}.{schema} ({len(names)}):\n" + "\n".join(f"- {n}" for n in names)
+
+    @tool
+    def describe_table(catalog: str, schema: str, table: str) -> str:
+        """List a table's real columns and types (read-only).
+
+        Call this to CONFIRM column names/types for a known table before writing
+        SQL or documenting the schema. Runs a read-only information_schema query.
+        """
+        if not confirm_schema:
+            return "Schema confirmation is disabled for this run."
+        result = _describe_table(ws, catalog, schema, table)
+        if result.get("error"):
+            return f"describe_table failed: {result['error']}"
+        cols = result.get("columns") or []
+        if not cols:
+            return f"No columns found for {catalog}.{schema}.{table} (missing table or no access)."
+        body = "\n".join(f"- {c['name']}: {c['type']}" for c in cols)
+        return f"Columns of {catalog}.{schema}.{table} ({len(cols)}):\n{body}"
+
+    @tool
+    def probe_sql_schema(sql: str) -> str:
+        """Confirm a SQL query/table's columns AND preview up to 5 sample rows.
+
+        Runs a bounded, read-only probe (auto-wrapped in LIMIT). Use this to
+        validate a specific query and see example VALUES. To enumerate table or
+        column names, use `list_tables` / `describe_table` instead — this returns
+        the result-set columns, not the catalog's table list.
+        """
+        if not confirm_schema:
+            return "Schema confirmation is disabled for this run."
+        result = _run_probe_sql(ws, sql, max_rows=5)
         if result.get("error"):
             return f"Schema probe failed: {result['error']}"
         cols = result.get("columns") or []
-        return "Confirmed columns: " + (", ".join(cols) if cols else "(none returned)")
+        rows = result.get("rows") or []
+        out = ["Confirmed columns: " + (", ".join(cols) if cols else "(none returned)")]
+        if rows:
+            out.append(f"Sample rows ({len(rows)}):")
+            out.extend("  " + " | ".join(_fmt_cell(v) for v in row) for row in rows[:5])
+        return "\n".join(out)
 
     @tool
     def execute_python(code: str) -> str:
@@ -552,7 +677,7 @@ def _make_tools(ws: WorkspaceClient, confirm_schema: bool):
             parts.append("stderr:\n" + result["stderr"])
         return "\n".join(parts)
 
-    return [list_available_tools, probe_sql_schema, execute_python]
+    return [list_available_tools, list_tables, describe_table, probe_sql_schema, execute_python]
 
 
 def _build_authoring_system_prompt(req: AuthorRequest) -> str:
@@ -646,6 +771,8 @@ def _sse(payload: Dict[str, Any]) -> bytes:
 
 _FRIENDLY_TOOL = {
     "list_available_tools": "Listing available tools",
+    "list_tables": "Listing tables",
+    "describe_table": "Describing table",
     "probe_sql_schema": "Confirming schema",
     "execute_python": "Testing Python tool",
 }

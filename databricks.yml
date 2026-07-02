@@ -157,6 +157,14 @@ resources:
           #   failed to parse"). Multi-skill agents need a generous cap.
           - name: AGENT_STUDIO_MAX_TOKENS
             value: "${var.agent_studio_max_tokens}"
+          # AGENT_STUDIO_MCP_SERVERS — comma-separated AI Gateway MCP servers the
+          #   authoring assistant introspects for available tools. Entries are
+          #   workspace-relative paths (joined to the host) or absolute URLs. Add
+          #   resource-scoped servers to expose more tools, e.g.
+          #   "/api/2.0/mcp/functions/<catalog>/<schema>" (UC functions) or
+          #   "/api/2.0/mcp/genie/<genie_space_id>" (a specific Genie space).
+          - name: AGENT_STUDIO_MCP_SERVERS
+            value: "${var.agent_studio_mcp_servers}"
 
       user_api_scopes:
         - "sql"
@@ -299,6 +307,9 @@ variables:
   agent_studio_llm_base_path:
     description: "OpenAI-compatible base path for the authoring LLM (joined to the workspace host). '/ai-gateway/mlflow/v1' = UC-governed AI Gateway (system.ai.* names); '/serving-endpoints' = workspace serving-endpoint names."
     default: "/ai-gateway/mlflow/v1"
+  agent_studio_mcp_servers:
+    description: "Comma-separated AI Gateway MCP servers the authoring assistant introspects for tools (workspace-relative paths or absolute URLs). Add '/api/2.0/mcp/functions/<catalog>/<schema>' for UC functions or '/api/2.0/mcp/genie/<genie_space_id>' for a specific Genie space."
+    default: "/api/2.0/mcp/sql,/api/2.0/mcp/genie"
   agent_studio_max_tokens:
     description: "Output token budget for the Agent Studio authoring draft. Too low truncates the JSON profile and it fails to parse."
     default: "16000"
