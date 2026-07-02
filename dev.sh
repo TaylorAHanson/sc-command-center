@@ -203,6 +203,13 @@ fi
 if ! $PYTHON_CMD -c "import databricks.sdk" 2>/dev/null; then
     MISSING_DEPS+=("databricks-sdk")
 fi
+# databricks-mcp powers Agent Studio tool discovery. It was added to
+# requirements.txt after early venvs were created, so check it explicitly —
+# otherwise a stale venv silently disables tool discovery ("AI Gateway returned
+# no tools").
+if ! $PYTHON_CMD -c "import databricks_mcp" 2>/dev/null; then
+    MISSING_DEPS+=("databricks-mcp")
+fi
 
 if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     echo -e "${YELLOW}Missing dependencies: ${MISSING_DEPS[*]}. Installing from requirements.txt...${NC}"

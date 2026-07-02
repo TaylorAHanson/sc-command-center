@@ -574,31 +574,54 @@ def _build_authoring_system_prompt(req: AuthorRequest) -> str:
 def _agent_studio_max_tokens() -> int:
     """Output budget for the Agent Studio LLM.
 
-    Unlike the Widget Studio (which emits a whole TSX file and needs a large
-    budget), Agent Studio only drafts a compact JSON profile — a system prompt
-    plus a few short skills. A modest cap meaningfully cuts generation latency.
+    The draft is a single JSON object holding the system prompt PLUS every skill
+    body and Python tool. A too-small cap truncates that JSON mid-string, which
+    surfaces as "draft JSON found but failed to parse" (the object never closes).
+    A multi-skill agent easily exceeds 6k output tokens, so the default is
+    generous; override with ``AGENT_STUDIO_MAX_TOKENS`` if your endpoint caps
+    output lower.
     """
     try:
-        return int(os.environ.get("AGENT_STUDIO_MAX_TOKENS", "6000"))
+        return int(os.environ.get("AGENT_STUDIO_MAX_TOKENS", "16000"))
     except ValueError:
-        return 6000
+        return 16000
 
 
 def _build_authoring_llm(api_key: str, base_url: str):
     from langchain_openai import ChatOpenAI
 
     model_name = os.environ.get("AGENT_STUDIO_LLM_MODEL", "databricks-claude-sonnet-4-6")
-    return ChatOpenAI(
-        api_key=api_key,
-        base_url=base_url,
-        model=model_name,
-        temperature=0.1,
-        max_tokens=_agent_studio_max_tokens(),
-    )
+    kwargs: Dict[str, Any] = {
+        "api_key": api_key,
+        "base_url": base_url,
+        "model": model_name,
+        "max_tokens": _agent_studio_max_tokens(),
+    }
+    # Only send `temperature` when explicitly configured. Reasoning models such as
+    # Claude Opus 4.8 reject the parameter entirely ("does not support the
+    # temperature parameter"), and langchain-openai omits it from the request when
+    # left unset. Set AGENT_STUDIO_LLM_TEMPERATURE only for models that accept it.
+    temp = (os.environ.get("AGENT_STUDIO_LLM_TEMPERATURE") or "").strip()
+    if temp:
+        try:
+            kwargs["temperature"] = float(temp)
+        except ValueError:
+            pass
+    return ChatOpenAI(**kwargs)
 
 
 def _llm_credentials(sp_client: WorkspaceClient) -> tuple[str, str]:
-    """Resolve (api_key, base_url) for the serving endpoint from the SP client."""
+    """Resolve (api_key, base_url) for the authoring LLM from the SP client.
+
+    The OpenAI-compatible base path is configurable via ``AGENT_STUDIO_LLM_BASE_PATH``
+    (joined to the workspace host). Two routes matter:
+      - ``/serving-endpoints`` (default): addresses models by *serving endpoint
+        name*, e.g. ``databricks-claude-sonnet-4-6``.
+      - ``/ai-gateway/mlflow/v1``: the UC-governed AI Gateway, which addresses
+        models by their catalog name, e.g. ``system.ai.claude-opus-4-8`` (the
+        non-deprecated path; workspace endpoints are being retired).
+    Either way langchain appends ``/chat/completions``.
+    """
     host = sp_client.config.host
     auth_headers_fn = sp_client.config.authenticate()
     auth_headers = auth_headers_fn() if callable(auth_headers_fn) else auth_headers_fn
@@ -609,7 +632,10 @@ def _llm_credentials(sp_client: WorkspaceClient) -> tuple[str, str]:
         or os.environ.get("DATABRICKS_TOKEN")
         or "dummy"
     )
-    base_url = f"{host}/serving-endpoints" if host else os.environ.get("OPENAI_BASE_URL", "")
+    base_path = os.environ.get("AGENT_STUDIO_LLM_BASE_PATH", "/serving-endpoints")
+    if not base_path.startswith("/"):
+        base_path = "/" + base_path
+    base_url = f"{host}{base_path}" if host else os.environ.get("OPENAI_BASE_URL", "")
     return api_key, base_url
 
 

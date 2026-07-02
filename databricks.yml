@@ -137,6 +137,26 @@ resources:
           #   "false" to let individual profiles control formatting entirely.
           - name: AGENT_INJECT_HOUSE_STYLE
             value: "true"
+          # AGENT_STUDIO_LLM_MODEL — model the Agent Studio authoring assistant
+          #   uses to DRAFT profiles (not the runtime agent). With the AI Gateway
+          #   base path (below) this is the UC model name, e.g.
+          #   "system.ai.claude-opus-4-8" (governed, non-deprecated). With the
+          #   default "/serving-endpoints" path it's a serving-endpoint name, e.g.
+          #   "databricks-claude-sonnet-4-6".
+          - name: AGENT_STUDIO_LLM_MODEL
+            value: "${var.agent_studio_llm_model}"
+          # AGENT_STUDIO_LLM_BASE_PATH — OpenAI-compatible base path for the
+          #   authoring LLM, joined to the workspace host. Use
+          #   "/ai-gateway/mlflow/v1" for the UC-governed AI Gateway (addresses
+          #   models like "system.ai.*"); or "/serving-endpoints" for workspace
+          #   serving-endpoint names. langchain appends "/chat/completions".
+          - name: AGENT_STUDIO_LLM_BASE_PATH
+            value: "${var.agent_studio_llm_base_path}"
+          # AGENT_STUDIO_MAX_TOKENS — output budget for the authoring draft. Too
+          #   small truncates the JSON profile mid-string ("draft JSON found but
+          #   failed to parse"). Multi-skill agents need a generous cap.
+          - name: AGENT_STUDIO_MAX_TOKENS
+            value: "${var.agent_studio_max_tokens}"
 
       user_api_scopes:
         - "sql"
@@ -273,6 +293,15 @@ variables:
   agent_studio_max_versions:
     description: "AGENT.md history snapshots to keep per profile (default 20; 0 disables versioning)."
     default: ""
+  agent_studio_llm_model:
+    description: "Model the Agent Studio authoring assistant uses to draft profiles. With the AI Gateway base path this is a UC model name (e.g. system.ai.claude-opus-4-8, governed/non-deprecated); with /serving-endpoints it's a serving-endpoint name."
+    default: "system.ai.claude-opus-4-8"
+  agent_studio_llm_base_path:
+    description: "OpenAI-compatible base path for the authoring LLM (joined to the workspace host). '/ai-gateway/mlflow/v1' = UC-governed AI Gateway (system.ai.* names); '/serving-endpoints' = workspace serving-endpoint names."
+    default: "/ai-gateway/mlflow/v1"
+  agent_studio_max_tokens:
+    description: "Output token budget for the Agent Studio authoring draft. Too low truncates the JSON profile and it fails to parse."
+    default: "16000"
 
 # Target environments
 targets:
