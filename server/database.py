@@ -276,11 +276,42 @@ def get_db_connection(env: str = "dev"):
 
     return conn
 
+def _advisory_lock_key(env: str) -> int:
+    """Stable per-env key for the schema-init advisory lock (see init_db)."""
+    base = 918273645  # arbitrary constant, just needs to be app-unique
+    return base + {"dev": 0, "test": 1, "prod": 2}.get(env, 9)
+
+
 def init_db(env: str = "dev"):
-    """Initialize database tables."""
+    """Initialize database tables.
+
+    Runs in EVERY uvicorn worker at startup (see server/main.py). Because the
+    app runs multiple workers (databricks.yml `--workers`), two workers execute
+    this concurrently. Postgres DDL — even ``CREATE TABLE IF NOT EXISTS`` and
+    ``ADD COLUMN IF NOT EXISTS`` — is not atomic against the system catalogs, so
+    concurrent runs can raise ``duplicate key``/``tuple concurrently updated``.
+    An unhandled error here fails the worker's startup, and uvicorn then stops
+    the whole app ("Child process failed to start, stopping the parent process").
+
+    We serialize schema init with a session-level advisory lock so exactly one
+    worker builds the schema while the others wait, then run the same (now no-op)
+    idempotent statements.
+    """
     conn = get_db_connection(env)
     c = conn.cursor()
-    
+
+    lock_key = _advisory_lock_key(env)
+    got_lock = False
+    try:
+        c.execute("SELECT pg_advisory_lock(%s)", (lock_key,))
+        conn.commit()
+        got_lock = True
+    except Exception as e:  # noqa: BLE001
+        # Couldn't take the lock (unexpected) — proceed anyway; the idempotent
+        # DDL below is still correct, just no longer serialized.
+        conn.rollback()
+        logging.warning(f"init_db advisory lock failed for env={env}: {e}")
+
     # Postgres
     auto_inc = "SERIAL PRIMARY KEY"
     default_ts = "DEFAULT CURRENT_TIMESTAMP" 
@@ -456,6 +487,17 @@ def init_db(env: str = "dev"):
         logging.warning(f"Could not seed default global admin mapping: {e}")
 
     conn.commit()
+
+    # Release the schema-init lock so the next worker can proceed. (A crashed
+    # worker would drop its connection and release it automatically, but release
+    # explicitly on the happy path so we never hold it longer than needed.)
+    if got_lock:
+        try:
+            c.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
+            conn.commit()
+        except Exception:  # noqa: BLE001
+            conn.rollback()
+
     conn.close()
 
 def log_widget_run(widget_id: str, env: str = "dev"):

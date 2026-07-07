@@ -53,9 +53,17 @@ async def startup_event():
     except Exception as e:  # noqa: BLE001
         logging.warning(f"Could not raise anyio thread-pool limit: {e}")
 
-    init_db("dev")
-    init_db("test")
-    init_db("prod")
+    # Schema init is idempotent and serialized across workers via an advisory
+    # lock (see database.init_db). Guard each call so a transient DB hiccup in
+    # one worker logs an error instead of failing startup — a failed worker makes
+    # uvicorn stop the ENTIRE app ("Child process failed to start, stopping the
+    # parent process"), which is far worse than one worker skipping a no-op init
+    # the other worker already completed.
+    for _env in ("dev", "test", "prod"):
+        try:
+            init_db(_env)
+        except Exception as e:  # noqa: BLE001
+            logging.error(f"init_db({_env}) failed during startup: {e}", exc_info=True)
 
 
 @app.on_event("shutdown")
