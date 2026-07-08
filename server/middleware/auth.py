@@ -70,46 +70,37 @@ def get_db_client(user_token: Optional[str] = Depends(get_user_token)) -> Worksp
 
     logging.info(f"OBO: Initializing WorkspaceClient with user token (length: {len(user_token)})")
 
-    # Temporarily remove OAuth env vars so WorkspaceClient doesn't pick them up for OBO
-    saved_client_id = os.environ.pop('DATABRICKS_CLIENT_ID', None)
-    saved_client_secret = os.environ.pop('DATABRICKS_CLIENT_SECRET', None)
-    
-    if saved_client_id:
-        logging.info("OBO: Temporarily suppressing DATABRICKS_CLIENT_ID to prevent auth conflict")
+    # We explicitly provide the host to avoid the SDK trying to discover it via
+    # Config() (which can trigger credential searches and fail if HOME is missing).
+    host = os.environ.get('DATABRICKS_HOST')
 
-    try:
-        # In deployment, we want to use the user's OBO token.
-        # We explicitly provide the host to avoid the SDK trying to discover it 
-        # via Config() which can trigger credential searches and fail if HOME is missing.
-        host = os.environ.get('DATABRICKS_HOST')
-        
-        if not host:
-            logging.info("OBO: DATABRICKS_HOST not in env, attempting Config() fallback")
-            try:
-                # Fallback to config discovery if host is not in env
-                from databricks.sdk.config import Config
-                host = Config().host
-                logging.info(f"OBO: Discovered host from Config(): {host}")
-            except Exception as e:
-                logging.warning(f"OBO: Failed to discover host from Config(): {e}")
-                host = None
-
-        logging.info(f"OBO: Creating WorkspaceClient for host: {host}")
+    if not host:
+        logging.info("OBO: DATABRICKS_HOST not in env, attempting Config() fallback")
         try:
-            return WorkspaceClient(
-                host=host,
-                token=user_token
-            )
+            from databricks.sdk.config import Config
+            host = Config().host
+            logging.info(f"OBO: Discovered host from Config(): {host}")
         except Exception as e:
-            logging.error(f"OBO: Failed to initialize WorkspaceClient: {e}")
-            raise HTTPException(status_code=401, detail=f"Databricks authentication failed: {e}")
-    finally:
-        # Restore env vars
-        if saved_client_id:
-            logging.info("OBO: Restoring DATABRICKS_CLIENT_ID")
-            os.environ['DATABRICKS_CLIENT_ID'] = saved_client_id
-        if saved_client_secret:
-            os.environ['DATABRICKS_CLIENT_SECRET'] = saved_client_secret
+            logging.warning(f"OBO: Failed to discover host from Config(): {e}")
+            host = None
+
+    logging.info(f"OBO: Creating WorkspaceClient for host: {host}")
+    try:
+        # auth_type="pat" pins token auth so the SP env creds
+        # (DATABRICKS_CLIENT_ID/SECRET) don't trigger the SDK's "more than one
+        # authorization method configured" error.
+        #
+        # This replaces an earlier workaround that os.environ.pop()'d the SP creds
+        # around construction. os.environ is PROCESS-GLOBAL and sync routes run in
+        # a thread pool, so that pop raced with concurrent SP-based clients — most
+        # visibly database.get_db_connection()'s WorkspaceClient(), which would
+        # intermittently fail with "default auth: cannot configure default
+        # credentials" whenever it ran during another request's OBO window. It
+        # looked user-specific but was really request-timing-specific.
+        return WorkspaceClient(host=host, token=user_token, auth_type="pat")
+    except Exception as e:
+        logging.error(f"OBO: Failed to initialize WorkspaceClient: {e}")
+        raise HTTPException(status_code=401, detail=f"Databricks authentication failed: {e}")
 
 def require_auth(request: Request) -> str:
     """
@@ -161,32 +152,20 @@ def get_db_client_for_jobs(user_token: Optional[str] = Depends(get_user_token)) 
                 status_code=401,
                 detail="Authentication required. No user token found."
             )
-        
-        # Temporarily suppress SP credentials to avoid SDK confusion
-        saved_client_id = os.environ.pop('DATABRICKS_CLIENT_ID', None)
-        saved_client_secret = os.environ.pop('DATABRICKS_CLIENT_SECRET', None)
-        
+
+        host = os.environ.get('DATABRICKS_HOST')
+
+        if not host:
+            from databricks.sdk.config import Config
+            host = Config().host
+
         try:
-            host = os.environ.get('DATABRICKS_HOST')
-            
-            if not host:
-                from databricks.sdk.config import Config
-                host = Config().host
-            
-            try:
-                return WorkspaceClient(
-                    host=host,
-                    token=user_token
-                )
-            except Exception as e:
-                logging.error(f"OBO: Failed to initialize WorkspaceClient for jobs: {e}")
-                raise HTTPException(status_code=401, detail=f"Databricks authentication failed: {e}")
-        finally:
-            # Restore env vars
-            if saved_client_id:
-                os.environ['DATABRICKS_CLIENT_ID'] = saved_client_id
-            if saved_client_secret:
-                os.environ['DATABRICKS_CLIENT_SECRET'] = saved_client_secret
+            # auth_type="pat" pins token auth so the SP env creds don't conflict —
+            # no process-global os.environ mutation (see get_db_client for why).
+            return WorkspaceClient(host=host, token=user_token, auth_type="pat")
+        except Exception as e:
+            logging.error(f"OBO: Failed to initialize WorkspaceClient for jobs: {e}")
+            raise HTTPException(status_code=401, detail=f"Databricks authentication failed: {e}")
 
 def get_db_client_sp() -> WorkspaceClient:
     """

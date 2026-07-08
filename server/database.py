@@ -7,6 +7,31 @@ from psycopg2.extras import RealDictCursor
 from config.settings import get_lakebase_config
 from databricks.sdk import WorkspaceClient
 
+def _sp_workspace_client() -> WorkspaceClient:
+    """Build a service-principal WorkspaceClient with auth pinned explicitly.
+
+    Used to mint Lakebase credentials. We pass the SP client_id/secret directly
+    and set auth_type="oauth-m2m" rather than relying on the SDK's default-auth
+    detection. Default detection reads process-global env vars at call time, so a
+    concurrent request that was mutating those vars could make a bare
+    ``WorkspaceClient()`` here fail with "default auth: cannot configure default
+    credentials". Pinning the method removes that fragility. Falls back to
+    default auth only when the SP env vars aren't present (e.g. local dev with a
+    CLI profile).
+    """
+    host = os.environ.get("DATABRICKS_HOST")
+    client_id = os.environ.get("DATABRICKS_CLIENT_ID")
+    client_secret = os.environ.get("DATABRICKS_CLIENT_SECRET")
+    if host and client_id and client_secret:
+        return WorkspaceClient(
+            host=host,
+            client_id=client_id,
+            client_secret=client_secret,
+            auth_type="oauth-m2m",
+        )
+    return WorkspaceClient()
+
+
 def get_db_connection(env: str = "dev"):
     """Get a database connection (SQLite or Lakebase/Postgres)."""
     config = get_lakebase_config()
@@ -61,7 +86,7 @@ def get_db_connection(env: str = "dev"):
     # If no password is provided and we aren't using a local db,
     # generate a short-lived OAuth token via the Databricks SDK.
     if not password and host and host != "localhost":
-        w = WorkspaceClient()
+        w = _sp_workspace_client()
         
         try:
             me = w.current_user.me()
