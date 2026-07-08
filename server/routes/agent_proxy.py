@@ -222,6 +222,29 @@ async def proxy_chat(request: Request):
 
     forwarded = _forwarded_headers(request)
 
+    # Diagnostics for the app->app auth handoff. A 401 from the consolidated app
+    # with NO logs on its side means its front-door OAuth proxy rejected us
+    # before the request reached its code. The two distinguishable causes are:
+    #   (a) obo_forwarded=False -> the incoming request into THIS app had no
+    #       x-forwarded-access-token, so we sent no Authorization -> front door
+    #       401s. Root cause is on the Command Center side (the user hasn't been
+    #       granted / hasn't consented to this app's user_api_scopes, so no OBO
+    #       token is minted for them).
+    #   (b) obo_forwarded=True but still 401 -> the token is fine to reach us but
+    #       the consolidated app's front door won't authorize THAT user (they
+    #       lack "Can Use" on the consolidated app itself).
+    caller_email = (
+        request.headers.get("x-forwarded-email")
+        or request.headers.get("X-Forwarded-Email")
+        or request.headers.get("x-forwarded-user")
+        or "unknown"
+    )
+    obo_forwarded = "Authorization" in forwarded
+    logger.info(
+        "proxy_chat: caller=%s obo_forwarded=%s -> %s",
+        caller_email, obo_forwarded, CONSOLIDATED_AGENT_URL,
+    )
+
     # Resolve a SAVED profile here (in-process, under the user's own OBO token)
     # and send it inline, so the runtime never has to re-read the profile file
     # under a forwarded app->app token. If resolution fails we fall back to
@@ -278,8 +301,28 @@ async def proxy_chat(request: Request):
                 if upstream.status_code >= 400:
                     text = await upstream.aread()
                     detail = text.decode("utf-8", errors="replace")
-                    logger.warning("Runtime /conversation/stream %s: %s", upstream.status_code, detail)
-                    yield _frame({"type": "error", "content": f"Agent error ({upstream.status_code})."})
+                    # www-authenticate / a redirect to a login page are tell-tale
+                    # signs the front-door proxy (not the app) rejected us.
+                    logger.warning(
+                        "Runtime /conversation/stream %s for caller=%s (obo_forwarded=%s) "
+                        "www-authenticate=%r content-type=%r body=%s",
+                        upstream.status_code,
+                        caller_email,
+                        obo_forwarded,
+                        upstream.headers.get("www-authenticate"),
+                        upstream.headers.get("content-type"),
+                        detail[:500],
+                    )
+                    if upstream.status_code in (401, 403):
+                        hint = (
+                            "Authentication token was not forwarded — you may need to grant this "
+                            "user the app's user API scopes."
+                            if not obo_forwarded
+                            else "Your account may not have 'Can Use' access to the agent app."
+                        )
+                        yield _frame({"type": "error", "content": f"Agent access denied ({upstream.status_code}). {hint}"})
+                    else:
+                        yield _frame({"type": "error", "content": f"Agent error ({upstream.status_code})."})
                     yield b"data: [DONE]\n\n"
                     return
 
