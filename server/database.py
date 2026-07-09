@@ -429,6 +429,40 @@ def init_db(env: str = "dev"):
         )
     ''')
 
+    # Agent Studio Profiles Table (versioned, domain-scoped)
+    # Agents authored in the Agent Studio now live as DB rows instead of files on
+    # Unity Catalog Volumes / Workspace folders. This mirrors the widget/view
+    # storage model so a user with app access (but no workspace access) can still
+    # save agents, and so visibility is governed by role_mappings (domains) rather
+    # than UC file grants.
+    #   - visibility='personal' : only the creator (username) sees it.
+    #   - visibility='domain'   : anyone with access to `domain` sees it;
+    #                             domain editors can edit.
+    #   - visibility='global'   : visible to every user; only global admins edit.
+    # Skills, tools, and author-written Python tools are stored inline as JSON so
+    # the whole agent is one atomic row set (versioned like widgets/views).
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS agent_profiles (
+            id TEXT NOT NULL,
+            version INTEGER DEFAULT 1,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            model TEXT DEFAULT '',
+            base TEXT DEFAULT 'full',
+            prompt TEXT DEFAULT '',
+            tools_json TEXT DEFAULT '[]',
+            skills_json TEXT DEFAULT '[]',
+            python_tools_json TEXT DEFAULT '[]',
+            domain TEXT DEFAULT 'General',
+            visibility TEXT DEFAULT 'personal',
+            username TEXT DEFAULT '',
+            is_deprecated INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT '',
+            timestamp TIMESTAMP {default_ts},
+            PRIMARY KEY (id, version)
+        )
+    ''')
+
     # Widget Categories (managed by admins, surfaced in Widget Studio + Library)
     c.execute(f'''
         CREATE TABLE IF NOT EXISTS widget_categories (

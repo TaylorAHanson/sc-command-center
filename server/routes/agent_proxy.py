@@ -103,17 +103,19 @@ _PROFILE_RESOLVE_TTL_S = 30.0
 _profile_resolve_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
-def _resolve_inline_profile(token: Optional[str], profile_ref: str) -> Optional[Dict[str, Any]]:
-    """Resolve a saved ``profile_ref`` to an inline profile spec, or None.
+def _resolve_inline_profile(token: Optional[str], profile_ref: str, env: str = "dev") -> Optional[Dict[str, Any]]:
+    """Resolve a saved ``profile_ref`` (a DB profile id) to an inline profile spec.
 
     Returns the runtime's inline_profile shape (name/prompt/tools/skills/
-    python_tools/model/base). On any failure returns None so the caller can fall back to forwarding
-    the raw ``profile_ref`` (and the runtime's own "profile unavailable"
-    fail-safe still applies).
+    python_tools/model/base). On any failure (not found, no access) returns None
+    so the caller can fall back to forwarding the raw ``profile_ref`` (and the
+    runtime's own "profile unavailable" fail-safe still applies). The store
+    enforces read visibility under the caller's own token, so a user can only
+    resolve agents they're allowed to see.
     """
     if not profile_ref:
         return None
-    key = hashlib.sha256(f"{token or 'anon'}|{profile_ref}".encode("utf-8")).hexdigest()
+    key = hashlib.sha256(f"{token or 'anon'}|{env}|{profile_ref}".encode("utf-8")).hexdigest()
     now = time.monotonic()
     hit = _profile_resolve_cache.get(key)
     if hit and (now - hit[0]) < _PROFILE_RESOLVE_TTL_S:
@@ -121,7 +123,7 @@ def _resolve_inline_profile(token: Optional[str], profile_ref: str) -> Optional[
     try:
         from agent_studio_store import get_agent_studio_store
 
-        ref = get_agent_studio_store().get_profile(token, profile_ref)
+        ref = get_agent_studio_store().get_profile(token, profile_ref, env=env)
         spec: Dict[str, Any] = {
             "name": ref.name,
             "prompt": ref.prompt or "",
@@ -254,7 +256,8 @@ async def proxy_chat(request: Request):
             request.headers.get("x-forwarded-access-token")
             or request.headers.get("X-Forwarded-Access-Token")
         )
-        resolved = _resolve_inline_profile(token, profile_ref)
+        env = (incoming.get("env") or "dev").strip() or "dev"
+        resolved = _resolve_inline_profile(token, profile_ref, env)
         if resolved is not None:
             inline_profile = resolved
             profile_ref = None  # inline takes precedence; avoid an ambiguous body

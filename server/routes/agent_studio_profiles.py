@@ -46,13 +46,21 @@ from pydantic import BaseModel
 
 from databricks.sdk import WorkspaceClient
 
-from middleware.auth import get_db_client_sp, get_user_token, require_auth
+from middleware.auth import get_db_client, get_db_client_sp, get_user_token, require_auth
 from agent_studio_store import (
     AgentStudioError,
+    ProfileAccessError,
     ProfileConflictError,
-    STORE_VOLUME,
-    STORE_WORKSPACE,
+    VIS_DOMAIN,
+    VIS_GLOBAL,
+    VIS_PERSONAL,
+    DEFAULT_DOMAIN,
     get_agent_studio_store,
+)
+from routes.roles import (
+    _get_current_username,
+    require_domain_editor,
+    require_global_admin,
 )
 
 logger = logging.getLogger(__name__)
@@ -146,8 +154,13 @@ class SaveProfileRequest(BaseModel):
     tools: List[str] = []
     skills: Optional[List[SkillPayload]] = None
     python_tools: Optional[List[PythonToolPayload]] = None
-    store: str = STORE_VOLUME
-    base_path: Optional[str] = None
+    # Domain-scoped sharing (mirrors widgets/views):
+    #   visibility="personal" -> private to the creator (no domain role needed)
+    #   visibility="domain"   -> shared to `domain` (domain editors can edit)
+    #   visibility="global"   -> visible to everyone (global admins only)
+    visibility: str = VIS_PERSONAL
+    domain: str = DEFAULT_DOMAIN
+    base: str = "full"
     profile_id: Optional[str] = None
     # Optimistic-concurrency token: the ``updated_at`` the client last loaded.
     # When present on an update, the save is refused (409) if the stored profile
@@ -167,12 +180,6 @@ class AuthorRequest(BaseModel):
     current_skills: Optional[List[SkillPayload]] = None
     current_python_tools: Optional[List[PythonToolPayload]] = None
     confirm_schema: bool = True                 # run live SQL/Genie probes
-
-
-class PromoteRequest(BaseModel):
-    profile_id: str
-    target_store: str = STORE_VOLUME
-    target_base_path: str
 
 
 # ------------------------------------------------------------------ MCP tools
@@ -926,30 +933,32 @@ def list_tools(obo_token: Optional[str] = Depends(get_user_token)):
     return {"tools": discover_mcp_tools(ws)}
 
 
-@router.get("/locations")
-def list_locations(
-    _: str = Depends(require_auth),
-    obo_token: Optional[str] = Depends(get_user_token),
-):
-    store = get_agent_studio_store()
-    email = _user_email(obo_token)
-    try:
-        locs = store.list_locations(obo_token, email)
-    except AgentStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {"locations": [loc.to_dict() for loc in locs]}
+def _authorize_write(w: WorkspaceClient, visibility: str, domain: str, env: str) -> None:
+    """Gate a write to a target visibility/domain (mirrors widgets/views).
+
+    - personal: anyone may save their own private agent.
+    - domain:   must be an editor (or admin) of that domain.
+    - global:   must be a global admin.
+    """
+    vis = (visibility or VIS_PERSONAL).strip().lower()
+    if vis == VIS_GLOBAL:
+        require_global_admin(w, env)
+    elif vis == VIS_DOMAIN:
+        require_domain_editor(w, domain or DEFAULT_DOMAIN, env)
+    # personal -> no domain role required
 
 
 @router.get("/profiles")
 def list_profiles(
     include_shared: bool = True,
+    env: str = "dev",
     _: str = Depends(require_auth),
     obo_token: Optional[str] = Depends(get_user_token),
 ):
     store = get_agent_studio_store()
     email = _user_email(obo_token)
     try:
-        profiles = store.list_profiles(obo_token, email, include_shared=include_shared)
+        profiles = store.list_profiles(obo_token, email, env=env, include_shared=include_shared)
     except AgentStudioError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"profiles": [p.to_dict() for p in profiles]}
@@ -958,12 +967,15 @@ def list_profiles(
 @router.get("/profiles/{profile_id}")
 def get_profile(
     profile_id: str,
+    env: str = "dev",
     _: str = Depends(require_auth),
     obo_token: Optional[str] = Depends(get_user_token),
 ):
     store = get_agent_studio_store()
     try:
-        profile = store.get_profile(obo_token, profile_id)
+        profile = store.get_profile(obo_token, profile_id, env=env)
+    except ProfileAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except AgentStudioError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return profile.to_dict()
@@ -972,19 +984,38 @@ def get_profile(
 @router.post("/profiles")
 def save_profile(
     req: SaveProfileRequest,
-    _: str = Depends(require_auth),
+    env: str = "dev",
+    w: WorkspaceClient = Depends(get_db_client),
     obo_token: Optional[str] = Depends(get_user_token),
 ):
     store = get_agent_studio_store()
-    email = _user_email(obo_token)
+    me = _get_current_username(w)
     skills = [s.dict() for s in req.skills] if req.skills is not None else None
     python_tools = (
         [t.dict() for t in req.python_tools] if req.python_tools is not None else None
     )
+
+    # Determine the author to persist. On update, preserve the original author
+    # (so the "shared by" badge stays accurate even when a domain editor edits
+    # someone else's agent); on create, the author is the current user.
+    owner = me
+    if req.profile_id:
+        existing = store.get_meta(req.profile_id, env=env)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Profile not found.")
+        owner = existing.get("username") or me
+        # Authorize editing the EXISTING record based on its current visibility.
+        _authorize_write(w, existing.get("visibility") or VIS_PERSONAL, existing.get("domain") or DEFAULT_DOMAIN, env)
+        # A personal agent can only be edited by its owner (unless global admin).
+        if (existing.get("visibility") or VIS_PERSONAL) == VIS_PERSONAL and owner != me:
+            require_global_admin(w, env)
+
+    # Authorize writing to the TARGET visibility/domain.
+    _authorize_write(w, req.visibility, req.domain, env)
+
     try:
         profile = store.save_profile(
-            obo_token,
-            email,
+            me,
             name=req.name,
             prompt=req.prompt,
             description=req.description,
@@ -992,10 +1023,13 @@ def save_profile(
             tools=req.tools,
             skills=skills,
             python_tools=python_tools,
-            store=req.store,
-            base_path=req.base_path,
+            visibility=req.visibility,
+            domain=req.domain,
+            base=req.base,
             profile_id=req.profile_id,
+            owner=owner,
             expected_updated_at=req.expected_updated_at,
+            env=env,
         )
     except ProfileConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -1004,102 +1038,26 @@ def save_profile(
     return profile.to_dict()
 
 
-@router.get("/promotion/targets")
-def list_promotion_targets(
-    _: str = Depends(require_auth),
-    obo_token: Optional[str] = Depends(get_user_token),
-):
-    """Shared (UC Volume) locations the user can promote a profile into.
-
-    These are the same shared ``.agents`` locations the user can write to (UC
-    governs the grant); personal Workspace folders are excluded since promotion
-    means publishing to a governed/shared spot. An optional env allowlist
-    (``AGENT_STUDIO_PROMOTION_TARGETS`` — comma-separated ``label=base_path``
-    pairs, where ``base_path`` points at an ``.agents`` dir) overrides discovery
-    so admins can pin canonical dev/prod targets.
-    """
-    configured = (os.environ.get("AGENT_STUDIO_PROMOTION_TARGETS") or "").strip()
-    if configured:
-        targets = []
-        for entry in configured.split(","):
-            entry = entry.strip()
-            if not entry:
-                continue
-            label, _, base = entry.partition("=")
-            base = (base or label).strip()
-            targets.append({"store": STORE_VOLUME, "base_path": base.rstrip("/"), "label": label.strip() or base})
-        return {"targets": targets}
-
-    store = get_agent_studio_store()
-    email = _user_email(obo_token)
-    try:
-        locs = store.list_locations(obo_token, email)
-    except AgentStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {"targets": [loc.to_dict() for loc in locs if not loc.is_personal]}
-
-
-@router.post("/promote")
-def promote_profile(
-    req: PromoteRequest,
-    _: str = Depends(require_auth),
-    obo_token: Optional[str] = Depends(get_user_token),
-):
-    """Promote a profile by copying it into a target shared/prod location.
-
-    Reads the source profile (under OBO) and writes a fresh copy — AGENT.md +
-    all skills — under ``target_base_path/<slug>``. The write succeeds only if
-    Unity Catalog grants the user write access to the target, so promotion is
-    governed by UC, not re-implemented here.
-    """
-    store = get_agent_studio_store()
-    email = _user_email(obo_token)
-    try:
-        source = store.get_profile(obo_token, req.profile_id)
-        skills = [s.to_dict() for s in (source.skills or [])]
-        python_tools = [t.to_dict() for t in (source.python_tools or [])]
-        promoted = store.save_profile(
-            obo_token,
-            email,
-            name=source.name,
-            prompt=source.prompt or "",
-            description=source.description,
-            model=source.model,
-            tools=source.tools,
-            skills=skills,
-            python_tools=python_tools,
-            store=req.target_store,
-            base_path=req.target_base_path,
-            profile_id=None,  # always create/overwrite at the target path
-        )
-        store.record_promotion(
-            obo_token,
-            target_store=promoted.store,
-            target_dir=req.target_base_path,
-            entry={
-                "at": _now_iso(),
-                "by": email,
-                "name": source.name,
-                "from_id": req.profile_id,
-                "from_label": source.location_label,
-                "to_id": promoted.id,
-                "to_label": promoted.location_label,
-            },
-        )
-    except AgentStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {"status": "promoted", "profile": promoted.to_dict()}
-
-
 @router.delete("/profiles/{profile_id}")
 def delete_profile(
     profile_id: str,
-    _: str = Depends(require_auth),
+    env: str = "dev",
+    w: WorkspaceClient = Depends(get_db_client),
     obo_token: Optional[str] = Depends(get_user_token),
 ):
     store = get_agent_studio_store()
+    me = _get_current_username(w)
+    existing = store.get_meta(profile_id, env=env)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    vis = existing.get("visibility") or VIS_PERSONAL
+    # Same authorization as editing: owner for personal, domain editor for
+    # domain, global admin for global.
+    _authorize_write(w, vis, existing.get("domain") or DEFAULT_DOMAIN, env)
+    if vis == VIS_PERSONAL and (existing.get("username") or "") != me:
+        require_global_admin(w, env)
     try:
-        store.delete_profile(obo_token, profile_id)
+        store.delete_profile(profile_id, env=env)
     except AgentStudioError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"status": "deleted"}

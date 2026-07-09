@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     Bot, Send, Save, RefreshCw, Trash2, Plus, Settings, FileText, Sparkles,
-    ListChecks, AlertTriangle, Wrench, ChevronDown, FolderOpen, Rocket, X, Play,
+    ListChecks, AlertTriangle, Wrench, ChevronDown, FolderOpen, Play,
     Code2, ShieldCheck, Search,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -33,24 +33,19 @@ interface ToolInfo {
     server_label?: string;
 }
 
+type Visibility = 'personal' | 'domain' | 'global';
+
 interface ProfileSummary {
     id: string;
-    store: string;
     name: string;
     description: string;
     model: string;
     tools: string[];
+    domain: string;
+    visibility: Visibility;
     location_label: string;
-    writable: boolean;
     author?: string;
     owned_by_me?: boolean;
-}
-
-interface StudioLocation {
-    store: string;
-    base_path: string;
-    label: string;
-    is_personal: boolean;
 }
 
 interface ReviewReport {
@@ -123,30 +118,25 @@ export const AgentStudio: React.FC = () => {
         }),
     });
 
-    // Target location for new profiles
-    const [store, setStore] = useState<string>('workspace');
-    const [basePath, setBasePath] = useState<string>('');
+    // Sharing / visibility (domain-scoped, like widgets & views)
+    const [visibility, setVisibility] = useState<Visibility>('personal');
+    const [domain, setDomain] = useState<string>('General');
 
     // Catalog data
     const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
-    const [locations, setLocations] = useState<StudioLocation[]>([]);
+    const [domains, setDomains] = useState<string[]>(['General']);
+    const [isAdmin, setIsAdmin] = useState<boolean>(false);
     const [tools, setTools] = useState<ToolInfo[]>([]);
     const [toolsLoading, setToolsLoading] = useState(false);
     const [toolFilter, setToolFilter] = useState('');
     const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
     const [showProfileMenu, setShowProfileMenu] = useState(false);
 
-    // Promotion
-    const [showPromote, setShowPromote] = useState(false);
-    const [promoteTargets, setPromoteTargets] = useState<StudioLocation[]>([]);
-    const [promoteTarget, setPromoteTarget] = useState<string>('');
-    const [isPromoting, setIsPromoting] = useState(false);
-
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         refreshProfiles();
-        refreshLocations();
+        refreshDomains();
         refreshTools();
     }, []);
 
@@ -179,19 +169,20 @@ export const AgentStudio: React.FC = () => {
         } catch (e) { console.error('list profiles failed', e); }
     };
 
-    const refreshLocations = async () => {
+    const refreshDomains = async () => {
         try {
-            const r = await fetch(`${API}/locations`);
-            const d = await r.json();
-            if (r.ok) {
-                setLocations(d.locations || []);
-                const personal = (d.locations || []).find((l: StudioLocation) => l.is_personal);
-                if (personal && !basePath) {
-                    setStore(personal.store);
-                    setBasePath(personal.base_path);
-                }
+            const [dr, pr] = await Promise.all([
+                fetch('/api/roles/my-domains'),
+                fetch('/api/roles/my-permissions'),
+            ]);
+            const dd = await dr.json();
+            if (dr.ok && Array.isArray(dd.domains) && dd.domains.length) {
+                setDomains(dd.domains);
+                setDomain(prev => (dd.domains.includes(prev) ? prev : dd.domains[0]));
             }
-        } catch (e) { console.error('list locations failed', e); }
+            const pp = await pr.json();
+            if (pr.ok) setIsAdmin(!!pp.is_admin);
+        } catch (e) { console.error('list domains failed', e); }
     };
 
     const refreshTools = async () => {
@@ -219,6 +210,7 @@ export const AgentStudio: React.FC = () => {
         setActiveSkillIdx(null);
         setPythonTools([]);
         setActivePyToolIdx(null);
+        setVisibility('personal');
         setReview(null);
         setReviewStale(false);
         skipStaleRef.current = true;   // resetting fields shouldn't mark anything stale
@@ -241,7 +233,8 @@ export const AgentStudio: React.FC = () => {
             setAgentPrompt(d.prompt || DEFAULT_PROMPT);
             setSkills((d.skills || []).map((s: any) => ({ slug: s.slug, name: s.name, description: s.description, content: s.content })));
             setPythonTools((d.python_tools || []).map((t: any) => ({ slug: t.slug, name: t.name, description: t.description, code: t.code })));
-            setStore(d.store);
+            setVisibility((d.visibility as Visibility) || 'personal');
+            if (d.domain) setDomain(d.domain);
             setActiveSkillIdx(null);
             setActivePyToolIdx(null);
             // Keep any prior review visible but mark it stale — it described a
@@ -346,9 +339,6 @@ export const AgentStudio: React.FC = () => {
 
     const handleSave = async () => {
         if (!name.trim()) { alert('Please provide an agent name.'); setRightTab('settings'); return; }
-        if (!profileId && store === 'volume' && !basePath) {
-            alert('Please choose a save location.'); setRightTab('settings'); return;
-        }
         setIsSaving(true);
         try {
             const r = await fetch(`${API}/profiles`, {
@@ -357,7 +347,7 @@ export const AgentStudio: React.FC = () => {
                 body: JSON.stringify({
                     name, prompt: agentPrompt, description, model,
                     tools: selectedTools, skills, python_tools: pythonTools,
-                    store, base_path: basePath || null,
+                    visibility, domain,
                     profile_id: profileId,
                     expected_updated_at: loadedUpdatedAt || null,
                 }),
@@ -365,6 +355,11 @@ export const AgentStudio: React.FC = () => {
             const d = await r.json();
             if (r.status === 409) {
                 alert(d.detail || 'This profile was changed elsewhere. Reload before saving.');
+                return;
+            }
+            if (r.status === 403) {
+                alert(d.detail || 'You do not have permission to share an agent in that domain.');
+                setRightTab('settings');
                 return;
             }
             if (!r.ok) { alert(`Save failed: ${d.detail || r.statusText}`); return; }
@@ -389,47 +384,6 @@ export const AgentStudio: React.FC = () => {
             resetToNew();
         } catch (e) {
             alert(`Error: ${e}`);
-        }
-    };
-
-    const openPromote = async () => {
-        if (!profileId) { alert('Save the profile before promoting it.'); return; }
-        setShowPromote(true);
-        try {
-            const r = await fetch(`${API}/promotion/targets`);
-            const d = await r.json();
-            if (r.ok) {
-                const targets: StudioLocation[] = (d.targets || []).map((t: any) => ({
-                    store: t.store, base_path: t.base_path, label: t.label, is_personal: false,
-                }));
-                setPromoteTargets(targets);
-                if (targets.length && !promoteTarget) {
-                    setPromoteTarget(`${targets[0].store}|${targets[0].base_path}`);
-                }
-            }
-        } catch (e) { console.error('promotion targets failed', e); }
-    };
-
-    const handlePromote = async () => {
-        if (!profileId || !promoteTarget) return;
-        const [tStore, ...rest] = promoteTarget.split('|');
-        const tBase = rest.join('|');
-        setIsPromoting(true);
-        try {
-            const r = await fetch(`${API}/promote`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ profile_id: profileId, target_store: tStore, target_base_path: tBase }),
-            });
-            const d = await r.json();
-            if (!r.ok) { alert(`Promotion failed: ${d.detail || r.statusText}`); return; }
-            await refreshProfiles();
-            setShowPromote(false);
-            alert(`Promoted "${name}" to ${tBase}.`);
-        } catch (e) {
-            alert(`Error: ${e}`);
-        } finally {
-            setIsPromoting(false);
         }
     };
 
@@ -588,12 +542,6 @@ export const AgentStudio: React.FC = () => {
                                 </div>
                             )}
                         </div>
-                        {profileId && (
-                            <button onClick={openPromote} title="Promote to a shared / prod location"
-                                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-emerald-600 rounded-md transition-colors font-medium">
-                                <Rocket size={14} /> Promote
-                            </button>
-                        )}
                         {profileId && (
                             <button onClick={handleDelete}
                                 className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-rose-600 rounded-md transition-colors font-medium">
@@ -808,22 +756,36 @@ export const AgentStudio: React.FC = () => {
                                     <p className="text-xs text-slate-500 mt-1">Leave blank to use the runtime default.</p>
                                 </div>
 
-                                {!profileId && (
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Save Location</label>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Sharing</label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <select
-                                            value={`${store}|${basePath}`}
-                                            onChange={e => { const [s, ...rest] = e.target.value.split('|'); setStore(s); setBasePath(rest.join('|')); }}
+                                            value={visibility}
+                                            onChange={e => setVisibility(e.target.value as Visibility)}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
-                                            {locations.map(l => (
-                                                <option key={`${l.store}|${l.base_path}`} value={`${l.store}|${l.base_path}`}>
-                                                    {l.label}{l.is_personal ? ' (private)' : ''}
-                                                </option>
-                                            ))}
+                                            <option value="personal">Personal — private to me</option>
+                                            <option value="domain">Domain — shared with a domain</option>
+                                            <option value="global" disabled={!isAdmin}>
+                                                Global — everyone{isAdmin ? '' : ' (admins only)'}
+                                            </option>
                                         </select>
-                                        <p className="text-xs text-slate-500 mt-1">Shared locations are UC Volumes; visibility follows Unity Catalog grants.</p>
+                                        {visibility === 'domain' && (
+                                            <select
+                                                value={domain}
+                                                onChange={e => setDomain(e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+                                                {domains.map(dm => (
+                                                    <option key={dm} value={dm}>{dm}</option>
+                                                ))}
+                                            </select>
+                                        )}
                                     </div>
-                                )}
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {visibility === 'personal' && 'Only you can see this agent. Saving requires no domain role.'}
+                                        {visibility === 'domain' && 'Visible to anyone with access to this domain. Saving requires editor rights on it.'}
+                                        {visibility === 'global' && 'Visible to every user of Command Center. Only global admins can save global agents.'}
+                                    </p>
+                                </div>
 
                                 <div>
                                     <div className="flex items-center justify-between mb-1.5">
@@ -938,47 +900,6 @@ export const AgentStudio: React.FC = () => {
                 </div>
             </div>
 
-            {showPromote && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowPromote(false)}>
-                    <div className="w-full max-w-md bg-slate-800 border border-slate-600 rounded-xl shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-                            <div className="flex items-center gap-2 text-slate-100 font-semibold">
-                                <Rocket size={16} className="text-emerald-400" /> Promote "{name}"
-                            </div>
-                            <button onClick={() => setShowPromote(false)} className="text-slate-400 hover:text-slate-200"><X size={18} /></button>
-                        </div>
-                        <div className="p-5 space-y-4">
-                            <p className="text-sm text-slate-400">
-                                Copies this profile (AGENT.md + skills) into a shared location. The write only
-                                succeeds if Unity Catalog grants you access to the target.
-                            </p>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-300 mb-1.5">Target location</label>
-                                {promoteTargets.length === 0 ? (
-                                    <p className="text-sm text-slate-500 italic">No shared targets available. Configure AGENT_STUDIO_PROMOTION_TARGETS or save a profile to a shared volume first.</p>
-                                ) : (
-                                    <select
-                                        value={promoteTarget}
-                                        onChange={e => setPromoteTarget(e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500">
-                                        {promoteTargets.map(t => (
-                                            <option key={`${t.store}|${t.base_path}`} value={`${t.store}|${t.base_path}`}>{t.label}</option>
-                                        ))}
-                                    </select>
-                                )}
-                            </div>
-                        </div>
-                        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-700">
-                            <button onClick={() => setShowPromote(false)} className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-md text-slate-200">Cancel</button>
-                            <button onClick={handlePromote} disabled={isPromoting || !promoteTarget}
-                                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded-md text-white font-medium">
-                                {isPromoting ? <RefreshCw size={14} className="animate-spin" /> : <Rocket size={14} />}
-                                {isPromoting ? 'Promoting...' : 'Promote'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
