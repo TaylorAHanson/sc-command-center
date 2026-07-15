@@ -118,6 +118,15 @@ resources:
           #   "/serving-endpoints", or a UC model name under an AI Gateway base path.
           - name: AGENT_RUNTIME_MODEL
             value: "databricks-claude-sonnet-4-6"
+          # AGENT_RUNTIME_LLM_AUTH — identity that signs the LLM (inference) call:
+          #   "sp" (DEFAULT) uses the app service principal so every signed-in user
+          #   can chat without an individual foundation-model entitlement (the FM
+          #   gateway otherwise 403s "Unauthorized access to Org" under some users'
+          #   OBO tokens). This affects INFERENCE ONLY — data-touching MCP tools
+          #   still run under the caller's OBO token, so Unity Catalog governs data
+          #   access per user. Set "obo" to sign the LLM call with the user's token.
+          - name: AGENT_RUNTIME_LLM_AUTH
+            value: "sp"
           # AGENT_RUNTIME_LLM_BASE_PATH — OpenAI-compatible base path for the chat
           #   agent's LLM (joined to the workspace host). "/serving-endpoints" for
           #   serving-endpoint names, or "/ai-gateway/mlflow/v1" for UC AI Gateway.

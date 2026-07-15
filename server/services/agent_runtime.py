@@ -11,10 +11,13 @@ platform):
   * AI Gateway MCP tools (discovered and invoked under OBO)
   * author-written Python tools (run in the existing credential-free sandbox)
 
-Everything runs as the signed-in user: the LLM call and every MCP tool use the
-forwarded OBO token, so Unity Catalog governs access per user. The loop streams
-drawer-shaped SSE frames (``chunk`` / ``tool_calls`` / ``final`` / ``error``)
-that the existing ``useAgentChat`` hook already renders.
+Data access runs as the signed-in user: every MCP tool uses the forwarded OBO
+token, so Unity Catalog governs data access per user. The LLM (inference) call
+is signed by the app service principal by default (see ``_llm_auth_mode``) so
+users don't each need a foundation-model entitlement — inference touches no user
+data, only the messages we hand it. The loop streams drawer-shaped SSE frames
+(``chunk`` / ``tool_calls`` / ``final`` / ``error``) that the existing
+``useAgentChat`` hook already renders.
 """
 from __future__ import annotations
 
@@ -38,6 +41,21 @@ def _model_default() -> str:
 def _llm_base_path() -> str:
     bp = os.environ.get("AGENT_RUNTIME_LLM_BASE_PATH", "/serving-endpoints")
     return bp if bp.startswith("/") else "/" + bp
+
+
+def _llm_auth_mode() -> str:
+    """Which identity signs the LLM (chat-completions) call: ``sp`` or ``obo``.
+
+    Default ``sp``: the LLM call is authorized by the app's service principal so
+    every signed-in user can chat without needing an individual foundation-model
+    entitlement (the FM gateway otherwise returns 403 "Unauthorized access to
+    Org" under some users' OBO tokens). This ONLY affects model inference — every
+    data-touching tool still runs under the user's OBO token, so Unity Catalog
+    governs data access per user exactly as before. Set to ``obo`` to sign the
+    LLM call with the user's token instead.
+    """
+    mode = (os.environ.get("AGENT_RUNTIME_LLM_AUTH", "sp") or "sp").strip().lower()
+    return "sp" if mode == "sp" else "obo"
 
 
 def _max_steps() -> int:
@@ -131,31 +149,67 @@ def _obo_ws(obo_token: Optional[str]):
     return get_agent_studio_store()._client(obo_token)
 
 
-def _llm_api_key(ws, obo_token: Optional[str]) -> str:
-    """The bearer used for the LLM call.
+def _sp_ws():
+    """Build a WorkspaceClient under the app's OWN identity (service principal in
+    the App runtime; local profile in dev). Reuses the store's builder with a
+    None OBO token so auth resolves identically to the rest of the app."""
+    from agent_studio_store import get_agent_studio_store
 
-    OBO (user token) is preferred so the model call runs as the user against the
-    AI Gateway; falls back to the client's own credentials in dev / when no token
-    was forwarded.
-    """
-    if obo_token:
-        return obo_token
+    return get_agent_studio_store()._client(None)
+
+
+def _bearer(ws) -> Optional[str]:
+    """Extract a raw bearer token from a WorkspaceClient's resolved auth headers."""
     try:
         auth = ws.config.authenticate()
         headers = auth() if callable(auth) else auth
         if headers:
-            return (headers.get("Authorization", "") or "").replace("Bearer ", "") or "dummy"
+            tok = (headers.get("Authorization", "") or "").replace("Bearer ", "")
+            if tok:
+                return tok
     except Exception as exc:  # noqa: BLE001
-        logger.debug("llm api key fallback failed: %s", exc)
-    return ws.config.token or os.environ.get("DATABRICKS_TOKEN") or "dummy"
+        logger.debug("bearer extraction failed: %s", exc)
+    return None
+
+
+def _llm_api_key(ws, obo_token: Optional[str]) -> str:
+    """The bearer used for the LLM call under OBO mode.
+
+    OBO (user token) is preferred so the model call runs as the user; falls back
+    to the client's own credentials in dev / when no token was forwarded.
+    """
+    if obo_token:
+        return obo_token
+    return _bearer(ws) or ws.config.token or os.environ.get("DATABRICKS_TOKEN") or "dummy"
 
 
 def _openai_client(ws, obo_token: Optional[str]):
+    """OpenAI-compatible client for the AI Gateway serving endpoints.
+
+    Auth for the LLM (inference) call is chosen by ``_llm_auth_mode``:
+      * ``sp`` (default): sign with the app service principal so every user can
+        chat without an individual FM entitlement. Inference does NOT touch user
+        data — tools still run under the caller's OBO token (unchanged).
+      * ``obo``: sign with the caller's forwarded token.
+    Falls back to OBO/local creds if an SP bearer can't be resolved (e.g. dev).
+    """
     from openai import OpenAI
 
     host = (ws.config.host or os.environ.get("DATABRICKS_HOST") or "").rstrip("/")
+    api_key: Optional[str] = None
+    if _llm_auth_mode() == "sp":
+        sp = _sp_ws()
+        api_key = _bearer(sp)
+        host = ((sp.config.host if sp else None) or host).rstrip("/")
+        if not api_key:
+            logger.warning(
+                "AGENT_RUNTIME_LLM_AUTH=sp but no service-principal bearer was "
+                "available; falling back to OBO/local creds for the LLM call."
+            )
+    if not api_key:
+        api_key = _llm_api_key(ws, obo_token)
     base_url = f"{host}{_llm_base_path()}"
-    return OpenAI(api_key=_llm_api_key(ws, obo_token), base_url=base_url)
+    return OpenAI(api_key=api_key, base_url=base_url)
 
 
 # --------------------------------------------------------------------- tools
