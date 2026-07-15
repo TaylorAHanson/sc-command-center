@@ -206,11 +206,32 @@ def _mcp_server_urls(host: str) -> List[str]:
     return urls
 
 
+def _is_internal_mcp_tool(server_url: str, name: str) -> bool:
+    """True for tools that are an INTERNAL transport mechanism, not an
+    agent-facing capability — so they're hidden from Agent Studio's picker, the
+    authoring assistant's catalog, AND the runtime.
+
+    The Genie MCP server exposes ``genie_poll_response`` purely to drain an async
+    query started by ``genie_ask``. The runtime drives that poll loop itself (see
+    ``services.agent_runtime._exec_genie``, which calls it directly — it does not
+    rely on discovery), so an author should never see or select it: it takes no
+    meaningful arguments on its own and would just be a dead reference.
+    """
+    from urllib.parse import urlparse
+
+    is_genie = "/mcp/genie" in (urlparse(server_url or "").path or "")
+    return is_genie and "poll" in (name or "").lower()
+
+
 def discover_mcp_tools(ws: WorkspaceClient) -> List[Dict[str, Any]]:
     """List tools exposed by the configured AI Gateway MCP servers under OBO.
 
     Degrades gracefully: a missing ``databricks-mcp`` package or an unreachable
     server yields a partial/empty catalog rather than failing the request.
+
+    Internal transport-only tools (e.g. Genie's ``genie_poll_response``) are
+    filtered out — see :func:`_is_internal_mcp_tool` — so authors only ever see
+    real agent-facing capabilities like ``genie_ask``.
     """
     host = ""
     try:
@@ -232,6 +253,8 @@ def discover_mcp_tools(ws: WorkspaceClient) -> List[Dict[str, Any]]:
             for tool in client.list_tools():
                 name = getattr(tool, "name", None) or ""
                 if not name:
+                    continue
+                if _is_internal_mcp_tool(server_url, name):
                     continue
                 out.append(
                     {

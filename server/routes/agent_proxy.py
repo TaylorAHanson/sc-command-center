@@ -1,16 +1,20 @@
 """
-Agent proxy routes.
+Agent chat routes for the Command Center EDH drawer.
 
-Forwards the Command Center EDH drawer's chat traffic to the **consolidated
-Self-Service agent runtime** (the qc-selfservice-v3 app's ``/api/v1/agent`` API)
-and adapts between the two wire shapes. The drawer frontend (``useAgentChat``)
-is unchanged: it still POSTs ``/api/agent/chat`` and consumes the same
-``data: {type, content}`` SSE events; this module translates those to/from the
-Self-Service runtime's request body and ``event: <type>`` SSE frames.
+Primary path (``AGENT_LOCAL_RUNTIME=true``, the default): the chat turn runs
+**in this process** via ``services.agent_runtime`` — a small tool-calling loop
+over the AI Gateway (LLM + MCP tools) plus author Python tools, all executed
+under the caller's own OBO token. This removes the previous app->app hop to the
+Self-Service runtime, whose second Databricks App front door produced per-user
+401/403s (it authorized the *calling app's* service principal, not the user).
 
-Routing through this backend (rather than calling the runtime directly from the
-browser) keeps the runtime's URL server-side and lets us forward the user's OBO
-token so the agent acts on behalf of the signed-in user.
+Fallback path (``AGENT_LOCAL_RUNTIME=false``): forward to the **consolidated
+Self-Service agent runtime** (``qc-selfservice-v3`` ``/api/v1/agent``) at
+``CONSOLIDATED_AGENT_URL``, adapting between the two wire shapes.
+
+Either way the drawer frontend (``useAgentChat``) is unchanged: it POSTs
+``/api/agent/chat`` and consumes ``data: {type, content}`` SSE events. Resolving
+saved profiles in-process (under the user's OBO token) is shared by both paths.
 
 Cutover notes:
 - The legacy standalone "Supply Chain Agent" is retired; ``CONSOLIDATED_AGENT_URL``
@@ -64,6 +68,17 @@ HOUSE_STYLE = (
     "Use plain text only.\n"
     "- Prefer clear, professional prose over emoji-driven formatting."
 )
+# Run the agent IN THIS PROCESS (no app->app hop to the Self-Service runtime).
+# Default on: this is now the primary path. Set AGENT_LOCAL_RUNTIME=false to fall
+# back to forwarding to CONSOLIDATED_AGENT_URL. Running locally consumes the
+# browser's x-forwarded-access-token in-process, so there is no second Databricks
+# App front door to authorize — which is what produced the per-user 401/403s.
+LOCAL_RUNTIME = os.environ.get("AGENT_LOCAL_RUNTIME", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+)
+
 INJECT_HOUSE_STYLE = os.environ.get("AGENT_INJECT_HOUSE_STYLE", "true").lower() not in (
     "0",
     "false",
@@ -278,6 +293,45 @@ async def proxy_chat(request: Request):
     # context. The drawer sends ChatMessage-shaped entries (id/type/content/
     # timestamp); pass them through verbatim (already bounded client-side).
     conversation_history = incoming.get("conversation_history") or None
+
+    # --- In-process runtime (primary path) --------------------------------
+    # Run the chat loop here, under the caller's own OBO token, instead of
+    # forwarding to a second app. Same SSE wire shape the drawer already reads.
+    if LOCAL_RUNTIME:
+        from services.agent_runtime import stream_chat
+
+        obo_token = (
+            request.headers.get("x-forwarded-access-token")
+            or request.headers.get("X-Forwarded-Access-Token")
+        )
+        # The drawer maps its transcript to {role, content}; normalize the
+        # runtime's expected shape (accept either `role` or `type`).
+        norm_history = None
+        if conversation_history:
+            norm_history = [
+                {
+                    "role": (m.get("role") or m.get("type") or ""),
+                    "content": m.get("content") or "",
+                }
+                for m in conversation_history
+                if isinstance(m, dict)
+            ]
+        logger.info("proxy_chat[local]: caller=%s obo_forwarded=%s", caller_email, bool(obo_token))
+        return StreamingResponse(
+            stream_chat(
+                obo_token=obo_token,
+                query=query,
+                ui_context=context.get("ui_context") or "",
+                profile=inline_profile if isinstance(inline_profile, dict) else None,
+                history=norm_history,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     body = {
         "query": query,

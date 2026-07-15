@@ -104,12 +104,45 @@ resources:
           # - name: TABLEAU_SERVER_URL
           #   value: "${var.tableau_server_url}"
           #
-          # Agent integration (consolidated from the former app.yaml):
+          # Agent integration:
+          # AGENT_LOCAL_RUNTIME — when true (DEFAULT), the drawer chat runs IN THIS
+          #   app's process: a small tool-calling loop over the AI Gateway (LLM +
+          #   MCP tools) plus author Python tools, all under the caller's own OBO
+          #   token. This removes the app->app hop to the Self-Service runtime that
+          #   caused per-user 401/403s (a second Databricks App front door). Set to
+          #   "false" to fall back to proxying CONSOLIDATED_AGENT_URL.
+          - name: AGENT_LOCAL_RUNTIME
+            value: "true"
+          # AGENT_RUNTIME_MODEL — model the in-process chat agent calls (a profile
+          #   may override per-agent). Serving-endpoint name under
+          #   "/serving-endpoints", or a UC model name under an AI Gateway base path.
+          - name: AGENT_RUNTIME_MODEL
+            value: "databricks-claude-sonnet-4-6"
+          # AGENT_RUNTIME_LLM_BASE_PATH — OpenAI-compatible base path for the chat
+          #   agent's LLM (joined to the workspace host). "/serving-endpoints" for
+          #   serving-endpoint names, or "/ai-gateway/mlflow/v1" for UC AI Gateway.
+          - name: AGENT_RUNTIME_LLM_BASE_PATH
+            value: "/serving-endpoints"
+          # AGENT_RUNTIME_MAX_STEPS — max tool-call rounds per turn before the agent
+          #   must answer (guards against tool loops). Default 8 leaves headroom for
+          #   a few model-driven `poll_sql_result` rounds on long-running SQL queries
+          #   (execute_sql returns rows inline for normal queries; slow ones hand back
+          #   a statement_id the model polls).
+          - name: AGENT_RUNTIME_MAX_STEPS
+            value: "8"
+          # AGENT_RUNTIME_GENIE_TIMEOUT — wall-clock budget (seconds) for the internal
+          #   Genie ask->poll loop. The Genie MCP server is async (genie_ask returns a
+          #   handle; the answer is drained by polling genie_poll_response), and the
+          #   runtime drives that loop so the model gets a finished answer from one
+          #   call. Genie typically takes 30-120s; the stream heartbeats during the wait.
+          - name: AGENT_RUNTIME_GENIE_TIMEOUT
+            value: "150"
+          # AGENT_RUNTIME_GENIE_POLL_MS — delay between Genie poll round-trips (ms).
+          - name: AGENT_RUNTIME_GENIE_POLL_MS
+            value: "3000"
           # CONSOLIDATED_AGENT_URL — URL of the consolidated Self-Service agent
-          #   runtime app (the edh-ssc / qc-selfservice-v3 Databricks App). The
-          #   Command Center proxies all /api/v1/agent calls here. MUST be set, or
-          #   the proxy falls back to http://localhost:8000 (itself) and every
-          #   agent request 405s.
+          #   runtime app (the edh-ssc / qc-selfservice-v3 Databricks App). Only
+          #   used when AGENT_LOCAL_RUNTIME=false (the legacy app->app proxy path).
           - name: CONSOLIDATED_AGENT_URL
             value: "${var.consolidated_agent_url}"
           # AGENT_BASE_URL — deprecated fallback for CONSOLIDATED_AGENT_URL
