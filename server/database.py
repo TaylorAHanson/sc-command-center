@@ -288,7 +288,17 @@ def get_db_connection(env: str = "dev"):
     # `databricks_postgres` database. Skipped locally (no PGDATABASE), where the
     # default `public` schema is owned by the connecting user.
     if os.environ.get("PGDATABASE"):
-        schema = env if env in ("dev", "test", "prod") else "app"
+        # Schema selection. By default we isolate per environment (dev/test/prod)
+        # in a role-owned schema — this was introduced to work around managed
+        # Lakebase not granting CREATE on `public`. But an existing deployment
+        # whose data predates that change has all its rows in `public`; pinning
+        # to an empty env schema makes widgets/views appear to vanish. Allow an
+        # explicit override (APP_DB_SCHEMA) so such a deployment can point the app
+        # back at the schema that actually holds its data (e.g. "public") without
+        # a data migration. Unset => per-env isolation (unchanged default).
+        schema = os.environ.get("APP_DB_SCHEMA", "").strip() or (
+            env if env in ("dev", "test", "prod") else "app"
+        )
         try:
             cur = conn.cursor()
             cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
