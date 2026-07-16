@@ -53,19 +53,10 @@ resources:
         #   - default branch == "production" (auto-created, not the instance name)
         #   - database id    == "databricks-postgres" (hyphen; the logical PG db
         #                        is "databricks_postgres" with an underscore)
-        # Which Lakebase project/database the app attaches to. Defaults to the
-        # bundle-managed instance (command-center-<env>-v1); a target can override
-        # var.lakebase_project / var.lakebase_database to point at a DIFFERENT
-        # (even externally-managed) instance — e.g. enterprise-dev points at the
-        # pre-existing `command-center` project so it keeps its historical data.
-        # NOTE: using a var string (not a ${resources...} ref) drops the implicit
-        # deploy-ordering edge to the managed instance; harmless here since the
-        # instances already exist, but a brand-new managed target may need a second
-        # apply if the app deploys before its instance is ready.
         - name: postgres
           postgres:
-            branch: projects/${var.lakebase_project}/branches/production
-            database: projects/${var.lakebase_project}/branches/production/databases/${var.lakebase_database}
+            branch: projects/${resources.database_instances.command_center_db.name}/branches/production
+            database: projects/${resources.database_instances.command_center_db.name}/branches/production/databases/databricks-postgres
             permission: CAN_CONNECT_AND_CREATE
       config:
         command:
@@ -94,7 +85,7 @@ resources:
           - name: LAKEBASE_ENABLED
             value: "${var.lakebase_enabled}"
           - name: LAKEBASE_INSTANCE_NAME
-            value: "${var.lakebase_project}"
+            value: "${resources.database_instances.command_center_db.name}"
           # ⚠️ TEMPORARY demo kill-switch — when "true", ALL role/permission checks
           # are bypassed and every signed-in user is treated as a global admin.
           # REVERT TO "false" (or remove) AFTER THE DEMO. See var.disable_permission_checks.
@@ -334,18 +325,6 @@ variables:
   lakebase_enabled:
     description: "Lakebase Enabled"
     default: "true"
-  lakebase_project:
-    description: >-
-      Lakebase autoscaling project the app attaches to. Defaults to the
-      bundle-managed instance (command-center-<env>-v1). Override per target to
-      point at a different/external instance (e.g. 'command-center').
-    default: "command-center-${var.environment}-v1"
-  lakebase_database:
-    description: >-
-      Database (branch database id) within lakebase_project. Default
-      'databricks-postgres' (the managed instance's logical db). Override per
-      target when repointing (e.g. 'command-center-dev').
-    default: "databricks-postgres"
   disable_permission_checks:
     description: "⚠️ TEMPORARY: when 'true', bypass ALL role/permission checks (everyone is a global admin). Revert to 'false' after the demo."
     default: "true"
@@ -424,23 +403,12 @@ targets:
       app_name: "sc-command-center-dev"
       environment: "dev"
       source_code_path: "."
-      # Repoint THIS env at the pre-existing `command-center` instance (which
-      # holds the historical data) instead of the fresh command-center-dev-v1.
-      # The app SP must have CAN_CONNECT_AND_CREATE on `command-center`.
-      lakebase_project: "command-center"
-      lakebase_database: "command-center-dev"
       sql_warehouse_id:
         lookup:
           warehouse: "Serverless Starter Warehouse"
     resources:
       apps:
         sc-command-center:
-          config:
-            # That instance's data lives in `public`; the app otherwise reads the
-            # per-env `dev` schema. Appended to base config.env for this target only.
-            env:
-              - name: APP_DB_SCHEMA
-                value: "public"
           # Dev-only: "Anyone in my organization can use" (grants the
           # `All account users` group CAN_USE). Appended to the base app
           # permissions; stage/prod stay restricted to explicit grants.
