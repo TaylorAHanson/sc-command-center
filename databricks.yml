@@ -227,7 +227,6 @@ resources:
         - "mcp.external"
         - "model-serving"
         - "ai-gateway"
-        - "unity-catalog"
 
       permissions:
         - level: CAN_MANAGE

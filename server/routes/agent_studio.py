@@ -231,15 +231,28 @@ async def test_datasource(req: DataSourceTestRequest, db_client: WorkspaceClient
             raise HTTPException(status_code=400, detail=f"API request failed: {e}")
     elif req.data_source_type == "databricks_api":
         try:
+            import requests
+            from routes.databricks_api import _auth_headers, _error_detail, _response_data
+
             path = req.data_source
             if not path.startswith('/'):
                 path = '/' + path
-            
-            # Use db_client to make an authenticated request
-            res = db_client.api_client.do(method="GET", path=path)
-            
-            schema = extract_schema_from_json(res)
-            return {"schema": schema, "sample": res[:2] if isinstance(res, list) else res}
+
+            # Use a direct HTTP response here so the SDK cannot replace a useful
+            # non-JSON 4xx body with its generic "unable to parse response" error.
+            url = f"{db_client.config.host.rstrip('/')}{path}"
+            response = requests.get(url, headers=_auth_headers(db_client), timeout=90)
+            data = _response_data(response)
+            if not response.ok:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Databricks API request failed: {_error_detail(response, data)}",
+                )
+
+            schema = extract_schema_from_json(data)
+            return {"schema": schema, "sample": data[:2] if isinstance(data, list) else data}
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Databricks API request failed: {e}")
     elif req.data_source_type == "sql":

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
 from databricks.sdk import WorkspaceClient
@@ -7,6 +7,40 @@ import logging
 from middleware.auth import get_db_client
 
 router = APIRouter()
+
+
+def _auth_headers(w: WorkspaceClient) -> Dict[str, str]:
+    """Resolve SDK authentication into ordinary HTTP headers."""
+    auth = w.config.authenticate()
+    headers = auth() if callable(auth) else auth
+    return dict(headers or {})
+
+
+def _response_data(resp) -> Any:
+    """Decode a Databricks response without losing a non-JSON response body."""
+    if not resp.content:
+        return {}
+    try:
+        return resp.json()
+    except ValueError:
+        return {"result": resp.text}
+
+
+def _error_detail(resp, data: Any) -> str:
+    """Return the actionable Databricks error instead of an SDK parse wrapper."""
+    if isinstance(data, dict):
+        message = data.get("message") or data.get("error") or data.get("detail")
+        error_code = data.get("error_code")
+        if isinstance(message, (dict, list)):
+            import json
+            message = json.dumps(message)
+        if message:
+            return f"{error_code}: {message}" if error_code else str(message)
+    if isinstance(data, str) and data.strip():
+        return data.strip()
+    text = (getattr(resp, "text", "") or "").strip()
+    return text or f"Databricks API returned HTTP {resp.status_code}"
+
 
 class DatabricksApiRequest(BaseModel):
     path: str
@@ -27,6 +61,7 @@ async def databricks_api_proxy(
     using the user's OBO token.
     """
     try:
+        import base64
         import requests
         from urllib.parse import urlparse
         
@@ -47,49 +82,28 @@ async def databricks_api_proxy(
 
         logging.info(f"Proxying {req.method} request to Databricks URL: {url}")
 
-        if "/serving-endpoints/" in url:
-            headers = w.config.authenticate()
-            logging.info(f"Proxying serving endpoint request. Method: {req.method.upper()}, URL: {url}, Payload keys: {list(req.body.keys()) if req.body else []}")
-            
-            resp = requests.request(
-                method=req.method.upper(),
-                url=url,
-                json=req.body,
-                headers=headers
-            )
-            try:
-                data = resp.json()
-            except Exception:
-                data = {"result": resp.text}
-            
-            if not resp.ok:
-                logging.error(f"Serving endpoint error response: {resp.status_code} - {resp.text}")
-                raise HTTPException(status_code=resp.status_code, detail=str(data))
-            return data
-        else:
-            if req.fileUpload and req.fileBase64:
-                import base64
-                
-                # Handle data URI scheme if present (e.g., data:image/png;base64,...)
-                b64_data = req.fileBase64
-                if "," in b64_data:
-                    b64_data = b64_data.split(",", 1)[1]
-                    
-                file_data = base64.b64decode(b64_data)
-                response = w.api_client.do(
-                    method=req.method.upper(),
-                    url=url,
-                    data=file_data,
-                    headers={"Content-Type": "application/octet-stream"}
-                )
-                return response
-            else:
-                response = w.api_client.do(
-                    method=req.method.upper(),
-                    url=url,
-                    body=req.body
-                )
-                return response
+        headers = _auth_headers(w)
+        request_kwargs: Dict[str, Any] = {
+            "method": req.method.upper(),
+            "url": url,
+            "headers": headers,
+            "timeout": 90,
+        }
+        if req.fileUpload and req.fileBase64:
+            # Handle data URI scheme if present (e.g., data:image/png;base64,...).
+            b64_data = req.fileBase64.split(",", 1)[-1]
+            request_kwargs["data"] = base64.b64decode(b64_data)
+            headers["Content-Type"] = "application/octet-stream"
+        elif req.body is not None:
+            request_kwargs["json"] = req.body
+
+        resp = requests.request(**request_kwargs)
+        data = _response_data(resp)
+        if not resp.ok:
+            detail = _error_detail(resp, data)
+            logging.error("Databricks API error response: %s - %s", resp.status_code, detail)
+            raise HTTPException(status_code=resp.status_code, detail=detail)
+        return data
     except HTTPException:
         raise
     except Exception as e:
