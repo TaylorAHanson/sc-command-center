@@ -221,6 +221,31 @@ def _sanitize(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "_", name or "")[:64] or "tool"
 
 
+def _as_text(value: Any) -> str:
+    """Normalize OpenAI/MCP text variants into a string.
+
+    Some Databricks model and MCP responses use structured content blocks
+    (lists/dicts) where the OpenAI-compatible schema normally advertises a
+    string. The runtime must not concatenate those values directly.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(_as_text(item) for item in value)
+    if isinstance(value, dict):
+        if "text" in value:
+            return _as_text(value["text"])
+        if "content" in value:
+            return _as_text(value["content"])
+        return json.dumps(value, default=str)
+    text = getattr(value, "text", None)
+    if text is not None and text is not value:
+        return _as_text(text)
+    return str(value)
+
+
 def _parse_python_signature(code: str) -> Tuple[Optional[str], List[str]]:
     """Return (function_name, [param_names]) for the first top-level def."""
     m = re.search(r"^\s*def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", code or "", re.M)
@@ -273,10 +298,10 @@ def _parse_mcp_result(res) -> Tuple[Optional[Dict[str, Any]], str, bool]:
     parts: List[str] = []
     for block in (getattr(res, "content", None) or []):
         text = getattr(block, "text", None)
-        if text:
-            parts.append(text)
+        if text is not None:
+            parts.append(_as_text(text))
         elif getattr(block, "data", None) is not None:
-            parts.append(json.dumps(block.data))
+            parts.append(_as_text(block.data))
     return (
         structured if isinstance(structured, dict) else None,
         "\n".join(p for p in parts if p),
@@ -334,7 +359,7 @@ def _exec_genie(client, ask_tool: str, args: Dict[str, Any]) -> str:
             return f"Genie poll error: {ptext or 'unknown error'}"
         payload = _payload_of(pstruct, ptext)
         status = str(payload.get("status") or payload.get("state") or "").upper()
-        answer = payload.get("final_answer") or ""
+        answer = _as_text(payload.get("final_answer"))
         if answer:
             last_answer = answer
         if status in ("COMPLETED", "SUCCESS", "DONE"):
@@ -584,9 +609,10 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
                 choice = chunk.choices[0]
                 delta = choice.delta
                 if getattr(delta, "content", None):
-                    turn_text += delta.content
-                    full_text += delta.content
-                    put(_sse({"type": "chunk", "content": delta.content}))
+                    content = _as_text(delta.content)
+                    turn_text += content
+                    full_text += content
+                    put(_sse({"type": "chunk", "content": content}))
                 for tc in (getattr(delta, "tool_calls", None) or []):
                     slot = tool_acc.setdefault(tc.index, {"id": "", "name": "", "args": ""})
                     if tc.id:
@@ -595,7 +621,7 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
                     if fn and fn.name:
                         slot["name"] = fn.name
                     if fn and fn.arguments:
-                        slot["args"] += fn.arguments
+                        slot["args"] += _as_text(fn.arguments)
                 if choice.finish_reason:
                     finish = choice.finish_reason
 
