@@ -222,11 +222,11 @@ def _sanitize(name: str) -> str:
 
 
 def _as_text(value: Any) -> str:
-    """Normalize OpenAI/MCP text variants into a string.
+    """Normalize user-visible OpenAI/MCP content into a string.
 
     Some Databricks model and MCP responses use structured content blocks
     (lists/dicts) where the OpenAI-compatible schema normally advertises a
-    string. The runtime must not concatenate those values directly.
+    string. Internal reasoning/signature blocks must never be rendered.
     """
     if value is None:
         return ""
@@ -235,11 +235,29 @@ def _as_text(value: Any) -> str:
     if isinstance(value, list):
         return "".join(_as_text(item) for item in value)
     if isinstance(value, dict):
+        block_type = str(value.get("type") or "").lower()
+        if block_type in {
+            "reasoning",
+            "reasoning_content",
+            "summary",
+            "summary_text",
+            "signature",
+        }:
+            return ""
         if "text" in value:
             return _as_text(value["text"])
         if "content" in value:
             return _as_text(value["content"])
         return json.dumps(value, default=str)
+    block_type = str(getattr(value, "type", "") or "").lower()
+    if block_type in {
+        "reasoning",
+        "reasoning_content",
+        "summary",
+        "summary_text",
+        "signature",
+    }:
+        return ""
     text = getattr(value, "text", None)
     if text is not None and text is not value:
         return _as_text(text)

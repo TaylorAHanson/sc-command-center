@@ -9,11 +9,20 @@ from services.agent_runtime import _as_text, _parse_mcp_result  # noqa: E402
 
 def test_as_text_handles_structured_content_blocks():
     value = [
+        {
+            "type": "reasoning",
+            "summary": [{"type": "summary_text", "text": "private", "signature": "secret"}],
+        },
         {"type": "text", "text": "Available "},
         {"type": "text", "text": ["tools", ":"]},
         {"content": " SQL"},
     ]
     assert _as_text(value) == "Available tools: SQL"
+
+
+def test_as_text_hides_object_reasoning_blocks():
+    block = type("Block", (), {"type": "reasoning", "text": "private chain of thought"})()
+    assert _as_text(block) == ""
 
 
 def test_parse_mcp_result_handles_list_text():
@@ -30,7 +39,11 @@ def test_parse_mcp_result_handles_list_text():
 
 
 if __name__ == "__main__":
-    tests = [test_as_text_handles_structured_content_blocks, test_parse_mcp_result_handles_list_text]
+    tests = [
+        test_as_text_handles_structured_content_blocks,
+        test_as_text_hides_object_reasoning_blocks,
+        test_parse_mcp_result_handles_list_text,
+    ]
     for test in tests:
         test()
         print(f"PASS {test.__name__}")
