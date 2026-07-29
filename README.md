@@ -121,6 +121,12 @@ RBAC is under development and will be fully implemented in a future release. Add
 
 ## Contributing to the Codebase
 
+> **Working with an AI coding agent?** Start with [`AGENTS.md`](AGENTS.md), plus
+> [`server/AGENTS.md`](server/AGENTS.md) and [`src/AGENTS.md`](src/AGENTS.md) for
+> the backend and frontend. Those files carry the verified commands, the
+> environment/schema model, and the platform gotchas; where they disagree with
+> the sections below, they are the more current source.
+
 ### Repository Structure
 ```
 client/

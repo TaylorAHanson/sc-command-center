@@ -30,6 +30,7 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
     const Icon = meta.icon;
     const [items, setItems] = useState<TaxonomyItem[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [newName, setNewName] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<TaxonomyItem | null>(null);
@@ -40,12 +41,18 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
         setLoading(true);
         try {
             const res = await fetch(`/api/taxonomy/${kind}`);
-            const data = await res.json();
-            if (res.ok) {
-                setItems(data[kind] || []);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                // Distinguishing a failed read from a genuinely empty table
+                // matters here: "No categories yet" invites an admin to re-add
+                // everything on top of data that is still there.
+                throw new Error(data.detail || `${res.statusText} (HTTP ${res.status})`);
             }
-        } catch (e) {
+            setItems(data[kind] || []);
+            setError(null);
+        } catch (e: any) {
             console.error(`Error loading ${kind}:`, e);
+            setError(e?.message || String(e));
         } finally {
             setLoading(false);
         }
@@ -167,6 +174,14 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {loading ? (
                                     <tr><td colSpan={3} className="px-6 py-8 text-center text-gray-500 text-sm">Loading...</td></tr>
+                                ) : error ? (
+                                    <tr><td colSpan={3} className="px-6 py-8 text-center text-sm">
+                                        <p className="text-red-600 font-medium">Could not load {meta.label.toLowerCase()}.</p>
+                                        <p className="text-gray-500 mt-1">{error}</p>
+                                        <button onClick={load} className="mt-3 px-3 py-1.5 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5">
+                                            <RefreshCw size={14} /> Retry
+                                        </button>
+                                    </td></tr>
                                 ) : items.length === 0 ? (
                                     <tr><td colSpan={3} className="px-6 py-8 text-center text-gray-500 text-sm">No {meta.label.toLowerCase()} yet.</td></tr>
                                 ) : (

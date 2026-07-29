@@ -107,7 +107,15 @@ async def log_requests(request: Request, call_next):
 @app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "service": "Enterprise Command Center"}
+    # `environment` rides along here rather than on its own route because the SPA
+    # needs it before auth resolves (it labels the browser tab) and this is the
+    # one endpoint that answers unauthenticated.
+    from config.settings import get_app_environment
+    return {
+        "status": "healthy",
+        "service": "Enterprise Command Center",
+        "environment": get_app_environment(),
+    }
 
 # Debug endpoint
 @app.get("/debug")

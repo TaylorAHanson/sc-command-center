@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { AdminPage } from '../pages/AdminPage';
-import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot } from 'lucide-react';
+import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText } from 'lucide-react';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
 import { AgentPanel } from './AgentPanel';
@@ -14,6 +14,7 @@ import { AboutPage } from '../pages/AboutPage';
 import { WidgetStudio } from '../pages/WidgetStudio';
 import { AgentStudio } from '../pages/AgentStudio';
 import { UserGuidePage } from '../pages/UserGuidePage';
+import { ReleaseNotesPage } from '../pages/ReleaseNotesPage';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<string | null>(() => {
@@ -453,6 +454,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     <BookOpen className="w-4 h-4" />
                     <span>User Guide</span>
                   </button>
+                  <button onClick={() => setCurrentPage('release-notes')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'release-notes' ? "bg-qualcomm-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
+                    <ScrollText className="w-4 h-4" />
+                    <span>Release Notes</span>
+                  </button>
                   {canAccessAdmin && (
                     <button onClick={() => setCurrentPage('admin')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'admin' ? "bg-qualcomm-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
                       <Shield className="w-4 h-4" />
@@ -553,6 +558,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         {currentPage ? (
           <main className="flex-1 overflow-hidden bg-gray-50">
             {currentPage === 'user-guide' && <UserGuidePage />}
+            {currentPage === 'release-notes' && <ReleaseNotesPage />}
             {currentPage === 'settings' && <SettingsPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}

@@ -75,8 +75,73 @@ improves how well the Assistant can reason about it.
 
 ## Output Format
 
-- Return ONLY the TSX component code inside a `tsx ...`  markdown code block.
-- You MUST be as concise as possible to avoid hitting token limits. Do not add unnecessary comments, overly complex utility functions, or massive inline datasets. Keep the code compact.
-- You may include brief conversational text outside of the code block.
-- Just the raw code text starting with your component `export default function...` or similar.
+There are two ways to return code, and picking the right one matters: re-emitting
+a large component wastes the response budget and risks being cut off mid-file.
+
+### Editing a widget that already exists
+
+When the current code is provided to you, **send only the regions you are
+changing**, as one or more search-and-replace blocks:
+
+```
+<<<<<<< SEARCH
+  const [rows, setRows] = useState([]);
+=======
+  const [rows, setRows] = useState([]);
+  const [sortKey, setSortKey] = useState('name');
+>>>>>>> REPLACE
+```
+
+- The SEARCH text must be copied **exactly** from the current code, character for
+  character, including indentation. It is located by literal match.
+- Include enough surrounding lines that the SEARCH text appears exactly once in
+  the file.
+- Emit as many blocks as you need. They are applied in order, top to bottom.
+- Do not put line numbers in a block, and do not wrap blocks in a `tsx` fence.
+- Keep each block tight — the lines you are changing plus a little context, never
+  the whole component.
+- Only if the change is genuinely pervasive (a rewrite, not an edit) may you fall
+  back to returning the complete component in a `tsx` block instead.
+
+### Creating a new widget
+
+Return the component inside a single `tsx` markdown code block, starting with
+`export default function ...` or similar. Be as concise as you can: no
+unnecessary comments, no elaborate utility layers, no large inline datasets.
+
+### Both cases
+
+- You may include brief conversational text outside the blocks. Say what you
+  changed and why in a sentence or two.
+- Never include the same code twice.
+
+### Proposing widget settings
+
+When you create a widget, or when you change what it fundamentally does, also
+emit a `widget-meta` block so the Configuration tab is filled in for the user:
+
+```widget-meta
+{
+  "name": "Open Purchase Orders",
+  "description": "Open POs by supplier with age and value, refreshed hourly.",
+  "helpText": "Click a supplier to filter. Sorted by value descending.",
+  "category": "Operations",
+  "domain": "Supply Chain",
+  "defaultW": 6,
+  "defaultH": 6,
+  "isExecutable": false
+}
+```
+
+- Every key is optional; omit what you have no basis for.
+- `category` and `domain` **must** be chosen from the allowed values given to you.
+  Pick the closest fit — these are broad buckets and something almost always
+  applies. Omit one only when nothing in the list is remotely related; never
+  invent a value.
+- `defaultW` is grid columns (1-12), `defaultH` is grid rows. A chart or table
+  usually wants 6x6 or wider; a single metric tile 3x3.
+- `isExecutable` is true only if the widget submits, runs, or changes something —
+  it drives the confirmation prompt and the audit trail.
+- These are suggestions. Anything the user has already filled in themselves is
+  kept, so propose values freely for a new widget.
 

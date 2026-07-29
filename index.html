@@ -5,7 +5,9 @@
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>client</title>
+  <!-- App.tsx appends the environment (" - Dev", " - Stage", …) once /api/health
+       answers; prod keeps this bare title. -->
+  <title>Command Center</title>
   <!-- Babel Standalone for Widget Studio runtime TSX compilation.
        PIN THE VERSION. The URL was previously unpinned ("latest"), so an upstream
        @babel/standalone release silently changed how widget `import` statements

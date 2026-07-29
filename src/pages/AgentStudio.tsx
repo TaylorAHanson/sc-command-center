@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { AgentConversation } from '../components/AgentConversation';
+import { CodeEditor } from '../components/CodeEditor';
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string };
 
@@ -675,12 +676,13 @@ export const AgentStudio: React.FC = () => {
                                             placeholder="One-line description of what this tool does"
                                             className="bg-slate-900 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
                                         />
-                                        <textarea
+                                        <CodeEditor
                                             value={pythonTools[activePyToolIdx].code}
-                                            onChange={e => updatePyTool(activePyToolIdx, { code: e.target.value })}
-                                            spellCheck={false}
+                                            onChange={code => updatePyTool(activePyToolIdx, { code })}
+                                            language="python"
                                             placeholder={DEFAULT_PY_TOOL}
-                                            className="flex-1 bg-transparent text-slate-300 font-mono text-sm resize-none focus:outline-none border border-slate-800 rounded p-3"
+                                            className="flex-1 rounded border border-slate-800 bg-[#1e1e1e]"
+                                            ariaLabel="Python tool source"
                                         />
                                     </div>
                                 )}
@@ -799,6 +801,11 @@ export const AgentStudio: React.FC = () => {
                                             <RefreshCw size={12} className={toolsLoading ? 'animate-spin' : ''} /> Refresh
                                         </button>
                                     </div>
+                                    <p className="text-xs text-slate-500 mb-2">
+                                        Every agent can also look up how the Command Center works (widgets,
+                                        views, roles, promotion) — that tool is always attached and is not
+                                        listed here.
+                                    </p>
                                     {tools.length > 0 && (
                                         <div className="relative mb-2">
                                             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
@@ -813,7 +820,7 @@ export const AgentStudio: React.FC = () => {
                                     <div className="border border-slate-700 rounded-lg max-h-[28rem] overflow-y-auto divide-y divide-slate-800">
                                         {tools.length === 0 ? (
                                             <div className="p-3 text-xs text-slate-500 italic">
-                                                {toolsLoading ? 'Discovering tools...' : 'No tools discovered from the AI Gateway MCP. The agent will have no tools until some are exposed.'}
+                                                {toolsLoading ? 'Discovering tools...' : 'No tools discovered from the AI Gateway MCP. Until some are exposed, the agent can only answer from its prompt and the app guide.'}
                                             </div>
                                         ) : (() => {
                                             const q = toolFilter.trim().toLowerCase();

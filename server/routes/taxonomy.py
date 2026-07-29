@@ -4,6 +4,8 @@ These are surfaced to admins so they can keep the dropdowns in Widget Studio
 and the Widget Library in sync with their organization's terminology without
 having to ship a frontend release.
 """
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from psycopg2.extras import RealDictCursor
@@ -15,18 +17,36 @@ from routes.roles import require_global_admin
 
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
 
 class TaxonomyItem(BaseModel):
     name: str
 
 
 def _list(table: str, env: str):
-    conn = get_db_connection(env)
-    c = conn.cursor(cursor_factory=RealDictCursor)
-    c.execute(f"SELECT id, name, timestamp FROM {table} ORDER BY name ASC")
-    rows = [dict(r) for r in c.fetchall()]
-    conn.close()
-    return rows
+    """Read a taxonomy table.
+
+    Fails loudly (503) instead of returning an empty list. The dropdowns that
+    consume this cannot tell "no categories exist" from "the read failed", so a
+    transient Lakebase error — an idle autoscaling instance waking up, an
+    expired credential — used to render as silently empty pickers.
+    """
+    conn = None
+    try:
+        conn = get_db_connection(env)
+        c = conn.cursor(cursor_factory=RealDictCursor)
+        c.execute(f"SELECT id, name, timestamp FROM {table} ORDER BY name ASC")
+        return [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        logger.exception("Failed to list %s (env=%s)", table, env)
+        raise HTTPException(status_code=503, detail=f"Could not load {table}: {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _create(table: str, name: str, env: str):

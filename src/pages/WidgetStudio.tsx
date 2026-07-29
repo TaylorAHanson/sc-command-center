@@ -5,6 +5,7 @@ import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widge
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
 import { BaseWidget } from '../components/BaseWidget';
+import { CodeEditor } from '../components/CodeEditor';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
 import { useDashboardStore } from '../store/dashboardStore';
 import ReactMarkdown from 'react-markdown';
@@ -63,6 +64,11 @@ class WidgetErrorBoundary extends React.Component<
 
 const WIDGET_STUDIO_SESSION_KEY = "sc_widget_studio_session";
 
+// The settings the agent is allowed to propose. Same key names as the
+// `widget-meta` block described in server/routes/agent_instructions.md.
+const SETTING_KEYS = ['name', 'description', 'helpText', 'category', 'domain', 'defaultW', 'defaultH', 'isExecutable'];
+const DEFAULT_WIDGET_NAME = "New Custom Widget";
+
 // Basic skeleton for the page
 export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneWidgetId, onClose }) => {
     // Helper to genericize session storage retrieval
@@ -118,6 +124,21 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const MAX_AUTO_RETRIES = 3;
     const [availableDomains, setAvailableDomains] = useState<string[]>(['General']);
     const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+    // Configuration fields the user has decided for themselves (typed into,
+    // picked, or inherited by opening an existing widget). The agent proposes
+    // values for the rest; it never overwrites what's in here.
+    const touchedSettingsRef = useRef<Set<string>>(new Set());
+    const markSettingTouched = (key: string) => { touchedSettingsRef.current.add(key); };
+
+    // Bumped by the Reload button. Recompiling produces a fresh component
+    // function, which React treats as a different type and therefore remounts —
+    // that's what re-fires mount-time data loads without touching the code.
+    const [previewNonce, setPreviewNonce] = useState(0);
+    const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
+    const [isLoadingTaxonomy, setIsLoadingTaxonomy] = useState(true);
+    // Monotonic counter so a slow response from an earlier load can never
+    // overwrite the result of a later one.
+    const taxonomyRunRef = useRef(0);
     const [variables, setVariables] = useState<Record<string, any>>({});
 
     const setVariable = React.useCallback((key: string, value: any) => {
@@ -126,29 +147,50 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
     const { version: registryVersion } = useWidgetRegistry();
 
-    useEffect(() => {
-        const existingDomains = getWidgetDomains();
+    // Loads the category/domain pickers. Anything that fails here leaves the
+    // previously-loaded values in place and surfaces a retry, because quietly
+    // falling back to an empty list makes a transient backend error look like
+    // an administrator wiped the taxonomy.
+    const loadTaxonomy = React.useCallback(async () => {
+        const run = ++taxonomyRunRef.current;
+        const isCurrent = () => run === taxonomyRunRef.current;
+        setIsLoadingTaxonomy(true);
 
-        // Merge admin-managed domains, role-derived domains, and any seen on existing widgets.
-        const fetchDomains = Promise.all([
-            fetch('/api/taxonomy/domains').then(r => r.ok ? r.json() : { domains: [] }).catch(() => ({ domains: [] })),
-            fetch('/api/roles/my-domains').then(r => r.ok ? r.json() : { domains: [] }).catch(() => ({ domains: [] })),
-        ]);
+        const readJson = async (url: string) => {
+            const r = await fetch(url);
+            if (!r.ok) {
+                let detail = r.statusText;
+                try { detail = (await r.json()).detail || detail; } catch { /* non-JSON body */ }
+                throw new Error(`${detail} (HTTP ${r.status})`);
+            }
+            return r.json();
+        };
 
-        fetchDomains.then(([adminRes, rolesRes]) => {
+        try {
+            // Role-derived domains are supplementary; the admin-managed lists are
+            // the ones worth failing the load over.
+            const [adminRes, catRes, rolesRes] = await Promise.all([
+                readJson('/api/taxonomy/domains'),
+                readJson('/api/taxonomy/categories'),
+                readJson('/api/roles/my-domains').catch(() => ({ domains: [] })),
+            ]);
+            if (!isCurrent()) return;
+
             const adminDomains: string[] = (adminRes.domains || []).map((d: any) => d.name).filter(Boolean);
             const roleDomains: string[] = rolesRes.domains || [];
+            const existingDomains = getWidgetDomains();
             setAvailableDomains(Array.from(new Set(['General', ...adminDomains, ...existingDomains, ...roleDomains])));
-        });
+            setAvailableCategories((catRes.categories || []).map((c: any) => c.name).filter(Boolean));
+            setTaxonomyError(null);
+        } catch (e: any) {
+            if (!isCurrent()) return;
+            setTaxonomyError(e?.message || String(e));
+        } finally {
+            if (isCurrent()) setIsLoadingTaxonomy(false);
+        }
+    }, []);
 
-        fetch('/api/taxonomy/categories')
-            .then(r => r.ok ? r.json() : { categories: [] })
-            .then(data => {
-                const names: string[] = (data.categories || []).map((c: any) => c.name).filter(Boolean);
-                setAvailableCategories(names);
-            })
-            .catch(() => setAvailableCategories([]));
-    }, [registryVersion]);
+    useEffect(() => { loadTaxonomy(); }, [registryVersion, loadTaxonomy]);
 
     // Save state changes to session storage
     useEffect(() => {
@@ -173,7 +215,11 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 if (!w) return;
                 
                 const isClone = !!cloneWidgetId;
-                
+
+                // A published widget's settings were decided by a person, so the
+                // agent leaves all of them alone from here on.
+                SETTING_KEYS.forEach(markSettingTouched);
+
                 setEditingId(isClone ? null : w.id);
                 setWidgetName(isClone ? `Clone of ${w.name}` : w.name);
                 setWidgetDescription(w.description || '');
@@ -299,7 +345,61 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         // add small debounce
         const timeoutid = setTimeout(evaluateCode, 500);
         return () => clearTimeout(timeoutid);
-    }, [code]);
+    }, [code, previewNonce]);
+
+    const handleReloadPreview = () => {
+        setViewMode('preview');
+        setPreviewError(null);
+        setPreviewComponent(null);
+        // A deliberate reload shouldn't consume the compile-error retry budget.
+        autoRetryCountRef.current = 0;
+        setPreviewNonce(n => n + 1);
+    };
+
+    // Applies the settings the agent proposed — but only to fields the user has
+    // neither touched nor already filled in. Returns labels for what changed so
+    // the conversation can say so rather than silently editing another tab.
+    const applySuggestedSettings = (settings?: Record<string, any>): string[] => {
+        if (!settings) return [];
+        const applied: string[] = [];
+
+        const take = (key: string, label: string, current: any, isUnset: boolean, apply: (value: any) => void) => {
+            const value = settings[key];
+            if (value === undefined || value === null || value === current) return;
+            if (touchedSettingsRef.current.has(key) || !isUnset) return;
+            apply(value);
+            // Filled once. From here the field belongs to the user.
+            markSettingTouched(key);
+            applied.push(label);
+        };
+
+        take('name', 'name', widgetName, !widgetName.trim() || widgetName === DEFAULT_WIDGET_NAME, setWidgetName);
+        take('description', 'description', widgetDescription, !widgetDescription.trim(), setWidgetDescription);
+        take('helpText', 'help text', widgetHelpText, !widgetHelpText.trim(), setWidgetHelpText);
+        // The backend already restricts these to the values we sent it. Checking
+        // again is cheap, and an off-list value would leave a select with nothing
+        // selected rather than failing visibly.
+        if (availableCategories.includes(settings.category)) {
+            take('category', 'category', widgetCategory, !widgetCategory || widgetCategory === 'Custom', setWidgetCategory);
+        }
+        if (availableDomains.includes(settings.domain)) {
+            take('domain', 'domain', widgetDomain, !widgetDomain, setWidgetDomain);
+        }
+        take('defaultW', 'width', defaultW, defaultW === 6, setDefaultW);
+        take('defaultH', 'height', defaultH, defaultH === 6, setDefaultH);
+        take('isExecutable', 'executable action', isExecutable, isExecutable === false, setIsExecutable);
+
+        return applied;
+    };
+
+    const describeGeneration = (result: any, fallback: string): string => {
+        const applied = applySuggestedSettings(result?.settings);
+        let text = result?.explanation || fallback;
+        if (applied.length) {
+            text += `\n\n_Filled in ${applied.join(', ')} on the Configuration tab. Change anything you like — I won't touch those again._`;
+        }
+        return text;
+    };
 
     const handleGenerate = async (autoRetryError?: string) => {
         if (!prompt && !autoRetryError) return;
@@ -333,7 +433,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     data_source: dataSourceType !== 'none' ? dataSource : null,
                     data_source_type: dataSourceType !== 'none' ? dataSourceType : null,
                     configuration_mode: configMode,
-                    config_schema: dataSourceType !== 'none' ? [{ key: 'dataSource', label: 'Data Source', type: 'textarea' }, ...configSchema] : configSchema
+                    config_schema: dataSourceType !== 'none' ? [{ key: 'dataSource', label: 'Data Source', type: 'textarea' }, ...configSchema] : configSchema,
+                    available_categories: availableCategories,
+                    available_domains: availableDomains,
+                    locked_settings: SETTING_KEYS.filter(k => touchedSettingsRef.current.has(k))
                 })
             });
 
@@ -365,11 +468,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                 setCode(result.code);
                             }
 
-                            if (!autoRetryError) {
-                                setMessages([...newMessages, { role: 'assistant', content: result.explanation || "Widget code generated." }]);
-                            } else {
-                                setMessages([...newMessages, { role: 'assistant', content: result.explanation || "I've attempted to fix the compilation error." }]);
-                            }
+                            setMessages([...newMessages, {
+                                role: 'assistant',
+                                content: describeGeneration(
+                                    result,
+                                    autoRetryError ? "I've attempted to fix the compilation error." : "Widget code generated."
+                                )
+                            }]);
                         } else if (statusData.status === 'failed') {
                             clearInterval(pollInterval);
                             setIsGenerating(false);
@@ -391,11 +496,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             } else if (data.code) {
                 // Fallback if backend hasn't updated yet or returns directly
                 setCode(data.code);
-                if (!autoRetryError) {
-                    setMessages([...newMessages, { role: 'assistant', content: data.explanation || "Widget code generated." }]);
-                } else {
-                    setMessages([...newMessages, { role: 'assistant', content: data.explanation || "I've attempted to fix the compilation error." }]);
-                }
+                setMessages([...newMessages, {
+                    role: 'assistant',
+                    content: describeGeneration(
+                        data,
+                        autoRetryError ? "I've attempted to fix the compilation error." : "Widget code generated."
+                    )
+                }]);
                 setIsGenerating(false);
             }
         } catch (e) {
@@ -534,8 +641,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const handleReset = () => {
         if (!confirm("Are you sure you want to reset the Widget Studio? All unsaved changes will be lost.")) return;
         sessionStorage.removeItem(WIDGET_STUDIO_SESSION_KEY);
+        touchedSettingsRef.current.clear();
         setEditingId(null);
-        setWidgetName("New Custom Widget");
+        setWidgetName(DEFAULT_WIDGET_NAME);
         setWidgetDescription("");
         setWidgetCategory("");
         setWidgetDomain("");
@@ -605,6 +713,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             }
             // An import always creates a NEW widget; clear editingId so Publish inserts.
             setEditingId(null);
+            // The imported file's settings were somebody's decision; keep them.
+            SETTING_KEYS.forEach(markSettingTouched);
             setWidgetName(w.name || 'Imported Widget');
             setWidgetDescription(w.description || '');
             setWidgetHelpText(w.help_text || '');
@@ -769,6 +879,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     >
                         <Settings size={14} /> Configuration
                     </button>
+                    <button
+                        onClick={handleReloadPreview}
+                        disabled={!code}
+                        className="ml-auto mb-1 px-3 py-1.5 flex items-center gap-2 rounded-md text-sm text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        title="Re-run the widget: recompile and remount so mount-time data loads fire again"
+                    >
+                        <RefreshCw size={14} /> Reload
+                    </button>
                 </div>
 
                 <div className="flex-1 relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CjxjaXJjbGUgY3g9IjIiIGN5PSIyIiByPSIxIiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMDMpIi8+Cjwvc3ZnPg==')]">
@@ -856,14 +974,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             </div>
                         </div>
                     ) : viewMode === 'code' ? (
-                        <div className="absolute inset-0 flex flex-col bg-[#1e1e1e] p-4">
-                            <textarea
-                                className="w-full h-full bg-transparent text-slate-300 font-mono text-sm resize-none focus:outline-none !border-none !ring-0"
-                                value={code}
-                                onChange={(e) => setCode(e.target.value)}
-                                spellCheck={false}
-                            />
-                        </div>
+                        <CodeEditor
+                            className="absolute inset-0 bg-[#1e1e1e]"
+                            language="tsx"
+                            value={code}
+                            onChange={setCode}
+                            ariaLabel="Widget TSX source"
+                        />
                     ) : (
                         <div className="absolute inset-0 flex items-start justify-center p-8 overflow-y-auto w-full h-full">
                             <div className="w-full max-w-3xl bg-slate-800 border border-slate-700 rounded-xl p-8 shadow-xl space-y-6">
@@ -873,32 +990,47 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                     <div className="col-span-2">
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Widget Name</label>
                                         <input
-                                            value={widgetName} onChange={e => setWidgetName(e.target.value)}
+                                            value={widgetName} onChange={e => { markSettingTouched('name'); setWidgetName(e.target.value); }}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
                                         />
                                     </div>
                                     <div className="col-span-2">
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Description</label>
                                         <textarea
-                                            value={widgetDescription} onChange={e => setWidgetDescription(e.target.value)}
+                                            value={widgetDescription} onChange={e => { markSettingTouched('description'); setWidgetDescription(e.target.value); }}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-24"
                                         />
                                     </div>
                                     <div className="col-span-2">
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Help Text (Optional)</label>
                                         <textarea
-                                            value={widgetHelpText} onChange={e => setWidgetHelpText(e.target.value)}
+                                            value={widgetHelpText} onChange={e => { markSettingTouched('helpText'); setWidgetHelpText(e.target.value); }}
                                             placeholder="Markdown supported. Provide instructions on how to use this widget."
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-24"
                                         />
                                     </div>
+                                    {taxonomyError && (
+                                        <div className="col-span-2 flex items-start justify-between gap-4 bg-amber-950/40 border border-amber-800/60 rounded-lg px-3 py-2.5">
+                                            <div className="text-xs text-amber-200">
+                                                <p className="font-medium">Couldn't load categories and domains.</p>
+                                                <p className="text-amber-300/80 mt-0.5">{taxonomyError}</p>
+                                            </div>
+                                            <button
+                                                onClick={loadTaxonomy}
+                                                disabled={isLoadingTaxonomy}
+                                                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-900/60 hover:bg-amber-900 disabled:opacity-50 border border-amber-700/60 rounded-md text-xs text-amber-100"
+                                            >
+                                                <RefreshCw size={12} className={isLoadingTaxonomy ? 'animate-spin' : ''} /> Retry
+                                            </button>
+                                        </div>
+                                    )}
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Category</label>
                                         <select
-                                            value={widgetCategory === 'Custom' ? '' : widgetCategory} onChange={e => setWidgetCategory(e.target.value)}
+                                            value={widgetCategory === 'Custom' ? '' : widgetCategory} onChange={e => { markSettingTouched('category'); setWidgetCategory(e.target.value); }}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
                                         >
-                                            <option value="" disabled>Select a Category...</option>
+                                            <option value="" disabled>{isLoadingTaxonomy ? 'Loading categories…' : 'Select a Category...'}</option>
                                             {availableCategories.map(c => (
                                                 <option key={c} value={c}>{c}</option>
                                             ))}
@@ -912,7 +1044,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Domain</label>
                                         <select
-                                            value={widgetDomain === 'Custom' ? '' : widgetDomain} onChange={e => setWidgetDomain(e.target.value)}
+                                            value={widgetDomain === 'Custom' ? '' : widgetDomain} onChange={e => { markSettingTouched('domain'); setWidgetDomain(e.target.value); }}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
                                         >
                                             <option value="" disabled>Select a Domain...</option>
@@ -925,7 +1057,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Default Width (cols)</label>
                                         <input
                                             type="number" min="1" max="12"
-                                            value={defaultW} onChange={e => setDefaultW(parseInt(e.target.value))}
+                                            value={defaultW} onChange={e => { markSettingTouched('defaultW'); setDefaultW(parseInt(e.target.value)); }}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
                                         />
                                         <p className="text-xs text-slate-500 mt-1">Grid width representation (1-12)</p>
@@ -934,7 +1066,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Default Height (rows)</label>
                                         <input
                                             type="number" min="1" max="12"
-                                            value={defaultH} onChange={e => setDefaultH(parseInt(e.target.value))}
+                                            value={defaultH} onChange={e => { markSettingTouched('defaultH'); setDefaultH(parseInt(e.target.value)); }}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
                                         />
                                         <p className="text-xs text-slate-500 mt-1">Grid height representation (1-12)</p>
@@ -972,10 +1104,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                         placeholder={dataSourceType === 'api' ? "https://api.example.com/data" : "/api/2.0/serving-endpoints/endpoint-name/invocations"}
                                                     />
                                                 ) : (
-                                                    <textarea
-                                                        value={dataSource} onChange={e => setDataSource(e.target.value)}
-                                                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-24 font-mono"
+                                                    <CodeEditor
+                                                        value={dataSource}
+                                                        onChange={setDataSource}
+                                                        language="sql"
+                                                        className="h-24 w-full rounded-lg border border-slate-600 bg-slate-900 focus-within:border-indigo-500"
                                                         placeholder="SELECT * FROM table_name LIMIT 10"
+                                                        ariaLabel="SQL query"
                                                     />
                                                 )}
 
@@ -1012,7 +1147,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                             <input
                                                 type="checkbox"
                                                 checked={isExecutable}
-                                                onChange={e => setIsExecutable(e.target.checked)}
+                                                onChange={e => { markSettingTouched('isExecutable'); setIsExecutable(e.target.checked); }}
                                                 className="w-5 h-5 rounded border-slate-500 bg-slate-800 text-indigo-600 focus:ring-indigo-500 focus:ring-opacity-25"
                                             />
                                             <div>

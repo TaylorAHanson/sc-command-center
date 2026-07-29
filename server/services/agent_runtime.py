@@ -29,6 +29,8 @@ import re
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from services.app_help import APP_PRIMER, app_help, app_help_tool_spec
+
 logger = logging.getLogger(__name__)
 
 
@@ -133,6 +135,15 @@ RUNTIME_CONTRACT = """The following runtime rules apply regardless of your perso
 - Use a Databricks REST API tool only when SQL cannot perform the operation (for example: jobs, serving endpoint invocation/configuration, workspace files, volume file transfer, or other control-plane actions). Do not infer an OAuth scope name from an API family, and do not retry a REST call with a guessed scope after an invalid-scope or missing-scope response; use an equivalent SQL operation when one exists.
 - Tools execute with On-Behalf-Of (OBO) authentication — they use the signed-in user's own identity and permissions. NEVER ask the user for passwords, tokens, or credentials.
 - A permission/authorization failure from a tool (e.g. "User does not have USE SCHEMA...", "permission denied") reflects the USER's own access, not yours. Say "You don't have access to X yet" (second person), never "I don't have access". Remember it for the rest of the conversation: don't retry the blocked scope, and use it to inform next steps (offer to request access, or suggest an asset they can access)."""
+
+
+# Facts about the surface every agent is embedded in — see services/app_help.py
+# for why a short primer sits in the prompt while the detail lives behind a tool.
+# Layered with the contract (not the persona) because it is neutral knowledge: a
+# Supply-Chain analyst persona and a QA persona both need to know what a widget
+# is when the user asks.
+APP_KNOWLEDGE = """## About this application
+""" + APP_PRIMER
 
 
 # Persona used ONLY for the default agent (no profile selected). A saved/inline
@@ -443,6 +454,13 @@ def _build_tools(
     specs: List[Dict[str, Any]] = []
     dispatch: Dict[str, Dict[str, Any]] = {}
 
+    # --- Built in: the app's own documentation -----------------------------
+    # Attached to every agent, including profiles with a curated tool list and
+    # standalone profiles. It costs one spec, needs no credentials, and without it
+    # an agent asked "how do I share this view" invents an answer.
+    specs.append(app_help_tool_spec())
+    dispatch["app_help"] = {"kind": "app_help", "friendly": "Reading the app guide"}
+
     # --- MCP tools (AI Gateway) -------------------------------------------
     try:
         catalog = discover_mcp_tools(ws)
@@ -525,6 +543,8 @@ def _build_tools(
 
 def _run_tool(ws, desc: Dict[str, Any], args: Dict[str, Any]) -> str:
     try:
+        if desc["kind"] == "app_help":
+            return app_help(str((args or {}).get("question") or ""))
         if desc["kind"] == "mcp":
             return _exec_mcp(ws, desc["server_url"], desc["real_name"], args)
         return _exec_python(desc["code"], desc["func_name"], args)
@@ -541,19 +561,22 @@ def _system_prompt(profile: Optional[Dict[str, Any]], ui_context: str) -> str:
     base = (profile.get("base") or "full").strip().lower()
 
     if body and base in ("none", "standalone", "replace"):
-        # Standalone: the profile prompt is the ENTIRE system prompt (no scaffold).
+        # Standalone: the profile prompt is the ENTIRE system prompt (no scaffold,
+        # so no app knowledge either — that is what the author asked for). The
+        # `app_help` tool is still attached, so it can look the app up if asked.
         prompt = body
     elif body:
-        # base "full" (default): layer the neutral runtime contract UNDER the
-        # profile's persona — the profile is the authoritative identity.
+        # base "full" (default): layer the neutral runtime contract and app
+        # knowledge UNDER the profile's persona — the profile is the
+        # authoritative identity and comes last so it wins any conflict.
         prompt = (
-            f"{RUNTIME_CONTRACT}\n\n"
+            f"{RUNTIME_CONTRACT}\n\n{APP_KNOWLEDGE}\n\n"
             "## ACTIVE AGENT PROFILE (authoritative persona & task instructions)\n"
             f"{body}"
         )
     else:
-        # No profile: the default agent = runtime contract + default persona.
-        prompt = f"{RUNTIME_CONTRACT}\n\n{DEFAULT_AGENT_PERSONA}"
+        # No profile: the default agent = runtime contract + app knowledge + persona.
+        prompt = f"{RUNTIME_CONTRACT}\n\n{APP_KNOWLEDGE}\n\n{DEFAULT_AGENT_PERSONA}"
 
     skills = profile.get("skills") or []
     if skills:

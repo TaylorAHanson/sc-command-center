@@ -1,11 +1,120 @@
 import os
+import threading
+import time
 import uuid
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from config.settings import get_lakebase_config
 from databricks.sdk import WorkspaceClient
+
+# Resolving Lakebase connection parameters is expensive: identifying the caller,
+# listing database instances/projects to work out which naming convention this
+# workspace uses, then minting a credential — three or more control-plane round
+# trips. Doing that per HTTP request made pages that issue several calls at once
+# (Widget Studio loads domains, categories and roles in parallel) intermittently
+# fail on control-plane latency or throttling. The minted token is valid for
+# roughly an hour; we reuse it for a conservative slice of that and drop the
+# entry whenever a connection attempt with it fails.
+_CRED_TTL_SECONDS = int(os.environ.get("LAKEBASE_CRED_TTL_SECONDS", "600"))
+_cred_cache: Dict[str, Dict[str, Any]] = {}
+_cred_cache_lock = threading.Lock()
+
+
+def _cached_conn_kwargs(env: str) -> Optional[Dict[str, Any]]:
+    with _cred_cache_lock:
+        entry = _cred_cache.get(env)
+        if not entry:
+            return None
+        if time.monotonic() >= entry["expires_at"]:
+            _cred_cache.pop(env, None)
+            return None
+        return dict(entry["conn_kwargs"])
+
+
+def _store_conn_kwargs(env: str, conn_kwargs: Dict[str, Any]) -> None:
+    with _cred_cache_lock:
+        _cred_cache[env] = {
+            "conn_kwargs": dict(conn_kwargs),
+            "expires_at": time.monotonic() + _CRED_TTL_SECONDS,
+        }
+
+
+def invalidate_db_credentials(env: Optional[str] = None) -> None:
+    """Drop cached connection parameters so the next call re-resolves them."""
+    with _cred_cache_lock:
+        if env is None:
+            _cred_cache.clear()
+        else:
+            _cred_cache.pop(env, None)
+
+
+def _sp_workspace_client() -> WorkspaceClient:
+    """Build a service-principal WorkspaceClient with auth pinned explicitly.
+
+    Used to mint Lakebase credentials. We pass the SP client_id/secret directly
+    and set auth_type="oauth-m2m" rather than relying on the SDK's default-auth
+    detection. Default detection reads process-global env vars at call time, so a
+    concurrent request that was mutating those vars could make a bare
+    ``WorkspaceClient()`` here fail with "default auth: cannot configure default
+    credentials". Pinning the method removes that fragility. Falls back to
+    default auth only when the SP env vars aren't present (e.g. local dev with a
+    CLI profile).
+    """
+    host = os.environ.get("DATABRICKS_HOST")
+    client_id = os.environ.get("DATABRICKS_CLIENT_ID")
+    client_secret = os.environ.get("DATABRICKS_CLIENT_SECRET")
+    if host and client_id and client_secret:
+        return WorkspaceClient(
+            host=host,
+            client_id=client_id,
+            client_secret=client_secret,
+            auth_type="oauth-m2m",
+        )
+    return WorkspaceClient()
+
+
+def _connect(conn_kwargs: Dict[str, Any], env: str):
+    """Open a connection and pin the schema this environment stores data in."""
+    logging.info(
+        "Connecting to Postgres host=%s, port=%s, dbname=%s, user=%s, sslmode=%s",
+        conn_kwargs.get("host"), conn_kwargs.get("port"), conn_kwargs.get("dbname"),
+        conn_kwargs.get("user"), conn_kwargs.get("sslmode", "default"),
+    )
+    conn = psycopg2.connect(**conn_kwargs)
+
+    # On managed Lakebase the app's role can CONNECT + CREATE but is NOT the owner
+    # of the `public` schema, so an unqualified CREATE TABLE fails with
+    # "permission denied for schema public" (Postgres 15+ no longer grants CREATE
+    # on `public` to PUBLIC). Use a dedicated, role-owned schema per environment
+    # and pin search_path to it so every table/query lives there. This also keeps
+    # dev/test/prod isolated now that they all share the one injected
+    # `databricks_postgres` database. Skipped locally (no PGDATABASE), where the
+    # default `public` schema is owned by the connecting user.
+    if os.environ.get("PGDATABASE"):
+        # Schema selection. By default we isolate per environment (dev/test/prod)
+        # in a role-owned schema — this was introduced to work around managed
+        # Lakebase not granting CREATE on `public`. But an existing deployment
+        # whose data predates that change has all its rows in `public`; pinning
+        # to an empty env schema makes widgets/views appear to vanish. Allow an
+        # explicit override (APP_DB_SCHEMA) so such a deployment can point the app
+        # back at the schema that actually holds its data (e.g. "public") without
+        # a data migration. Unset => per-env isolation (unchanged default).
+        schema = os.environ.get("APP_DB_SCHEMA", "").strip() or (
+            env if env in ("dev", "test", "prod") else "app"
+        )
+        try:
+            cur = conn.cursor()
+            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+            cur.execute(f'SET search_path TO "{schema}"')
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            conn.rollback()
+            logging.warning(f"Could not ensure/select schema '{schema}': {e}")
+
+    return conn
 
 def _sp_workspace_client() -> WorkspaceClient:
     """Build a service-principal WorkspaceClient with auth pinned explicitly.
@@ -34,6 +143,16 @@ def _sp_workspace_client() -> WorkspaceClient:
 
 def get_db_connection(env: str = "dev"):
     """Get a database connection (SQLite or Lakebase/Postgres)."""
+    cached = _cached_conn_kwargs(env)
+    if cached:
+        try:
+            return _connect(cached, env)
+        except Exception as e:
+            # Most likely an expired or revoked credential. Re-resolve from
+            # scratch below rather than failing the request.
+            logging.warning(f"Cached Lakebase credentials failed for env={env}, re-resolving: {e}")
+            invalidate_db_credentials(env)
+
     config = get_lakebase_config()
     db_name = config.get("database")
     instance_name = config.get("instance_name")
@@ -276,39 +395,9 @@ def get_db_connection(env: str = "dev"):
     if host and host != "localhost":
         conn_kwargs["sslmode"] = "require"
 
-    logging.info(f"Connecting to Postgres host={host}, port={port}, dbname={db_name}, user={user}, sslmode={conn_kwargs.get('sslmode', 'default')}")
-    conn = psycopg2.connect(**conn_kwargs)
-
-    # On managed Lakebase the app's role can CONNECT + CREATE but is NOT the owner
-    # of the `public` schema, so an unqualified CREATE TABLE fails with
-    # "permission denied for schema public" (Postgres 15+ no longer grants CREATE
-    # on `public` to PUBLIC). Use a dedicated, role-owned schema per environment
-    # and pin search_path to it so every table/query lives there. This also keeps
-    # dev/test/prod isolated now that they all share the one injected
-    # `databricks_postgres` database. Skipped locally (no PGDATABASE), where the
-    # default `public` schema is owned by the connecting user.
-    if os.environ.get("PGDATABASE"):
-        # Schema selection. By default we isolate per environment (dev/test/prod)
-        # in a role-owned schema — this was introduced to work around managed
-        # Lakebase not granting CREATE on `public`. But an existing deployment
-        # whose data predates that change has all its rows in `public`; pinning
-        # to an empty env schema makes widgets/views appear to vanish. Allow an
-        # explicit override (APP_DB_SCHEMA) so such a deployment can point the app
-        # back at the schema that actually holds its data (e.g. "public") without
-        # a data migration. Unset => per-env isolation (unchanged default).
-        schema = os.environ.get("APP_DB_SCHEMA", "").strip() or (
-            env if env in ("dev", "test", "prod") else "app"
-        )
-        try:
-            cur = conn.cursor()
-            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
-            cur.execute(f'SET search_path TO "{schema}"')
-            conn.commit()
-            cur.close()
-        except Exception as e:
-            conn.rollback()
-            logging.warning(f"Could not ensure/select schema '{schema}': {e}")
-
+    conn = _connect(conn_kwargs, env)
+    # Only cache parameters that are known to work.
+    _store_conn_kwargs(env, conn_kwargs)
     return conn
 
 def _advisory_lock_key(env: str) -> int:

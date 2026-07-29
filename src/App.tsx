@@ -591,10 +591,26 @@ const DashboardGrid: React.FC = () => {
 };
 
 import { loadCustomWidgets } from './widgetRegistry';
+import { getAppEnvironment } from './api';
 
 function App() {
   useEffect(() => {
     loadCustomWidgets();
+  }, []);
+
+  // The tab title is the only cue that tells someone with dev, stage and prod
+  // open side by side which window they are typing into, so everything except
+  // prod gets badged. An unknown environment stays unbadged rather than guessing.
+  useEffect(() => {
+    let cancelled = false;
+    getAppEnvironment().then((env) => {
+      if (cancelled) return;
+      const resolved = env || (import.meta.env.DEV ? 'local' : '');
+      document.title = !resolved || resolved === 'prod' || resolved === 'production'
+        ? 'Command Center'
+        : `Command Center - ${resolved.charAt(0).toUpperCase()}${resolved.slice(1)}`;
+    });
+    return () => { cancelled = true; };
   }, []);
 
   return (

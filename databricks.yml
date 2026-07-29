@@ -78,6 +78,10 @@ resources:
         env:
           - name: PYTHONPATH
             value: ".:server"
+          # Which deployment this is (local/dev/stage/prod). Surfaced by /api/health
+          # so the UI can label the browser tab; anything but "prod" is badged.
+          - name: APP_ENVIRONMENT
+            value: "${var.environment}"
           - name: SQL_WAREHOUSE_ID
             value: "${var.sql_warehouse_id}"
           - name: USE_SP_FOR_JOBS

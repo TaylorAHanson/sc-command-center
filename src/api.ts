@@ -13,6 +13,22 @@ export const logWidgetRun = async (widgetId: string) => {
     }
 };
 
+/**
+ * Which deployment served this bundle: 'local' | 'dev' | 'stage' | 'prod'.
+ * Comes from the backend (not a build-time constant) because the same built
+ * assets get promoted across environments. Empty string when unknown.
+ */
+export const getAppEnvironment = async (): Promise<string> => {
+    try {
+        const response = await fetch(`${API_BASE}/health`);
+        if (!response.ok) return '';
+        const data = await response.json();
+        return typeof data?.environment === 'string' ? data.environment.trim().toLowerCase() : '';
+    } catch {
+        return '';
+    }
+};
+
 export const getPopularityScores = async (): Promise<Record<string, number>> => {
     try {
         const response = await fetch(`${API_BASE}/widgets/popularity`);
