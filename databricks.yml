@@ -141,8 +141,10 @@ resources:
           #   up on the wrong route (a "system.ai.*" name posted to
           #   "/serving-endpoints" returns ENDPOINT_NOT_FOUND). Set it only to front
           #   the LLM with something custom, which pins every model to that path.
-          - name: AGENT_RUNTIME_LLM_BASE_PATH
-            value: ""
+          #   Commented rather than set to "": Apps rejects an empty value, and an
+          #   unset var reads the same as an empty one in `base_path_for_model`.
+          # - name: AGENT_RUNTIME_LLM_BASE_PATH
+          #   value: "${var.agent_runtime_llm_base_path}"
           # AGENT_RUNTIME_MAX_STEPS — max tool-call rounds per turn before the agent
           #   must answer (guards against tool loops). Fallback only; admins set this
           #   in Admin Panel → Settings. Default 8 leaves headroom for a few
@@ -200,8 +202,9 @@ resources:
             value: "${var.agent_studio_llm_model}"
           # AGENT_STUDIO_LLM_BASE_PATH — as AGENT_RUNTIME_LLM_BASE_PATH above, for
           #   the authoring LLM: leave empty and the path follows the model name.
-          - name: AGENT_STUDIO_LLM_BASE_PATH
-            value: "${var.agent_studio_llm_base_path}"
+          #   Its var defaults to blank, so it stays commented for the same reason.
+          # - name: AGENT_STUDIO_LLM_BASE_PATH
+          #   value: "${var.agent_studio_llm_base_path}"
           # AGENT_STUDIO_MAX_TOKENS — output budget for the authoring draft. Too
           #   small truncates the JSON profile mid-string ("draft JSON found but
           #   failed to parse"). Multi-skill agents need a generous cap.
@@ -356,6 +359,9 @@ variables:
     default: "system.ai.claude-opus-4-8"
   agent_studio_llm_base_path:
     description: "Leave empty to derive the authoring LLM's base path from the model name (system.ai.* → AI Gateway, otherwise /serving-endpoints). Set only to pin every model to one path, e.g. when fronting the LLM with something custom."
+    default: ""
+  agent_runtime_llm_base_path:
+    description: "As agent_studio_llm_base_path, for the chat agent's LLM. Leave empty to derive the path from the model name; setting it pins every model to that path. Uncomment AGENT_RUNTIME_LLM_BASE_PATH in the app env when you set it."
     default: ""
   agent_studio_mcp_servers:
     description: "Comma-separated AI Gateway MCP servers the authoring assistant introspects for tools (workspace-relative paths or absolute URLs). Add '/api/2.0/mcp/functions/<catalog>/<schema>' for UC functions or '/api/2.0/mcp/genie/<genie_space_id>' for a specific Genie space."
