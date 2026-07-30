@@ -58,7 +58,7 @@ class SqlQueryListResponse(BaseModel):
 # --- API Endpoints ---
 
 @router.get("/list", response_model=SqlQueryListResponse, summary="List available SQL queries")
-async def list_sql_queries():
+def list_sql_queries():
     """
     Returns a list of all available SQL query configurations.
     """

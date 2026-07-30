@@ -11,3 +11,17 @@ langchain-openai
 langchain-core
 langgraph
 databricks-mcp
+
+# Reading files users attach to the assistant. pandas and pyarrow arrive
+# transitively via mlflow/langchain in a local venv, but a deployed App installs
+# only what is listed here — leaving them implicit means uploads work locally and
+# break in production. pyarrow is what makes a re-read cheap: spreadsheets are
+# normalized to Parquet once at upload, then reloaded per tool call.
+pandas
+pyarrow
+openpyxl
+pypdf
+python-docx
+# Capped because `requests` validates the chardet version it finds and warns on
+# every import when it is newer than it knows about.
+chardet<6

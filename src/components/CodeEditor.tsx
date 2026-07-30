@@ -43,10 +43,15 @@ interface CodeEditorProps {
   showLineNumbers?: boolean;
   placeholder?: string;
   /**
-   * Applied to the scroll container: pass sizing (`absolute inset-0`, `flex-1`,
-   * `h-24`) *and* a background. The background is not defaulted because the
-   * sticky gutter inherits it to mask code scrolling underneath, so a
-   * transparent container would let text slide behind the line numbers.
+   * Applied to the scroll container. Must give it a *bounded* height — this is
+   * where the scrolling happens, so an unbounded box grows to fit the file and
+   * never scrolls. `absolute inset-0` and `h-24` are bounded; `flex-1` alone is
+   * not, and needs `min-h-0` beside it (and on every flex ancestor between here
+   * and the bounded one) to stop min-height:auto from expanding it to content.
+   *
+   * Also pass a background. It isn't defaulted because the sticky gutter inherits
+   * it to mask code scrolling underneath, so a transparent container lets text
+   * slide behind the line numbers.
    */
   className?: string;
   ariaLabel?: string;

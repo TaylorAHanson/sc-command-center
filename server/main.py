@@ -65,6 +65,32 @@ async def startup_event():
         except Exception as e:  # noqa: BLE001
             logging.error(f"init_db({_env}) failed during startup: {e}", exc_info=True)
 
+    # Leave a few connections open per environment so the first page load doesn't
+    # pay for handshakes. It fires around ten API calls at once, and each one that
+    # finds the pool empty opens its own connection — which is the cost pooling
+    # exists to avoid, just moved to whoever arrives first. Opened in parallel so
+    # startup waits for one handshake rather than nine. init_db above already
+    # cached the credentials, so this is only the connect itself.
+    import concurrent.futures
+    from database import get_db_connection
+
+    warm = max(0, int(os.environ.get("LAKEBASE_POOL_WARM", "3")))
+    if warm:
+        # Every connection is held until they are all open, then released
+        # together: releasing as we go would just hand the same one back.
+        def _open(env: str):
+            try:
+                return get_db_connection(env)
+            except Exception as e:  # noqa: BLE001
+                logging.warning(f"Could not warm the {env} connection pool: {e}")
+                return None
+
+        wanted = [env for env in ("dev", "test", "prod") for _ in range(warm)]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(wanted)) as pool:
+            for conn in list(pool.map(_open, wanted)):
+                if conn is not None:
+                    conn.close()
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -74,6 +100,12 @@ async def shutdown_event():
         await close_http_client()
     except Exception as e:  # noqa: BLE001
         logging.warning(f"Error closing agent HTTP client: {e}")
+
+    try:
+        import db_pool
+        db_pool.close_all()
+    except Exception as e:  # noqa: BLE001
+        logging.warning(f"Error closing the database connection pool: {e}")
 
 # Add proxy headers middleware first
 app.add_middleware(ProxyHeadersMiddleware)
@@ -111,10 +143,15 @@ async def health_check():
     # needs it before auth resolves (it labels the browser tab) and this is the
     # one endpoint that answers unauthenticated.
     from config.settings import get_app_environment
+    import db_pool
     return {
         "status": "healthy",
         "service": "Enterprise Command Center",
         "environment": get_app_environment(),
+        # Per worker, so a deployment's totals are these times the worker count.
+        # `reused` far exceeding `opened` is the pool doing its job; a climbing
+        # `overflow` means requests are outrunning LAKEBASE_POOL_MAX_SIZE.
+        "db_pool": db_pool.stats(),
     }
 
 # Debug endpoint
@@ -149,6 +186,9 @@ from routes import promotion
 from routes import views
 from routes import databricks_api
 from routes import taxonomy
+from routes import app_settings
+from routes import conversations
+from routes import chat_uploads
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(agent_studio.router, prefix="/api/agent/widget", tags=["agent_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
@@ -157,6 +197,11 @@ app.include_router(promotion.router, prefix="/api/promotion", tags=["promotion"]
 app.include_router(views.router, prefix="/api/views", tags=["views"])
 app.include_router(databricks_api.router, prefix="/api/databricks", tags=["databricks_api"])
 app.include_router(taxonomy.router, prefix="/api/taxonomy", tags=["taxonomy"])
+app.include_router(app_settings.router, prefix="/api/settings", tags=["app_settings"])
+# Mounted under /api/agent alongside the chat route, since uploads only exist to
+# be read by a conversation.
+app.include_router(chat_uploads.router, prefix="/api/agent/uploads", tags=["chat_uploads"])
+app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 
 
 # Serve Frontend

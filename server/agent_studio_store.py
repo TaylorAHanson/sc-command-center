@@ -385,21 +385,28 @@ class AgentStudioStore:
     # ---- OBO client (still needed for MCP tool discovery + schema probes) ----
     def _client(self, obo_token: Optional[str]):
         from databricks.sdk import WorkspaceClient
+        from middleware.auth import _cached_client, _token_key
 
         if not os.environ.get("HOME"):
             os.environ["HOME"] = "/tmp"
         host = os.environ.get("DATABRICKS_HOST")
         dev_mode = os.environ.get("DEV_MODE", "").lower() == "true"
+        # Cached per credential: the agent runtime builds a client for every turn
+        # and every tool call, and the constructor is expensive enough to show up
+        # in request latency. See middleware.auth for the caching rationale.
         if obo_token and host:
             # auth_type="pat" forces token auth, so any SP OAuth env vars present
             # in the App runtime are ignored without us mutating os.environ (which
             # would race across concurrent threadpool requests).
-            return WorkspaceClient(host=host, token=obo_token, auth_type="pat")
+            return _cached_client(
+                _token_key("obo", obo_token),
+                lambda: WorkspaceClient(host=host, token=obo_token, auth_type="pat"),
+            )
         if dev_mode:
-            return WorkspaceClient()
+            return _cached_client("dev-mode", WorkspaceClient)
         if host:
-            return WorkspaceClient(host=host)
-        return WorkspaceClient()
+            return _cached_client(f"host:{host}", lambda: WorkspaceClient(host=host))
+        return _cached_client("default", WorkspaceClient)
 
     def _permissions(self, obo_token: Optional[str], env: str) -> Tuple[str, bool, Dict[str, str]]:
         """(username, is_global_admin, {domain: level}) for the caller.

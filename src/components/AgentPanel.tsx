@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
-import { Bot, Trash2, PanelRightClose, ChevronDown } from 'lucide-react';
+import { Bot, MessageSquarePlus, PanelRightClose, ChevronDown } from 'lucide-react';
 import type { AgentChat } from '../hooks/useAgentChat';
 import { AgentConversation } from './AgentConversation';
+import { ConversationHistory } from './ConversationHistory';
 
 export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> = ({ chat, onCollapse }) => {
     const {
@@ -33,12 +34,13 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                         </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                        <ConversationHistory chat={chat} disabled={isLoading} />
                         <button
                             onClick={clear}
                             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                            title="Clear conversation"
+                            title="New conversation (this one is saved in history)"
                         >
-                            <Trash2 className="w-4 h-4" />
+                            <MessageSquarePlus className="w-4 h-4" />
                         </button>
                         <button
                             onClick={onCollapse}

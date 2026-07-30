@@ -16,6 +16,7 @@ from services.code_patch import (
     parse_edits,
     strip_edit_blocks,
 )
+from services.settings_store import base_path_for_model, get_setting
 
 # LangChain imports
 from langchain_core.tools import tool
@@ -266,8 +267,8 @@ def _repair_edits(llm, system_prompt: str, user_prompt: str, content: str,
 
 def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_url: str):
     try:
-        # Databricks DBRX/Llama endpoints generally use a corresponding model string
-        model_name = os.environ.get("LLM_MODEL", "databricks-claude-sonnet-4-6")
+        # Admin-settable (Admin Panel → Settings), falling back to LLM_MODEL.
+        model_name = get_setting("widget_model")
 
         llm = ChatOpenAI(
             api_key=api_key,
@@ -391,7 +392,10 @@ async def start_generate_widget(req: GenerateRequest, background_tasks: Backgrou
         
         # Some dev setups might not have a token directly accessible, fallback to env
         api_key = api_key or db_client.config.token or os.environ.get("OPENAI_API_KEY") or os.environ.get("DATABRICKS_TOKEN") or "dummy"
-        base_url = f"{host}/serving-endpoints" if host else os.environ.get("OPENAI_BASE_URL", "https://adb-1234.1.azuredatabricks.net/serving-endpoints")
+        # Base path follows the configured model: `system.ai.…` names only resolve
+        # on the AI Gateway route, plain endpoint names only on /serving-endpoints.
+        base_path = base_path_for_model(get_setting("widget_model"))
+        base_url = f"{host}{base_path}" if host else os.environ.get("OPENAI_BASE_URL", "https://adb-1234.1.azuredatabricks.net/serving-endpoints")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI client init failed: {e}")

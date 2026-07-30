@@ -21,7 +21,7 @@ class WorkflowListResponse(BaseModel):
 
 
 @router.get("/list")
-async def list_workflows(user_token: str = Depends(require_auth)):
+def list_workflows(user_token: str = Depends(require_auth)):
     """List all available N8N workflows."""
     configs = get_all_n8n_workflow_configs()
     return WorkflowListResponse(

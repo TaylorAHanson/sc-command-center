@@ -25,13 +25,13 @@ def _get_current_username(w: Optional[WorkspaceClient]) -> str:
 
 
 @router.get("/me")
-async def get_current_user(w: WorkspaceClient = Depends(get_db_client)):
+def get_current_user(w: WorkspaceClient = Depends(get_db_client)):
     """Return the current user's identity."""
     return {"user": _get_current_username(w)}
 
 
 @router.get("/custom")
-async def get_custom_widgets(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def get_custom_widgets(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     perms = _get_user_permissions(w, env)
     is_admin = perms.get("is_admin", False)
     domain_permissions = perms.get("domain_permissions", {})
@@ -63,7 +63,7 @@ async def get_custom_widgets(w: WorkspaceClient = Depends(get_db_client), env: s
 
 
 @router.get("/history")
-async def get_widget_history(widget_id: str, env: str = "dev"):
+def get_widget_history(widget_id: str, env: str = "dev"):
     """Return all versions of a widget in a given env, ordered newest first."""
     conn = get_db_connection(env)
     c = conn.cursor()
@@ -78,7 +78,7 @@ async def get_widget_history(widget_id: str, env: str = "dev"):
 
 
 @router.post("/custom")
-async def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     domain = widget.get("domain", "General")
     require_domain_editor(w, domain, env)
     
@@ -126,7 +126,7 @@ async def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db
 
 
 @router.put("/custom/{widget_id}")
-async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     conn = get_db_connection(env)
     c = conn.cursor()
 
@@ -191,7 +191,7 @@ async def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient 
 
 
 @router.post("/custom/{widget_id}/snapshot")
-async def update_widget_snapshot(widget_id: str, payload: dict, env: str = "dev"):
+def update_widget_snapshot(widget_id: str, payload: dict, env: str = "dev"):
     """Backfill or refresh a thumbnail snapshot for an existing widget. Updates
     the latest version row in place rather than creating a new version, since
     the snapshot is presentation-only and not part of the published code."""
@@ -220,7 +220,7 @@ async def update_widget_snapshot(widget_id: str, payload: dict, env: str = "dev"
 
 
 @router.delete("/custom/{widget_id}")
-async def delete_custom_widget(widget_id: str, user_token: Optional[str] = Depends(get_user_token), env: str = "dev"):
+def delete_custom_widget(widget_id: str, user_token: Optional[str] = Depends(get_user_token), env: str = "dev"):
     conn = get_db_connection(env)
     c = conn.cursor()
 

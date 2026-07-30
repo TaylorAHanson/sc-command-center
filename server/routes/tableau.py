@@ -15,7 +15,7 @@ class DashboardListResponse(BaseModel):
 
 
 @router.get("/list")
-async def list_dashboards(user_token: str = Depends(require_auth)):
+def list_dashboards(user_token: str = Depends(require_auth)):
     """List all available Tableau dashboards."""
     configs = get_all_tableau_dashboard_configs()
     return DashboardListResponse(
@@ -36,7 +36,7 @@ async def list_dashboards(user_token: str = Depends(require_auth)):
 
 
 @router.get("/config/{dashboard_id}")
-async def get_dashboard_config(dashboard_id: str, user_token: str = Depends(require_auth)):
+def get_dashboard_config(dashboard_id: str, user_token: str = Depends(require_auth)):
     """Get configuration for a specific Tableau dashboard."""
     try:
         config = get_tableau_dashboard_config(dashboard_id)

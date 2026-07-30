@@ -62,6 +62,7 @@ from routes.roles import (
     require_domain_editor,
     require_global_admin,
 )
+from services.settings_store import base_path_for_model, get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -747,7 +748,8 @@ def _agent_studio_max_tokens() -> int:
 def _build_authoring_llm(api_key: str, base_url: str):
     from langchain_openai import ChatOpenAI
 
-    model_name = os.environ.get("AGENT_STUDIO_LLM_MODEL", "databricks-claude-sonnet-4-6")
+    # Admin-settable (Admin Panel → Settings), falling back to AGENT_STUDIO_LLM_MODEL.
+    model_name = get_setting("authoring_model")
     kwargs: Dict[str, Any] = {
         "api_key": api_key,
         "base_url": base_url,
@@ -770,14 +772,16 @@ def _build_authoring_llm(api_key: str, base_url: str):
 def _llm_credentials(sp_client: WorkspaceClient) -> tuple[str, str]:
     """Resolve (api_key, base_url) for the authoring LLM from the SP client.
 
-    The OpenAI-compatible base path is configurable via ``AGENT_STUDIO_LLM_BASE_PATH``
-    (joined to the workspace host). Two routes matter:
-      - ``/serving-endpoints`` (default): addresses models by *serving endpoint
-        name*, e.g. ``databricks-claude-sonnet-4-6``.
+    The base path follows the configured model name (see
+    ``settings_store.base_path_for_model``), because the two routes accept
+    different naming:
+      - ``/serving-endpoints``: addresses models by *serving endpoint name*, e.g.
+        ``databricks-claude-sonnet-4-6``.
       - ``/ai-gateway/mlflow/v1``: the UC-governed AI Gateway, which addresses
         models by their catalog name, e.g. ``system.ai.claude-opus-4-8`` (the
         non-deprecated path; workspace endpoints are being retired).
-    Either way langchain appends ``/chat/completions``.
+    ``AGENT_STUDIO_LLM_BASE_PATH`` overrides the derivation. Either way langchain
+    appends ``/chat/completions``.
     """
     host = sp_client.config.host
     auth_headers_fn = sp_client.config.authenticate()
@@ -789,9 +793,7 @@ def _llm_credentials(sp_client: WorkspaceClient) -> tuple[str, str]:
         or os.environ.get("DATABRICKS_TOKEN")
         or "dummy"
     )
-    base_path = os.environ.get("AGENT_STUDIO_LLM_BASE_PATH", "/serving-endpoints")
-    if not base_path.startswith("/"):
-        base_path = "/" + base_path
+    base_path = base_path_for_model(get_setting("authoring_model"), "AGENT_STUDIO_LLM_BASE_PATH")
     base_url = f"{host}{base_path}" if host else os.environ.get("OPENAI_BASE_URL", "")
     return api_key, base_url
 

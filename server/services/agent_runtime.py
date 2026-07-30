@@ -22,6 +22,7 @@ data, only the messages we hand it. The loop streams drawer-shaped SSE frames
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -30,6 +31,7 @@ import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from services.app_help import APP_PRIMER, app_help, app_help_tool_spec
+from services.settings_store import base_path_for_model, get_int_setting, get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +39,18 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------- config
 
 def _model_default() -> str:
-    return os.environ.get("AGENT_RUNTIME_MODEL", "databricks-claude-sonnet-4-6")
+    """The endpoint used when the active agent doesn't name its own.
+
+    Admin-settable (Admin Panel → Settings); ``AGENT_RUNTIME_MODEL`` remains the
+    fallback. Same for the two limits below — see services/settings_store.py.
+    """
+    return get_setting("chat_model")
 
 
-def _llm_base_path() -> str:
-    bp = os.environ.get("AGENT_RUNTIME_LLM_BASE_PATH", "/serving-endpoints")
-    return bp if bp.startswith("/") else "/" + bp
+def _llm_base_path(model: str) -> str:
+    """Follows the model name: `system.ai.…` names are AI Gateway names and 404 on
+    `/serving-endpoints`. `AGENT_RUNTIME_LLM_BASE_PATH` overrides both."""
+    return base_path_for_model(model, "AGENT_RUNTIME_LLM_BASE_PATH")
 
 
 def _llm_auth_mode() -> str:
@@ -65,17 +73,57 @@ def _max_steps() -> int:
     # long-running SQL query: `execute_sql` returns rows inline for normal
     # queries, but for slow ones it hands back a statement_id that the model
     # drains via `poll_sql_result` — each poll costs one step.
-    try:
-        return int(os.environ.get("AGENT_RUNTIME_MAX_STEPS", "8"))
-    except ValueError:
-        return 8
+    return get_int_setting("chat_max_steps")
 
 
 def _max_tokens() -> int:
+    return get_int_setting("chat_max_tokens")
+
+
+# Output caps are per model (128k on Claude Sonnet 5 and GPT-5.6, 8192 on
+# meta-llama-3-1-8b and gemma-3-12b) while `chat_max_tokens` is one number for the
+# whole deployment, so a setting that suits the good models rejects a small one
+# outright. Rather than make an admin know each cap, the first rejection teaches us
+# the real one — the API states it in the error — and it's remembered per process.
+_model_token_caps: Dict[str, int] = {}
+_caps_lock = threading.Lock()
+
+
+def _parse_token_cap(message: str, requested: int) -> Optional[int]:
+    """The cap a max_tokens rejection names, or None if that isn't what failed.
+
+    Wording differs per provider ("max_tokens: 900000 > 128000, which is the
+    maximum…", "max_new_tokens 16000 cannot be greater than max_output_tokens
+    8192"), so this reads the numbers rather than the prose: a cap has to be below
+    what we asked for, and above a floor that skips version numbers like the "5" in
+    "claude-sonnet-5".
+    """
+    lowered = (message or "").lower()
+    if not any(key in lowered for key in ("max_tokens", "max_new_tokens", "max_output_tokens", "completion tokens")):
+        return None
+    caps = [int(n) for n in re.findall(r"\d+", message) if 256 <= int(n) < requested]
+    return max(caps) if caps else None
+
+
+def _stream_completion(client, kwargs: Dict[str, Any]):
+    """Start the streamed completion, clamping `max_tokens` to what this model takes."""
+    model = str(kwargs.get("model") or "")
+    requested = int(kwargs.get("max_tokens") or 0)
+    with _caps_lock:
+        known = _model_token_caps.get(model)
+    if known and requested > known:
+        kwargs["max_tokens"] = known
     try:
-        return int(os.environ.get("AGENT_RUNTIME_MAX_TOKENS", "4000"))
-    except ValueError:
-        return 4000
+        return client.chat.completions.create(**kwargs)
+    except Exception as exc:  # noqa: BLE001
+        cap = _parse_token_cap(str(exc), int(kwargs.get("max_tokens") or 0))
+        if not cap:
+            raise
+        logger.info("%s caps output at %s tokens; retrying this and later turns there.", model, cap)
+        with _caps_lock:
+            _model_token_caps[model] = cap
+        kwargs["max_tokens"] = cap
+        return client.chat.completions.create(**kwargs)
 
 
 def _tool_timeout() -> int:
@@ -196,8 +244,8 @@ def _llm_api_key(ws, obo_token: Optional[str]) -> str:
     return _bearer(ws) or ws.config.token or os.environ.get("DATABRICKS_TOKEN") or "dummy"
 
 
-def _openai_client(ws, obo_token: Optional[str]):
-    """OpenAI-compatible client for the AI Gateway serving endpoints.
+def _openai_client(ws, obo_token: Optional[str], model: str):
+    """OpenAI-compatible client for the model `model` names.
 
     Auth for the LLM (inference) call is chosen by ``_llm_auth_mode``:
       * ``sp`` (default): sign with the app service principal so every user can
@@ -221,7 +269,7 @@ def _openai_client(ws, obo_token: Optional[str]):
             )
     if not api_key:
         api_key = _llm_api_key(ws, obo_token)
-    base_url = f"{host}{_llm_base_path()}"
+    base_url = f"{host}{_llm_base_path(model)}"
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
@@ -443,11 +491,13 @@ def _exec_python(code: str, func_name: str, args: Dict[str, Any]) -> str:
 def _build_tools(
     ws,
     profile: Optional[Dict[str, Any]],
+    attachments: Optional[List[Dict[str, Any]]] = None,
+    env: str = "dev",
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     """Return (openai_tool_specs, dispatch) for the active profile.
 
     ``dispatch`` maps a sanitized function name to a descriptor:
-      {"kind": "mcp"|"python", "friendly": str, ...invocation fields}
+      {"kind": "mcp"|"python"|"upload", "friendly": str, ...invocation fields}
     """
     from routes.agent_studio_profiles import discover_mcp_tools
 
@@ -460,6 +510,30 @@ def _build_tools(
     # an agent asked "how do I share this view" invents an answer.
     specs.append(app_help_tool_spec())
     dispatch["app_help"] = {"kind": "app_help", "friendly": "Reading the app guide"}
+
+    # --- Attached files ----------------------------------------------------
+    # Registered whenever the turn carries files, regardless of the profile's
+    # curated tool list: the user just attached something, so the agent needs a
+    # way to read it. The specs follow the kinds attached, so no table tool is
+    # offered for a PDF.
+    if attachments:
+        from services.upload_tools import tool_specs as upload_tool_specs
+
+        for spec in upload_tool_specs(attachments):
+            name = spec["function"]["name"]
+            specs.append(spec)
+            dispatch[name] = {
+                "kind": "upload",
+                "friendly": {
+                    "query_file": "Querying the attached file",
+                    "search_file": "Searching the attached file",
+                    "read_file": "Reading the attached file",
+                    "inspect_file": "Inspecting the attached file",
+                }.get(name, "Reading the attached file"),
+                "tool_name": name,
+                "attachments": attachments,
+                "env": env,
+            }
 
     # --- MCP tools (AI Gateway) -------------------------------------------
     try:
@@ -547,6 +621,10 @@ def _run_tool(ws, desc: Dict[str, Any], args: Dict[str, Any]) -> str:
             return app_help(str((args or {}).get("question") or ""))
         if desc["kind"] == "mcp":
             return _exec_mcp(ws, desc["server_url"], desc["real_name"], args)
+        if desc["kind"] == "upload":
+            from services.upload_tools import run_tool as run_upload_tool
+
+            return run_upload_tool(desc["env"], desc["tool_name"], args or {}, desc["attachments"])
         return _exec_python(desc["code"], desc["func_name"], args)
     except Exception as exc:  # noqa: BLE001
         logger.warning("tool %s failed: %s", desc.get("friendly"), exc)
@@ -555,7 +633,9 @@ def _run_tool(ws, desc: Dict[str, Any], args: Dict[str, Any]) -> str:
 
 # --------------------------------------------------------------- prompt build
 
-def _system_prompt(profile: Optional[Dict[str, Any]], ui_context: str) -> str:
+def _system_prompt(profile: Optional[Dict[str, Any]], ui_context: str,
+                   attachments: Optional[List[Dict[str, Any]]] = None,
+                   has_history: bool = False) -> str:
     profile = profile or {}
     body = (profile.get("prompt") or "").strip()
     base = (profile.get("base") or "full").strip().lower()
@@ -589,9 +669,132 @@ def _system_prompt(profile: Optional[Dict[str, Any]], ui_context: str) -> str:
         if blocks:
             prompt += "\n\n## Skills\nApply these when relevant:\n\n" + "\n\n".join(blocks)
 
+    if has_history:
+        # Replayed turns carry text only, not the tool calls that produced them.
+        # Without this an agent re-reading its own earlier answer concludes it
+        # invented the figures and says so, which is alarming and wrong.
+        prompt += (
+            "\n\n## Earlier turns in this conversation\n"
+            "The messages before this one are the real conversation, replayed as text. "
+            "Where one of your earlier answers ends with `[tools used: ...]`, those are "
+            "the tools you actually ran to produce it — so treat the figures in it as "
+            "work you did, not as something you made up, and never tell the user you "
+            "invented them. Re-run a tool to check or extend a result, not to prove to "
+            "yourself that an earlier answer was real. Don't write a `[tools used: ...]` "
+            "line yourself; it is added for you."
+        )
+
     if ui_context:
         prompt += f"\n\n## Current dashboard context\n{ui_context.strip()}"
+
+    # Files come last so they read as the immediate task, and because a card is a
+    # summary the agent must not mistake for the file itself. Cards are
+    # constant-size, so a 200 MB spreadsheet costs the same prompt as a small one.
+    if attachments:
+        from services.upload_tools import attachments_prompt
+
+        block = attachments_prompt(attachments)
+        if block:
+            prompt += f"\n\n{block}"
     return prompt
+
+
+# --------------------------------------------------- native file passthrough
+
+# Both providers read images and PDFs directly, but through different content
+# parts: Anthropic wants a `document` block and rejects `file`, OpenAI wants
+# `file` and rejects `document`. Anything else gets neither and works from the
+# extracted text instead, which is why extraction is never skipped.
+_NATIVE_ANTHROPIC = "anthropic"
+_NATIVE_OPENAI = "openai"
+
+
+def _native_flavor(model: str) -> Optional[str]:
+    name = (model or "").lower()
+    if "claude" in name:
+        return _NATIVE_ANTHROPIC
+    if "gpt" in name or name.startswith("system.ai.o"):
+        return _NATIVE_OPENAI
+    return None
+
+
+def _native_file_limits() -> Tuple[int, int]:
+    """(max bytes, max PDF pages) for handing a file over verbatim."""
+    try:
+        mb = int(os.environ.get("AGENT_RUNTIME_NATIVE_FILE_MB", "") or 8)
+    except ValueError:
+        mb = 8
+    try:
+        pages = int(os.environ.get("AGENT_RUNTIME_NATIVE_PDF_PAGES", "") or 20)
+    except ValueError:
+        pages = 20
+    return max(1, mb) * 1024 * 1024, max(1, pages)
+
+
+def _native_parts(model: str, env: str, attachments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Content parts for files the model should read itself rather than via tools.
+
+    Images always go over: there is no text to extract, and they are cheap. A PDF
+    only goes over when it is small, or when extraction found no text at all —
+    that last case is a scanned document, where the model's own reading is the
+    only thing that will work. Big text-bearing PDFs deliberately stay on the
+    tool path, since pushing 300 pages through the context window to answer one
+    question is exactly what this design avoids.
+    """
+    flavor = _native_flavor(model)
+    if not flavor or not attachments:
+        return []
+
+    from services import upload_store
+
+    max_bytes, max_pages = _native_file_limits()
+    parts: List[Dict[str, Any]] = []
+    for meta in attachments:
+        kind = meta.get("kind") or ""
+        size = int(meta.get("size_bytes") or 0)
+        if size > max_bytes:
+            continue
+
+        mime = (meta.get("mime") or "").lower()
+        filename = meta.get("filename") or "file"
+        if kind == "image":
+            media_type = mime if mime.startswith("image/") else _guess_image_mime(filename)
+        elif kind == "document" and (mime == "application/pdf" or filename.lower().endswith(".pdf")):
+            profile = meta.get("profile") or {}
+            pages = int(profile.get("pages") or 0)
+            has_text = int(profile.get("chars") or 0) > 40
+            if has_text and pages > max_pages:
+                continue
+            media_type = "application/pdf"
+        else:
+            continue
+
+        raw = upload_store.load_raw(env, meta["id"])
+        if not raw:
+            continue
+        encoded = base64.b64encode(raw).decode("ascii")
+
+        if kind == "image":
+            parts.append({"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{encoded}"}})
+        elif flavor == _NATIVE_ANTHROPIC:
+            parts.append({
+                "type": "document",
+                "source": {"type": "base64", "media_type": media_type, "data": encoded},
+            })
+        else:
+            parts.append({
+                "type": "file",
+                "file": {"filename": filename, "file_data": f"data:{media_type};base64,{encoded}"},
+            })
+    return parts
+
+
+def _guess_image_mime(filename: str) -> str:
+    ext = os.path.splitext(filename)[1].lower()
+    return {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif",
+    }.get(ext, "image/png")
 
 
 def _history_messages(history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
@@ -612,22 +815,57 @@ def _sse(payload: Dict[str, Any]) -> bytes:
 
 def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str],
               query: str, ui_context: str, profile: Optional[Dict[str, Any]],
-              history: Optional[List[Dict[str, Any]]]) -> None:
-    """Synchronous tool-calling loop. Pushes SSE frames via ``put``."""
+              history: Optional[List[Dict[str, Any]]],
+              attachments: Optional[List[Dict[str, Any]]] = None,
+              env: str = "dev",
+              on_finish: Optional[Callable[[str, List[Dict[str, str]], Optional[str]], None]] = None) -> None:
+    """Synchronous tool-calling loop. Pushes SSE frames via ``put``.
+
+    ``on_finish`` is called exactly once with the settled answer, so the caller can
+    persist the turn. It runs on this worker thread rather than in the streaming
+    generator deliberately: the answer is then recorded even if the browser has
+    already gone away mid-stream.
+    """
+    used_tools: List[Dict[str, str]] = []
+    finished = False
+
+    def _settle(text: str, error: Optional[str] = None) -> None:
+        nonlocal finished
+        if finished or on_finish is None:
+            return
+        finished = True
+        try:
+            on_finish(text, list(used_tools), error)
+        except Exception:  # noqa: BLE001
+            logger.exception("persisting the assistant turn failed")
+
     try:
         ws = _obo_ws(obo_token)
-        client = _openai_client(ws, obo_token)
+        # Model first: it decides which base path the client is built against.
         model = (profile or {}).get("model") or _model_default()
+        client = _openai_client(ws, obo_token, model)
 
-        specs, dispatch = _build_tools(ws, profile)
+        specs, dispatch = _build_tools(ws, profile, attachments, env)
 
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": _system_prompt(profile, ui_context)}]
-        messages.extend(_history_messages(history))
-        messages.append({"role": "user", "content": query})
+        prior = _history_messages(history)
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": _system_prompt(profile, ui_context, attachments, bool(prior))}
+        ]
+        messages.extend(prior)
+        # Files the model reads itself ride on THIS turn's user message only;
+        # history keeps plain text, so re-sending a PDF never compounds per turn.
+        native = _native_parts(model, env, attachments or [])
+        if native:
+            messages.append({"role": "user", "content": [{"type": "text", "text": query}] + native})
+        else:
+            messages.append({"role": "user", "content": query})
 
-        used_tools: List[Dict[str, str]] = []
-        full_text = ""
-
+        # Text streamed before the model decides to call a tool is scaffolding
+        # ("let me check the orders file"), not part of its answer. Each such run is
+        # handed to the client as `reclassify`, which moves it into the thinking
+        # disclosure, and the answer is the final step's text alone. Accumulating
+        # every step and sending that as the answer meant the same prose arrived
+        # twice — once as live progress, then verbatim again as the answer.
         for _ in range(_max_steps()):
             kwargs: Dict[str, Any] = {
                 "model": model,
@@ -639,7 +877,7 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
                 kwargs["tools"] = specs
                 kwargs["tool_choice"] = "auto"
 
-            stream = client.chat.completions.create(**kwargs)
+            stream = _stream_completion(client, kwargs)
 
             turn_text = ""
             tool_acc: Dict[int, Dict[str, str]] = {}
@@ -652,7 +890,6 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
                 if getattr(delta, "content", None):
                     content = _as_text(delta.content)
                     turn_text += content
-                    full_text += content
                     put(_sse({"type": "chunk", "content": content}))
                 for tc in (getattr(delta, "tool_calls", None) or []):
                     slot = tool_acc.setdefault(tc.index, {"id": "", "name": "", "args": ""})
@@ -668,9 +905,15 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
 
             if not tool_acc:
                 # No tools requested this turn -> this is the final answer.
-                put(_sse({"type": "final", "content": full_text.strip() or turn_text.strip()}))
+                answer = turn_text.strip() or "I wasn't able to put an answer together for that."
+                put(_sse({"type": "final", "content": answer}))
+                _settle(answer)
                 put(None)
                 return
+
+            # Heading for the tools: this step's prose was thinking out loud.
+            if turn_text.strip():
+                put(_sse({"type": "reclassify", "content": turn_text}))
 
             # Append the assistant's tool-call turn, then execute each tool.
             messages.append({
@@ -709,18 +952,26 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
             # Emit the cumulative pill list (the UI replaces the whole array).
             put(_sse({"type": "tool_calls", "content": list(used_tools)}))
 
-        # Ran out of steps — surface whatever we have.
-        put(_sse({"type": "final", "content": (full_text.strip() or "I wasn't able to complete that within the step limit.")}))
+        # Ran out of steps. Every step here ended by calling a tool, so all of its
+        # prose has already been handed over as thinking and is still on screen —
+        # repeating it as the answer is what this change set out to stop.
+        exhausted = "I wasn't able to complete that within the step limit."
+        put(_sse({"type": "final", "content": exhausted}))
+        _settle(exhausted)
         put(None)
     except Exception as exc:  # noqa: BLE001
         logger.exception("agent runtime loop failed")
         put(_sse({"type": "error", "content": str(exc)}))
+        _settle(f"The agent hit an error: {exc}", error=str(exc))
         put(None)
 
 
 async def stream_chat(*, obo_token: Optional[str], query: str, ui_context: str = "",
                       profile: Optional[Dict[str, Any]] = None,
-                      history: Optional[List[Dict[str, Any]]] = None):
+                      history: Optional[List[Dict[str, Any]]] = None,
+                      attachments: Optional[List[Dict[str, Any]]] = None,
+                      env: str = "dev",
+                      on_finish: Optional[Callable[[str, List[Dict[str, str]], Optional[str]], None]] = None):
     """Async SSE generator wrapping the sync loop.
 
     The blocking loop (LLM stream + tool calls) runs on a worker thread and
@@ -742,6 +993,9 @@ async def stream_chat(*, obo_token: Optional[str], query: str, ui_context: str =
             ui_context=ui_context,
             profile=profile,
             history=history,
+            attachments=attachments,
+            env=env,
+            on_finish=on_finish,
         )
 
     threading.Thread(target=_worker, daemon=True).start()

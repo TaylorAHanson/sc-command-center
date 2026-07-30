@@ -117,9 +117,12 @@ resources:
           #   "false" to fall back to proxying CONSOLIDATED_AGENT_URL.
           - name: AGENT_LOCAL_RUNTIME
             value: "true"
-          # AGENT_RUNTIME_MODEL — model the in-process chat agent calls (a profile
-          #   may override per-agent). Serving-endpoint name under
-          #   "/serving-endpoints", or a UC model name under an AI Gateway base path.
+          # AGENT_RUNTIME_MODEL — model the in-process chat agent calls. This is now
+          #   only the FALLBACK: global admins pick the model in Admin Panel →
+          #   Settings, which is stored in the database and wins over this. A saved
+          #   agent may also pin its own. Either naming style works — an AI Gateway
+          #   name ("system.ai.claude-opus-5") or a serving-endpoint name
+          #   ("databricks-claude-sonnet-4-6") — the request path follows the name.
           - name: AGENT_RUNTIME_MODEL
             value: "databricks-claude-sonnet-4-6"
           # AGENT_RUNTIME_LLM_AUTH — identity that signs the LLM (inference) call:
@@ -132,13 +135,18 @@ resources:
           - name: AGENT_RUNTIME_LLM_AUTH
             value: "sp"
           # AGENT_RUNTIME_LLM_BASE_PATH — OpenAI-compatible base path for the chat
-          #   agent's LLM (joined to the workspace host). "/serving-endpoints" for
-          #   serving-endpoint names, or "/ai-gateway/mlflow/v1" for UC AI Gateway.
+          #   agent's LLM. LEAVE EMPTY: the path is then derived from the model name
+          #   ("system.ai.*" → "/ai-gateway/mlflow/v1", anything else →
+          #   "/serving-endpoints"), so a model chosen in the Admin Panel can't end
+          #   up on the wrong route (a "system.ai.*" name posted to
+          #   "/serving-endpoints" returns ENDPOINT_NOT_FOUND). Set it only to front
+          #   the LLM with something custom, which pins every model to that path.
           - name: AGENT_RUNTIME_LLM_BASE_PATH
-            value: "/serving-endpoints"
+            value: ""
           # AGENT_RUNTIME_MAX_STEPS — max tool-call rounds per turn before the agent
-          #   must answer (guards against tool loops). Default 8 leaves headroom for
-          #   a few model-driven `poll_sql_result` rounds on long-running SQL queries
+          #   must answer (guards against tool loops). Fallback only; admins set this
+          #   in Admin Panel → Settings. Default 8 leaves headroom for a few
+          #   model-driven `poll_sql_result` rounds on long-running SQL queries
           #   (execute_sql returns rows inline for normal queries; slow ones hand back
           #   a statement_id the model polls).
           - name: AGENT_RUNTIME_MAX_STEPS
@@ -184,18 +192,14 @@ resources:
           - name: AGENT_INJECT_HOUSE_STYLE
             value: "true"
           # AGENT_STUDIO_LLM_MODEL — model the Agent Studio authoring assistant
-          #   uses to DRAFT profiles (not the runtime agent). With the AI Gateway
-          #   base path (below) this is the UC model name, e.g.
-          #   "system.ai.claude-opus-4-8" (governed, non-deprecated). With the
-          #   default "/serving-endpoints" path it's a serving-endpoint name, e.g.
-          #   "databricks-claude-sonnet-4-6".
+          #   uses to DRAFT profiles (not the runtime agent). Fallback only; admins
+          #   set this in Admin Panel → Settings. An AI Gateway name
+          #   ("system.ai.claude-opus-4-8", governed and non-deprecated) or a
+          #   serving-endpoint name ("databricks-claude-sonnet-4-6") both work.
           - name: AGENT_STUDIO_LLM_MODEL
             value: "${var.agent_studio_llm_model}"
-          # AGENT_STUDIO_LLM_BASE_PATH — OpenAI-compatible base path for the
-          #   authoring LLM, joined to the workspace host. Use
-          #   "/ai-gateway/mlflow/v1" for the UC-governed AI Gateway (addresses
-          #   models like "system.ai.*"); or "/serving-endpoints" for workspace
-          #   serving-endpoint names. langchain appends "/chat/completions".
+          # AGENT_STUDIO_LLM_BASE_PATH — as AGENT_RUNTIME_LLM_BASE_PATH above, for
+          #   the authoring LLM: leave empty and the path follows the model name.
           - name: AGENT_STUDIO_LLM_BASE_PATH
             value: "${var.agent_studio_llm_base_path}"
           # AGENT_STUDIO_MAX_TOKENS — output budget for the authoring draft. Too
@@ -348,11 +352,11 @@ variables:
     description: "AGENT.md history snapshots to keep per profile (default 20; 0 disables versioning)."
     default: ""
   agent_studio_llm_model:
-    description: "Model the Agent Studio authoring assistant uses to draft profiles. With the AI Gateway base path this is a UC model name (e.g. system.ai.claude-opus-4-8, governed/non-deprecated); with /serving-endpoints it's a serving-endpoint name."
+    description: "Fallback model for the Agent Studio authoring assistant (Admin Panel → Settings overrides it). An AI Gateway name (system.ai.claude-opus-4-8) or a serving-endpoint name; the request path follows the name."
     default: "system.ai.claude-opus-4-8"
   agent_studio_llm_base_path:
-    description: "OpenAI-compatible base path for the authoring LLM (joined to the workspace host). '/ai-gateway/mlflow/v1' = UC-governed AI Gateway (system.ai.* names); '/serving-endpoints' = workspace serving-endpoint names."
-    default: "/ai-gateway/mlflow/v1"
+    description: "Leave empty to derive the authoring LLM's base path from the model name (system.ai.* → AI Gateway, otherwise /serving-endpoints). Set only to pin every model to one path, e.g. when fronting the LLM with something custom."
+    default: ""
   agent_studio_mcp_servers:
     description: "Comma-separated AI Gateway MCP servers the authoring assistant introspects for tools (workspace-relative paths or absolute URLs). Add '/api/2.0/mcp/functions/<catalog>/<schema>' for UC functions or '/api/2.0/mcp/genie/<genie_space_id>' for a specific Genie space."
     default: "/api/2.0/mcp/sql,/api/2.0/mcp/genie"

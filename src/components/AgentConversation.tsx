@@ -1,8 +1,11 @@
 import React, { useRef, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, Square, AlertCircle, ChevronRight } from 'lucide-react';
-import type { AgentChat, AgentMessage } from '../hooks/useAgentChat';
+import {
+    Send, Square, AlertCircle, ChevronRight, Paperclip, X, FileSpreadsheet,
+    FileText, Image as ImageIcon, FileJson, Loader2,
+} from 'lucide-react';
+import type { AgentChat, AgentMessage, Attachment } from '../hooks/useAgentChat';
 
 const ThinkingDisclosure: React.FC<{ text: string; label: string; defaultOpen: boolean }> = ({ text, label, defaultOpen }) => {
     const [openOverride, setOpenOverride] = useState<boolean | null>(null);
@@ -46,7 +49,62 @@ const stripAgentMarkers = (text: string): string =>
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 
-type ConversationChat = Pick<AgentChat, 'messages' | 'input' | 'setInput' | 'isLoading' | 'send' | 'stop'>;
+const KIND_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+    table: FileSpreadsheet,
+    document: FileText,
+    image: ImageIcon,
+    data: FileJson,
+};
+
+const FileIcon: React.FC<{ kind: string; className?: string }> = ({ kind, className }) => {
+    const Icon = KIND_ICONS[kind] || FileText;
+    return <Icon className={className} />;
+};
+
+const humanSize = (bytes: number): string => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+// A file waiting to be sent. Parsing happens server-side, so the chip shows
+// progress and then what the agent will actually be able to see (row and column
+// counts, page counts) — a file that failed says so instead of quietly doing
+// nothing when the question is asked.
+const AttachmentChip: React.FC<{ file: Attachment; onRemove: (id: string) => void }> = ({ file, onRemove }) => {
+    const failed = file.status === 'failed';
+    const parsing = file.status === 'parsing';
+    return (
+        <div
+            className={`group flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] max-w-full ${
+                failed
+                    ? 'border-rose-200 bg-rose-50 text-rose-700'
+                    : 'border-gray-200 bg-gray-50 text-gray-600'
+            }`}
+            title={failed ? file.error : [file.filename, file.summary, humanSize(file.size_bytes)].filter(Boolean).join(' · ')}
+        >
+            {parsing
+                ? <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-qualcomm-blue" />
+                : <FileIcon kind={file.kind} className="w-3.5 h-3.5 shrink-0 text-qualcomm-blue" />}
+            <span className="truncate max-w-[11rem] font-medium">{file.filename}</span>
+            <span className="text-gray-400 shrink-0">
+                {parsing ? 'reading…' : failed ? 'unreadable' : file.summary || humanSize(file.size_bytes)}
+            </span>
+            <button
+                type="button"
+                onClick={() => onRemove(file.id)}
+                className="ml-0.5 p-0.5 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 shrink-0"
+                title="Remove file"
+            >
+                <X className="w-3 h-3" />
+            </button>
+        </div>
+    );
+};
+
+type ConversationChat = Pick<AgentChat, 'messages' | 'input' | 'setInput' | 'isLoading' | 'send' | 'stop'>
+    & Partial<Pick<AgentChat, 'attachments' | 'attachFiles' | 'removeAttachment' | 'isUploading' | 'uploadError' | 'clearUploadError' | 'persists' | 'isRestoring'>>;
 
 /**
  * The shared EDH Agent transcript + composer. Used by both the Command Center
@@ -58,8 +116,16 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
     chat,
     placeholder = 'Ask about your dashboard…',
 }) => {
-    const { messages, input, setInput, isLoading, send, stop } = chat;
+    const {
+        messages, input, setInput, isLoading, send, stop,
+        attachments = [], attachFiles, removeAttachment, isUploading, uploadError, clearUploadError,
+    } = chat;
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    // Files can only be attached where they can be stored, which rules out the
+    // Agent Studio draft chat.
+    const canAttach = !!attachFiles && chat.persists !== false;
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -70,10 +136,40 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
         send(input);
     };
 
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (!canAttach) return;
+        const dropped = e.dataTransfer?.files;
+        if (dropped?.length) attachFiles!(dropped);
+    };
+
     return (
-        <div className="flex flex-col h-full min-h-0 bg-white">
+        <div
+            className="flex flex-col h-full min-h-0 bg-white relative"
+            onDragOver={e => { if (canAttach) { e.preventDefault(); setIsDragging(true); } }}
+            onDragLeave={e => {
+                // Only clear when the pointer actually leaves the panel, not when it
+                // crosses between children.
+                if (e.currentTarget === e.target) setIsDragging(false);
+            }}
+            onDrop={handleDrop}
+        >
+            {isDragging && canAttach && (
+                <div className="absolute inset-2 z-20 pointer-events-none rounded-lg border-2 border-dashed border-qualcomm-blue bg-qualcomm-blue/5 flex items-center justify-center">
+                    <span className="text-sm font-medium text-qualcomm-navy">Drop files to attach</span>
+                </div>
+            )}
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                {/* Reopening the last conversation is a round trip, and without this
+                    the greeting sits there looking like a new chat until it lands. */}
+                {chat.isRestoring && (
+                    <div className="flex items-center justify-center gap-2 py-1 text-xs text-gray-400">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Reopening your last conversation…
+                    </div>
+                )}
                 {messages.map((msg: AgentMessage, idx: number) => (
                     <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div
@@ -86,16 +182,32 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                             }`}
                         >
                             {msg.role === 'user' ? (
-                                <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">{msg.content}</p>
+                                <>
+                                    {msg.attachments && msg.attachments.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mb-1.5">
+                                            {msg.attachments.map(file => (
+                                                <span
+                                                    key={file.id}
+                                                    className="inline-flex items-center gap-1 rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-medium"
+                                                    title={file.filename}
+                                                >
+                                                    <FileIcon kind={file.kind} className="w-3 h-3" />
+                                                    <span className="truncate max-w-[10rem]">{file.filename}</span>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">{msg.content}</p>
+                                </>
                             ) : (() => {
-                                // While the agent is still working on the last turn, any streamed
-                                // `content` is intermediate scaffolding (e.g. "Running SQL…"),
-                                // not the answer. Show it as live progress under "Thinking…" and
-                                // keep the dots going until the authoritative answer arrives.
+                                // The answer streams into the answer, so what is on screen is what
+                                // the agent is actually saying. The disclosure holds thinking only:
+                                // reasoning tokens, and prose the agent abandoned to call a tool
+                                // (the server reclassifies that as it happens). Showing streamed
+                                // content here as well meant reading the same text twice — greyed
+                                // out while it arrived, then again as the answer.
                                 const working = isLoading && idx === messages.length - 1 && !msg.finalized && !msg.isError;
-                                const thinkingText = working
-                                    ? [msg.reasoning, msg.content].filter(Boolean).join('\n\n')
-                                    : (msg.reasoning || '');
+                                const thinkingText = msg.reasoning || '';
                                 return (
                                 <>
                                     {thinkingText && (
@@ -106,9 +218,7 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                                         />
                                     )}
                                     <div className="prose prose-sm max-w-none leading-relaxed break-words [overflow-wrap:anywhere] [&_code]:[overflow-wrap:anywhere] [&_code]:break-words [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:overflow-x-auto [&_table]:block [&_table]:overflow-x-auto">
-                                        {working ? (
-                                            <TypingDots />
-                                        ) : msg.isError ? (
+                                        {msg.isError ? (
                                             <div className="flex items-start gap-1.5">
                                                 <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                                                 <span>{msg.content}</span>
@@ -116,6 +226,8 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                                         ) : msg.content ? (
                                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{stripAgentMarkers(msg.content)}</ReactMarkdown>
                                         ) : (
+                                            // Nothing said yet, or the agent just handed its prose
+                                            // over to the thinking box and is running a tool.
                                             <TypingDots />
                                         )}
                                     </div>
@@ -142,7 +254,48 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
 
             {/* Input */}
             <form onSubmit={handleSubmit} className="border-t border-gray-200 p-3 shrink-0">
+                {uploadError && (
+                    <div className="mb-2 flex items-start gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">
+                        <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                        <span className="flex-1">{uploadError}</span>
+                        <button type="button" onClick={clearUploadError} className="p-0.5 hover:text-rose-900" title="Dismiss">
+                            <X className="w-3 h-3" />
+                        </button>
+                    </div>
+                )}
+                {attachments.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                        {attachments.map(file => (
+                            <AttachmentChip key={file.id} file={file} onRemove={removeAttachment!} />
+                        ))}
+                    </div>
+                )}
                 <div className="flex items-end gap-2">
+                    {canAttach && (
+                        <>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                multiple
+                                className="hidden"
+                                accept=".csv,.tsv,.xlsx,.xlsm,.json,.ndjson,.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp,.gif"
+                                onChange={e => {
+                                    if (e.target.files?.length) attachFiles!(e.target.files);
+                                    // Reset so re-picking the same file still fires a change.
+                                    e.target.value = '';
+                                }}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isUploading}
+                                className="p-2 text-gray-400 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors shrink-0 disabled:opacity-40"
+                                title="Attach a spreadsheet, document, or image"
+                            >
+                                {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                            </button>
+                        </>
+                    )}
                     <textarea
                         value={input}
                         onChange={e => setInput(e.target.value)}

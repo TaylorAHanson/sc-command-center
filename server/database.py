@@ -8,6 +8,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from config.settings import get_lakebase_config
 from databricks.sdk import WorkspaceClient
+import db_pool
 
 # Resolving Lakebase connection parameters is expensive: identifying the caller,
 # listing database instances/projects to work out which naming convention this
@@ -42,12 +43,18 @@ def _store_conn_kwargs(env: str, conn_kwargs: Dict[str, Any]) -> None:
 
 
 def invalidate_db_credentials(env: Optional[str] = None) -> None:
-    """Drop cached connection parameters so the next call re-resolves them."""
+    """Drop cached connection parameters so the next call re-resolves them.
+
+    Also retires pooled connections opened with the credentials being dropped:
+    they are usually being dropped because something about them stopped working,
+    and a pool that kept serving them would keep serving the failure.
+    """
     with _cred_cache_lock:
         if env is None:
             _cred_cache.clear()
         else:
             _cred_cache.pop(env, None)
+    db_pool.invalidate(env)
 
 
 def _sp_workspace_client() -> WorkspaceClient:
@@ -73,6 +80,55 @@ def _sp_workspace_client() -> WorkspaceClient:
             auth_type="oauth-m2m",
         )
     return WorkspaceClient()
+
+
+def _schema_for(env: str) -> Optional[str]:
+    """The schema this environment's tables live in, or None to leave the default.
+
+    On managed Lakebase the app's role can CONNECT + CREATE but is NOT the owner
+    of the `public` schema, so an unqualified CREATE TABLE fails with "permission
+    denied for schema public" (Postgres 15+ no longer grants CREATE on `public` to
+    PUBLIC). Use a dedicated, role-owned schema per environment and pin
+    search_path to it so every table/query lives there. This also keeps
+    dev/test/prod isolated now that they all share the one injected
+    `databricks_postgres` database. Skipped locally (no PGDATABASE), where the
+    default `public` schema is owned by the connecting user.
+
+    An existing deployment whose data predates that change has all its rows in
+    `public`; pinning to an empty env schema makes widgets/views appear to vanish.
+    APP_DB_SCHEMA points such a deployment back at the schema that actually holds
+    its data (e.g. "public") without a data migration. Unset => per-env isolation.
+    """
+    if not os.environ.get("PGDATABASE"):
+        return None
+    return os.environ.get("APP_DB_SCHEMA", "").strip() or (
+        env if env in ("dev", "test", "prod") else "app"
+    )
+
+
+# `CREATE SCHEMA IF NOT EXISTS` needs to run once, not on every connection: it is
+# three extra round trips (DDL plus the commit) against something that can only
+# be true after the first time, measured at ~400ms per connection from outside the
+# workspace. The search_path itself travels in the startup packet instead, which
+# costs nothing. Per process, so a restart re-checks.
+_schema_ready: set = set()
+_schema_ready_lock = threading.Lock()
+
+
+def _ensure_schema(conn, env: str, schema: str) -> None:
+    with _schema_ready_lock:
+        if (env, schema) in _schema_ready:
+            return
+    try:
+        cur = conn.cursor()
+        cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+        conn.commit()
+        cur.close()
+        with _schema_ready_lock:
+            _schema_ready.add((env, schema))
+    except Exception as e:
+        conn.rollback()
+        logging.warning(f"Could not ensure schema '{schema}': {e}")
 
 
 def _connect(conn_kwargs: Dict[str, Any], env: str):
@@ -82,67 +138,50 @@ def _connect(conn_kwargs: Dict[str, Any], env: str):
         conn_kwargs.get("host"), conn_kwargs.get("port"), conn_kwargs.get("dbname"),
         conn_kwargs.get("user"), conn_kwargs.get("sslmode", "default"),
     )
-    conn = psycopg2.connect(**conn_kwargs)
-
-    # On managed Lakebase the app's role can CONNECT + CREATE but is NOT the owner
-    # of the `public` schema, so an unqualified CREATE TABLE fails with
-    # "permission denied for schema public" (Postgres 15+ no longer grants CREATE
-    # on `public` to PUBLIC). Use a dedicated, role-owned schema per environment
-    # and pin search_path to it so every table/query lives there. This also keeps
-    # dev/test/prod isolated now that they all share the one injected
-    # `databricks_postgres` database. Skipped locally (no PGDATABASE), where the
-    # default `public` schema is owned by the connecting user.
-    if os.environ.get("PGDATABASE"):
-        # Schema selection. By default we isolate per environment (dev/test/prod)
-        # in a role-owned schema — this was introduced to work around managed
-        # Lakebase not granting CREATE on `public`. But an existing deployment
-        # whose data predates that change has all its rows in `public`; pinning
-        # to an empty env schema makes widgets/views appear to vanish. Allow an
-        # explicit override (APP_DB_SCHEMA) so such a deployment can point the app
-        # back at the schema that actually holds its data (e.g. "public") without
-        # a data migration. Unset => per-env isolation (unchanged default).
-        schema = os.environ.get("APP_DB_SCHEMA", "").strip() or (
-            env if env in ("dev", "test", "prod") else "app"
-        )
-        try:
-            cur = conn.cursor()
-            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
-            cur.execute(f'SET search_path TO "{schema}"')
-            conn.commit()
-            cur.close()
-        except Exception as e:
-            conn.rollback()
-            logging.warning(f"Could not ensure/select schema '{schema}': {e}")
-
+    schema = _schema_for(env)
+    kwargs = dict(conn_kwargs)
+    # A libpq `options` string is whitespace-separated, so only a plain identifier
+    # can travel in it. Anything else falls back to a statement, quoted.
+    inline_schema = bool(schema) and schema.replace("_", "").isalnum()
+    if inline_schema:
+        # Sent with the connection request, so the session starts on the right
+        # search_path without a statement of its own.
+        kwargs["options"] = f"-c search_path={schema}"
+    conn = psycopg2.connect(**kwargs)
+    if schema:
+        _ensure_schema(conn, env, schema)
+        if not inline_schema:
+            try:
+                cur = conn.cursor()
+                cur.execute(f'SET search_path TO "{schema}"')
+                conn.commit()
+                cur.close()
+            except Exception as e:
+                conn.rollback()
+                logging.warning(f"Could not select schema '{schema}': {e}")
     return conn
 
-def _sp_workspace_client() -> WorkspaceClient:
-    """Build a service-principal WorkspaceClient with auth pinned explicitly.
 
-    Used to mint Lakebase credentials. We pass the SP client_id/secret directly
-    and set auth_type="oauth-m2m" rather than relying on the SDK's default-auth
-    detection. Default detection reads process-global env vars at call time, so a
-    concurrent request that was mutating those vars could make a bare
-    ``WorkspaceClient()`` here fail with "default auth: cannot configure default
-    credentials". Pinning the method removes that fragility. Falls back to
-    default auth only when the SP env vars aren't present (e.g. local dev with a
-    CLI profile).
+def get_db_connection(env: str = "dev", pooled: bool = True):
+    """Get a database connection for ``env``.
+
+    Connections are pooled per environment (see ``db_pool``), so most calls hand
+    back a connection that is already open. Call ``close()`` when finished — that
+    returns it to the pool — and the pool will reclaim it anyway if an error path
+    misses the close.
+
+    ``pooled=False`` opens a connection of its own, for work that changes session
+    state the next caller must not inherit: schema init holds a session-level
+    advisory lock, which would keep blocking other workers if the connection
+    carrying it went back into circulation.
     """
-    host = os.environ.get("DATABRICKS_HOST")
-    client_id = os.environ.get("DATABRICKS_CLIENT_ID")
-    client_secret = os.environ.get("DATABRICKS_CLIENT_SECRET")
-    if host and client_id and client_secret:
-        return WorkspaceClient(
-            host=host,
-            client_id=client_id,
-            client_secret=client_secret,
-            auth_type="oauth-m2m",
-        )
-    return WorkspaceClient()
+    if not pooled:
+        return _open_connection(env)
+    return db_pool.acquire(env, lambda: _open_connection(env))
 
 
-def get_db_connection(env: str = "dev"):
-    """Get a database connection (SQLite or Lakebase/Postgres)."""
+def _open_connection(env: str):
+    """Open one new connection, resolving credentials if the cache has none."""
     cached = _cached_conn_kwargs(env)
     if cached:
         try:
@@ -394,6 +433,16 @@ def get_db_connection(env: str = "dev"):
     
     if host and host != "localhost":
         conn_kwargs["sslmode"] = "require"
+        # Pooled connections sit idle between requests, where a silently dropped
+        # socket would otherwise only surface as a failed query. Keepalives let
+        # the kernel notice, and the pool then discards the connection instead of
+        # handing it out.
+        conn_kwargs.update({
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+        })
 
     conn = _connect(conn_kwargs, env)
     # Only cache parameters that are known to work.
@@ -419,9 +468,11 @@ def init_db(env: str = "dev"):
 
     We serialize schema init with a session-level advisory lock so exactly one
     worker builds the schema while the others wait, then run the same (now no-op)
-    idempotent statements.
+    idempotent statements. The connection is deliberately unpooled: the lock
+    belongs to the session, so a connection that failed part-way through would
+    otherwise return to the pool still holding it.
     """
-    conn = get_db_connection(env)
+    conn = get_db_connection(env, pooled=False)
     c = conn.cursor()
 
     lock_key = _advisory_lock_key(env)
@@ -579,6 +630,89 @@ def init_db(env: str = "dev"):
             timestamp TIMESTAMP {default_ts}
         )
     ''')
+
+    # Deployment-wide admin settings (which serving endpoint the agents call, tool
+    # and token limits). One row per key, last write wins. These override the
+    # matching env vars at runtime so an admin can change models without a
+    # redeploy; see services/settings_store.py for the precedence.
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT '',
+            updated_by TEXT DEFAULT '',
+            timestamp TIMESTAMP {default_ts}
+        )
+    ''')
+
+    # Assistant conversations. The transcript lives here rather than in the
+    # browser for two reasons: the app runs multiple uvicorn workers so nothing
+    # can be kept in process memory, and uploaded files are server-side rows that
+    # a localStorage transcript could only dangle references to. Persisting turns
+    # server-side also means an answer survives the tab closing mid-stream.
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS chat_conversations (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            title TEXT DEFAULT '',
+            profile_id TEXT DEFAULT '',
+            created_at TIMESTAMP {default_ts},
+            updated_at TIMESTAMP {default_ts}
+        )
+    ''')
+
+    # One row per turn. `seq` orders the transcript within a conversation and is
+    # assigned server-side, so two browser tabs on the same conversation cannot
+    # interleave into the same slot. tool_calls_json / attachments_json mirror the
+    # shapes the drawer renders, so a reloaded conversation looks identical to a
+    # live one (tool pills and file chips included).
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            conversation_id TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT DEFAULT '',
+            reasoning TEXT DEFAULT '',
+            tool_calls_json TEXT DEFAULT '[]',
+            attachments_json TEXT DEFAULT '[]',
+            is_error INTEGER DEFAULT 0,
+            created_at TIMESTAMP {default_ts},
+            PRIMARY KEY (conversation_id, seq)
+        )
+    ''')
+
+    # Files a user attached to a conversation. `raw` keeps the original bytes so
+    # images and PDFs can be handed to the model natively; `parsed` holds the
+    # normalized form (a zip of Parquet, one member per sheet) so re-reading a
+    # spreadsheet on each tool call costs a Parquet read instead of an XLSX parse.
+    # Extraction happens in a background task, hence status/error.
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS chat_uploads (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT DEFAULT '',
+            username TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            mime TEXT DEFAULT '',
+            size_bytes INTEGER DEFAULT 0,
+            kind TEXT DEFAULT '',
+            status TEXT DEFAULT 'parsing',
+            error TEXT DEFAULT '',
+            raw BYTEA,
+            parsed BYTEA,
+            text_content TEXT DEFAULT '',
+            profile_json TEXT DEFAULT '{{}}',
+            warnings_json TEXT DEFAULT '[]',
+            created_at TIMESTAMP {default_ts}
+        )
+    ''')
+
+    # The drawer opens on "most recent conversation for this user" and every
+    # transcript read is keyed by conversation, so both lookups get an index.
+    try:
+        c.execute("CREATE INDEX IF NOT EXISTS idx_chat_conversations_user ON chat_conversations (username, updated_at DESC)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_chat_uploads_conversation ON chat_uploads (conversation_id)")
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
     # Seed defaults the first time the tables are created
     try:

@@ -54,7 +54,7 @@ class GenieListResponse(BaseModel):
 # --- API Endpoints ---
 
 @router.get("/list", response_model=GenieListResponse, summary="List available genies")
-async def list_genies():
+def list_genies():
     """
     Returns a list of all available genie configurations.
     """

@@ -26,7 +26,7 @@ class ViewUpdate(BaseModel):
     widgets: Optional[List[Dict[str, Any]]] = None
 
 @router.get("/")
-async def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     """Fetch all views accessible to the user (their own + matching global views)."""
     username = _get_current_username(w)
     perms = _get_user_permissions(w, env)
@@ -90,7 +90,7 @@ async def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev
         raise HTTPException(status_code=500, detail=f"Error fetching views: {str(e)}")
 
 @router.get("/history")
-async def get_view_history(view_id: str, env: str = "dev"):
+def get_view_history(view_id: str, env: str = "dev"):
     """Return all versions of a view in a given env, ordered newest first."""
     try:
         conn = get_db_connection(env)
@@ -107,7 +107,7 @@ async def get_view_history(view_id: str, env: str = "dev"):
 
 
 @router.post("/shared/{view_id}")
-async def add_shared_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def add_shared_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     """Subscribe to a shared view."""
     username = _get_current_username(w)
     try:
@@ -137,7 +137,7 @@ async def add_shared_view(view_id: str, w: WorkspaceClient = Depends(get_db_clie
         raise HTTPException(status_code=500, detail=f"Error subscribing to shared view: {str(e)}")
 
 @router.delete("/shared/{view_id}")
-async def remove_shared_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def remove_shared_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     """Unsubscribe from a shared view."""
     username = _get_current_username(w)
     try:
@@ -161,7 +161,7 @@ async def remove_shared_view(view_id: str, w: WorkspaceClient = Depends(get_db_c
 
 
 @router.post("/")
-async def create_view(view: ViewCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def create_view(view: ViewCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     username = _get_current_username(w)
     
     if view.is_global:
@@ -191,7 +191,7 @@ async def create_view(view: ViewCreate, w: WorkspaceClient = Depends(get_db_clie
         raise HTTPException(status_code=500, detail=f"Error creating view: {str(e)}")
 
 @router.put("/{view_id}")
-async def update_view(view_id: str, view: ViewUpdate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def update_view(view_id: str, view: ViewUpdate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     username = _get_current_username(w)
     
     try:
@@ -255,7 +255,7 @@ async def update_view(view_id: str, view: ViewUpdate, w: WorkspaceClient = Depen
         raise HTTPException(status_code=500, detail=f"Error updating view: {str(e)}")
 
 @router.delete("/{view_id}")
-async def delete_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def delete_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     username = _get_current_username(w)
     
     try:

@@ -7,6 +7,7 @@ import datetime
 from database import get_db_connection
 from middleware.auth import get_db_client, get_user_token
 from databricks.sdk import WorkspaceClient
+from services import caller_identity
 
 router = APIRouter()
 
@@ -32,35 +33,26 @@ class RoleMappingCreate(BaseModel):
     permission_level: str = "editor"
 
 def _get_current_username(w: WorkspaceClient) -> str:
+    """The caller's Databricks username.
+
+    Every route that owns rows by user goes through here, so it is one of the
+    hottest calls in the app; ``caller_identity`` resolves it once per credential
+    per few minutes instead of once per request. See that module for why.
+    """
     if w is None:
         import os
         return "dev" if os.environ.get('DEV_MODE', '').lower() == 'true' else "unknown"
-    try:
-        return w.current_user.me().user_name or "unknown"
-    except Exception as e:
-        return "unknown"
+    return caller_identity.username(w)
 
 def get_user_entitlements(w: WorkspaceClient) -> List[str]:
-    """Helper to fetch all Databricks groups and roles for the current user."""
+    """The caller's Databricks groups and roles, as role mappings name them.
+
+    Cached alongside the username — the SCIM call that answers one answers both,
+    so routes that need both no longer make two round trips.
+    """
     if w is None:
         return []
-    
-    # Check if we're dealing with an OBO client that has 'config.token' but maybe no groups returned
-    try:
-        me_data = w.api_client.do("GET", "/api/2.0/preview/scim/v2/Me")
-        groups = [g.get("display") for g in me_data.get("groups", []) if g.get("display")]
-        roles = [r.get("display") for r in me_data.get("roles", []) if r.get("display")]
-        return groups + roles
-    except Exception as e:
-        print(f"Warning: Failed to fetch user entitlements via API: {e}")
-        try:
-            me = w.current_user.me()
-            groups = [g.display for g in me.groups] if me.groups else []
-            roles = [r.display for r in me.roles] if me.roles else []
-            return groups + roles
-        except Exception as e2:
-            print(f"Warning: Failed to fetch user entitlements via SDK: {e2}")
-            return []
+    return caller_identity.entitlements(w)
 
 @router.get("/me", summary="Get my current roles/groups from Databricks SCIM API")
 def get_my_roles(db_client: WorkspaceClient = Depends(get_db_client)):
@@ -97,7 +89,7 @@ def get_my_roles(db_client: WorkspaceClient = Depends(get_db_client)):
             raise HTTPException(status_code=500, detail=f"Failed to fetch user roles from SCIM API: {e2}")
 
 @router.get("/my-domains")
-async def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     """
     Returns a list of domains the current user has access to based on their Databricks groups.
     If they are an admin or map to a global role, they might get all domains or a wildcard.
@@ -233,7 +225,7 @@ def require_domain_viewer(w: WorkspaceClient, domain: str, env: str = "dev"):
     return True
 
 @router.get("/my-permissions")
-async def get_my_permissions(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def get_my_permissions(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     """
     Returns the user's detailed permission structure.
     {
@@ -248,7 +240,7 @@ async def get_my_permissions(w: WorkspaceClient = Depends(get_db_client), env: s
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/mapping")
-async def get_role_mappings(env: str = "dev"):
+def get_role_mappings(env: str = "dev"):
     try:
         conn = get_db_connection(env)
         c = conn.cursor(cursor_factory=RealDictCursor)
@@ -264,7 +256,7 @@ async def get_role_mappings(env: str = "dev"):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/mapping")
-async def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     require_global_admin(w, env)
     try:
         conn = get_db_connection(env)
@@ -298,7 +290,7 @@ async def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = D
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/mapping/{mapping_id}")
-async def delete_role_mapping(mapping_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def delete_role_mapping(mapping_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     require_global_admin(w, env)
     try:
         conn = get_db_connection(env)
@@ -324,7 +316,7 @@ async def delete_role_mapping(mapping_id: int, w: WorkspaceClient = Depends(get_
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/mapping/{mapping_id}")
-async def update_role_mapping(mapping_id: int, mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def update_role_mapping(mapping_id: int, mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     require_global_admin(w, env)
     try:
         conn = get_db_connection(env)

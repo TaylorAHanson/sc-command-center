@@ -109,6 +109,86 @@ highlight.js's TypeScript grammar, which handles embedded JSX); registering the
 full language set would cost hundreds of KB in the bundle. The theme import
 supplies token colors only — `.hljs`'s own background is intentionally unused.
 
+Two rules about the conversation id, both learned from bugs:
+
+- **`conversationIdRef` is what uploads and turns are addressed to, and it moves in
+  the same tick as the change** (`adoptConversation`). While it was synced from an
+  effect it trailed a commit, so a file attached in that window was posted against
+  the conversation being navigated away from: it belonged to a chat the user was no
+  longer in, and the chip that did appear was the newly-opened conversation's own
+  file, which makes it look like the upload simply produced the wrong summary.
+- **Engaging claims the conversation** (`engage`, called by `send` and
+  `attachFiles`). The id minted at mount is otherwise never remembered — only
+  `adoptConversation` writes it — so a user who attached a file or sent a turn while
+  the restore was still in flight got the restore's *yield* (correct) but came back
+  after a reload to the conversation the restore had declined to open, leaving the
+  chat they had actually been working in behind.
+
+Verifying this needs the upload id from the POST response: identical files on two
+conversations are indistinguishable by name and size, and `localStorage` is not a
+reliable read of which conversation the drawer is live on — the request body of the
+next turn is.
+
+## Model picker (`components/ModelSelect.tsx`)
+
+A typeahead over `GET /api/settings/models`, used by Admin Panel → Settings and by
+Agent Studio's per-agent model field (`variant="dark"` there). Three things it does
+on purpose:
+
+- **Free text still commits.** The list can miss an endpoint or fail to load, and
+  this replaced a plain text input, so an unrecognized value is accepted with a
+  warning rather than blocked.
+- **Options commit on `onMouseDown`, not `onClick`.** Pressing down blurs the input,
+  whose handler keeps the typed filter text and closes the list — so a click handler
+  never runs and typing then clicking a suggestion silently discards the
+  suggestion. `preventDefault` in the same handler stops the focus change too.
+- **The typed text lives in a ref as well as state, and `commit` leaves focus in the
+  field.** Blur is dispatched synchronously, so a `commit` that blurred the input ran
+  the blur handler before `setQuery(null)` applied: it read the stale query and wrote
+  the half-typed filter over the option just chosen. That was the "clicking a
+  suggestion only keeps my letters" bug. The ref is the blur handler's source of
+  truth, and nothing steals focus, which also keeps stray keystrokes from reaching
+  the page behind.
+- **Only the input's blur decides what happens to abandoned text.** The outside-click
+  listener closes the list and nothing more; when both touched the query, whichever
+  ran first won.
+- **Typing highlights the best match, so Enter completes.** Exceptions: text equal to
+  a model's `name` highlights that model, and text equal to a serving endpoint's own
+  name highlights nothing so Enter keeps the endpoint rather than substituting the
+  AI Gateway alias whose row it matched. With nothing matched, Enter commits the text
+  as typed.
+- **Enter is always swallowed** (`preventDefault` + `stopPropagation`). This control
+  sits on pages with their own forms and key handlers, where an escaping Enter
+  submits or navigates and reads as the whole screen resetting.
+- **One fetch per page load**, cached at module scope, because the Settings page
+  mounts three of these. The empty-list hint keys off `options`, not `rows`: where a
+  blank row is offered it would otherwise hide both the loading and no-match
+  messages.
+
+`name` is the value stored (the `system.ai.…` AI Gateway alias for foundation
+models) and `endpoint` is shown beneath it; the backend derives the request path
+from which style you picked.
+
+The endpoint line under each option is `slate-400` in the dark variant: `slate-500`
+measures 3.75:1 there, under AA for text that small.
+
+## Deployment settings (`pages/admin/SettingsManager.tsx`)
+
+`draft` holds *effective* values, so the form shows what is in force and saving
+records an override only for fields that were actually changed. Two consequences
+worth keeping:
+
+- **A load that lands late must not overwrite an edit.** `editedRef` records every
+  field touched, and `apply` keeps those values; use the `edit` helper rather than
+  `setDraft` directly when adding a field. StrictMode double-mounts in development,
+  so two loads are in flight and the form is already interactive when the second
+  returns — which used to reset whatever had been typed. This is the same problem
+  as Widget Studio's `touchedSettingsRef` and `refreshConversations`' `listEditRef`.
+- **Reload discards edits on purpose** (`load(true)`), since asking for the stored
+  values and then not being shown them is worse. Note the button passes the flag
+  explicitly: wiring it as `onClick={load}` hands React's event object to the first
+  parameter, which is truthy.
+
 ## Release notes
 
 `RELEASE_NOTES.md` at the repo root is imported with `?raw` by
@@ -153,12 +233,68 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
 plus `pending_poll`. If you add a frame type on the backend, add the matching
 case here — unknown types are silently dropped, which looks like a hang.
 
+**What belongs in the answer and what belongs in the thinking box.** `chunk` text
+streams straight into the answer, so what is on screen is what the agent is
+actually saying. The disclosure holds thinking only: `reasoning` frames, and prose
+the agent abandoned mid-sentence to call a tool, which the runtime hands back as
+`reclassify` so the client can lift it out of the answer. Rendering streamed
+content in *both* places is what produced the complaint that "thinking" was just
+the answer in grey — the same words arriving greyed out and then again as the
+answer. A turn can reclassify several times, so the runs are kept apart.
+
 Requests go to the backend proxy, never to an agent service directly, so the
 agent URL and credentials stay server-side. `hooks/useDashboardContext.ts`
 assembles the hidden preamble (widget titles, descriptions, configs, user email
 and roles, dashboard variables) that grounds the assistant in the current view —
 which is why giving widgets clear names and descriptions measurably improves
 answers.
+
+### Conversations and attachments
+
+The transcript is **server-owned**. The hook sends a `conversation_id` and the
+backend writes both turns and replays history from Postgres, so the client no
+longer builds a `conversation_history` array except in draft mode — where nothing
+is persisted. That split is what `persists` (true unless `inlineProfile` is set)
+governs throughout the hook: history, uploads, and the history list are all off in
+Agent Studio's "Try it" tab.
+
+Things worth knowing before changing this:
+
+- **Conversation ids are generated client-side** so files can be attached and the
+  panel can render before the first turn exists. The server may write to a
+  different id if the one sent belongs to another user, and returns the truth in
+  the `X-Conversation-Id` response header — follow it. `localStorage` holds only
+  which conversation to reopen, never the messages.
+- **The restore-on-mount effect is deliberately not cancellable.** It is guarded by
+  `restoredRef` so it runs once; adding a `cancelled` flag in the cleanup breaks it
+  outright, because StrictMode's throwaway first cleanup then abandons the only
+  attempt the ref will allow and the drawer sits on the greeting forever. It asks
+  for the remembered conversation and the list *in parallel* — sequentially is two
+  round trips before anything appears, seconds against a remote database — and only
+  falls back to the most recent conversation if the remembered one is gone. Because
+  it takes that long, `isRestoring` drives a line in the transcript, and
+  `engagedRef` (set by `send`, `attachFiles`, `startConversation`, or picking from
+  history) makes a late restore yield: whatever the user started wins.
+- **Local edits to the conversation list outrank an in-flight read.** Opening the
+  history dropdown starts a list fetch; a rename committed while it is in flight
+  would be overwritten when it lands. `listEditRef` counts local edits and
+  `refreshConversations` drops a response that a newer edit has superseded.
+- **Switching agents starts a new conversation** rather than stashing transcripts
+  in a ref, which is what the old per-profile `historyRef` did. Restoring a
+  conversation adopts the agent it was held with, and sets `prevProfileIdRef`
+  alongside `selectedProfileId` so the agent-switch effect doesn't see a switch and
+  immediately wipe what was just restored. If you touch that effect, check this.
+- **Uploads are polled, not awaited.** `POST /api/agent/uploads` returns
+  immediately with `status: "parsing"` and the chip fills in from
+  `GET /api/agent/uploads/{id}`; parsing a large workbook takes seconds.
+  `sentAttachmentsRef` tracks which files already appeared on a message so a file
+  chips onto one turn rather than every later one — the agent can still query every
+  file on the conversation, so this is presentation only.
+- `components/ConversationHistory.tsx` is the header dropdown (list, rename,
+  delete). It reads the list on open rather than subscribing, since it only changes
+  when a turn completes or the user acts there. Postgres timestamps arrive without
+  a zone and are UTC, so `relativeTime` appends `Z` before parsing — drop that and
+  every conversation looks hours old.
 
 ## Layout of `src/`
 
@@ -168,9 +304,11 @@ widgetRegistry.ts       Runtime widget loading + shared type contracts
 App.tsx main.tsx        Router/providers and entry point
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
                         Help/About/UserGuide, AdminPage
-pages/admin/            WidgetManager, ViewManager, RoleMappings, TaxonomyManager
+pages/admin/            WidgetManager, ViewManager, RoleMappings, TaxonomyManager,
+                        SettingsManager
 components/             BaseWidget, WidgetPreview, WidgetTray, Layout, modals,
-                        AgentPanel/AgentConversation, ThumbnailCapture
+                        AgentPanel/AgentConversation, ConversationHistory,
+                        ThumbnailCapture
 hooks/                  useAgentChat, useActionLogger, useDashboardContext, useScript
 contexts/ store/        ActionContext, dashboardStore
 ```

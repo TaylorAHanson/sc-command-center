@@ -33,7 +33,9 @@ the terminal — so read those files when something fails to start.
 
 There is **no pytest harness**. Tests in `tests/` are written to run standalone
 under plain `python3` (they insert `server/` on `sys.path` themselves), and they
-deliberately cover only pure helpers so they need no Databricks credentials.
+deliberately cover only pure helpers so they need no Databricks credentials. Use
+the venv interpreter to run them all: the file-parsing tests need pandas, openpyxl,
+pypdf and python-docx. `server/AGENTS.md` lists each file with its expected count.
 
 ## Layout
 
@@ -45,11 +47,15 @@ requirements.txt        Backend deps (frontend deps in package.json)
 server/                 FastAPI gateway — see server/AGENTS.md
   main.py               App factory, router registration, SPA catch-all
   database.py           Lakebase connection, schema selection, init_db
+  db_pool.py            Connection pool behind get_db_connection
   agent_studio_store.py DB-backed CRUD for authored agents
   routes/               One module per API area, explicitly mounted in main.py
   services/             agent_runtime.py (in-process agent), databricks_service.py
                         app_help.py + app_guide.md (what agents know about this
-                        app), code_patch.py (widget edit splicing)
+                        app), code_patch.py (widget edit splicing),
+                        conversation_store.py + upload_store.py + upload_tools.py
+                        + file_extract.py (saved chats and attached files),
+                        caller_identity.py (who is calling, cached)
   middleware/auth.py    OBO token extraction and WorkspaceClient factories
   config/               Static config + settings.py (env var reads)
 src/                    React SPA — see src/AGENTS.md
@@ -57,6 +63,7 @@ src/                    React SPA — see src/AGENTS.md
   widgetRegistry.ts     Loads DB-stored widgets at runtime; type contracts
   pages/ components/ hooks/ contexts/ store/
 tests/                  Standalone Python tests (no pytest)
+tools/                  Latency probes and a pool soak test, run against a server
 dist/                   Build output; FastAPI serves it in production
 ```
 
@@ -144,13 +151,20 @@ local development (`dev.sh` sources it). Bundle variables let a target override
 warehouse, app name, permissions, and Lakebase wiring without duplicating the
 resource block.
 
+Not everything is env-only any more: the model each LLM caller uses and the chat
+agent's step/token caps are rows in `app_settings`, edited from Admin Panel →
+Settings, with the env vars below as fallbacks (**row > env var > built-in
+default**). See `server/AGENTS.md` → *Deployment settings*, and don't add a new env
+var for something an admin should be able to change without a redeploy.
+
 Frequently relevant env vars: `DATABRICKS_HOST` / `DATABRICKS_CLIENT_ID` /
 `DATABRICKS_CLIENT_SECRET` (SP auth), `SQL_WAREHOUSE_ID`, `APP_DB_SCHEMA`,
 `LAKEBASE_INSTANCE_NAME`, `AGENT_LOCAL_RUNTIME` (default `true` — in-process
 agent; `false` forwards to the external consolidated agent at
 `CONSOLIDATED_AGENT_URL`), the `AGENT_RUNTIME_*` family (model, auth mode, step
 cap, Genie polling), the `AGENT_STUDIO_*` family (authoring model, MCP servers,
-sandbox limits), and `DISABLE_PERMISSION_CHECKS`.
+sandbox limits), `APP_SETTINGS_ENV` (which schema holds `app_settings`; settings
+are deployment-global, not per-env), and `DISABLE_PERMISSION_CHECKS`.
 
 `DISABLE_PERMISSION_CHECKS=true` is a **temporary demo kill-switch that makes
 every signed-in user a global admin.** It is currently enabled. Don't build

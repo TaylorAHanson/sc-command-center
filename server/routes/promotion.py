@@ -16,7 +16,7 @@ class TransferRequest(BaseModel):
     is_rollback: bool = False
 
 @router.post("/transfer")
-async def transfer_widget(request: TransferRequest, w: WorkspaceClient = Depends(get_db_client)):
+def transfer_widget(request: TransferRequest, w: WorkspaceClient = Depends(get_db_client)):
     # Connect to the source environment to fetch the widget
     source_conn = get_db_connection(request.source_env)
     c_source = source_conn.cursor()
@@ -96,7 +96,7 @@ class CertifyRequest(BaseModel):
     version: int
 
 @router.post("/certify")
-async def certify_widget(request: CertifyRequest, w: WorkspaceClient = Depends(get_db_client)):
+def certify_widget(request: CertifyRequest, w: WorkspaceClient = Depends(get_db_client)):
     # Connect to the production environment
     conn = get_db_connection('prod')
     c = conn.cursor()
@@ -126,7 +126,7 @@ class ViewTransferRequest(BaseModel):
     is_rollback: bool = False
 
 @router.post("/transfer_view")
-async def transfer_view(request: ViewTransferRequest, w: WorkspaceClient = Depends(get_db_client)):
+def transfer_view(request: ViewTransferRequest, w: WorkspaceClient = Depends(get_db_client)):
     source_conn = get_db_connection(request.source_env)
     c_source = source_conn.cursor()
     

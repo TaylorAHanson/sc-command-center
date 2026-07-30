@@ -35,9 +35,53 @@ def get_user_token(request: Request) -> Optional[str]:
     """
     return getattr(request.state, 'user_token', None)
 
+import hashlib
 import os
 import logging
+import threading
+import time
 from databricks.sdk import WorkspaceClient
+
+# Building a WorkspaceClient is not free: its constructor resolves the auth
+# configuration and then instantiates the whole surface of Databricks service
+# wrappers. Measured at over 100ms per request against a route that does nothing
+# else, and it is CPU under the GIL, so concurrent requests queue behind each
+# other rather than overlapping. Clients are cached per credential instead.
+#
+# Keyed by a hash of the credential, so one user's client is never handed to
+# another. Reuse across requests is not new here — `services.databricks_service`
+# has always held one for the life of the process — and the SDK is safe to share.
+# The TTL bounds both staleness and how long a token stays in memory.
+_CLIENT_TTL_SECONDS = float(os.environ.get("WORKSPACE_CLIENT_TTL_SECONDS", "300"))
+_MAX_CACHED_CLIENTS = 200
+_client_cache: dict = {}
+_client_cache_lock = threading.Lock()
+
+
+def _cached_client(key: str, build):
+    now = time.monotonic()
+    with _client_cache_lock:
+        hit = _client_cache.get(key)
+        if hit and now - hit[0] < _CLIENT_TTL_SECONDS:
+            return hit[1]
+
+    client = build()
+
+    with _client_cache_lock:
+        if len(_client_cache) >= _MAX_CACHED_CLIENTS:
+            # Cheap sweep: drop everything expired, and if that frees nothing,
+            # start over rather than grow without bound.
+            for k in [k for k, (t, _) in _client_cache.items() if now - t >= _CLIENT_TTL_SECONDS]:
+                _client_cache.pop(k, None)
+            if len(_client_cache) >= _MAX_CACHED_CLIENTS:
+                _client_cache.clear()
+        _client_cache[key] = (now, client)
+    return client
+
+
+def _token_key(prefix: str, token: str) -> str:
+    return f"{prefix}:{hashlib.sha256(token.encode('utf-8')).hexdigest()[:32]}"
+
 
 def get_db_client(user_token: Optional[str] = Depends(get_user_token)) -> WorkspaceClient:
     """
@@ -56,7 +100,7 @@ def get_db_client(user_token: Optional[str] = Depends(get_user_token)) -> Worksp
         logging.info("OBO: Running in DEV_MODE, using Service Principal credentials")
         # Use Service Principal (Databricks SDK will pick up DATABRICKS_CLIENT_ID, etc.)
         try:
-            return WorkspaceClient()
+            return _cached_client("dev-mode", WorkspaceClient)
         except Exception as e:
             logging.error(f"OBO: Failed to initialize WorkspaceClient in DEV_MODE: {e}")
             raise HTTPException(status_code=401, detail=f"Invalid local Databricks credentials: {e}")
@@ -97,7 +141,10 @@ def get_db_client(user_token: Optional[str] = Depends(get_user_token)) -> Worksp
         # intermittently fail with "default auth: cannot configure default
         # credentials" whenever it ran during another request's OBO window. It
         # looked user-specific but was really request-timing-specific.
-        return WorkspaceClient(host=host, token=user_token, auth_type="pat")
+        return _cached_client(
+            _token_key("obo", user_token),
+            lambda: WorkspaceClient(host=host, token=user_token, auth_type="pat"),
+        )
     except Exception as e:
         logging.error(f"OBO: Failed to initialize WorkspaceClient: {e}")
         raise HTTPException(status_code=401, detail=f"Databricks authentication failed: {e}")
@@ -134,11 +181,11 @@ def get_db_client_for_jobs(user_token: Optional[str] = Depends(get_user_token)) 
             os.environ['HOME'] = '/tmp'
         
         try:
-            return WorkspaceClient(
+            return _cached_client("sp", lambda: WorkspaceClient(
                 host=os.environ.get('DATABRICKS_HOST'),
                 client_id=os.environ.get('DATABRICKS_CLIENT_ID'),
                 client_secret=os.environ.get('DATABRICKS_CLIENT_SECRET')
-            )
+            ))
         except Exception as e:
             logging.error(f"Failed to initialize SP client for jobs: {e}")
             raise HTTPException(status_code=401, detail=f"Databricks SP authentication failed: {e}")
@@ -162,7 +209,10 @@ def get_db_client_for_jobs(user_token: Optional[str] = Depends(get_user_token)) 
         try:
             # auth_type="pat" pins token auth so the SP env creds don't conflict —
             # no process-global os.environ mutation (see get_db_client for why).
-            return WorkspaceClient(host=host, token=user_token, auth_type="pat")
+            return _cached_client(
+                _token_key("obo", user_token),
+                lambda: WorkspaceClient(host=host, token=user_token, auth_type="pat"),
+            )
         except Exception as e:
             logging.error(f"OBO: Failed to initialize WorkspaceClient for jobs: {e}")
             raise HTTPException(status_code=401, detail=f"Databricks authentication failed: {e}")
@@ -180,11 +230,11 @@ def get_db_client_sp() -> WorkspaceClient:
         
     # Explicitly map the SP credentials to avoid any fallback to local databricks CLI configs
     try:
-        return WorkspaceClient(
+        return _cached_client("sp", lambda: WorkspaceClient(
             host=os.environ.get('DATABRICKS_HOST'),
             client_id=os.environ.get('DATABRICKS_CLIENT_ID'),
             client_secret=os.environ.get('DATABRICKS_CLIENT_SECRET')
-        )
+        ))
     except Exception as e:
         logging.error(f"Failed to initialize strict SP client: {e}")
         raise HTTPException(status_code=401, detail=f"Databricks Service Principal authentication failed: {e}")

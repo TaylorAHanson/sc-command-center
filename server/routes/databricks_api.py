@@ -52,7 +52,7 @@ class DatabricksApiRequest(BaseModel):
     fileSize: Optional[int] = None
 
 @router.post("/proxy", summary="Proxy an arbitrary API request to Databricks using OBO")
-async def databricks_api_proxy(
+def databricks_api_proxy(
     req: DatabricksApiRequest,
     w: WorkspaceClient = Depends(get_db_client)
 ):

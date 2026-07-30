@@ -4,17 +4,22 @@ import { RoleMappings } from './admin/RoleMappings';
 import { WidgetManager } from './admin/WidgetManager';
 import { ViewManager } from './admin/ViewManager';
 import { TaxonomyManager } from './admin/TaxonomyManager';
+import { SettingsManager } from './admin/SettingsManager';
 import clsx from 'clsx';
-import { List, Shield, Layers, LayoutGrid, Tag } from 'lucide-react';
+import { List, Shield, Layers, LayoutGrid, Sliders, Tag } from 'lucide-react';
+import { useDashboardStore } from '../store/dashboardStore';
 
 interface AdminPageProps {
     onNavigate: (page: string | null) => void;
 }
 
-type AdminTab = 'logs' | 'roles' | 'widgets' | 'views' | 'taxonomy';
+type AdminTab = 'logs' | 'roles' | 'widgets' | 'views' | 'taxonomy' | 'settings';
 
 export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     const [activeTab, setActiveTab] = useState<AdminTab>('views');
+    // Domain admins reach this page too, but the settings are deployment-wide, so
+    // the tab is hidden for them rather than answering 403 when they open it.
+    const { isAdmin } = useDashboardStore();
 
     return (
         <div className="flex flex-col h-full bg-gray-50">
@@ -64,6 +69,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         <Shield size={16} />
                         Role Mappings
                     </button>
+                    {isAdmin && (
+                        <button
+                            onClick={() => setActiveTab('settings')}
+                            className={clsx(
+                                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
+                                activeTab === 'settings' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                            )}
+                        >
+                            <Sliders size={16} />
+                            Settings
+                        </button>
+                    )}
                     <button
                         onClick={() => setActiveTab('logs')}
                         className={clsx(
@@ -83,6 +100,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 {activeTab === 'widgets' && <WidgetManager />}
                 {activeTab === 'taxonomy' && <TaxonomyManager />}
                 {activeTab === 'roles' && <RoleMappings />}
+                {activeTab === 'settings' && isAdmin && <SettingsManager />}
                 {activeTab === 'logs' && <div className="bg-white border text-gray-900 border-gray-200 rounded-lg h-full overflow-hidden"><ActionLogs onNavigate={onNavigate} /></div>}
             </div>
         </div>

@@ -113,46 +113,46 @@ def _delete(table: str, item_id: int, env: str):
 
 
 @router.get("/categories")
-async def list_categories(env: str = "dev"):
+def list_categories(env: str = "dev"):
     return {"categories": _list("widget_categories", env)}
 
 
 @router.post("/categories")
-async def create_category(item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def create_category(item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     require_global_admin(w, env)
     return _create("widget_categories", item.name, env)
 
 
 @router.put("/categories/{item_id}")
-async def update_category(item_id: int, item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def update_category(item_id: int, item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     require_global_admin(w, env)
     return _update("widget_categories", item_id, item.name, env)
 
 
 @router.delete("/categories/{item_id}")
-async def delete_category(item_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def delete_category(item_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     require_global_admin(w, env)
     return _delete("widget_categories", item_id, env)
 
 
 @router.get("/domains")
-async def list_domains(env: str = "dev"):
+def list_domains(env: str = "dev"):
     return {"domains": _list("widget_domains", env)}
 
 
 @router.post("/domains")
-async def create_domain(item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def create_domain(item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     require_global_admin(w, env)
     return _create("widget_domains", item.name, env)
 
 
 @router.put("/domains/{item_id}")
-async def update_domain(item_id: int, item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def update_domain(item_id: int, item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     require_global_admin(w, env)
     return _update("widget_domains", item_id, item.name, env)
 
 
 @router.delete("/domains/{item_id}")
-async def delete_domain(item_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def delete_domain(item_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     require_global_admin(w, env)
     return _delete("widget_domains", item_id, env)

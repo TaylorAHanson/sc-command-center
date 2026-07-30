@@ -165,6 +165,23 @@ Saved agents have one of three visibilities: **personal** (only the author),
 agent they are talking to from the agent picker in the chat panel; the default
 agent is used when none is chosen.
 
+## Which model the assistant uses
+
+Global admins choose the model in **Admin Panel → Settings**, from a searchable
+list of the workspace's chat-capable models. Three are set separately: the model
+behind this chat, the one that writes widget code in Widget Studio, and the one
+that drafts agents in Agent Studio. The same page holds the chat agent's limits —
+how many tool calls it may make in one turn, and how long a single answer may be.
+
+The response length limit is a ceiling, not a target — raising it costs nothing
+until an answer needs the room, and models that allow less than the configured
+number are adjusted down to their own limit automatically.
+
+An individual saved agent can pin its own model in Agent Studio, which overrides
+the deployment default for that agent only; left blank, it follows the default.
+Changes apply to new conversations. Non-admins cannot see or change these
+settings, and there is nothing to configure for a normal user.
+
 ## The assistant panel
 
 This chat. It opens from the button at the bottom of the sidebar and knows which
@@ -172,6 +189,46 @@ view and widgets are currently on screen. Tools run **on behalf of the signed-in
 user**, so results reflect that user's own Databricks permissions and no
 passwords or tokens are ever needed. A permission error from a tool describes the
 user's access, not the assistant's.
+
+## Attaching files to the assistant
+
+The paperclip in the assistant panel attaches a file to the conversation, and
+files can also be dragged onto the panel. Spreadsheets and CSVs, PDFs, Word
+documents, JSON, plain text and images are accepted, up to 25 MB each and five
+files per conversation. A chip above the message box shows each file being read
+and then what it contains, such as "5,000 rows x 6 columns"; the X removes it.
+
+Files are private to the person who uploaded them and stay available for the rest
+of that conversation, so later questions can refer back to them. Deleting the
+conversation deletes its files.
+
+How the assistant reads them is worth knowing, because it explains what to expect:
+
+- For a spreadsheet or CSV it sees the structure — sheets, columns, row counts and
+  a few sample rows — and then queries the file to answer, so totals and counts
+  come from every row rather than a sample, however large the file.
+- For a document it searches for the passages that bear on the question and cites
+  the page.
+- Images, and short PDFs, are read directly, so charts, screenshots and scanned
+  pages work.
+
+If a file will not read, the chip says so. The usual causes are a scanned PDF with
+no text layer, a password-protected file, or a format that is not in the list
+above.
+
+## Saved conversations
+
+Conversations in the assistant panel are saved automatically. Reloading the
+browser or leaving and coming back reopens the last conversation where it left
+off. The clock icon in the panel header lists recent conversations, each of which
+can be reopened, renamed with the pencil, or deleted with the trash. The
+speech-bubble icon starts a new conversation and keeps the current one in the
+list.
+
+Conversations are private to each user; nobody else, including admins, sees them
+in the app. The 50 most recent per user are kept, and older ones are removed
+automatically. Choosing a different agent in the picker starts a new conversation,
+leaving the previous one in the history list.
 
 ## Where to find help and what changed
 

@@ -38,6 +38,8 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
+from services import conversation_store
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -86,6 +88,93 @@ INJECT_HOUSE_STYLE = os.environ.get("AGENT_INJECT_HOUSE_STYLE", "true").lower() 
 )
 
 _client: "httpx.AsyncClient | None" = None
+
+# The conversation table is keyed by username, and it has to be the SAME username
+# the /api/conversations routes resolve, or a user would write turns into
+# conversations their own history list can't see. Both now go through
+# `services.caller_identity`, which is where the caching lives — one cache shared
+# with the routes rather than a second one here that could disagree with it.
+
+
+def _normalize_role(raw: str) -> str:
+    """Map the drawer's wire vocabulary onto OpenAI roles.
+
+    The drawer calls assistant turns "agent". The runtime keeps only `user` and
+    `assistant`, so an unmapped "agent" meant every prior answer was dropped and
+    the model saw a one-sided transcript.
+    """
+    role = (raw or "").strip().lower()
+    if role in ("agent", "assistant", "ai", "bot"):
+        return "assistant"
+    return "user" if role in ("user", "human") else role
+
+
+def _caller_username(request: Request, fallback_email: str) -> str:
+    token = (
+        request.headers.get("x-forwarded-access-token")
+        or request.headers.get("X-Forwarded-Access-Token")
+        or ""
+    )
+    try:
+        from services.agent_runtime import _obo_ws
+        from services import caller_identity
+
+        username = caller_identity.resolve_for_token(
+            token or None, lambda: _obo_ws(token or None)
+        ).username
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not resolve caller identity, falling back to header: %s", exc)
+        username = fallback_email
+    return username if username and username != "unknown" else fallback_email
+
+
+def _open_turn(*, env: str, conversation_id: str, username: str, profile_id: str,
+               query: str, attachment_ids: List[str]) -> Tuple[Optional[str], List[Dict[str, Any]], Optional[int]]:
+    """Record the user's turn and gather the files it carries.
+
+    Returns (conversation_id or None, ready attachments, this turn's seq). A
+    storage failure degrades to an unpersisted turn rather than failing the chat:
+    losing the history of an answer is much better than losing the answer.
+    """
+    if not conversation_id:
+        return None, [], None
+    try:
+        from services import upload_store
+
+        cid = conversation_store.ensure_conversation(env, username, conversation_id, profile_id)
+        upload_store.attach_to_conversation(env, username, attachment_ids, cid)
+        # Every file on the conversation stays in play, not just the ones attached
+        # to this message: a follow-up question about a file uploaded three turns
+        # ago should still be answerable.
+        attachments = upload_store.resolve_attachments(
+            env,
+            [u["id"] for u in upload_store.list_uploads(env, username, cid)],
+            username,
+        )
+        seq = conversation_store.append_message(
+            env, cid, "user", query,
+            attachments=[
+                {"id": a["id"], "filename": a["filename"], "kind": a["kind"]}
+                for a in attachments if a["id"] in attachment_ids
+            ],
+            profile_id=profile_id or None,
+        )
+        return cid, attachments, seq
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("could not open a persisted turn (%s); continuing unpersisted", exc)
+        return None, [], None
+
+
+def _turn_recorder(env: str, conversation_id: str):
+    """Callback the runtime invokes once the answer settles."""
+
+    def record(text: str, tool_calls: List[Dict[str, str]], error: Optional[str]) -> None:
+        conversation_store.append_message(
+            env, conversation_id, "assistant", text or "",
+            tool_calls=tool_calls, is_error=bool(error),
+        )
+
+    return record
 
 
 def get_http_client() -> "httpx.AsyncClient":
@@ -305,18 +394,42 @@ async def proxy_chat(request: Request):
             or request.headers.get("X-Forwarded-Access-Token")
         )
         # The drawer maps its transcript to {role, content}; normalize the
-        # runtime's expected shape (accept either `role` or `type`).
+        # runtime's expected shape (accept either `role` or `type`). Note the
+        # `type` fallback: the drawer labels assistant turns "agent", and reading
+        # that as a role silently dropped every prior answer. Persisted
+        # conversations below don't go through this path at all.
         norm_history = None
         if conversation_history:
             norm_history = [
                 {
-                    "role": (m.get("role") or m.get("type") or ""),
+                    "role": _normalize_role(m.get("role") or m.get("type") or ""),
                     "content": m.get("content") or "",
                 }
                 for m in conversation_history
                 if isinstance(m, dict)
             ]
-        logger.info("proxy_chat[local]: caller=%s obo_forwarded=%s", caller_email, bool(obo_token))
+
+        # A conversation_id means "remember this": history comes from the database
+        # rather than the request, and both turns are written as they settle. The
+        # Agent Studio "Try it" tab sends no id, so drafts stay ephemeral.
+        env = (incoming.get("env") or "dev").strip() or "dev"
+        conversation_id = (incoming.get("conversation_id") or "").strip()
+        attachment_ids = [str(i) for i in (incoming.get("attachment_ids") or []) if i]
+        persisted, attachments, user_seq = _open_turn(
+            env=env,
+            conversation_id=conversation_id,
+            username=_caller_username(request, caller_email),
+            profile_id=(incoming.get("profile_ref") or ""),
+            query=query,
+            attachment_ids=attachment_ids,
+        )
+        if persisted:
+            norm_history = conversation_store.history_for_model(env, persisted, before_seq=user_seq)
+
+        logger.info(
+            "proxy_chat[local]: caller=%s obo_forwarded=%s conversation=%s files=%d",
+            caller_email, bool(obo_token), persisted or "-", len(attachments),
+        )
         return StreamingResponse(
             stream_chat(
                 obo_token=obo_token,
@@ -324,12 +437,19 @@ async def proxy_chat(request: Request):
                 ui_context=context.get("ui_context") or "",
                 profile=inline_profile if isinstance(inline_profile, dict) else None,
                 history=norm_history,
+                attachments=attachments,
+                env=env,
+                on_finish=_turn_recorder(env, persisted) if persisted else None,
             ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",
+                # Which conversation the turn was actually written to. Normally the
+                # id the client sent, but it changes if that id belonged to someone
+                # else, and the client needs to follow.
+                "X-Conversation-Id": persisted or "",
             },
         )
 

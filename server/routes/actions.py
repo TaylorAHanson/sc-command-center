@@ -17,7 +17,7 @@ class ActionLogRequest(BaseModel):
     context: Any  # Receives JSON object, will be stringified
 
 @router.post("/log")
-async def log_action(request: ActionLogRequest):
+def log_action(request: ActionLogRequest):
     try:
         # Ensure context is stored as a string
         context_str = json.dumps(request.context) if not isinstance(request.context, str) else request.context
@@ -33,7 +33,7 @@ async def log_action(request: ActionLogRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/")
-async def get_actions(limit: int = 100, offset: int = 0):
+def get_actions(limit: int = 100, offset: int = 0):
     try:
         return get_action_logs(limit, offset)
     except Exception as e:

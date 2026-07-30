@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Book, Shield, Layers, Code, PlayCircle, Settings, Users, LayoutGrid, MousePointerClick, Lock, Copy, PlusCircle } from 'lucide-react';
+import { Book, Shield, Layers, Code, PlayCircle, Settings, Users, LayoutGrid, MousePointerClick, Lock, Copy, PlusCircle, Bot, Paperclip, History } from 'lucide-react';
 import clsx from 'clsx';
 
 type Section = {
@@ -132,6 +132,49 @@ export const UserGuidePage: React.FC = () => {
       ),
     },
     {
+      id: 'assistant',
+      category: 'User Guide',
+      title: 'The Assistant',
+      icon: <Bot className="w-4 h-4" />,
+      content: (
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold text-gray-900">The Assistant</h2>
+          <p className="text-gray-600">
+            The panel on the right answers questions about the view you're on, your data, and the Command Center itself. It sees the widgets currently on screen, and every tool it runs uses <strong>your</strong> Databricks permissions — so results reflect your own access, and a permission error describes yours, not the assistant's.
+          </p>
+
+          <div className="bg-white p-5 border rounded-lg shadow-sm">
+            <div className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
+              <Paperclip className="w-4 h-4 text-blue-500" />
+              Attaching files
+            </div>
+            <p className="text-sm text-gray-600">
+              Click the paperclip, or drag a file onto the panel. Spreadsheets and CSVs, PDFs, Word documents, JSON, text and images all work — up to 25 MB each, five per conversation. A chip above the message box shows the file being read and then what's in it, such as "5,000 rows x 6 columns".
+            </p>
+            <p className="text-sm text-gray-600 mt-3">
+              Big files stay quick because the assistant isn't handed the whole file. For a spreadsheet it sees the structure and then queries it, so totals and counts come from every row rather than a sample. For a document it finds the relevant passages and cites the page. Images and short PDFs it reads directly, so charts, screenshots and scans are fine. If a file can't be read — a scanned PDF with no text, or a protected file — the chip says so.
+            </p>
+            <p className="text-sm text-gray-600 mt-3">
+              Files are private to you and stay available for the rest of that conversation, so you can keep asking about them. Deleting the conversation deletes its files.
+            </p>
+          </div>
+
+          <div className="bg-white p-5 border rounded-lg shadow-sm">
+            <div className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
+              <History className="w-4 h-4 text-purple-500" />
+              Saved conversations
+            </div>
+            <p className="text-sm text-gray-600">
+              Conversations are saved as you go, so reloading the browser or coming back tomorrow picks up where you left off. The clock icon lists your recent conversations — click one to reopen it, use the pencil to rename it, or the trash to delete it. The speech-bubble icon starts a new conversation and keeps the current one in the list.
+            </p>
+            <p className="text-sm text-gray-600 mt-3">
+              Your conversations are private; nobody else sees them in the app. The 50 most recent are kept. Picking a different agent from the dropdown starts a new conversation and leaves the old one in your history.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
       id: 'roles',
       category: 'Admin Guide',
       title: 'Roles & Permissions',
@@ -255,6 +298,43 @@ export const UserGuidePage: React.FC = () => {
                 <strong>Important:</strong> Before promoting a view to a higher environment, ensure that all widgets used within that view have already been promoted. If a view references a widget that isn't available in the target environment, the view will fail to render correctly.
               </div>
             </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'models',
+      category: 'Admin Guide',
+      title: 'Choosing Models',
+      icon: <Settings className="w-4 h-4" />,
+      content: (
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold text-gray-900">Choosing Models</h2>
+          <p className="text-gray-600">
+            Global Administrators choose which models power the AI features from <strong>Admin Panel → Settings</strong>. Each field suggests the chat-capable models your Databricks workspace offers, so there is nothing to type from memory and no redeploy involved — changes apply to new conversations and generations.
+          </p>
+
+          <div className="bg-white border rounded-lg p-6 shadow-sm">
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">The three models</h3>
+            <ul className="list-disc pl-5 text-sm text-gray-700 space-y-2">
+              <li><strong>Chat agent model</strong> — powers the assistant panel. An agent saved in Agent Studio can pin its own model, which wins for that agent only.</li>
+              <li><strong>Widget generation model</strong> — writes widget code in Widget Studio. Prefer a model with a large output budget; long widgets are the ones that suffer from a small one.</li>
+              <li><strong>Agent authoring model</strong> — drafts and reviews agents in Agent Studio.</li>
+            </ul>
+            <p className="text-sm text-gray-500 mt-4">
+              Names beginning <code>system.ai.</code> are served through the AI Gateway; plain endpoint names go directly to a serving endpoint. Both work — the app routes each request according to the name you picked — and a model your workspace doesn't list can still be entered by hand.
+            </p>
+          </div>
+
+          <div className="bg-white border rounded-lg p-6 shadow-sm">
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Chat agent limits</h3>
+            <ul className="list-disc pl-5 text-sm text-gray-700 space-y-2">
+              <li><strong>Tool calls per turn</strong> — how many rounds of tools the assistant may run before it has to answer. Raise it if answers that need several queries stop short; lower it to cap cost per question.</li>
+              <li><strong>Response length limit</strong> — a ceiling on one answer, in tokens. It costs nothing until an answer actually needs the room, so raise it if long answers are getting cut off. Models that allow less than the configured number are adjusted down to their own limit automatically.</li>
+            </ul>
+            <p className="text-sm text-gray-500 mt-4 italic">
+              A label above each field shows whether the value was set here or inherited from the deployment's configuration. Only Global Administrators can view or change this page.
+            </p>
           </div>
         </div>
       ),

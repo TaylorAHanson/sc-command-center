@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { AgentConversation } from '../components/AgentConversation';
 import { CodeEditor } from '../components/CodeEditor';
+import { ModelSelect } from '../components/ModelSelect';
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string };
 
@@ -649,11 +650,15 @@ export const AgentStudio: React.FC = () => {
                                     ))}
                                 </div>
                             </div>
-                            <div className="flex-1 flex flex-col bg-[#1e1e1e]">
+                            {/* min-h-0 down this whole chain: a flex item defaults to
+                                min-height:auto, which lets the code editor size to its
+                                content instead of to the panel — the editor then never
+                                scrolls and long tools get clipped by the tab panel. */}
+                            <div className="flex-1 min-h-0 flex flex-col bg-[#1e1e1e]">
                                 {activePyToolIdx === null || !pythonTools[activePyToolIdx] ? (
                                     <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Select or add a Python tool to edit.</div>
                                 ) : (
-                                    <div className="flex-1 flex flex-col p-4 gap-3">
+                                    <div className="flex-1 min-h-0 flex flex-col p-4 gap-3">
                                         <div className="flex items-start gap-2 text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2">
                                             <ShieldCheck size={14} className="mt-0.5 shrink-0" />
                                             <span>Keep tools pure and deterministic. Never hardcode credentials, tokens, or secrets — pass governed data in as arguments. The runtime runs these in a sandbox.</span>
@@ -681,7 +686,7 @@ export const AgentStudio: React.FC = () => {
                                             onChange={code => updatePyTool(activePyToolIdx, { code })}
                                             language="python"
                                             placeholder={DEFAULT_PY_TOOL}
-                                            className="flex-1 rounded border border-slate-800 bg-[#1e1e1e]"
+                                            className="flex-1 min-h-0 rounded border border-slate-800 bg-[#1e1e1e]"
                                             ariaLabel="Python tool source"
                                         />
                                     </div>
@@ -752,10 +757,16 @@ export const AgentStudio: React.FC = () => {
                                         className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-20" />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Model (serving endpoint)</label>
-                                    <input value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. databricks-claude-sonnet-4-6"
-                                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500" />
-                                    <p className="text-xs text-slate-500 mt-1">Leave blank to use the runtime default.</p>
+                                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Model</label>
+                                    <ModelSelect
+                                        value={model}
+                                        onChange={setModel}
+                                        variant="dark"
+                                        placeholder="Default model — search to override"
+                                        blankLabel="Use the default set in Admin → Settings"
+                                        ariaLabel="Model"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">Leave blank to follow the deployment default.</p>
                                 </div>
 
                                 <div>
