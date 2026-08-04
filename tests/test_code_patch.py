@@ -6,10 +6,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 from services.code_patch import (  # noqa: E402
     apply_edits,
+    assess_rewrite,
     continuation_anchor,
     extract_code_block,
     looks_truncated,
     parse_edits,
+    sloc,
     strip_edit_blocks,
 )
 
@@ -22,6 +24,12 @@ WIDGET = """export default function Widget(props) {
 
   return <div className="p-4">{rows.length}</div>;
 }"""
+
+# Something long enough for the size checks to have an opinion about, standing in
+# for the widgets users actually lose.
+BIG_WIDGET = "export default function Widget(props) {\n" + "".join(
+    f"  const v{i} = {i};\n" for i in range(40)
+) + '  return <div className="p-4">{v1}</div>;\n}'
 
 
 def _block(search, replace):
@@ -154,6 +162,64 @@ def test_truncation_detection_and_anchor():
     assert continuation_anchor("a\nb\nc\nd", lines=2) == "c\nd"
 
 
+def test_accepts_a_real_rewrite_and_ignores_unrelated_cases():
+    rewrite = BIG_WIDGET.replace("const v1 = 1;", "const v1 = 1;\n  const extra = useMemo(() => 2, []);")
+    assert assess_rewrite(BIG_WIDGET, rewrite) is None
+    # Nothing to protect: a new widget, or the same file back again.
+    assert assess_rewrite("", BIG_WIDGET) is None
+    assert assess_rewrite(BIG_WIDGET, BIG_WIDGET) is None
+
+
+def test_rejects_elided_rest_of_the_widget():
+    for placeholder in (
+        "  // ... rest of the component unchanged",
+        "  // ...",
+        "  {/* ... existing markup ... */}",
+        "  // rest of the render logic stays the same",
+        "  // ... (unchanged)",
+    ):
+        reply = f"export default function Widget(props) {{\n  const v0 = 99;\n{placeholder}\n}}"
+        risk = assess_rewrite(BIG_WIDGET, reply)
+        assert risk is not None and risk.blocking, placeholder
+        assert "leaves the rest" in risk.reason
+
+
+def test_rejects_an_excerpt_of_the_existing_file():
+    excerpt = "  const v3 = 3;\n  const v4 = 4;"
+    risk = assess_rewrite(BIG_WIDGET, excerpt)
+    assert risk is not None and risk.blocking
+    assert "excerpt" in risk.reason
+
+
+def test_rejects_a_fragment_that_exports_nothing():
+    fragment = "function formatRow(row) {\n  return row.name.toUpperCase();\n}"
+    risk = assess_rewrite(BIG_WIDGET, fragment)
+    assert risk is not None and risk.blocking
+    assert "exports nothing" in risk.reason
+
+
+def test_rejects_code_that_is_cut_off():
+    cut = "export default function Widget(props) {\n  const rows = useRows();\n  return (\n    <div>"
+    risk = assess_rewrite(BIG_WIDGET, cut)
+    assert risk is not None and risk.blocking
+
+    # Braces inside strings and comments are not evidence of anything.
+    honest = BIG_WIDGET.replace(
+        'const v0 = 0;', 'const brace = "}"; // a } in a comment\n  const v0 = 0;'
+    )
+    assert assess_rewrite(BIG_WIDGET, honest) is None
+
+
+def test_flags_a_drastic_shrink_without_blocking_it():
+    smaller = "export default function Widget() {\n  return <div>tiny</div>;\n}"
+    risk = assess_rewrite(BIG_WIDGET, smaller)
+    assert risk is not None and risk.blocking is False
+    assert f"{sloc(BIG_WIDGET)} lines down to {sloc(smaller)}" in risk.reason
+
+    # A small widget legitimately becoming a slightly smaller one isn't news.
+    assert assess_rewrite(WIDGET, "export default function Widget() {\n  return <div/>;\n}") is None
+
+
 if __name__ == "__main__":
     tests = [
         test_parses_multiple_blocks_and_keeps_prose,
@@ -168,6 +234,12 @@ if __name__ == "__main__":
         test_ignores_fences_a_model_wrapped_around_blocks,
         test_extract_code_block_prefers_typed_fence_over_sql,
         test_truncation_detection_and_anchor,
+        test_accepts_a_real_rewrite_and_ignores_unrelated_cases,
+        test_rejects_elided_rest_of_the_widget,
+        test_rejects_an_excerpt_of_the_existing_file,
+        test_rejects_a_fragment_that_exports_nothing,
+        test_rejects_code_that_is_cut_off,
+        test_flags_a_drastic_shrink_without_blocking_it,
     ]
     for test in tests:
         test()

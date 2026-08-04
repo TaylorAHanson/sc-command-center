@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, Settings, Plus, Trash2, Download, Upload } from 'lucide-react';
+import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
@@ -64,6 +64,263 @@ class WidgetErrorBoundary extends React.Component<
 
 const WIDGET_STUDIO_SESSION_KEY = "sc_widget_studio_session";
 
+const DEFAULT_WIDGET_CODE = "export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}";
+
+/**
+ * The editor's contents as they were just before something replaced them.
+ *
+ * Agent turns are why this exists. A reply that swapped a working widget for a
+ * fragment used to be unrecoverable in the studio, and people were re-publishing
+ * older versions from the admin panel to get their work back. Everything that
+ * writes the editor programmatically leaves one of these behind first.
+ */
+type CodeCheckpoint = {
+    id: string;
+    code: string;
+    /** What was about to happen, phrased so the row reads as a place to return to. */
+    label: string;
+    at: number;
+};
+
+// sessionStorage gives the whole origin a few megabytes and the studio session
+// shares it with the rest of the app, so history is bounded by size as well as
+// count. Oldest snapshots go first; the newest is the one someone is reaching for.
+const MAX_CHECKPOINTS = 25;
+const MAX_HISTORY_CHARS = 600_000;
+// One snapshot per burst of typing rather than one per keystroke.
+const MANUAL_CHECKPOINT_GAP_MS = 60_000;
+const MANUAL_EDIT_LABEL = "Before manual edits";
+
+const trimHistory = (list: CodeCheckpoint[]): CodeCheckpoint[] => {
+    const kept: CodeCheckpoint[] = [];
+    let chars = 0;
+    for (const entry of list.slice(0, MAX_CHECKPOINTS)) {
+        chars += entry.code.length;
+        // Never drop the newest, however big it is — with nothing kept there is
+        // nothing to restore, which is the situation this whole feature exists for.
+        if (kept.length && chars > MAX_HISTORY_CHARS) break;
+        kept.push(entry);
+    }
+    return kept;
+};
+
+const countLines = (code: string) => (code || "").split("\n").filter(l => l.trim()).length;
+
+const relativeTime = (at: number) => {
+    const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
+    if (seconds < 60) return 'just now';
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return new Date(at).toLocaleDateString();
+};
+
+type PublishedVersion = { version: number; name: string; created_by: string; timestamp: string; lines: number };
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/**
+ * Somewhere to go back to, in two parts: snapshots from this studio session, and
+ * the versions already published to the widget library.
+ *
+ * Restoring only ever loads code into the editor — it publishes nothing and
+ * touches no settings — so an accidental restore is itself just another
+ * checkpoint away from being undone.
+ */
+const CodeHistoryPanel: React.FC<{
+    checkpoints: CodeCheckpoint[];
+    currentCode: string;
+    widgetId: string | null;
+    onRestore: (code: string, description: string) => void;
+    onClose: () => void;
+}> = ({ checkpoints, currentCode, widgetId, onRestore, onClose }) => {
+    // null means "not fetched yet", which is what renders the spinner. Deriving the
+    // loading state from the data avoids a third state variable that has to be kept
+    // in step with the other two.
+    const [published, setPublished] = useState<PublishedVersion[] | null>(null);
+    const [publishedError, setPublishedError] = useState<string | null>(null);
+    const [expanded, setExpanded] = useState<string | null>(null);
+    const [busyVersion, setBusyVersion] = useState<number | null>(null);
+    const currentLines = countLines(currentCode);
+
+    const loadPublished = React.useCallback(async () => {
+        if (!widgetId) return;
+        try {
+            const res = await fetch(`/api/widgets/history?widget_id=${encodeURIComponent(widgetId)}&env=dev`);
+            if (!res.ok) {
+                let detail = res.statusText;
+                try { detail = (await res.json()).detail || detail; } catch { /* non-JSON body */ }
+                throw new Error(`${detail} (HTTP ${res.status})`);
+            }
+            const data = await res.json();
+            setPublished(data.history || []);
+            setPublishedError(null);
+        } catch (e) {
+            setPublished([]);
+            setPublishedError(errorText(e));
+        }
+    }, [widgetId]);
+
+    useEffect(() => { loadPublished(); }, [loadPublished]);
+
+    const retryPublished = () => {
+        setPublished(null);
+        setPublishedError(null);
+        loadPublished();
+    };
+
+    const restorePublished = async (entry: PublishedVersion) => {
+        setBusyVersion(entry.version);
+        setPublishedError(null);
+        try {
+            const res = await fetch(`/api/widgets/version?widget_id=${encodeURIComponent(widgetId!)}&version=${entry.version}&env=dev`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || `${res.statusText} (HTTP ${res.status})`);
+            const code = data.widget?.tsx_code;
+            if (!code || !code.trim()) throw new Error('That version has no code stored.');
+            onRestore(code, `published v${entry.version}`);
+        } catch (e) {
+            setPublishedError(errorText(e));
+        } finally {
+            setBusyVersion(null);
+        }
+    };
+
+    const LineCount: React.FC<{ lines: number }> = ({ lines }) => {
+        const delta = lines - currentLines;
+        return (
+            <span className="text-slate-500">
+                {lines} lines
+                {delta !== 0 && (
+                    <span className={delta < 0 ? 'text-amber-400' : 'text-emerald-400'}>
+                        {' '}({delta > 0 ? '+' : ''}{delta} vs now)
+                    </span>
+                )}
+            </span>
+        );
+    };
+
+    const Row: React.FC<{
+        rowKey: string; title: string; subtitle: string; lines: number; code?: string;
+        onRestoreClick: () => void; busy?: boolean;
+    }> = ({ rowKey, title, subtitle, lines, code, onRestoreClick, busy }) => (
+        <div className="border border-slate-700 rounded-lg bg-slate-800/60 overflow-hidden">
+            <div className="p-3">
+                <div className="text-sm text-slate-200 font-medium break-words">{title}</div>
+                <div className="mt-0.5 text-xs flex flex-wrap items-center gap-x-2">
+                    <span className="text-slate-400">{subtitle}</span>
+                    <LineCount lines={lines} />
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                    <button
+                        onClick={onRestoreClick}
+                        disabled={busy}
+                        className="px-2.5 py-1 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                    >
+                        {busy ? <RefreshCw size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                        Restore
+                    </button>
+                    {code !== undefined && (
+                        <button
+                            onClick={() => setExpanded(expanded === rowKey ? null : rowKey)}
+                            className="px-2.5 py-1 text-xs rounded-md text-slate-300 bg-slate-700 hover:bg-slate-600 transition-colors"
+                        >
+                            {expanded === rowKey ? 'Hide code' : 'View code'}
+                        </button>
+                    )}
+                </div>
+            </div>
+            {code !== undefined && expanded === rowKey && (
+                <CodeEditor className="h-64 border-t border-slate-700 bg-[#1e1e1e]" language="tsx" value={code} ariaLabel={`${title} source`} />
+            )}
+        </div>
+    );
+
+    return (
+        <div className="absolute inset-y-0 right-0 w-[26rem] max-w-full bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col z-20">
+            <div className="p-4 border-b border-slate-700 flex items-start justify-between gap-2">
+                <div>
+                    <div className="flex items-center gap-2 text-slate-100 font-semibold">
+                        <History size={16} className="text-indigo-400" />
+                        History
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">
+                        Restores code into the editor only. Settings stay as they are, and nothing is published until you say so.
+                    </p>
+                </div>
+                <button onClick={onClose} aria-label="Close history" className="p-1 text-slate-400 hover:text-slate-200 rounded-md hover:bg-slate-800 transition-colors">
+                    <X size={16} />
+                </button>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
+                <div className="text-xs text-slate-400 flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300">Now</span>
+                    {currentLines} lines in the editor
+                </div>
+
+                <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">This session</h3>
+                    {checkpoints.length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                            No snapshots yet. One is taken automatically before the agent or an import changes your code.
+                        </p>
+                    ) : (
+                        <div className="space-y-2">
+                            {checkpoints.map(entry => (
+                                <Row
+                                    key={entry.id}
+                                    rowKey={entry.id}
+                                    title={entry.label}
+                                    subtitle={relativeTime(entry.at)}
+                                    lines={countLines(entry.code)}
+                                    code={entry.code}
+                                    onRestoreClick={() => onRestore(entry.code, `the version from ${relativeTime(entry.at)}`)}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Published versions</h3>
+                    {!widgetId ? (
+                        <p className="text-xs text-slate-500">
+                            This widget hasn't been published yet, so there are no saved versions to go back to.
+                        </p>
+                    ) : published === null ? (
+                        <p className="text-xs text-slate-500 flex items-center gap-2"><RefreshCw size={12} className="animate-spin" /> Loading…</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {publishedError && (
+                                <div className="text-xs text-rose-300 bg-rose-950/40 border border-rose-900/50 rounded-md p-2 flex items-start justify-between gap-2">
+                                    <span className="break-words">{publishedError}</span>
+                                    <button onClick={retryPublished} className="shrink-0 underline hover:text-rose-200">Retry</button>
+                                </div>
+                            )}
+                            {published.length === 0 && !publishedError && (
+                                <p className="text-xs text-slate-500">No saved versions found.</p>
+                            )}
+                            {published.map(entry => (
+                                <Row
+                                    key={entry.version}
+                                    rowKey={`v${entry.version}`}
+                                    title={`v${entry.version} — ${entry.name}`}
+                                    subtitle={`${entry.created_by || 'unknown'} · ${entry.timestamp ? new Date(entry.timestamp).toLocaleString() : ''}`}
+                                    lines={entry.lines ?? 0}
+                                    onRestoreClick={() => restorePublished(entry)}
+                                    busy={busyVersion === entry.version}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // The settings the agent is allowed to propose. Same key names as the
 // `widget-meta` block described in server/routes/agent_instructions.md.
 const SETTING_KEYS = ['name', 'description', 'helpText', 'category', 'domain', 'defaultW', 'defaultH', 'isExecutable'];
@@ -91,7 +348,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [prompt, setPrompt] = useState(sessionState?.prompt || "");
     const [isGenerating, setIsGenerating] = useState(false);
     const [isPublishing, setIsPublishing] = useState(false);
-    const [code, setCode] = useState<string>(sessionState?.code || "export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}");
+    const [code, setCode] = useState<string>(sessionState?.code || DEFAULT_WIDGET_CODE);
+    const [checkpoints, setCheckpoints] = useState<CodeCheckpoint[]>(sessionState?.checkpoints || []);
+    const [showHistory, setShowHistory] = useState(false);
     const [viewMode, setViewMode] = useState<'preview' | 'code' | 'config'>(sessionState?.viewMode || 'preview');
     const [previewComponent, setPreviewComponent] = useState<React.ComponentType | null>(null);
     const [previewError, setPreviewError] = useState<string | null>(null);
@@ -147,6 +406,73 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
     const { version: registryVersion } = useWidgetRegistry();
 
+    // What's in the editor right now, readable from callbacks that were created
+    // before the latest keystroke — a checkpoint has to capture what the user can
+    // see, not what `code` was when the agent request went out.
+    const codeRef = useRef(code);
+    useEffect(() => { codeRef.current = code; }, [code]);
+
+    // Latest values for the compile effect further down. That effect must run when
+    // the code changes and at no other time, but the auto-fix inside it still needs
+    // the current generate function and flags when it does run. Naming them as
+    // dependencies would recompile the preview on every render instead, and reading
+    // `handleGenerate` directly would reach for a function declared below it.
+    const generateRef = useRef<(error?: string) => void | Promise<void>>(() => { });
+    const isGeneratingRef = useRef(isGenerating);
+    const previewErrorRef = useRef(previewError);
+
+    const pushCheckpoint = React.useCallback((snapshot: string, label: string) => {
+        if (!snapshot || !snapshot.trim()) return;
+        setCheckpoints(prev => (
+            prev[0]?.code === snapshot
+                ? prev  // nothing has changed since the last snapshot
+                : trimHistory([{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, code: snapshot, label, at: Date.now() }, ...prev])
+        ));
+    }, []);
+
+    /**
+     * The one way code gets replaced programmatically: snapshot first, and refuse
+     * an empty payload outright. A response that parsed to nothing used to land in
+     * the editor as a blank widget.
+     */
+    const replaceCode = React.useCallback((next: string, label: string): boolean => {
+        if (typeof next !== 'string' || !next.trim()) return false;
+        const before = codeRef.current;
+        if (next === before) return false;
+        pushCheckpoint(before, label);
+        setCode(next);
+        return true;
+    }, [pushCheckpoint]);
+
+    // Typing gets one snapshot per burst, so a long editing session leaves a
+    // usable trail without filling history with keystrokes.
+    const handleCodeEdit = React.useCallback((next: string) => {
+        const before = codeRef.current;
+        setCheckpoints(prev => {
+            const newest = prev[0];
+            const withinBurst = newest && newest.label === MANUAL_EDIT_LABEL && Date.now() - newest.at < MANUAL_CHECKPOINT_GAP_MS;
+            if (withinBurst || !before.trim() || newest?.code === before) return prev;
+            return trimHistory([{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, code: before, label: MANUAL_EDIT_LABEL, at: Date.now() }, ...prev]);
+        });
+        setCode(next);
+    }, []);
+
+    const restoreCode = React.useCallback((next: string, description: string) => {
+        if (!replaceCode(next, `Before restoring ${description}`)) {
+            setMessages(prev => [...prev, { role: 'system', content: `That version is identical to what's already in the editor.` }]);
+            return;
+        }
+        setPreviewError(null);
+        // A deliberate restore starts with a clean auto-fix budget rather than
+        // inheriting the count from whatever error prompted it.
+        autoRetryCountRef.current = 0;
+        setViewMode('code');
+        setMessages(prev => [...prev, {
+            role: 'system',
+            content: `Restored ${description}. Nothing is published yet — press ${editingId ? 'Update' : 'Publish'} to keep it, or open History again to go back.`
+        }]);
+    }, [replaceCode, editingId]);
+
     // Loads the category/domain pickers. Anything that fails here leaves the
     // previously-loaded values in place and surfaces a retry, because quietly
     // falling back to an empty list makes a transient backend error look like
@@ -197,12 +523,25 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         if (!editWidgetId && !cloneWidgetId) { // We only automatically sync to session storage if we aren't loading an externally provided edit ID over it. Let the edit load effect take priority.
             const currentState = {
                 messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
-                isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId
+                isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId,
+                checkpoints
             };
-            sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
+            try {
+                sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
+            } catch (e) {
+                // Out of quota. The work in progress matters more than its history,
+                // so drop the snapshots and keep the session itself persisting.
+                console.warn("Widget studio session too large; saving without code history.", e);
+                try {
+                    sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify({ ...currentState, checkpoints: [] }));
+                } catch (inner) {
+                    console.error("Could not save the widget studio session.", inner);
+                }
+            }
         }
     }, [messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
-        isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId, editWidgetId, cloneWidgetId]);
+        isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId,
+        checkpoints, editWidgetId, cloneWidgetId]);
 
     // Load existing widget data when editWidgetId or cloneWidgetId is provided
     useEffect(() => {
@@ -219,6 +558,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 // A published widget's settings were decided by a person, so the
                 // agent leaves all of them alone from here on.
                 SETTING_KEYS.forEach(markSettingTouched);
+
+                // Opening a widget over unsaved work is its own way to lose code,
+                // so the session keeps what was here.
+                if (codeRef.current.trim() && codeRef.current !== DEFAULT_WIDGET_CODE && codeRef.current !== w.tsx_code) {
+                    pushCheckpoint(codeRef.current, `Before opening "${w.name}"`);
+                }
 
                 setEditingId(isClone ? null : w.id);
                 setWidgetName(isClone ? `Clone of ${w.name}` : w.name);
@@ -253,7 +598,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
             })
             .catch(console.error);
-    }, [editWidgetId, cloneWidgetId]);
+    }, [editWidgetId, cloneWidgetId, pushCheckpoint]);
 
     useEffect(() => {
         const timeoutId = setTimeout(() => {
@@ -325,18 +670,18 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 setPreviewComponent(() => Component);
                 // Clean compile: clear the auto-retry budget for the next error.
                 autoRetryCountRef.current = 0;
-            } catch (err: any) {
-                const errorMsg = err.message || String(err);
-                if (previewError !== errorMsg) {
+            } catch (err) {
+                const errorMsg = errorText(err);
+                if (previewErrorRef.current !== errorMsg) {
                     setPreviewError(errorMsg);
                     setPreviewComponent(null);
 
                     // Trigger auto-retry after a small delay to let state settle,
                     // but cap consecutive attempts so a persistently-uncompilable
                     // widget can't loop the generation endpoint forever.
-                    if (!isGenerating && autoRetryCountRef.current < MAX_AUTO_RETRIES) {
+                    if (!isGeneratingRef.current && autoRetryCountRef.current < MAX_AUTO_RETRIES) {
                         autoRetryCountRef.current += 1;
-                        setTimeout(() => handleGenerate(errorMsg), 1000);
+                        setTimeout(() => generateRef.current(errorMsg), 1000);
                     }
                 }
             }
@@ -404,6 +749,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const handleGenerate = async (autoRetryError?: string) => {
         if (!prompt && !autoRetryError) return;
 
+        // Captured before the box is cleared, to label the snapshot this turn leaves
+        // behind with the request that caused it.
+        const asked = prompt.trim().replace(/\s+/g, ' ');
+        const checkpointLabel = autoRetryError
+            ? 'Before an automatic compile fix'
+            : `Before "${asked.length > 60 ? `${asked.slice(0, 57)}…` : asked}"`;
+
         let newMessages = [...messages];
         if (autoRetryError) {
             setMessages(prev => [...prev, { role: 'system', content: `Auto-retrying due to compilation error: ${autoRetryError}` }]);
@@ -465,7 +817,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             
                             const result = statusData.result;
                             if (result.code) {
-                                setCode(result.code);
+                                replaceCode(result.code, checkpointLabel);
                             }
 
                             setMessages([...newMessages, {
@@ -495,7 +847,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 }, 2000);
             } else if (data.code) {
                 // Fallback if backend hasn't updated yet or returns directly
-                setCode(data.code);
+                replaceCode(data.code, checkpointLabel);
                 setMessages([...newMessages, {
                     role: 'assistant',
                     content: describeGeneration(
@@ -510,6 +862,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             setIsGenerating(false);
         }
     };
+
+    // Kept current for the compile effect above, which reads them through refs so it
+    // isn't re-run by anything but a code change.
+    useEffect(() => {
+        generateRef.current = handleGenerate;
+        isGeneratingRef.current = isGenerating;
+        previewErrorRef.current = previewError;
+    });
 
     const handlePublish = async () => {
         if (!widgetName.trim()) {
@@ -641,6 +1001,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const handleReset = () => {
         if (!confirm("Are you sure you want to reset the Widget Studio? All unsaved changes will be lost.")) return;
         sessionStorage.removeItem(WIDGET_STUDIO_SESSION_KEY);
+        // Reset is confirmed, but a misfired one shouldn't be the end of the code.
+        pushCheckpoint(codeRef.current, 'Before Reset');
         touchedSettingsRef.current.clear();
         setEditingId(null);
         setWidgetName(DEFAULT_WIDGET_NAME);
@@ -657,7 +1019,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setConfigMode('none');
         setConfigSchema([]);
         setPrompt("");
-        setCode("export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}");
+        setCode(DEFAULT_WIDGET_CODE);
         setMessages([{
             role: 'assistant',
             content: "Welcome to the Widget Studio! Briefly describe the widget you want to build."
@@ -720,7 +1082,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             setWidgetHelpText(w.help_text || '');
             setWidgetCategory(w.category || '');
             setWidgetDomain(w.domain || '');
-            setCode(w.tsx_code || code);
+            replaceCode(w.tsx_code || code, `Before importing "${w.name || 'a widget file'}"`);
             setIsExecutable(w.is_executable === true || w.is_executable === 1);
             setOpenInNewTabLink(w.open_in_new_tab_link || '');
             setDataSourceType((w.data_source_type as any) || 'none');
@@ -880,9 +1242,16 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         <Settings size={14} /> Configuration
                     </button>
                     <button
+                        onClick={() => setShowHistory(v => !v)}
+                        className={`ml-auto mb-1 px-3 py-1.5 flex items-center gap-2 rounded-md text-sm border transition-colors ${showHistory ? 'bg-indigo-600 border-indigo-500 text-white' : 'text-slate-300 bg-slate-800 border-slate-700 hover:bg-slate-700 hover:text-white'}`}
+                        title="Restore an earlier version of this widget's code"
+                    >
+                        <History size={14} /> History{checkpoints.length ? ` (${checkpoints.length})` : ''}
+                    </button>
+                    <button
                         onClick={handleReloadPreview}
                         disabled={!code}
-                        className="ml-auto mb-1 px-3 py-1.5 flex items-center gap-2 rounded-md text-sm text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        className="mb-1 px-3 py-1.5 flex items-center gap-2 rounded-md text-sm text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         title="Re-run the widget: recompile and remount so mount-time data loads fire again"
                     >
                         <RefreshCw size={14} /> Reload
@@ -978,7 +1347,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             className="absolute inset-0 bg-[#1e1e1e]"
                             language="tsx"
                             value={code}
-                            onChange={setCode}
+                            onChange={handleCodeEdit}
                             ariaLabel="Widget TSX source"
                         />
                     ) : (
@@ -1275,6 +1644,16 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                 </div>
                             </div>
                         </div>
+                    )}
+
+                    {showHistory && (
+                        <CodeHistoryPanel
+                            checkpoints={checkpoints}
+                            currentCode={code}
+                            widgetId={editingId}
+                            onRestore={restoreCode}
+                            onClose={() => setShowHistory(false)}
+                        />
                     )}
                 </div>
             </div>

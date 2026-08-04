@@ -19,6 +19,13 @@ code right and the whitespace wrong: exact substring, then ignoring trailing
 whitespace, then ignoring indentation (re-indenting the replacement to match what
 was actually found). A block that still doesn't match is reported rather than
 guessed at, so the caller can ask for a correction instead of writing damage.
+
+A model may still answer an edit request with a whole `tsx` block. That path is
+legitimate for a real rewrite and catastrophic for a fragment, since whatever it
+contains becomes the entire widget — the failure users described as the studio
+erasing their widget. `assess_rewrite` is the gate: it recognizes the fragments
+(an excerpt, an elided "rest of the code" placeholder, a file with no export,
+unbalanced braces) so the caller can keep the working code and ask again.
 """
 from __future__ import annotations
 
@@ -215,6 +222,102 @@ def extract_code_block(content: str) -> Tuple[Optional[str], str]:
         return partial.group(1).strip(), re.sub(r"\n{3,}", "\n\n", content[:partial.start()].strip())
 
     return None, content.strip()
+
+
+class RewriteRisk(NamedTuple):
+    """Why a whole-file reply looks wrong for the code it would replace.
+
+    `blocking` separates the two kinds of finding. A fragment cannot be what the
+    user asked for under any reading, so the caller must not write it. A rewrite
+    that is merely far smaller than what it replaces might be exactly what was
+    asked for, so it is worth a second opinion but not a refusal.
+    """
+    blocking: bool
+    reason: str
+
+
+# Placeholders standing in for "and the rest of the file goes here". Left in a
+# whole-file reply they don't elide anything — they delete it.
+_ELISION_RES = (
+    # A comment whose entire content is an ellipsis.
+    re.compile(r"^[ \t]*(?:\{\s*)?(?://|/\*)[ \t]*(?:\.\.\.|…)[ \t]*(?:\*/[ \t]*\}?)?[ \t]*$", re.MULTILINE),
+    # An ellipsis alongside a word that hands the rest of the file back to us.
+    re.compile(
+        r"^[ \t]*(?:\{\s*)?(?://|/\*)[^\n]*?(?:\.\.\.|…)[^\n]*?"
+        r"\b(rest|remainder|remaining|unchanged|untouched|as[- ]is|as before|same|existing|previous|omitted|snip)\b",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    # The same instruction written out without an ellipsis.
+    re.compile(
+        r"^[ \t]*(?:\{\s*)?(?://|/\*)[^\n]*?"
+        r"\b(?:rest|remainder|remaining)\b[^\n]*?\b(?:file|code|component|widget|function|logic|implementation|render|markup|unchanged)\b",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+)
+
+# Strings and comments, so brace counting isn't thrown off by a `"}"` in the text.
+_STRING_OR_COMMENT_RE = re.compile(
+    r"//[^\n]*|/\*.*?\*/|'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|`(?:\\.|[^`\\])*`",
+    re.DOTALL,
+)
+
+_EXPORT_RE = re.compile(r"^[ \t]*export\b|\bmodule\.exports\b", re.MULTILINE)
+
+
+def _elision_marker(code: str) -> Optional[str]:
+    """The placeholder line a model left in place of real code, if any."""
+    for pattern in _ELISION_RES:
+        match = pattern.search(code or "")
+        if match:
+            line = (code or "")[match.start():].split("\n", 1)[0].strip()
+            return line[:80]
+    return None
+
+
+def _unbalanced(code: str) -> Optional[str]:
+    """Name of the first bracket pair that doesn't balance, ignoring literals."""
+    bare = _STRING_OR_COMMENT_RE.sub("", code or "")
+    for opener, closer, name in (("{", "}", "braces"), ("(", ")", "parentheses"), ("[", "]", "brackets")):
+        if bare.count(opener) != bare.count(closer):
+            return name
+    return None
+
+
+def sloc(code: str) -> int:
+    """Non-blank lines — a size measure that ignores reformatting."""
+    return sum(1 for line in (code or "").split("\n") if line.strip())
+
+
+def assess_rewrite(old_code: str, new_code: str) -> Optional[RewriteRisk]:
+    """Judge replacing `old_code` wholesale with `new_code`. None means it's fine.
+
+    Only meaningful when there is existing code to lose: writing a new widget, or
+    re-sending the file unchanged, has nothing to protect and returns None.
+    """
+    old = (old_code or "").strip()
+    new = (new_code or "").strip()
+    if not old or not new or new == old:
+        return None
+
+    marker = _elision_marker(new)
+    if marker:
+        return RewriteRisk(True, f'it leaves the rest of the widget out, marked "{marker}"')
+
+    if new in old:
+        return RewriteRisk(True, "it is an excerpt of the code that is already there, not a whole widget")
+
+    if _EXPORT_RE.search(old) and not _EXPORT_RE.search(new):
+        return RewriteRisk(True, "it exports nothing, so it is a piece of the widget rather than the widget")
+
+    pair = _unbalanced(new)
+    if pair:
+        return RewriteRisk(True, f"its {pair} do not balance, so it is incomplete")
+
+    old_lines, new_lines = sloc(old), sloc(new)
+    if old_lines >= 25 and new_lines * 2 < old_lines:
+        return RewriteRisk(False, f"it takes the widget from {old_lines} lines down to {new_lines}")
+
+    return None
 
 
 def looks_truncated(content: str) -> bool:

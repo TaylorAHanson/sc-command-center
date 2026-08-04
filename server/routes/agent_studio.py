@@ -10,10 +10,12 @@ from databricks.sdk import WorkspaceClient
 from database import get_db_connection
 from services.code_patch import (
     apply_edits,
+    assess_rewrite,
     continuation_anchor,
     extract_code_block,
     looks_truncated,
     parse_edits,
+    sloc,
     strip_edit_blocks,
 )
 from services.settings_store import base_path_for_model, get_setting
@@ -265,6 +267,68 @@ def _repair_edits(llm, system_prompt: str, user_prompt: str, content: str,
     ]), "content", "") or ""
 
 
+def _demand_edits(llm, system_prompt: str, user_prompt: str, content: str,
+                  code: str, reason: str) -> str:
+    """Ask for the change as edits, after a whole-file reply looked like a fragment."""
+    return getattr(llm.invoke([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt),
+        AIMessage(content=content),
+        HumanMessage(content=(
+            "That reply would have replaced the entire widget, but "
+            f"{reason}. Writing it would delete working code.\n\n"
+            "This is the current code, still unchanged:\n"
+            f"```tsx\n{code}\n```\n"
+            "Send the same change as SEARCH/REPLACE blocks against that code. Copy "
+            "each SEARCH text exactly from it, keep every block to the lines you are "
+            "actually changing, and do not send a tsx block. No explanation."
+        )),
+    ]), "content", "") or ""
+
+
+def _vet_rewrite(llm, system_prompt: str, user_prompt: str, content: str,
+                 base_code: str, new_code: str) -> tuple[Optional[str], List[str]]:
+    """Decide what to do with a whole-file reply to an edit request.
+
+    Returns the code to write — None to keep what the user already has — and notes
+    explaining the decision. A fragment is never written: we ask for the change as
+    edits instead, which is the same thing users found they had to ask for by hand.
+    """
+    risk = assess_rewrite(base_code, new_code)
+    if not risk:
+        return new_code, []
+
+    if not risk.blocking:
+        # A complete widget, just a much smaller one. Asking for it as edits instead
+        # would be second-guessing a request to simplify or start over, so write it
+        # and make sure the user knows the old version is still reachable.
+        print(f"Whole-file reply is a large shrink: {risk.reason}")
+        return new_code, [
+            f"This replaced the entire widget — {risk.reason}. "
+            "If that wasn't what you wanted, open History in the TSX Editor toolbar and restore the previous version."
+        ]
+
+    print(f"Whole-file reply refused: {risk.reason}")
+    edits = parse_edits(_demand_edits(llm, system_prompt, user_prompt, content, base_code, risk.reason))
+    if edits:
+        result = apply_edits(base_code, edits)
+        if result.applied:
+            notes = [
+                f"The first reply would have replaced the whole widget — {risk.reason} — "
+                "so I applied the change as a targeted edit instead."
+            ]
+            notes.extend(result.warnings)
+            if result.failures:
+                notes.append("Some of those edits could not be placed and were skipped: "
+                             + " ".join(result.failures))
+            return result.code, notes
+
+    return None, [
+        f"Your code is unchanged. The reply looked like part of a widget rather than a whole one — {risk.reason} — "
+        "and overwriting the file with it would have deleted the rest. Ask again, naming the part you want changed."
+    ]
+
+
 def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_url: str):
     try:
         # Admin-settable (Admin Panel → Settings), falling back to LLM_MODEL.
@@ -328,6 +392,12 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
 
             code = result.code if result.applied else None
             explanation = strip_edit_blocks(content)
+            if code and sloc(base_code) >= 25 and sloc(code) * 2 < sloc(base_code):
+                # Edits that delete most of the file are legal but rarely intended.
+                notes.append(
+                    f"These edits cut the widget from {sloc(base_code)} lines to {sloc(code)}. "
+                    "If that's more than you asked for, restore the previous version from History."
+                )
             if truncated:
                 notes.append("The response was cut off, so some requested changes may be missing.")
             if result.failures:
@@ -355,6 +425,12 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
                 # Failsafe cleanup of any lingering backticks just in case
                 code = re.sub(r'^```[a-zA-Z]*\n?', '', code)
                 code = re.sub(r'\n?```$', '', code)
+                if base_code.strip():
+                    # Editing, not creating: whatever this block holds is about to
+                    # become the whole widget, so make sure it is one.
+                    code, vet_notes = _vet_rewrite(llm, system_prompt, req.prompt, content,
+                                                   base_code, code)
+                    notes.extend(vet_notes)
             if looks_truncated(content):
                 notes.append(
                     "The response was still incomplete after "

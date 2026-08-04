@@ -101,7 +101,13 @@ changing**, as one or more search-and-replace blocks:
 - Keep each block tight — the lines you are changing plus a little context, never
   the whole component.
 - Only if the change is genuinely pervasive (a rewrite, not an edit) may you fall
-  back to returning the complete component in a `tsx` block instead.
+  back to returning the complete component in a `tsx` block instead. A `tsx` block
+  **replaces the user's entire widget**, so it has to be the entire widget:
+  complete, exported, and compiling on its own. Never send one that stands in for
+  the file with a placeholder like `// ... rest of the component unchanged`, and
+  never send one that is only the function or JSX you touched. Fragments are
+  rejected and the user is told their code was left alone, which costs them a
+  turn — a SEARCH/REPLACE block is always the better answer.
 
 ### Creating a new widget
 

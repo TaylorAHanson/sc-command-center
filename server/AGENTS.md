@@ -364,6 +364,23 @@ failing:
   fence, or `finish_reason == "length"`) it's continued from its own tail, up to
   `WIDGET_AGENT_MAX_CONTINUATIONS` (3) times, instead of restarted.
 
+A whole `tsx` block arriving in answer to an *edit* is the dangerous case: it
+becomes the entire widget, so a fragment erases everything around it. That was the
+studio's most-reported bug — the model answering "add a column" with just the
+function it changed, or with `// ... rest of the component unchanged`. So when
+`current_code` is non-empty, `assess_rewrite` vets the block first and
+`_vet_rewrite` acts on the verdict:
+
+- A fragment (an excerpt of the current file, an elided "rest of the code"
+  placeholder, no export, unbalanced brackets) is **never written**. The model gets
+  one round trip to resend the change as SEARCH/REPLACE blocks against the current
+  code; if that fails too, the code is left alone and the explanation says so.
+- A rewrite that merely shrinks the widget by more than half is written, since it
+  may be what was asked for, but the explanation points at History.
+
+Keep the two halves in step: `assess_rewrite` decides, `_vet_rewrite` reacts, and
+`routes/agent_instructions.md` tells the model the rule so it rarely comes up.
+
 A `widget-meta` JSON block carries proposed Configuration-tab values. Backend
 sanitizes: categories/domains must be one of the values the request supplied,
 dimensions are range-checked, and keys listed in `locked_settings` are dropped.
@@ -374,8 +391,9 @@ The frontend applies what's left only to fields the user hasn't touched.
 ```bash
 PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py   # 7 passed
 PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 3 passed
-PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 12 passed
+PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 18 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed

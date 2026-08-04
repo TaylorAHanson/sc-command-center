@@ -13,6 +13,32 @@
 
 # Release Notes
 
+## 1.6.0 — 2026-08-04
+
+### Added
+
+- **History in Widget Studio.** A **History** button next to Reload lists versions
+  of your widget you can go back to, and **Restore** puts one back in the editor.
+  Every change the studio makes for you is saved there first — each agent turn, each
+  import, each Reset — along with a snapshot of your own editing as you go, so a turn
+  that goes wrong is one click from undone. For a widget you've already published,
+  the panel also lists its published versions with who saved each one and how large
+  it was, so you can pull an older one back without leaving the studio. Restoring
+  only loads code: your Configuration settings are untouched, nothing is published
+  until you press Publish, and the version you restored over is itself kept in
+  History in case you want it back.
+
+### Fixed
+
+- **The agent no longer erases your widget when you ask it to change one.** Asked
+  for a small change, it would sometimes reply with just the part it had rewritten —
+  or with a placeholder like "the rest of the component is unchanged" — and that
+  reply replaced the whole file, taking everything else with it. Those replies are
+  now recognised and refused: your code is left exactly as it was while the agent is
+  asked to make the change in place instead, which is what it does on the retry. If a
+  turn does legitimately replace most of your widget, the reply says so and points at
+  History. You no longer need to ask it to "merge" the changes.
+
 ## 1.5.0 — 2026-07-30
 
 ### Added

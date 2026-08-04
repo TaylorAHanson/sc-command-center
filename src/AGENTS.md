@@ -76,7 +76,23 @@ Two behaviors there are easy to break by accident:
 - **Reload re-fires the widget without changing its code.** `previewNonce` is a
   dependency of the compile effect, so bumping it recompiles; the new component
   function is a different type to React, which remounts and therefore re-runs
-  mount-time data loads.
+  mount-time data loads. That effect deliberately depends on `code` and
+  `previewNonce` only. The auto-fix inside it reaches the current generate function
+  and flags through `generateRef`/`isGeneratingRef`/`previewErrorRef`, because
+  naming them as dependencies would recompile on every render — and reading
+  `handleGenerate` directly reaches for a function declared below the effect.
+- **Code is never replaced without a snapshot.** `replaceCode` is the only way
+  anything programmatic (an agent turn, an import, a restore) writes the editor: it
+  refuses empty text and pushes the outgoing code onto `checkpoints` first, which
+  the History panel in the TSX Editor toolbar restores from. Typing gets one
+  snapshot per burst rather than one per keystroke, so `onChange` goes through
+  `handleCodeEdit`, not `setCode`. Call `setCode` directly only where there is
+  genuinely nothing to preserve (initial load, Reset's blank template). History is
+  capped by count and by bytes, and the session write falls back to saving without
+  it if sessionStorage runs out of quota.
+  Published versions in the same panel come from `/api/widgets/history` (metadata
+  and per-version size) and `/api/widgets/version` (one version's code). Restoring
+  loads code into the editor and nothing else — no settings, no publish.
 
 Category and domain come from `/api/taxonomy/*`. A failed load keeps the previous
 values and shows a retry rather than falling back to an empty list — an empty

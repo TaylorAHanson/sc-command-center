@@ -64,16 +64,52 @@ def get_custom_widgets(w: WorkspaceClient = Depends(get_db_client), env: str = "
 
 @router.get("/history")
 def get_widget_history(widget_id: str, env: str = "dev"):
-    """Return all versions of a widget in a given env, ordered newest first."""
+    """Return all versions of a widget in a given env, ordered newest first.
+
+    Carries each version's size but not its code: the size is what tells a version
+    apart at a glance (a 12-line entry under a 240-line one is the turn that ate
+    the widget), while shipping every version's source would make the list heavy
+    for no one's benefit. Widget Studio fetches the code for the one version it
+    restores from `/version`.
+    """
     conn = get_db_connection(env)
     c = conn.cursor()
     c.execute(
-        "SELECT version, name, created_by, timestamp FROM widgets WHERE id = %s AND is_deprecated = 0 ORDER BY version DESC",
+        "SELECT version, name, created_by, timestamp, tsx_code FROM widgets "
+        "WHERE id = %s AND is_deprecated = 0 ORDER BY version DESC",
         (widget_id,)
     )
-    rows = [dict(zip([d[0] for d in c.description], row)) for row in c.fetchall()]
+    columns = [d[0] for d in c.description]
+    rows = []
+    for row in c.fetchall():
+        entry = dict(zip(columns, row))
+        code = entry.pop("tsx_code", None) or ""
+        entry["lines"] = sum(1 for line in code.split("\n") if line.strip())
+        entry["chars"] = len(code)
+        rows.append(entry)
     conn.close()
     return {"history": rows, "env": env}
+
+
+@router.get("/version")
+def get_widget_version(widget_id: str, version: int, env: str = "dev"):
+    """Return one published version in full, including its code.
+
+    Backs Restore in Widget Studio: the studio loads this into the editor, where it
+    becomes an ordinary unsaved change the user still has to publish.
+    """
+    conn = get_db_connection(env)
+    c = conn.cursor()
+    c.execute(
+        "SELECT * FROM widgets WHERE id = %s AND version = %s",
+        (widget_id, version)
+    )
+    row = c.fetchone()
+    columns = [d[0] for d in c.description]
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Version {version} of this widget was not found in {env}.")
+    return {"widget": dict(zip(columns, row)), "env": env}
 
 
 
