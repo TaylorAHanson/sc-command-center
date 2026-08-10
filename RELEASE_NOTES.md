@@ -13,6 +13,43 @@
 
 # Release Notes
 
+## 1.7.0 — 2026-08-10
+
+### Added
+
+- **Widget Studio builds big requests in steps.** Ask for several things at once —
+  a table, a filter bar, and a CSV export — and the agent plans the work, then does
+  one step at a time. You see the plan tick over as it goes, each step lands in the
+  editor the moment it's ready, and History gets an entry per step so you can go
+  back to any point. If a step fails, the earlier ones stay; there's a **Stop after
+  this step** link when you've seen enough. This is the fix for a large request
+  spending minutes and then returning nothing.
+- **Timeouts and limits are settings now.** Admin Panel → Settings has cards for the
+  chat agent's limits and the studios', including how long a Widget Studio request may
+  take before it gives up. Widget Studio waits as long as that allows — it used to
+  stop at five minutes whatever the setting said — and the spinner counts the seconds
+  so a long build reads as work rather than as a hang. If a request does run out of
+  time, whatever the agent already applied is kept and the reply tells you which knob
+  to turn.
+
+### Fixed
+
+- **Changing the model no longer breaks Widget Studio.** Some models refuse settings
+  others require — a temperature that newer Claude models won't accept, a reasoning
+  flag some models insist on — and Widget Studio always sent the same ones, so
+  choosing certain models failed every generation while chat carried on working. The
+  app now sends each model only what it accepts, learns from anything an endpoint
+  refuses, and if a model needs something unusual you can name it under **Model
+  parameter overrides** in Settings without a redeploy.
+- **Queries against columns with spaces in their names work.** Databricks needs names
+  like `Ship Date` wrapped in backticks, and the agents were writing them bare —
+  which failed. Both the chat agent and Widget Studio now quote them properly, and are
+  reminded of the rule if a query still fails on a name.
+- **A failed query says so instead of showing an empty widget.** A query the warehouse
+  rejected — a typo, a missing table, no permission — came back as a widget with no
+  data and no explanation. The error is now reported, which also lets Widget Studio
+  fix its own query on the retry.
+
 ## 1.6.0 — 2026-08-04
 
 ### Added

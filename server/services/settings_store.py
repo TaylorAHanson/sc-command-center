@@ -41,11 +41,15 @@ class Spec(NamedTuple):
     """One setting: where it falls back to, and what a valid value looks like."""
     env: str
     default: str
-    kind: str  # "endpoint" | "int"
+    kind: str  # "endpoint" | "int" | "json"
     label: str
     help: str
     minimum: Optional[int] = None
     maximum: Optional[int] = None
+    # Which card the Settings page shows this under. Add a group here and the UI
+    # picks it up; it renders whatever the backend describes rather than holding its
+    # own list of settings.
+    group: str = "limits"
 
 
 # Model settings are separate on purpose: the chat agent, the widget generator and
@@ -59,6 +63,7 @@ SETTING_SPECS: Dict[str, Spec] = {
         kind="endpoint",
         label="Chat agent model",
         help="Serving endpoint behind the assistant panel. An agent saved with its own model overrides this.",
+        group="models",
     ),
     "widget_model": Spec(
         env="LLM_MODEL",
@@ -66,6 +71,7 @@ SETTING_SPECS: Dict[str, Spec] = {
         kind="endpoint",
         label="Widget generation model",
         help="Writes widget code in Widget Studio. Favour a model with a large output budget.",
+        group="models",
     ),
     "authoring_model": Spec(
         env="AGENT_STUDIO_LLM_MODEL",
@@ -73,6 +79,19 @@ SETTING_SPECS: Dict[str, Spec] = {
         kind="endpoint",
         label="Agent authoring model",
         help="Drafts and reviews agents in Agent Studio.",
+        group="models",
+    ),
+    "model_params": Spec(
+        env="LLM_MODEL_PARAMS",
+        default="",
+        kind="json",
+        # Models disagree about the optional parameters, and none of them are sent
+        # unless something asks for them (see services/llm_params.py). A rejection
+        # teaches the app what to stop sending on its own; this is for the opposite
+        # case, a model that needs a parameter we would never send by default.
+        label="Model parameter overrides",
+        help='Optional, per model. JSON like {"gpt-5.6-luna": {"reasoning_effort": "medium"}}; use null to stop sending one, e.g. {"my-model": {"temperature": null}}. Parameters a model rejects are dropped automatically, so leave this empty unless a model needs something extra.',
+        group="models",
     ),
     "chat_max_steps": Spec(
         env="AGENT_RUNTIME_MAX_STEPS",
@@ -96,8 +115,67 @@ SETTING_SPECS: Dict[str, Spec] = {
         help="Ceiling on a single chat response. It costs nothing unless an answer needs the room; models that allow less are clamped automatically.",
         minimum=256,
         maximum=128000,
+        group="chat",
+    ),
+    "chat_tool_timeout": Spec(
+        env="AGENT_RUNTIME_TOOL_TIMEOUT",
+        default="90",
+        kind="int",
+        label="Tool call timeout (seconds)",
+        help="How long one tool call — a SQL query, an MCP call — may run before the agent is told it timed out and moves on.",
+        minimum=5,
+        maximum=600,
+        group="chat",
+    ),
+    "chat_genie_timeout": Spec(
+        env="AGENT_RUNTIME_GENIE_TIMEOUT",
+        default="150",
+        kind="int",
+        label="Genie query timeout (seconds)",
+        help="Genie answers are polled until this elapses. Longer suits large warehouses; the agent explains the timeout rather than inventing an answer.",
+        minimum=10,
+        maximum=900,
+        group="chat",
+    ),
+    "widget_max_tokens": Spec(
+        env="WIDGET_AGENT_MAX_TOKENS",
+        default="16000",
+        kind="int",
+        label="Widget response length limit (tokens)",
+        help="Ceiling on one Widget Studio reply. A cut-off reply is continued automatically, so raising this mainly saves round trips.",
+        minimum=1000,
+        maximum=128000,
+        group="widget",
+    ),
+    "widget_timeout": Spec(
+        env="WIDGET_AGENT_TIMEOUT",
+        default="300",
+        kind="int",
+        label="Widget generation timeout (seconds)",
+        help="How long one Widget Studio request may take before it gives up. Large widgets need longer; the studio waits as long as this allows and keeps whatever was applied.",
+        minimum=30,
+        maximum=1800,
+        group="widget",
+    ),
+    "authoring_max_tokens": Spec(
+        env="AGENT_STUDIO_MAX_TOKENS",
+        default="16000",
+        kind="int",
+        label="Agent Studio response length limit (tokens)",
+        help="Ceiling on one Agent Studio draft. The draft is a single JSON object holding every skill, so a low ceiling truncates it mid-string and the draft fails to parse.",
+        minimum=1000,
+        maximum=128000,
+        group="widget",
     ),
 }
+
+# Cards on the Settings page, in order. A group with no settings isn't rendered.
+SETTING_GROUPS: List[Dict[str, str]] = [
+    {"key": "models", "label": "Models"},
+    {"key": "chat", "label": "Chat agent limits"},
+    {"key": "widget", "label": "Studio limits"},
+    {"key": "limits", "label": "Other limits"},
+]
 
 # The two OpenAI-compatible routes a Databricks workspace offers, and the naming
 # each one accepts. They are not interchangeable: a `system.ai.…` name posted to
@@ -222,6 +300,7 @@ def describe_settings() -> List[Dict[str, Any]]:
             "label": spec.label,
             "help": spec.help,
             "kind": spec.kind,
+            "group": spec.group,
             "value": get_setting(key),
             "stored": (rows.get(key) or "").strip(),
             "source": _source_of(key, rows),
@@ -249,6 +328,21 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
         if any(ch.isspace() for ch in text):
             return "", "Endpoint names cannot contain spaces"
         return text, None
+
+    if spec.kind == "json":
+        # Rejected here rather than at request time: a typo in this field would
+        # otherwise surface as an agent failing, far from the field that caused it.
+        import json
+
+        try:
+            parsed = json.loads(text)
+        except ValueError as exc:
+            return "", f"Not valid JSON: {exc}"
+        if not isinstance(parsed, dict) or not all(isinstance(v, dict) for v in parsed.values()):
+            return "", 'Expected an object keyed by model name, e.g. {"my-model": {"temperature": null}}'
+        if len(text) > 4000:
+            return "", "Too long (4000 characters maximum)"
+        return json.dumps(parsed, separators=(", ", ": ")), None
 
     try:
         value = int(float(text))

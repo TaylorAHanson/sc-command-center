@@ -40,6 +40,32 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
   - `'databricks_api'`: For authenticated Databricks APIs (like Model Serving or Volume File Uploads), use `fetch('/api/databricks/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: props.data.dataSource, method: 'GET' }) })`. Ensure you pass `path` (e.g. `/api/2.0/serving-endpoints/endpoint-name/invocations`) and `method` (e.g. `POST`) in the body along with any `body` data if necessary. For file uploads, you must also pass `fileUpload: true`, `fileBase64` (the base64 encoded file content), `fileName`, and `fileSize` in the body.
   - Assume the data returned matches the schema provided in the prompt.
 
+### Writing SQL for Databricks
+
+- **Quote identifiers with backticks whenever they are not plain names.** Databricks
+  needs a delimited (backtick-quoted) identifier for any column, table, schema or
+  alias that is not made up only of letters, digits and underscores. Delta tables
+  with column mapping enabled — the norm in Unity Catalog — are allowed column names
+  containing spaces and the characters , ; { } ( ) = tab and newline, and a column
+  whose name uses any of those must be backtick-quoted in EVERY statement that
+  references it or the query fails with UNRESOLVED_COLUMN or a parse error. The same
+  applies to a catalog, schema or table name containing a hyphen.
+- When in doubt, backtick it. Backticking a plain name never changes its meaning, so
+  quoting every identifier is the safe default whenever the column names came from a
+  schema you were given rather than one you chose:
+
+      SELECT `Order Number`, `Total (USD)` AS `total_usd`
+      FROM `my-catalog`.sales.`order-lines`
+      WHERE `Ship Date` >= '2026-01-01'
+
+- Backticks delimit **identifiers only**. String literals and dates use single
+  quotes, as above. A literal backtick inside an identifier is written by doubling
+  it. Never wrap a whole SQL statement in backticks, and never emit a markdown code
+  fence inside the `dataSource` string.
+- Column names are matched case-insensitively, so casing need not be reproduced
+  exactly — but spaces and punctuation must be, character for character, from the
+  schema you were given.
+
 ### Executable Actions
 
 - Some widgets are "executable" (meaning they perform an action that needs to be audited).

@@ -62,7 +62,8 @@ from routes.roles import (
     require_domain_editor,
     require_global_admin,
 )
-from services.settings_store import base_path_for_model, get_setting
+from services import llm_params
+from services.settings_store import base_path_for_model, get_int_setting, get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -730,38 +731,39 @@ def _build_authoring_system_prompt(req: AuthorRequest) -> str:
 
 
 def _agent_studio_max_tokens() -> int:
-    """Output budget for the Agent Studio LLM.
+    """Output budget for the Agent Studio LLM (Admin Panel → Settings).
 
     The draft is a single JSON object holding the system prompt PLUS every skill
     body and Python tool. A too-small cap truncates that JSON mid-string, which
     surfaces as "draft JSON found but failed to parse" (the object never closes).
-    A multi-skill agent easily exceeds 6k output tokens, so the default is
-    generous; override with ``AGENT_STUDIO_MAX_TOKENS`` if your endpoint caps
-    output lower.
+    A multi-skill agent easily exceeds 6k output tokens, so the default is generous.
     """
-    try:
-        return int(os.environ.get("AGENT_STUDIO_MAX_TOKENS", "16000"))
-    except ValueError:
-        return 16000
+    return get_int_setting("authoring_max_tokens")
 
 
-def _build_authoring_llm(api_key: str, base_url: str):
+def _build_authoring_llm(api_key: str, base_url: str, params: Optional[Dict[str, Any]] = None):
+    """The authoring client, with whatever parameters this model accepts.
+
+    Which parameters those are is `services/llm_params.py`'s business — it drops
+    what an endpoint refuses and adds what one demands, so every studio in the app
+    behaves the same way when the model changes. `AGENT_STUDIO_LLM_TEMPERATURE`
+    still works for deployments that set it, and is overridden by the `model_params`
+    setting if that names a temperature too.
+    """
     from langchain_openai import ChatOpenAI
 
     # Admin-settable (Admin Panel → Settings), falling back to AGENT_STUDIO_LLM_MODEL.
     model_name = get_setting("authoring_model")
+    if params is None:
+        params = llm_params.langchain_params(model_name, _agent_studio_max_tokens())
     kwargs: Dict[str, Any] = {
         "api_key": api_key,
         "base_url": base_url,
         "model": model_name,
-        "max_tokens": _agent_studio_max_tokens(),
+        **params,
     }
-    # Only send `temperature` when explicitly configured. Reasoning models such as
-    # Claude Opus 4.8 reject the parameter entirely ("does not support the
-    # temperature parameter"), and langchain-openai omits it from the request when
-    # left unset. Set AGENT_STUDIO_LLM_TEMPERATURE only for models that accept it.
     temp = (os.environ.get("AGENT_STUDIO_LLM_TEMPERATURE") or "").strip()
-    if temp:
+    if temp and "temperature" not in kwargs and "temperature" not in llm_params.describe(model_name)["omitted"]:
         try:
             kwargs["temperature"] = float(temp)
         except ValueError:
@@ -918,13 +920,6 @@ def run_authoring_task(
         store = get_agent_studio_store()
         ws = store._client(obo_token)  # OBO client for tool discovery + probes
 
-        llm = _build_authoring_llm(api_key, base_url)
-        agent = create_react_agent(
-            model=llm,
-            tools=_make_tools(ws, req.confirm_schema),
-            prompt=_build_authoring_system_prompt(req),
-        )
-
         history = req.history[-6:] if len(req.history) > 6 else req.history
         lc_history: List[Any] = []
         for m in history:
@@ -933,7 +928,22 @@ def run_authoring_task(
             else:
                 lc_history.append(AIMessage(content=m.content))
 
-        response = agent.invoke({"messages": lc_history + [HumanMessage(content=req.prompt)]})
+        # A parameter the endpoint refuses fails on this first call, so it runs
+        # under `with_adaptation`: the parameter is dropped and the call retried
+        # rather than the draft being lost because the model changed.
+        def draft_agent(params: Dict[str, Any]):
+            agent = create_react_agent(
+                model=_build_authoring_llm(api_key, base_url, params),
+                tools=_make_tools(ws, req.confirm_schema),
+                prompt=_build_authoring_system_prompt(req),
+            )
+            return agent.invoke({"messages": lc_history + [HumanMessage(content=req.prompt)]})
+
+        response = llm_params.with_adaptation(
+            get_setting("authoring_model"), draft_agent,
+            max_tokens=_agent_studio_max_tokens(),
+            params_fn=llm_params.langchain_params,
+        )
         content = response["messages"][-1].content
         draft = _extract_json_block(content)
 

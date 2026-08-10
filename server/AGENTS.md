@@ -327,7 +327,44 @@ Two things to keep in mind when touching this:
   still override the derivation.
 
 New settings are one entry in `SETTING_SPECS`; the admin UI renders from that
-(label, help text, bounds) with no frontend change.
+(label, help text, bounds, and which card it appears under via `group`) with no
+frontend change. `kind` is `endpoint` (model picker), `int` (bounded number) or
+`json` (validated on save, so a typo surfaces in the form and not later as an agent
+failing).
+
+The limits that live here are the ones a big request runs into: tool and Genie
+timeouts for chat, and for Widget Studio a token ceiling and a wall-clock
+`widget_timeout`. Anything time-related must be enforced where the work happens and
+reported to the client — `/api/agent/widget/generate` returns `timeout_seconds` and
+the studio sizes its own polling from it, because a client giving up on its own
+schedule made raising the setting do nothing.
+
+## What each model will accept (`services/llm_params.py`)
+
+Endpoints disagree about the optional parameters, so nothing optional is sent unless
+something asks for it. Widget Studio used to pin `temperature=0.1`, and pointing the
+Settings page at a model that refuses temperature — newer Claude and the reasoning
+models all do — failed every generation while chat, which never sent it, kept
+working. Policy per model, in three layers:
+
+    built-in rules  <  admin override (`model_params`)  <  what the endpoint told us
+
+The last layer does the work: a rejection names its cause ("unsupported parameter:
+'temperature'", "max_tokens: 32000 > 8192", "reasoning: Field required"), so `adapt`
+reads it, changes the policy and the call is retried — `with_adaptation` is that
+loop, and every LLM call site goes through it. The lesson is remembered per process.
+Two rules worth knowing before you change it:
+
+- **A parameter is only dropped if it's in `_DROPPABLE`.** An error naming
+  `messages` or `tools` is a broken request, and silently dropping either would turn
+  a loud failure into an agent that has mysteriously lost its tools.
+- **A missing parameter is only supplied if it's in `_SUPPLIABLE`.** We can name a
+  reasoning effort; we are not going to invent a value for `safety_mode`.
+
+LangChain callers use `langchain_params`, not `request_params`. `ChatOpenAI` renames
+`max_tokens` to `max_completion_tokens` itself, and a `reasoning` **object** makes it
+switch to the Responses API (`input`, `max_output_tokens`), which Databricks serving
+endpoints do not speak — so the effort has to travel as flat `reasoning_effort`.
 
 ## Agent Studio storage (`agent_studio_store.py`)
 
@@ -381,6 +418,57 @@ function it changed, or with `// ... rest of the component unchanged`. So when
 Keep the two halves in step: `assess_rewrite` decides, `_vet_rewrite` reacts, and
 `routes/agent_instructions.md` tells the model the rule so it rarely comes up.
 
+**One clock for the whole job.** A generation is not one model call — there may be a
+tool round, a continuation for a cut-off file, and a follow-up asking for edits — so
+`_Budget` holds the `widget_timeout` allowance and every optional round asks
+`next_llm()` for a client, getting `None` once the time is gone. That keeps the work
+already applied (and the widget itself: a fragment is still refused when there's no
+time to ask for edits) instead of losing the turn to a timeout, and it stops a slow
+first call from costing several multiples of the configured limit.
+
+**Big requests are planned, then applied a step at a time.** Partial editing made
+one change cheap; it did nothing for "build a table, add filters, add an export",
+which is a single reply too long to finish. `_wants_stages` spots those (length, or
+a list, or two "and also"-shaped hints — never a compile-error retry, which is one
+job), `_plan_stages` asks for two to six ordered steps as JSON, and `_run_stages`
+walks them, feeding each step the code the last one produced. Every step is an
+ordinary generation through `_apply_reply`, so editing, continuation and rewrite
+vetting all apply within a step.
+
+What makes this worth the extra round trips is where the failures land:
+
+- Progress goes onto the polled job as it happens, `stage_code` included, so the
+  studio applies each step as it lands and gives it a History entry. A step that
+  fails or a run that stops keeps everything before it.
+- A step that fails or raises is recorded and the run carries on; the explanation
+  names the steps that didn't land so they can be asked for again.
+- `budget.has(25)` guards the *start* of each step — a step begun with seconds left
+  just fails slowly. Remaining steps are marked `skipped` and the explanation says
+  to raise `widget_timeout` or ask for the rest.
+- `result["code"]` is `None` when no step changed anything, so the studio keeps what
+  the user has rather than recording a no-op snapshot.
+- `DELETE /api/agent/widget/generate/{job_id}` sets `cancelled`, which is checked
+  between steps. Stopping keeps the applied steps; it is not an undo.
+
+Anything unexpected in the plan means no plan and the request is answered in one
+pass, which is the pre-existing behavior — a plan that won't parse must never cost
+someone their turn.
+
+Steps are plain model calls, not the ReAct agent, so they can't reach the
+`search_widgets` tool. That's a deliberate trade — a step is a described change to
+code the model already has — but it's the thing to revisit if planned builds start
+ignoring existing widgets the way one-pass builds don't.
+
+**SQL quoting.** Databricks needs backtick-quoted identifiers for names that aren't
+plain (column mapping, on by default in Unity Catalog, allows spaces and punctuation
+in column names), and a model that forgets tends to invent a different column rather
+than quote the one it had. The rule is in `agent_instructions.md` and the runtime
+contract, and `services/sql_advice.py` attaches it to the failure itself for both
+surfaces that run model-written SQL. Related: `routes/sql_query.py` now inspects
+`statement.status` — `execute_statement` reports a rejected query in its status
+rather than raising, so a failed query used to return HTTP 200 with zero rows, which
+is how a missing backtick became a blank widget instead of a fixable error.
+
 A `widget-meta` JSON block carries proposed Configuration-tab values. Backend
 sanitizes: categories/domains must be one of the values the request supplied,
 dimensions are range-checked, and keys listed in `locked_settings` are dropped.
@@ -393,8 +481,10 @@ PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py   # 7 
 PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 3 passed
 PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 18 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 5 passed
-PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 8 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 11 passed
+PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 13 passed
+PYTHONPATH=server server/venv/bin/python tests/test_llm_params.py           # 16 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server server/venv/bin/python tests/test_conversation_store.py   # 5 passed

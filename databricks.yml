@@ -154,10 +154,11 @@ resources:
           - name: AGENT_RUNTIME_MAX_STEPS
             value: "8"
           # AGENT_RUNTIME_GENIE_TIMEOUT — wall-clock budget (seconds) for the internal
-          #   Genie ask->poll loop. The Genie MCP server is async (genie_ask returns a
-          #   handle; the answer is drained by polling genie_poll_response), and the
-          #   runtime drives that loop so the model gets a finished answer from one
-          #   call. Genie typically takes 30-120s; the stream heartbeats during the wait.
+          #   Genie ask->poll loop. Fallback only; admins set this in Admin Panel →
+          #   Settings. The Genie MCP server is async (genie_ask returns a handle; the
+          #   answer is drained by polling genie_poll_response), and the runtime drives
+          #   that loop so the model gets a finished answer from one call. Genie
+          #   typically takes 30-120s; the stream heartbeats during the wait.
           - name: AGENT_RUNTIME_GENIE_TIMEOUT
             value: "150"
           # AGENT_RUNTIME_GENIE_POLL_MS — delay between Genie poll round-trips (ms).
@@ -205,9 +206,10 @@ resources:
           #   Its var defaults to blank, so it stays commented for the same reason.
           # - name: AGENT_STUDIO_LLM_BASE_PATH
           #   value: "${var.agent_studio_llm_base_path}"
-          # AGENT_STUDIO_MAX_TOKENS — output budget for the authoring draft. Too
-          #   small truncates the JSON profile mid-string ("draft JSON found but
-          #   failed to parse"). Multi-skill agents need a generous cap.
+          # AGENT_STUDIO_MAX_TOKENS — output budget for the authoring draft. Fallback
+          #   only; admins set this in Admin Panel → Settings. Too small truncates the
+          #   JSON profile mid-string ("draft JSON found but failed to parse").
+          #   Multi-skill agents need a generous cap.
           - name: AGENT_STUDIO_MAX_TOKENS
             value: "${var.agent_studio_max_tokens}"
           # AGENT_STUDIO_MCP_SERVERS — comma-separated AI Gateway MCP servers the

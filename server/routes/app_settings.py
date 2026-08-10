@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from middleware.auth import get_db_client
 from routes.roles import _get_current_username, require_global_admin
-from services.settings_store import describe_settings, save_settings, settings_env
+from services.settings_store import SETTING_GROUPS, describe_settings, save_settings, settings_env
 
 router = APIRouter()
 
@@ -41,7 +41,11 @@ class SettingsUpdate(BaseModel):
 @router.get("/")
 def get_settings(w: WorkspaceClient = Depends(get_db_client)):
     require_global_admin(w, settings_env())
-    return {"settings": describe_settings(), "settings_env": settings_env()}
+    return {
+        "settings": describe_settings(),
+        "groups": SETTING_GROUPS,
+        "settings_env": settings_env(),
+    }
 
 
 @router.put("")
@@ -57,7 +61,7 @@ def update_settings(body: SettingsUpdate, w: WorkspaceClient = Depends(get_db_cl
         # Nothing was written — surface every problem at once so the admin fixes
         # the form in one pass.
         raise HTTPException(status_code=400, detail=result["errors"])
-    return {**result, "settings": describe_settings()}
+    return {**result, "settings": describe_settings(), "groups": SETTING_GROUPS}
 
 
 def _chat_endpoints(w: WorkspaceClient) -> List[Dict[str, Any]]:

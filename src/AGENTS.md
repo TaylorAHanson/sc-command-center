@@ -93,6 +93,23 @@ Two behaviors there are easy to break by accident:
   Published versions in the same panel come from `/api/widgets/history` (metadata
   and per-version size) and `/api/widgets/version` (one version's code). Restoring
   loads code into the editor and nothing else — no settings, no publish.
+- **How long to wait is the server's call, not ours.** `/generate` answers with
+  `timeout_seconds` (the admin's `widget_timeout`) and the poll loop sizes itself
+  from that plus a margin. It used to give up after a hardcoded five minutes, so
+  raising the limit in Settings changed nothing and the studio declared a timeout
+  while the server was still working. The spinner counts seconds for the same
+  reason: a long generation with no clock on it reads as a hang.
+- **A planned run reports itself step by step.** For a request that asks for
+  several things the server answers with `stages` and, as each step lands,
+  `stage_index` and `stage_code`. The poll loop applies each `stage_code` through
+  `replaceCode` as it arrives, which is what puts one History entry per step in the
+  panel and what keeps the finished steps if a later one fails. The spinner becomes
+  a checklist, and `Stop after this step` `DELETE`s the job — the server finishes
+  the step in flight and keeps what it has, so stopping is never destructive. Don't
+  wait for `status: completed` to write the code; that was the old shape and it
+  loses everything when a big request runs out of time. The completed handler only
+  writes `result.code` when it differs from what's already in the editor, or a
+  planned run would end with a duplicate snapshot.
 
 Category and domain come from `/api/taxonomy/*`. A failed load keeps the previous
 values and shows a retry rather than falling back to an empty list — an empty

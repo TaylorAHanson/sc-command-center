@@ -30,7 +30,9 @@ import re
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from services import llm_params
 from services.app_help import APP_PRIMER, app_help, app_help_tool_spec
+from services.sql_advice import quoting_hint
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
 
 logger = logging.getLogger(__name__)
@@ -80,57 +82,32 @@ def _max_tokens() -> int:
     return get_int_setting("chat_max_tokens")
 
 
-# Output caps are per model (128k on Claude Sonnet 5 and GPT-5.6, 8192 on
-# meta-llama-3-1-8b and gemma-3-12b) while `chat_max_tokens` is one number for the
-# whole deployment, so a setting that suits the good models rejects a small one
-# outright. Rather than make an admin know each cap, the first rejection teaches us
-# the real one — the API states it in the error — and it's remembered per process.
-_model_token_caps: Dict[str, int] = {}
-_caps_lock = threading.Lock()
-
-
-def _parse_token_cap(message: str, requested: int) -> Optional[int]:
-    """The cap a max_tokens rejection names, or None if that isn't what failed.
-
-    Wording differs per provider ("max_tokens: 900000 > 128000, which is the
-    maximum…", "max_new_tokens 16000 cannot be greater than max_output_tokens
-    8192"), so this reads the numbers rather than the prose: a cap has to be below
-    what we asked for, and above a floor that skips version numbers like the "5" in
-    "claude-sonnet-5".
-    """
-    lowered = (message or "").lower()
-    if not any(key in lowered for key in ("max_tokens", "max_new_tokens", "max_output_tokens", "completion tokens")):
-        return None
-    caps = [int(n) for n in re.findall(r"\d+", message) if 256 <= int(n) < requested]
-    return max(caps) if caps else None
-
-
 def _stream_completion(client, kwargs: Dict[str, Any]):
-    """Start the streamed completion, clamping `max_tokens` to what this model takes."""
+    """Start the streamed completion with the parameters this model accepts.
+
+    Endpoints disagree about the optional parameters and about how much output they
+    allow (128k on Claude Sonnet 5, 8192 on gemma-3-12b) while the settings hold one
+    number for the whole deployment. `llm_params` owns that reconciliation: it names
+    the output budget the way this model wants it, and a rejection is read, learned
+    from and retried rather than surfaced to whoever is chatting.
+    """
     model = str(kwargs.get("model") or "")
-    requested = int(kwargs.get("max_tokens") or 0)
-    with _caps_lock:
-        known = _model_token_caps.get(model)
-    if known and requested > known:
-        kwargs["max_tokens"] = known
-    try:
-        return client.chat.completions.create(**kwargs)
-    except Exception as exc:  # noqa: BLE001
-        cap = _parse_token_cap(str(exc), int(kwargs.get("max_tokens") or 0))
-        if not cap:
-            raise
-        logger.info("%s caps output at %s tokens; retrying this and later turns there.", model, cap)
-        with _caps_lock:
-            _model_token_caps[model] = cap
-        kwargs["max_tokens"] = cap
-        return client.chat.completions.create(**kwargs)
+    budget = int(kwargs.pop("max_tokens", 0) or 0)
+
+    def send(params: Dict[str, Any]):
+        return client.chat.completions.create(**kwargs, **params)
+
+    return llm_params.with_adaptation(model, send, max_tokens=budget)
 
 
 def _tool_timeout() -> int:
-    try:
-        return int(os.environ.get("AGENT_RUNTIME_TOOL_TIMEOUT", "90"))
-    except ValueError:
-        return 90
+    return get_int_setting("chat_tool_timeout")
+
+
+def _with_sql_hint(result: str, args: Dict[str, Any]) -> str:
+    """The tool result, plus the quoting rule when a query failed on an identifier."""
+    statement = str(args.get("query") or args.get("sql") or args.get("statement") or "")
+    return result + quoting_hint(statement, result or "")
 
 
 def _heartbeat_secs() -> float:
@@ -150,10 +127,7 @@ def _default_tool_cap() -> int:
 
 def _genie_timeout() -> float:
     """Wall-clock budget for the internal Genie ask->poll loop (seconds)."""
-    try:
-        return float(os.environ.get("AGENT_RUNTIME_GENIE_TIMEOUT", "150"))
-    except ValueError:
-        return 150.0
+    return float(get_int_setting("chat_genie_timeout"))
 
 
 def _genie_poll_interval() -> float:
@@ -182,6 +156,11 @@ RUNTIME_CONTRACT = """The following runtime rules apply regardless of your perso
 - Prefer SQL for read-only data discovery, metadata inspection, and tabular retrieval when the same result is available through SQL. For example, use `SHOW CATALOGS`, `SHOW SCHEMAS`, `SHOW TABLES`, `DESCRIBE`, or `SELECT` through the SQL tool instead of calling Unity Catalog REST APIs. SQL uses the configured warehouse and the user's existing SQL/Unity Catalog permissions and avoids requiring a separate REST OAuth scope.
 - Use a Databricks REST API tool only when SQL cannot perform the operation (for example: jobs, serving endpoint invocation/configuration, workspace files, volume file transfer, or other control-plane actions). Do not infer an OAuth scope name from an API family, and do not retry a REST call with a guessed scope after an invalid-scope or missing-scope response; use an equivalent SQL operation when one exists.
 - Tools execute with On-Behalf-Of (OBO) authentication — they use the signed-in user's own identity and permissions. NEVER ask the user for passwords, tokens, or credentials.
+
+## Writing SQL
+- Quote an identifier in backticks whenever it is not made up only of letters, digits and underscores. Delta tables with column mapping enabled — the norm in Unity Catalog — allow column names containing spaces and the characters , ; { } ( ) = tab and newline, and such a column must be backtick-quoted in EVERY statement that references it, or the query fails with UNRESOLVED_COLUMN or a parse error. The same goes for a catalog, schema or table name containing a hyphen. Backticking a plain name is always valid, so when the column names come from `DESCRIBE` or a schema you were shown rather than one you chose, quote them all: SELECT `Order Number`, `Total (USD)` FROM `my-catalog`.sales.`order-lines`.
+- Backticks delimit identifiers only; string literals and dates take single quotes. A literal backtick inside an identifier is written by doubling it. Column names match case-insensitively, but spaces and punctuation must be reproduced exactly.
+- If a query fails on an unresolved column, check the quoting before rewriting the query: a name with a space or punctuation in it needs backticks, not a different name.
 - A permission/authorization failure from a tool (e.g. "User does not have USE SCHEMA...", "permission denied") reflects the USER's own access, not yours. Say "You don't have access to X yet" (second person), never "I don't have access". Remember it for the rest of the conversation: don't retry the blocked scope, and use it to inform next steps (offer to request access, or suggest an asset they can access)."""
 
 
@@ -945,7 +924,7 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
                 messages.append({
                     "role": "tool",
                     "tool_call_id": s["id"] or f"call_{i}",
-                    "content": result,
+                    "content": _with_sql_hint(result, args),
                 })
                 used_tools.append({"tool_name": friendly, "status": "done"})
 

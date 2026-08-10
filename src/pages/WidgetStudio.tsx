@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X } from 'lucide-react';
+import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
@@ -118,7 +118,30 @@ const relativeTime = (at: number) => {
 
 type PublishedVersion = { version: number; name: string; created_by: string; timestamp: string; lines: number };
 
+/**
+ * One step of a planned generation, as the server reports it while it works.
+ *
+ * A request that asks for several things is broken into steps and applied one at a
+ * time, so the studio shows the plan and ticks it off. `skipped` means the run ran
+ * out of time or was stopped before reaching that step — the steps before it are
+ * still applied.
+ */
+type GenerationStage = {
+    title: string;
+    detail?: string;
+    status?: 'running' | 'done' | 'failed' | 'skipped';
+    note?: string;
+};
+
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** The state of one planned step, at a glance. */
+const StageMark: React.FC<{ status?: GenerationStage['status'] }> = ({ status }) => {
+    if (status === 'done') return <Check size={12} className="mt-0.5 text-emerald-400 shrink-0" />;
+    if (status === 'running') return <RefreshCw size={12} className="mt-0.5 text-indigo-400 animate-spin shrink-0" />;
+    if (status === 'failed') return <AlertTriangle size={12} className="mt-0.5 text-amber-400 shrink-0" />;
+    return <span className="mt-0.5 w-3 shrink-0 text-center text-slate-600">·</span>;
+};
 
 /**
  * Somewhere to go back to, in two parts: snapshots from this studio session, and
@@ -347,6 +370,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
     const [prompt, setPrompt] = useState(sessionState?.prompt || "");
     const [isGenerating, setIsGenerating] = useState(false);
+    // Seconds spent on the request in flight. A big widget takes minutes, and a
+    // spinner with no clock on it is indistinguishable from a hang.
+    const [elapsed, setElapsed] = useState(0);
+    // The plan for a big request, if the server decided to work in steps. Ticks
+    // over as each step lands, so a multi-minute generation shows what it is doing
+    // instead of one spinner.
+    const [stages, setStages] = useState<GenerationStage[]>([]);
+    const [stopping, setStopping] = useState(false);
     const [isPublishing, setIsPublishing] = useState(false);
     const [code, setCode] = useState<string>(sessionState?.code || DEFAULT_WIDGET_CODE);
     const [checkpoints, setCheckpoints] = useState<CodeCheckpoint[]>(sessionState?.checkpoints || []);
@@ -381,6 +412,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // manual generate.
     const autoRetryCountRef = useRef(0);
     const MAX_AUTO_RETRIES = 3;
+    // The generation being polled, so Stop has something to address.
+    const jobIdRef = useRef<string | null>(null);
     const [availableDomains, setAvailableDomains] = useState<string[]>(['General']);
     const [availableCategories, setAvailableCategories] = useState<string[]>([]);
     // Configuration fields the user has decided for themselves (typed into,
@@ -607,6 +640,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         return () => clearTimeout(timeoutId);
     }, [messages, isGenerating]);
 
+    // Count up while a request is in flight. The first tick lands a second in, so
+    // a fast generation never flashes a stray "0s".
+    useEffect(() => {
+        if (!isGenerating) return;
+        const startedAt = Date.now();
+        const ticker = setInterval(() => setElapsed(Math.round((Date.now() - startedAt) / 1000)), 1000);
+        return () => clearInterval(ticker);
+    }, [isGenerating]);
+
     useEffect(() => {
         // Attempt to evaluate code whenever it changes
         const evaluateCode = () => {
@@ -746,6 +788,24 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         return text;
     };
 
+    /**
+     * Ask a planned run to stop once the step in flight is finished.
+     *
+     * The steps already applied stay in the editor — this is "that's enough", not
+     * "undo it", and History has an entry per step for anyone who wants to go back.
+     */
+    const handleStopGeneration = async () => {
+        const jobId = jobIdRef.current;
+        if (!jobId) return;
+        setStopping(true);
+        try {
+            await fetch(`/api/agent/widget/generate/${jobId}`, { method: 'DELETE' });
+        } catch {
+            // Nothing to recover: the run finishes on its own and polling reports it.
+            setStopping(false);
+        }
+    };
+
     const handleGenerate = async (autoRetryError?: string) => {
         if (!prompt && !autoRetryError) return;
 
@@ -771,6 +831,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         }
 
         setIsGenerating(true);
+        setElapsed(0);
 
         try {
             const resp = await fetch('/api/agent/widget/generate', {
@@ -804,20 +865,55 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 // Poll for completion
                 const jobId = data.job_id;
                 let pollCount = 0;
-                
+                // The server says how long it is prepared to work (Admin Panel →
+                // Settings), and we wait that long plus a margin for the last poll.
+                // A hardcoded five minutes here used to declare a timeout while the
+                // server was still going, so raising the limit changed nothing.
+                const serverBudget = Number(data.timeout_seconds) || 300;
+                const maxPolls = Math.ceil((serverBudget + 20) / 2);
+                // Steps we have already put in the editor. A planned run publishes
+                // each step's code as it lands so the work shows up while the rest is
+                // still running, and so a step that fails later can't take the
+                // finished ones with it.
+                let stepsApplied = 0;
+                setStages([]);
+                setStopping(false);
+                jobIdRef.current = jobId;
+
                 const pollInterval = setInterval(async () => {
                     try {
                         pollCount++;
                         const statusResp = await fetch(`/api/agent/widget/generate/${jobId}`);
                         const statusData = await statusResp.json();
 
+                        if (Array.isArray(statusData.stages)) {
+                            setStages(statusData.stages);
+                        }
+                        // Each step's snapshot is labelled with the step it precedes,
+                        // so History reads as a list of places to go back to.
+                        const stepLabel = (n: number) => {
+                            if (stepsApplied === 0) return checkpointLabel;
+                            const title = statusData.stages?.[n - 1]?.title;
+                            return `Before step ${n}${title ? `: ${title}` : ''}`;
+                        };
+
+                        const landed = Number(statusData.stage_index) || 0;
+                        if (statusData.stage_code && landed > stepsApplied) {
+                            replaceCode(statusData.stage_code, stepLabel(landed));
+                            stepsApplied = landed;
+                        }
+
                         if (statusData.status === 'completed') {
                             clearInterval(pollInterval);
                             setIsGenerating(false);
-                            
+                            jobIdRef.current = null;
+
                             const result = statusData.result;
-                            if (result.code) {
-                                replaceCode(result.code, checkpointLabel);
+                            // A planned run has already applied its steps as they
+                            // landed; writing the same code again would only add an
+                            // identical history entry.
+                            if (result.code && result.code !== codeRef.current) {
+                                replaceCode(result.code, stepLabel(stepsApplied + 1));
                             }
 
                             setMessages([...newMessages, {
@@ -830,18 +926,25 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         } else if (statusData.status === 'failed') {
                             clearInterval(pollInterval);
                             setIsGenerating(false);
+                            jobIdRef.current = null;
                             setMessages([...newMessages, { role: 'system', content: `Generation Error: ${statusData.error}` }]);
                         }
-                        
-                        // Failsafe timeout after 5 minutes (150 polls at 2s)
-                        if (pollCount > 150) {
+
+                        if (pollCount > maxPolls) {
                             clearInterval(pollInterval);
                             setIsGenerating(false);
-                            setMessages([...newMessages, { role: 'system', content: `Generation timed out on server.` }]);
+                            jobIdRef.current = null;
+                            setMessages([...newMessages, {
+                                role: 'system',
+                                content: `The server stopped responding about this request after ${serverBudget}s. `
+                                    + 'Ask for one part of the widget at a time, or raise the widget generation '
+                                    + 'timeout in Admin Panel → Settings.',
+                            }]);
                         }
                     } catch (pollErr) {
                         clearInterval(pollInterval);
                         setIsGenerating(false);
+                        jobIdRef.current = null;
                         setMessages([...newMessages, { role: 'system', content: `Polling Error: ${pollErr}` }]);
                     }
                 }, 2000);
@@ -1166,9 +1269,45 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     ))}
                     {isGenerating && (
                         <div className="flex items-start">
-                            <div className="bg-slate-700 text-slate-400 rounded-lg p-3 rounded-bl-none text-sm border border-slate-600 flex items-center gap-2">
-                                <RefreshCw size={14} className="animate-spin" />
-                                Generating widget...
+                            <div className="bg-slate-700 text-slate-400 rounded-lg p-3 rounded-bl-none text-sm border border-slate-600 max-w-[90%]">
+                                <div className="flex items-center gap-2">
+                                    <RefreshCw size={14} className="animate-spin" />
+                                    <span>
+                                        {stages.length
+                                            ? `Working through ${stages.length} steps`
+                                            : 'Generating widget'}
+                                        {elapsed ? ` — ${elapsed}s` : ''}...
+                                    </span>
+                                </div>
+                                {stages.length > 0 && (
+                                    <ul className="mt-2 space-y-1">
+                                        {stages.map((stage, i) => (
+                                            <li key={i} className="flex items-start gap-2 text-xs">
+                                                <StageMark status={stage.status} />
+                                                <span className={
+                                                    stage.status === 'done' ? 'text-slate-300'
+                                                        : stage.status === 'running' ? 'text-indigo-300'
+                                                            : stage.status === 'failed' ? 'text-amber-400'
+                                                                : 'text-slate-500'
+                                                }>
+                                                    {stage.title}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                {stages.length > 0 && (
+                                    <button
+                                        onClick={handleStopGeneration}
+                                        disabled={stopping}
+                                        className="mt-2 text-xs text-slate-400 hover:text-slate-200 underline disabled:no-underline disabled:text-slate-500"
+                                    >
+                                        {stopping ? 'Stopping after this step…' : 'Stop after this step'}
+                                    </button>
+                                )}
+                                {elapsed >= 90 && stages.length === 0 && (
+                                    <div className="mt-1 text-xs text-slate-500">a large change can take a few minutes</div>
+                                )}
                             </div>
                         </div>
                     )}

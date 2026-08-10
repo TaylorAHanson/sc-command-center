@@ -13,7 +13,9 @@ interface Setting {
     key: string;
     label: string;
     help: string;
-    kind: 'endpoint' | 'int';
+    kind: 'endpoint' | 'int' | 'json';
+    /** Which card this belongs under; the backend decides the grouping. */
+    group: string;
     /** Value in force right now, whatever its source. */
     value: string;
     /** The admin override, empty when the value is inherited. */
@@ -25,6 +27,17 @@ interface Setting {
     maximum: number | null;
 }
 
+interface Group {
+    key: string;
+    label: string;
+}
+
+/** Used only if an older backend answers without groups. */
+const FALLBACK_GROUPS: Group[] = [
+    { key: 'models', label: 'Models' },
+    { key: 'limits', label: 'Limits' },
+];
+
 const SOURCE_NOTE: Record<Setting['source'], string> = {
     database: 'Set here',
     environment: 'From the deployment configuration',
@@ -33,6 +46,7 @@ const SOURCE_NOTE: Record<Setting['source'], string> = {
 
 export const SettingsManager: React.FC = () => {
     const [settings, setSettings] = useState<Setting[]>([]);
+    const [groups, setGroups] = useState<Group[]>(FALLBACK_GROUPS);
     const [draft, setDraft] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -74,6 +88,7 @@ export const SettingsManager: React.FC = () => {
             const res = await fetch('/api/settings');
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data?.detail || `${res.statusText} (HTTP ${res.status})`);
+            if (data.groups?.length) setGroups(data.groups);
             (discardEdits ? applyAndClearEdits : apply)(data.settings || []);
             setError(null);
         } catch (e: any) {
@@ -141,83 +156,92 @@ export const SettingsManager: React.FC = () => {
         );
     }
 
-    const models = settings.filter(s => s.kind === 'endpoint');
-    const limits = settings.filter(s => s.kind === 'int');
+    // One card per group the backend describes, so adding a setting server-side is
+    // enough to make it appear here.
+    const cards = groups
+        .map(group => ({ group, items: settings.filter(s => (s.group || 'limits') === group.key) }))
+        .filter(card => card.items.length);
+
+    const field = (setting: Setting) => (
+        <div key={setting.key} className={setting.kind === 'json' ? 'sm:col-span-2' : undefined}>
+            <div className="mb-1 flex items-baseline justify-between gap-3">
+                <label className="text-sm font-medium text-gray-800">{setting.label}</label>
+                <span className="text-[11px] text-gray-400">{SOURCE_NOTE[setting.source]}</span>
+            </div>
+            {setting.kind === 'endpoint' ? (
+                <ModelSelect
+                    value={draft[setting.key] ?? ''}
+                    onChange={next => edit(setting.key, next)}
+                    ariaLabel={setting.label}
+                />
+            ) : setting.kind === 'json' ? (
+                <textarea
+                    rows={3}
+                    spellCheck={false}
+                    value={draft[setting.key] ?? ''}
+                    onChange={e => edit(setting.key, e.target.value)}
+                    aria-label={setting.label}
+                    placeholder='{"model-name": {"reasoning_effort": "medium"}}'
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 focus:border-qualcomm-blue focus:outline-none"
+                />
+            ) : (
+                <input
+                    type="number"
+                    min={setting.minimum ?? undefined}
+                    max={setting.maximum ?? undefined}
+                    value={draft[setting.key] ?? ''}
+                    onChange={e => edit(setting.key, e.target.value)}
+                    aria-label={setting.label}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-qualcomm-blue focus:outline-none"
+                />
+            )}
+            <p className="mt-1 text-xs text-gray-500">{setting.help}</p>
+            {fieldErrors[setting.key] && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-red-600">
+                    <AlertCircle size={12} /> {fieldErrors[setting.key]}
+                </p>
+            )}
+            {setting.kind === 'endpoint' && (draft[setting.key] ?? '') !== setting.fallback && (
+                <button onClick={() => revert(setting.key)} className="mt-1 flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-700">
+                    <RotateCcw size={11} /> Reset to {setting.fallback}
+                </button>
+            )}
+        </div>
+    );
 
     return (
         <div className="max-w-3xl space-y-6">
-            <div className="rounded-lg border border-gray-200 bg-white">
-                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-                    <div className="flex items-center gap-2">
-                        <Sliders size={16} className="text-qualcomm-blue" />
-                        <h2 className="text-base font-semibold text-gray-900">Models</h2>
-                    </div>
-                    <button onClick={() => load(true)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800">
-                        <RefreshCw size={13} /> Reload
-                    </button>
-                </div>
-                <div className="space-y-5 px-5 py-5">
-                    <p className="text-xs leading-relaxed text-gray-500">
-                        Names beginning <code className="font-mono">system.ai.</code> are called through the AI Gateway;
-                        plain endpoint names go straight to the serving endpoint. Either works — the route follows the
-                        name you pick.
-                    </p>
-                    {models.map(setting => (
-                        <div key={setting.key}>
-                            <div className="mb-1 flex items-baseline justify-between gap-3">
-                                <label className="text-sm font-medium text-gray-800">{setting.label}</label>
-                                <span className="text-[11px] text-gray-400">{SOURCE_NOTE[setting.source]}</span>
+            {cards.map((card, index) => {
+                // Model names need the routing note; limits are numbers and read
+                // better two to a row.
+                const picksModels = card.items.some(s => s.kind === 'endpoint');
+                return (
+                    <div key={card.group.key} className="rounded-lg border border-gray-200 bg-white">
+                        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+                            <div className="flex items-center gap-2">
+                                {index === 0 && <Sliders size={16} className="text-qualcomm-blue" />}
+                                <h2 className="text-base font-semibold text-gray-900">{card.group.label}</h2>
                             </div>
-                            <ModelSelect
-                                value={draft[setting.key] ?? ''}
-                                onChange={next => edit(setting.key, next)}
-                                ariaLabel={setting.label}
-                            />
-                            <p className="mt-1 text-xs text-gray-500">{setting.help}</p>
-                            {fieldErrors[setting.key] && (
-                                <p className="mt-1 flex items-center gap-1 text-xs text-red-600">
-                                    <AlertCircle size={12} /> {fieldErrors[setting.key]}
-                                </p>
-                            )}
-                            {(draft[setting.key] ?? '') !== setting.fallback && (
-                                <button onClick={() => revert(setting.key)} className="mt-1 flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-700">
-                                    <RotateCcw size={11} /> Reset to {setting.fallback}
+                            {index === 0 && (
+                                <button onClick={() => load(true)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800">
+                                    <RefreshCw size={13} /> Reload
                                 </button>
                             )}
                         </div>
-                    ))}
-                </div>
-            </div>
-
-            <div className="rounded-lg border border-gray-200 bg-white">
-                <div className="border-b border-gray-100 px-5 py-4">
-                    <h2 className="text-base font-semibold text-gray-900">Chat agent limits</h2>
-                </div>
-                <div className="grid gap-5 px-5 py-5 sm:grid-cols-2">
-                    {limits.map(setting => (
-                        <div key={setting.key}>
-                            <div className="mb-1 flex items-baseline justify-between gap-2">
-                                <label className="text-sm font-medium text-gray-800">{setting.label}</label>
-                                <span className="text-[11px] text-gray-400">{SOURCE_NOTE[setting.source]}</span>
-                            </div>
-                            <input
-                                type="number"
-                                min={setting.minimum ?? undefined}
-                                max={setting.maximum ?? undefined}
-                                value={draft[setting.key] ?? ''}
-                                onChange={e => edit(setting.key, e.target.value)}
-                                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-qualcomm-blue focus:outline-none"
-                            />
-                            <p className="mt-1 text-xs text-gray-500">{setting.help}</p>
-                            {fieldErrors[setting.key] && (
-                                <p className="mt-1 flex items-center gap-1 text-xs text-red-600">
-                                    <AlertCircle size={12} /> {fieldErrors[setting.key]}
+                        <div className={clsx('gap-5 px-5 py-5', picksModels ? 'space-y-5' : 'grid sm:grid-cols-2')}>
+                            {picksModels && (
+                                <p className="text-xs leading-relaxed text-gray-500">
+                                    Names beginning <code className="font-mono">system.ai.</code> are called through the
+                                    AI Gateway; plain endpoint names go straight to the serving endpoint. Either works —
+                                    the route follows the name you pick, and parameters a model refuses are dropped
+                                    automatically, so switching rarely needs anything else.
                                 </p>
                             )}
+                            {card.items.map(field)}
                         </div>
-                    ))}
-                </div>
-            </div>
+                    </div>
+                );
+            })}
 
             {error && (
                 <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

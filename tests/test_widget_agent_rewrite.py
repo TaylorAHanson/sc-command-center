@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 try:
-    from routes.agent_studio import _vet_rewrite
+    from routes.agent_studio import _Budget, _failure_text, _vet_rewrite
 except Exception as e:  # pragma: no cover - needs the backend venv (langchain, fastapi)
     print(f"SKIP test_widget_agent_rewrite: {e}")
     sys.exit(0)
@@ -36,9 +36,12 @@ class FakeLLM:
         return type("Reply", (), {"content": self.reply})()
 
 
-def _vet(new_code, reply=""):
+def _vet(new_code, reply="", time_left=True):
+    """Run the guard. `time_left=False` stands in for a spent time budget, where the
+    route hands back no client at all rather than starting another round."""
     llm = FakeLLM(reply)
-    code, notes = _vet_rewrite(llm, "system", "add sorting", "assistant reply", WIDGET, new_code)
+    code, notes = _vet_rewrite(lambda: llm if time_left else None,
+                               "system", "add sorting", "assistant reply", WIDGET, new_code)
     return code, notes, llm
 
 
@@ -89,6 +92,40 @@ def test_failed_edits_from_the_follow_up_are_reported_not_silent():
     assert "unchanged" in notes[0]
 
 
+def test_a_spent_time_budget_still_protects_the_widget():
+    edit = ("<<<<<<< SEARCH\n  const v0 = 0;\n=======\n"
+            "  const v0 = 0;\n  const sortKey = 'name';\n>>>>>>> REPLACE")
+    code, notes, llm = _vet(FRAGMENT, reply=edit, time_left=False)
+    # There was no time to ask for edits, but the fragment must not be written
+    # either — running out of time may cost the change, never the widget.
+    assert code is None
+    assert "unchanged" in notes[0]
+    assert llm.prompts == []
+
+
+def test_the_budget_stops_starting_rounds_it_cannot_finish():
+    generous = _Budget(600)
+    assert generous.has(15)
+    # A budget with seconds left is not worth another model call.
+    nearly_gone = _Budget(600)
+    nearly_gone.deadline = nearly_gone.deadline - 597
+    assert not nearly_gone.has(15)
+    assert nearly_gone.left > 0  # still positive, just not enough to be useful
+    assert nearly_gone.spent >= 597
+
+
+def test_a_timeout_says_what_to_change_and_a_normal_failure_does_not():
+    spent = _Budget(300)
+    spent.deadline = spent.deadline - 300
+
+    timed_out = _failure_text(RuntimeError("Read timed out."), spent)
+    assert "300s" in timed_out and "Settings" in timed_out
+
+    # An unrelated failure is passed through, not dressed up as a timeout.
+    plain = _failure_text(RuntimeError("ENDPOINT_NOT_FOUND"), _Budget(300))
+    assert plain == "ENDPOINT_NOT_FOUND"
+
+
 if __name__ == "__main__":
     tests = [
         test_a_clean_rewrite_is_written_without_a_second_call,
@@ -96,6 +133,9 @@ if __name__ == "__main__":
         test_a_fragment_the_model_will_not_fix_leaves_the_code_alone,
         test_a_drastic_shrink_is_written_but_says_how_to_undo_it,
         test_failed_edits_from_the_follow_up_are_reported_not_silent,
+        test_a_spent_time_budget_still_protects_the_widget,
+        test_the_budget_stops_starting_rounds_it_cannot_finish,
+        test_a_timeout_says_what_to_change_and_a_normal_failure_does_not,
     ]
     for test in tests:
         test()

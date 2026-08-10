@@ -12,7 +12,6 @@ from contextlib import contextmanager
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 from services import settings_store  # noqa: E402
-from services.agent_runtime import _parse_token_cap  # noqa: E402
 from services.settings_store import (  # noqa: E402
     AI_GATEWAY_BASE_PATH,
     SERVING_BASE_PATH,
@@ -126,24 +125,16 @@ def test_unknown_key_is_refused():
     assert validate_value("chat_modle", "x")[1]
 
 
-def test_reads_the_cap_a_rejection_names():
-    # Each provider words this differently, and the caps that matter in practice are
-    # 128000 (Claude Sonnet 5, GPT-5.6) and 8192 (meta-llama-3-1-8b, gemma-3-12b).
-    cases = [
-        ("max_tokens: 900000 > 128000, which is the maximum allowed number of output tokens for anthropic.claude-sonnet-5", 900000, 128000),
-        ("max_tokens is too large: 900000. This model supports at most 128000 completion tokens, whereas you provided 900000.", 900000, 128000),
-        ("max_new_tokens 16000 cannot be greater than max_output_tokens 8192.", 16000, 8192),
-        ("max_tokens (16000) cannot exceed 8192. Please reduce the length of max output tokens generated.", 16000, 8192),
-    ]
-    for message, requested, expected in cases:
-        assert _parse_token_cap(message, requested) == expected, message
-
-
-def test_ignores_failures_that_are_not_about_length():
-    assert _parse_token_cap("ENDPOINT_NOT_FOUND: the given endpoint does not exist", 16000) is None
-    assert _parse_token_cap("", 16000) is None
-    # A length complaint with no usable number must not invent one.
-    assert _parse_token_cap("max_tokens is invalid", 16000) is None
+def test_model_parameters_must_be_an_object_per_model():
+    cleaned, error = validate_value("model_params", '{"gpt-5.6-luna": {"reasoning_effort": "medium"}}')
+    assert not error
+    assert "reasoning_effort" in cleaned
+    # A typo here would otherwise surface much later, as an agent failing.
+    assert validate_value("model_params", "{not json")[1]
+    assert validate_value("model_params", '{"a-model": "medium"}')[1]
+    assert validate_value("model_params", '["a-model"]')[1]
+    # Clearing it is how you go back to letting the app decide.
+    assert validate_value("model_params", "  ") == ("", None)
 
 
 def test_base_path_follows_the_model_name():
@@ -171,8 +162,7 @@ if __name__ == "__main__":
         test_blank_is_valid_and_means_clear_the_override,
         test_limits_are_bounded_and_coerced,
         test_unknown_key_is_refused,
-        test_reads_the_cap_a_rejection_names,
-        test_ignores_failures_that_are_not_about_length,
+        test_model_parameters_must_be_an_object_per_model,
         test_base_path_follows_the_model_name,
         test_explicit_base_path_env_var_wins,
     ]

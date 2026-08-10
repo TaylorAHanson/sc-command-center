@@ -9,11 +9,12 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import StatementExecutionAPI, Disposition
+from databricks.sdk.service.sql import StatementExecutionAPI, Disposition, StatementState
 from typing import Optional, List, Dict, Any
 
 from config.sql_queries import get_sql_query_config, get_all_sql_query_configs, SqlQueryConfig
 from middleware.auth import get_user_token
+from services.sql_advice import quoting_hint
 
 # --- Configuration & Client Setup ---
 
@@ -146,7 +147,8 @@ def execute_sql_query(
         )
        
         logging.info(f"Statement executed: {statement.statement_id}, status: {statement.status}")
-       
+        _raise_if_unsuccessful(statement, sql)
+
         # Extract columns and data
         columns = []
         rows = []
@@ -207,6 +209,31 @@ def execute_sql_query_by_id(
     return execute_sql_query(query_request, w)
 
 
+def _raise_if_unsuccessful(statement, sql: str) -> None:
+    """Turn a statement that didn't succeed into an error the caller can see.
+
+    `execute_statement` reports a rejected query in its status rather than by
+    raising, so a query that failed — bad quoting, a missing table, no permission —
+    used to come back as HTTP 200 with an empty manifest. The widget then rendered
+    "no data" and Widget Studio's auto-retry never learned there was anything to
+    fix, which is how a query missing its backticks turned into a silent blank
+    panel instead of a fixable error.
+    """
+    status = getattr(statement, "status", None)
+    state = getattr(status, "state", None)
+    if state in (StatementState.PENDING, StatementState.RUNNING):
+        raise HTTPException(
+            status_code=504,
+            detail="The query is still running after 50s. Narrow it, or pre-aggregate the data.",
+        )
+    if state in (StatementState.FAILED, StatementState.CANCELED, StatementState.CLOSED):
+        error = getattr(status, "error", None)
+        message = getattr(error, "message", "") or ""
+        name = getattr(state, "value", str(state))
+        detail = message or f"The query {str(name).lower()}."
+        raise HTTPException(status_code=400, detail=detail + quoting_hint(sql, detail))
+
+
 class RawSqlRequest(BaseModel):
     """Request to execute a raw SQL string against Databricks."""
     sql: Optional[str] = None
@@ -245,6 +272,7 @@ def execute_raw_sql(
             wait_timeout="50s",
             disposition=Disposition.INLINE,
         )
+        _raise_if_unsuccessful(statement, sql_statement)
 
         columns = []
         rows = []
