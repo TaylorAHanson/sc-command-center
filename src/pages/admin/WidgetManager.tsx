@@ -18,6 +18,7 @@ interface Widget {
     is_certified: boolean;
     tsx_code?: string;
     snapshot?: string | null;
+    has_snapshot?: boolean;
 }
 
 interface ConsolidatedWidget {
@@ -420,12 +421,14 @@ export const WidgetManager: React.FC = () => {
                         maxVersion: w.version,
                         latestAuthor: w.created_by,
                         latestTimestamp: w.timestamp,
-                        hasSnapshot: !!w.snapshot,
+                        hasSnapshot: !!(w.has_snapshot ?? w.snapshot),
                     });
                 }
                 const entry = map.get(w.id)!;
                 entry[env] = w;
-                if (w.snapshot) entry.hasSnapshot = true;
+                // The list no longer carries the image itself, only whether there
+                // is one — it's a page-load cost nobody outside the library needs.
+                if (w.has_snapshot ?? w.snapshot) entry.hasSnapshot = true;
                 if (w.version > entry.maxVersion) {
                     entry.maxVersion = w.version;
                     entry.latestAuthor = w.created_by;

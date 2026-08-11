@@ -8,15 +8,20 @@
   <!-- App.tsx appends the environment (" - Dev", " - Stage", …) once /api/health
        answers; prod keeps this bare title. -->
   <title>Command Center</title>
-  <!-- Babel Standalone for Widget Studio runtime TSX compilation.
-       PIN THE VERSION. The URL was previously unpinned ("latest"), so an upstream
-       @babel/standalone release silently changed how widget `import` statements
-       were transpiled and broke widget loading across every environment at once.
-       Keep this pinned and bump deliberately. -->
-  <script src="https://unpkg.com/@babel/standalone@7.29.4/babel.min.js"></script>
+  <!-- These three are `defer` on purpose. As plain scripts they blocked parsing
+       until all three had been fetched from a CDN, which on a corporate network
+       is most of the time to first paint — and none of them is needed to draw the
+       page. Nothing may assume they have arrived: `widgetRegistry.babelReady()`
+       waits for Babel, and widgets reach Highcharts through the useScript() hook.
+
+       Babel Standalone compiles widget TSX at runtime. PIN THE VERSION. The URL
+       was previously unpinned ("latest"), so an upstream @babel/standalone release
+       silently changed how widget `import` statements were transpiled and broke
+       widget loading across every environment at once. Bump deliberately. -->
+  <script defer src="https://unpkg.com/@babel/standalone@7.29.4/babel.min.js"></script>
   <!-- Highcharts required for Widget Studio Previews -->
-  <script src="https://code.highcharts.com/highcharts.js"></script>
-  <script src="https://code.highcharts.com/highcharts-more.js"></script>
+  <script defer src="https://code.highcharts.com/highcharts.js"></script>
+  <script defer src="https://code.highcharts.com/highcharts-more.js"></script>
 </head>
 
 <body>

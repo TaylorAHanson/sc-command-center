@@ -26,9 +26,6 @@
   Reloading the page keeps you in the conversation you were reading rather than
   replacing it. If a view is pinned to an agent you can't open, the panel says so
   instead of leaving you wondering which agent is answering.
-
-### Added
-
 - **You can claim a widget you built.** Widgets made before the app could tell who
   was signed in have nobody's name on them, and there's no record anywhere of who
   wrote them. Where the creator's name would be, those cards now ask "Did you build
@@ -46,6 +43,23 @@
 
 ### Fixed
 
+- **The app doesn't freeze while it starts, and it starts a lot faster.** Every
+  page load used to download every version of every widget ever published —
+  including all their code and preview images, tens of megabytes on a mature
+  library — and then compile the lot before it would show you anything. That got
+  slower every time anyone saved a widget, and had reached the point where the
+  browser offered to close the tab for you. Now your dashboard downloads what it
+  needs to draw itself, and a widget is prepared when it appears rather than all
+  of them up front: on a test library of 30 widgets the page went from unusable
+  for 17 seconds to ready in 1.5. Preview images arrive when you open the Widget
+  Library, and screens like the Studios and the Admin panel are fetched quietly
+  in the background instead of holding up the dashboard. Pinning a widget to an
+  older version still works exactly as before; it fetches that version when it
+  draws it.
+- **A slow network no longer empties the Widget Library.** If the widget compiler
+  hadn't finished downloading by the time the page was ready, every widget was
+  quietly dropped and you were left with an empty library and no explanation. The
+  page now waits for it, and says so if it never arrives.
 - **Widgets built before authorship worked can be edited again.** Correcting who gets
   credited for a widget had a side effect: widgets created earlier were recorded
   against a placeholder rather than a person, and the library treated them as

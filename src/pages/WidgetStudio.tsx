@@ -583,8 +583,17 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         fetch('/api/widgets/custom')
             .then(r => r.json())
             .then(data => {
-                const w = data.widgets?.find((x: any) => x.id === targetId);
-                if (!w) return;
+                // Explicitly the current version. The list carries every version so
+                // the version dropdown knows they exist, but only the current one
+                // carries its source — landing on any other would open the editor
+                // empty and publish that over the widget.
+                const versions = (data.widgets || []).filter((x: any) => x.id === targetId);
+                const w = versions.find((x: any) => x.is_latest)
+                    || versions.reduce((best: any, x: any) => (!best || x.version > best.version ? x : best), null);
+                if (!w || !w.tsx_code) {
+                    console.error(`Widget ${targetId} came back without its source; refusing to open an empty editor over it.`);
+                    return;
+                }
                 
                 const isClone = !!cloneWidgetId;
 

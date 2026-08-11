@@ -328,6 +328,18 @@ undo by accident.
   service surface: over 100 ms per request against a route that did nothing else,
   and it is CPU under the GIL, so concurrent requests queued behind it. Every
   factory in `middleware/auth.py` and `agent_studio_store._client` goes through it.
+- **A response is a cost too, and the widget library was the worst of them.**
+  `GET /custom` answers the app's first request, and it used to be `SELECT *`:
+  every version of every widget with its full source and its base64 thumbnail.
+  Widget Studio publishes a version per save, so it grew with use — a library of
+  30 widgets with 8 saves each measures 10 MB and 900 ms, against 0.2 MB and 75 ms
+  for what it sends now (`tools/widget_payload_probe.py`, which will seed a dev
+  database if yours is empty). Old versions keep their metadata, because the
+  version dropdown needs to know they exist, and give up their source, which
+  `/version` will hand over if anyone pins one; thumbnails moved to
+  `/custom/snapshots` for the library to fetch when it opens. Anything you add to
+  this response is paid for by every user on every page load — including the ones
+  who never open the library.
 
 ### The username is data, not a label
 

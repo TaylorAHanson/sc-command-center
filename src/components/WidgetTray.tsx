@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid, Pencil, Trash2, Copy, Trophy } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { getWidgetCategories, getWidgetDomains, getAvailableWidgets, loadCustomWidgets, useWidgetRegistry } from '../widgetRegistry';
+import { getWidgetCategories, getWidgetDomains, getAvailableWidgets, loadCustomWidgets, loadWidgetSnapshots, useWidgetRegistry } from '../widgetRegistry';
 import type { WidgetDefinition } from '../widgetRegistry';
 import { WidgetPreview } from './WidgetPreview';
 import { CreatorLeaderboard } from './CreatorLeaderboard';
@@ -66,6 +66,12 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
       fetch('/api/widgets/me').then(r => r.json()).then(data => setCurrentUser(data.user)).catch(() => { });
     }
   }, [isOpen, currentUser]);
+
+  // Thumbnails are the heaviest thing the library shows and nothing else uses
+  // them, so they arrive with the tray rather than with the page.
+  useEffect(() => {
+    if (isOpen) loadWidgetSnapshots();
+  }, [isOpen]);
 
   // Reset selected group when grouping changes
   React.useEffect(() => {

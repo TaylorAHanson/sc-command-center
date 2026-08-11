@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { AdminPage } from '../pages/AdminPage';
 import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText } from 'lucide-react';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
@@ -8,13 +7,36 @@ import { AgentPanel } from './AgentPanel';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
-import { SettingsPage } from '../pages/SettingsPage';
-import { HelpPage } from '../pages/HelpPage';
-import { AboutPage } from '../pages/AboutPage';
-import { WidgetStudio } from '../pages/WidgetStudio';
-import { AgentStudio } from '../pages/AgentStudio';
-import { UserGuidePage } from '../pages/UserGuidePage';
-import { ReleaseNotesPage } from '../pages/ReleaseNotesPage';
+
+// The full-page screens load when they are opened. Together they are most of the
+// app's code — the editor, the markdown renderer, the admin tables — and a session
+// that only looks at a dashboard should not wait for any of it. They are fetched
+// again once the browser goes idle, so opening one still feels immediate.
+const pageImports = {
+  admin: () => import('../pages/AdminPage'),
+  settings: () => import('../pages/SettingsPage'),
+  help: () => import('../pages/HelpPage'),
+  about: () => import('../pages/AboutPage'),
+  studio: () => import('../pages/WidgetStudio'),
+  'agent-studio': () => import('../pages/AgentStudio'),
+  'user-guide': () => import('../pages/UserGuidePage'),
+  'release-notes': () => import('../pages/ReleaseNotesPage'),
+};
+
+const AdminPage = React.lazy(() => pageImports.admin().then(m => ({ default: m.AdminPage })));
+const SettingsPage = React.lazy(() => pageImports.settings().then(m => ({ default: m.SettingsPage })));
+const HelpPage = React.lazy(() => pageImports.help().then(m => ({ default: m.HelpPage })));
+const AboutPage = React.lazy(() => pageImports.about().then(m => ({ default: m.AboutPage })));
+const WidgetStudio = React.lazy(() => pageImports.studio().then(m => ({ default: m.WidgetStudio })));
+const AgentStudio = React.lazy(() => pageImports['agent-studio']().then(m => ({ default: m.AgentStudio })));
+const UserGuidePage = React.lazy(() => pageImports['user-guide']().then(m => ({ default: m.UserGuidePage })));
+const ReleaseNotesPage = React.lazy(() => pageImports['release-notes']().then(m => ({ default: m.ReleaseNotesPage })));
+
+const PageLoading: React.FC = () => (
+  <div className="flex items-center justify-center h-full w-full text-gray-400">
+    <div className="w-6 h-6 border-2 border-qualcomm-blue border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<string | null>(() => {
@@ -51,6 +73,25 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   // Held at the Layout level so the conversation survives collapsing the panel.
   const agentChat = useAgentChat();
+
+  // Fetch the pages behind the sidebar buttons once the dashboard has settled.
+  // Splitting them out of the bundle is what makes the first load quick; pulling
+  // them in during idle time is what stops that showing up as a wait later. Only
+  // the ones this person can actually open.
+  useEffect(() => {
+    const prefetch = () => {
+      pageImports.studio();
+      pageImports['agent-studio']();
+      pageImports.settings();
+      if (canAccessAdmin) pageImports.admin();
+    };
+    const idle = (window as any).requestIdleCallback;
+    const handle = idle ? idle(prefetch, { timeout: 8000 }) : window.setTimeout(prefetch, 4000);
+    return () => {
+      if (idle && (window as any).cancelIdleCallback) (window as any).cancelIdleCallback(handle);
+      else window.clearTimeout(handle);
+    };
+  }, [canAccessAdmin]);
 
   // Drag-to-resize the assistant panel. Width is the distance from the right
   // edge of the viewport to the cursor, clamped to a sensible range.
@@ -557,6 +598,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         {/* Dashboard Canvas or Page */}
         {currentPage ? (
           <main className="flex-1 overflow-hidden bg-gray-50">
+            <React.Suspense fallback={<PageLoading />}>
             {currentPage === 'user-guide' && <UserGuidePage />}
             {currentPage === 'release-notes' && <ReleaseNotesPage />}
             {currentPage === 'settings' && <SettingsPage onNavigate={(page) => setCurrentPage(page)} />}
@@ -565,6 +607,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {currentPage === 'admin' && <AdminPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'studio' && <WidgetStudio editWidgetId={editWidgetId} cloneWidgetId={cloneWidgetId} onClose={() => { setCurrentPage(null); setEditWidgetId(null); setCloneWidgetId(null); }} />}
             {currentPage === 'agent-studio' && <AgentStudio />}
+            </React.Suspense>
           </main>
         ) : (
           <main

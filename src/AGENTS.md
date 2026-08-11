@@ -25,11 +25,10 @@ failing widget can't blank the dashboard.
 ## The dynamic widget runtime — the biggest constraint here
 
 Widgets are **not** files in this repo. They're TSX strings in the database,
-compiled in the browser at load time by `loadCustomWidgets()` in
-`widgetRegistry.ts`, which also holds the type contracts (`WidgetProps`,
-`WidgetDefinition`, `ConfigField`).
+compiled in the browser by `widgetRegistry.ts`, which also holds the type
+contracts (`WidgetProps`, `WidgetDefinition`, `ConfigField`).
 
-Read that function before touching anything widget-related. It does a
+Read that file before touching anything widget-related. `build()` does a
 deliberately ordered two-pass `@babel/standalone` transform — pass 1
 (`react` + `typescript` presets) compiles JSX and elides *type-only* imports,
 pass 2 (`transform-modules-commonjs`) rewrites any remaining runtime `import`
@@ -38,6 +37,26 @@ minimal CommonJS shim. So `useScript` is a genuine injected parameter, and
 `require` resolves only to React, ReactDOM, or a matching `window` global,
 throwing a clear per-widget error otherwise (which keeps one bad widget from
 failing the whole registry load).
+
+**Nothing is compiled until it is rendered**, and that is load-bearing rather than
+tidiness. `loadCustomWidgets()` registers each widget with a wrapper component
+from `lazyWidget()`; the wrapper waits for Babel, resolves the source and compiles
+on mount, caching the result by `id@version`. Compiling the library up front cost
+about 60ms a row on a modest laptop, all of it in one synchronous pass, so a
+deployment with a few hundred stored versions blocked the main thread for fifteen
+seconds and Chrome offered the user the "wait or exit page" dialog. A dashboard
+renders a handful of widgets, so a page load should cost a handful of compiles.
+Two rules follow:
+
+- Don't read `.component` for a widget you aren't about to render. It's a cheap
+  property today, but the point of the wrapper is that mounting is the trigger;
+  something that mounts every widget in the library to inspect it puts the freeze
+  straight back.
+- The wrapper resolves its own source, so an older version fetches `/version`
+  when someone pins one. That is why a widget the server sent no code for still
+  works — see the `/custom` docstring for what the payload deliberately omits.
+
+`tools/widget_payload_probe.py` weighs all of this against a real database.
 
 Practical consequences for widget code:
 
@@ -60,6 +79,31 @@ The authoritative, more detailed contract is
 `server/routes/agent_instructions.md` — it's the prompt sent to the widget
 generator, so if you change what the runtime supports, change that file too or
 the LLM will keep emitting code the runtime rejects.
+
+## What a page load is allowed to cost
+
+Startup is measured, not assumed: `tools/widget_payload_probe.py` weighs what the
+library sends, and the Playwright harness in the performance notes below reports
+first paint, when the dashboard becomes usable, and the longest main-thread task.
+The number that matters is that last one — anything over a second is jank the user
+feels, and several seconds is the browser asking whether to abandon the page.
+
+Three rules keep it there, and each was bought with a regression:
+
+- **Nothing compiles until it renders** (see the widget runtime above).
+- **Nothing loads a screen the user hasn't opened.** The full-page screens in
+  `Layout.tsx` — admin, both studios, settings, the guides — are `React.lazy`
+  behind a single `Suspense`, which is a third of the bundle. `pageImports` then
+  fetches them again during `requestIdleCallback`, so opening one is still
+  instant; add a new page to both places or it either bloats the first load or
+  arrives late.
+- **Nothing fetches an asset the user can't see yet.** Thumbnails are the clearest
+  case: the library's own effect calls `loadWidgetSnapshots()` when the tray opens.
+
+The three CDN `<script>` tags in `index.html` are `defer` for the same reason, and
+nothing may assume they have arrived — `babelReady()` waits for the compiler,
+widgets reach Highcharts through `useScript`. The old `if (!window.Babel) return`
+turned a slow CDN into an empty widget library with a silent console.
 
 ## Widget Library (`components/WidgetTray.tsx`)
 
@@ -92,6 +136,10 @@ The bottom tray that lists every widget. Three things about attribution:
   the card offers "Did you build this? Claim it" to anyone who could publish to
   that domain. It's the only route back to real attribution, and it's deliberately
   quiet — same size and colour as a byline, because most people should ignore it.
+- **Thumbnails arrive with the tray, not with the page.** They're base64 PNGs and
+  this is the only screen that shows them, so `loadWidgetSnapshots()` runs on
+  open and fills them in behind the placeholder. A card renders fine without one;
+  don't make anything depend on `snapshot` being populated at load.
 
 ## Widget Studio (`pages/WidgetStudio.tsx`)
 

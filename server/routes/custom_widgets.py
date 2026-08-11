@@ -27,36 +27,82 @@ def get_current_user(w: WorkspaceClient = Depends(get_db_client)):
     return {"user": _get_current_username(w)}
 
 
+def _visible(rows: list, perms: dict) -> list:
+    """The rows this caller may see. A global admin sees every domain."""
+    if perms.get("is_admin", False):
+        return rows
+    allowed = perms.get("domain_permissions", {})
+    return [r for r in rows if (r.get("domain") or "General") in allowed]
+
+
 @router.get("/custom")
 def get_custom_widgets(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """Every widget the caller can see — with the source of the current version only.
+
+    This answers the first request the app makes, so what it *doesn't* send matters
+    more than what it does. It used to be `SELECT *`: every version of every widget,
+    each carrying its full source and its base64 thumbnail. Widget Studio publishes
+    a version per save, so that grows without bound — 30 widgets with a few dozen
+    saves each is tens of megabytes over the wire, and the browser then compiled
+    every row of it, freezing the page for long enough that Chrome offered to end it.
+
+    Older versions are still listed, because the version dropdown on a placed widget
+    has to know they exist, but only their metadata: the source of one comes from
+    `/version` if somebody actually pins it. Thumbnails come from
+    `/custom/snapshots` when the library is opened, which is the only place they're
+    shown; here they'd be paid for on every page load by everyone.
+    """
     perms = _get_user_permissions(w, env)
-    is_admin = perms.get("is_admin", False)
-    domain_permissions = perms.get("domain_permissions", {})
-    
+
     conn = get_db_connection(env)
     c = conn.cursor()
-    query = '''
-        SELECT * FROM widgets 
+    # `is_latest` is computed here rather than by fetching everything and sorting
+    # in Python, so the old versions' source never leaves Postgres.
+    c.execute('''
+        SELECT id, version, name, description, category, domain,
+               default_w, default_h, configuration_mode, config_schema,
+               data_source_type, data_source, help_text, open_in_new_tab_link,
+               is_executable, is_certified, created_by, timestamp,
+               (snapshot IS NOT NULL AND snapshot <> '') AS has_snapshot,
+               (version = MAX(version) OVER (PARTITION BY id)) AS is_latest,
+               CASE WHEN version = MAX(version) OVER (PARTITION BY id)
+                    THEN tsx_code END AS tsx_code
+        FROM widgets
         WHERE is_deprecated = 0
         ORDER BY timestamp DESC
-    '''
-    c.execute(query)
-
-    rows = [dict({k: v for k, v in zip([desc[0] for desc in c.description], row)}) for row in c.fetchall()]
+    ''')
+    columns = [desc[0] for desc in c.description]
+    rows = [dict(zip(columns, row)) for row in c.fetchall()]
     conn.close()
 
-    # Filter widgets based on user permissions
-    filtered_rows = []
-    for r in rows:
-        if is_admin:
-            filtered_rows.append(r)
-            continue
-            
-        domain = r.get("domain", "General")
-        if domain in domain_permissions:
-            filtered_rows.append(r)
+    return {"widgets": _visible(rows, perms)}
 
-    return {"widgets": filtered_rows}
+
+@router.get("/custom/snapshots")
+def get_widget_snapshots(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """Thumbnails for the current version of each widget, keyed by widget id.
+
+    Split out of `/custom` because these are the heaviest thing the app stores — a
+    base64 PNG per widget — and the only place they are shown is the Widget
+    Library, which most sessions never open.
+    """
+    perms = _get_user_permissions(w, env)
+
+    conn = get_db_connection(env)
+    c = conn.cursor()
+    c.execute('''
+        SELECT id, domain, snapshot FROM (
+            SELECT id, domain, snapshot, version,
+                   MAX(version) OVER (PARTITION BY id) AS latest
+            FROM widgets WHERE is_deprecated = 0
+        ) w
+        WHERE version = latest AND snapshot IS NOT NULL AND snapshot <> ''
+    ''')
+    columns = [desc[0] for desc in c.description]
+    rows = [dict(zip(columns, row)) for row in c.fetchall()]
+    conn.close()
+
+    return {"snapshots": {r["id"]: r["snapshot"] for r in _visible(rows, perms)}}
 
 
 @router.get("/history")
