@@ -99,6 +99,17 @@ _REQUIRED_RES = (
 
 _TOKEN_KEYS = ("max_tokens", "max_completion_tokens", "max_new_tokens", "max_output_tokens")
 
+#: The only parameters the `model_params` setting may name.
+#:
+#: The value of that setting is spread into the request the app builds, next to
+#: `api_key`, `base_url`, `model`, `messages` and `stream`. Without a closed list an
+#: entry could quietly replace any of them — pointing `base_url` at another host
+#: would send the app's own credential and every prompt there, and naming `model` or
+#: `messages` would collide with the argument already being passed and fail the call
+#: with an error nothing here can interpret. Tuning knobs are the whole purpose of
+#: the field; everything else is either an attack or a mistake.
+CONFIGURABLE: Set[str] = _DROPPABLE | set(_SUPPLIABLE) | set(_TOKEN_KEYS)
+
 
 class _Policy:
     """Everything learned or configured about one model, guarded by the lock below."""
@@ -169,6 +180,12 @@ def _admin_overrides(model: str) -> Dict[str, Any]:
         params = parsed[name]
         if isinstance(params, dict) and name.strip().lower() in lowered:
             for param, value in params.items():
+                # The Settings page refuses these on save; this is the second lock,
+                # for a value stored before that check existed or written straight
+                # to the table. See CONFIGURABLE for what a stray key could reach.
+                if param not in CONFIGURABLE:
+                    logger.warning("Ignoring model_params entry %r for %s: not a tunable parameter.", param, model)
+                    continue
                 merged.setdefault(param, value)
     return merged
 

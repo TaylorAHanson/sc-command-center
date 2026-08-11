@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 try:
-    from routes.agent_studio import _Budget, _failure_text, _vet_rewrite
+    from routes.agent_studio import _Budget, _failure_text, _vet_rewrite, _widget_llm
 except Exception as e:  # pragma: no cover - needs the backend venv (langchain, fastapi)
     print(f"SKIP test_widget_agent_rewrite: {e}")
     sys.exit(0)
@@ -114,6 +114,19 @@ def test_the_budget_stops_starting_rounds_it_cannot_finish():
     assert nearly_gone.spent >= 597
 
 
+def test_one_call_cannot_outlive_the_budget_by_retrying():
+    # `timeout` is per attempt, and both langchain and the OpenAI client retry twice
+    # by default — so an uncapped client could spend three times the whole allowance
+    # on a single call and sail past the deadline the budget exists to hold.
+    llm = _widget_llm("key", "https://example.invalid", "some-model", _Budget(600))
+    assert llm.max_retries == 0
+    assert llm.request_timeout > 45
+
+    # Planning asks for less than is left, because it must leave room for the work.
+    capped = _widget_llm("key", "https://example.invalid", "some-model", _Budget(600), limit=45)
+    assert capped.request_timeout == 45
+
+
 def test_a_timeout_says_what_to_change_and_a_normal_failure_does_not():
     spent = _Budget(300)
     spent.deadline = spent.deadline - 300
@@ -135,6 +148,7 @@ if __name__ == "__main__":
         test_failed_edits_from_the_follow_up_are_reported_not_silent,
         test_a_spent_time_budget_still_protects_the_widget,
         test_the_budget_stops_starting_rounds_it_cannot_finish,
+        test_one_call_cannot_outlive_the_budget_by_retrying,
         test_a_timeout_says_what_to_change_and_a_normal_failure_does_not,
     ]
     for test in tests:

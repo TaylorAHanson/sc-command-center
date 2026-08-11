@@ -4,24 +4,20 @@ from middleware.auth import get_db_client, get_user_token
 from databricks.sdk import WorkspaceClient
 from typing import Optional
 import uuid
-import logging
 import os
 from routes.roles import require_domain_editor, _get_current_username, _get_user_permissions
+from services.creator_stats import is_person, same_person
 
 router = APIRouter()
 
 
-def _get_current_username(w: Optional[WorkspaceClient]) -> str:
-    """Resolve the current logged-in user's username from the WorkspaceClient."""
-    if w is None:
-        return "dev" if os.environ.get('DEV_MODE', '').lower() == 'true' else "unknown"
-    try:
-        return w.current_user().user_name or "unknown"
-    except Exception as e:
-        if os.environ.get('DEV_MODE', '').lower() == 'true':
-            return "dev"
-        logging.warning(f"Could not resolve current user: {e}")
-        return "unknown"
+# NOTE: `_get_current_username` comes from `routes.roles` (imported above) and goes
+# through `services.caller_identity`. This module used to define its own copy right
+# here, which shadowed the import and called `w.current_user()` — but `current_user`
+# is a property returning a `CurrentUserAPI`, and that object is not callable, so
+# every single call raised and fell into the except branch. Widgets were therefore
+# stamped `created_by = "dev"` locally and `"unknown"` in the deployment, which is
+# how authorship went missing. Don't reintroduce a local resolver.
 
 
 @router.get("/me")
@@ -260,7 +256,8 @@ def delete_custom_widget(widget_id: str, user_token: Optional[str] = Depends(get
     conn = get_db_connection(env)
     c = conn.cursor()
 
-    # Build a WorkspaceClient if we have a token, otherwise pass None (DEV_MODE will fall back to "dev")
+    # Build a WorkspaceClient if we have a token; without one the caller resolves
+    # to "unknown", which the ownership check below refuses to match against.
     w: Optional[WorkspaceClient] = None
     if user_token:
         try:
@@ -278,8 +275,12 @@ def delete_custom_widget(widget_id: str, user_token: Optional[str] = Depends(get
         raise HTTPException(status_code=404, detail="Widget not found")
 
     owner = row["created_by"] if not isinstance(row, tuple) else row[0]
-    # Allow delete if owner is null/unknown (legacy) or matches current user
-    if owner and owner != "unknown" and owner != current_user:
+    # An author that was never a person — NULL, or one of the placeholders an
+    # unresolved identity used to be written as — means the widget belongs to
+    # nobody, so anyone may tidy it up. This used to test for "unknown" alone,
+    # which left every widget stamped "dev" by the identity bug owned by a user
+    # who cannot sign in, and so undeletable by anyone.
+    if is_person(owner) and not same_person(owner, current_user):
         conn.close()
         raise HTTPException(status_code=403, detail="You do not have permission to delete this widget")
 

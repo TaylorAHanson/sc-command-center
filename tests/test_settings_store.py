@@ -137,6 +137,19 @@ def test_model_parameters_must_be_an_object_per_model():
     assert validate_value("model_params", "  ") == ("", None)
 
 
+def test_model_parameters_cannot_name_the_endpoint_or_the_credential():
+    # This value is spread into the request next to `api_key` and `base_url`. An
+    # entry naming either would send the app's own token, and every prompt, to
+    # whatever host it pointed at — so the field takes tuning knobs and nothing else.
+    for stray in ('{"a-model": {"base_url": "https://elsewhere/v1"}}',
+                  '{"a-model": {"api_key": "sk-someone-elses"}}',
+                  '{"a-model": {"model": "a-different-one"}}',
+                  '{"a-model": {"messages": []}}'):
+        cleaned, error = validate_value("model_params", stray)
+        assert error and "Not a model parameter" in error, stray
+        assert cleaned == ""
+
+
 def test_base_path_follows_the_model_name():
     with stored({}, {"AGENT_RUNTIME_LLM_BASE_PATH": None}):
         assert base_path_for_model("system.ai.claude-opus-5", "AGENT_RUNTIME_LLM_BASE_PATH") == AI_GATEWAY_BASE_PATH
@@ -163,6 +176,7 @@ if __name__ == "__main__":
         test_limits_are_bounded_and_coerced,
         test_unknown_key_is_refused,
         test_model_parameters_must_be_an_object_per_model,
+        test_model_parameters_cannot_name_the_endpoint_or_the_credential,
         test_base_path_follows_the_model_name,
         test_explicit_base_path_env_var_wins,
     ]

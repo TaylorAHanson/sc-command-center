@@ -7,6 +7,7 @@ using the user's Databricks token (On-Behalf-Of authentication).
 import os
 import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementExecutionAPI, Disposition, StatementState
@@ -186,6 +187,16 @@ def execute_sql_query(
        
         return response
        
+    except SqlStatementError as e:
+        return e.response()
+    except HTTPException:
+        # Already carries the status the caller needs to branch on — a 400 naming
+        # the query's own mistake, a 404 for a missing parameter, the 504 for a
+        # query still running. Without this they were caught below and re-raised as
+        # a 500, so a fixable SQL error arrived looking like a server fault and the
+        # quoting hint arrived buried in a traceback. `execute_raw_sql` has always
+        # done this; the two endpoints must agree.
+        raise
     except ValueError as e:
         # Query config not found
         raise HTTPException(status_code=404, detail=str(e))
@@ -209,6 +220,31 @@ def execute_sql_query_by_id(
     return execute_sql_query(query_request, w)
 
 
+class SqlStatementError(HTTPException):
+    """A statement the warehouse refused, in a body both kinds of caller can read.
+
+    Anything written against the current contract branches on the status code and
+    reads `detail` — that is what lets Widget Studio's auto-fix see the real error
+    and repair the query. Widgets generated before that contract existed do
+    `const d = await res.json(); setRows(d.rows)` without looking at the status, and
+    a failure used to reach them as HTTP 200 with no rows. So the body carries that
+    empty result too: an old widget on a live dashboard keeps showing "no data"
+    instead of throwing on `undefined`, which would take the panel down with it.
+    """
+
+    def response(self) -> JSONResponse:
+        return JSONResponse(
+            status_code=self.status_code,
+            content={
+                "detail": self.detail,
+                "error": self.detail,
+                "columns": [],
+                "rows": [],
+                "row_count": 0,
+            },
+        )
+
+
 def _raise_if_unsuccessful(statement, sql: str) -> None:
     """Turn a statement that didn't succeed into an error the caller can see.
 
@@ -222,7 +258,7 @@ def _raise_if_unsuccessful(statement, sql: str) -> None:
     status = getattr(statement, "status", None)
     state = getattr(status, "state", None)
     if state in (StatementState.PENDING, StatementState.RUNNING):
-        raise HTTPException(
+        raise SqlStatementError(
             status_code=504,
             detail="The query is still running after 50s. Narrow it, or pre-aggregate the data.",
         )
@@ -231,7 +267,7 @@ def _raise_if_unsuccessful(statement, sql: str) -> None:
         message = getattr(error, "message", "") or ""
         name = getattr(state, "value", str(state))
         detail = message or f"The query {str(name).lower()}."
-        raise HTTPException(status_code=400, detail=detail + quoting_hint(sql, detail))
+        raise SqlStatementError(status_code=400, detail=detail + quoting_hint(sql, detail))
 
 
 class RawSqlRequest(BaseModel):
@@ -294,6 +330,8 @@ def execute_raw_sql(
             "row_count": len(rows),
             "statement_id": statement.statement_id,
         }
+    except SqlStatementError as e:
+        return e.response()
     except HTTPException:
         raise
     except Exception as e:

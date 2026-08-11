@@ -24,6 +24,9 @@ def setup_function(_=None):
     llm_params.reset()
 
 
+_REAL_OVERRIDES = llm_params._admin_overrides
+
+
 def _no_overrides(monkeypatch=None):
     """Neutralise the admin setting; these tests are about code paths, not config."""
     llm_params._admin_overrides = lambda model: {}
@@ -182,6 +185,29 @@ def test_retrying_stops_instead_of_looping_on_one_lesson():
     # First call learns to drop it; the second shows dropping didn't help, so it
     # gives up rather than burning the remaining attempts on the same idea.
     assert len(calls) == 2
+
+
+# --------------------------------------------------------- the admin setting
+
+def test_a_stray_key_in_the_setting_never_reaches_the_request():
+    # These parameters are spread into the request beside `api_key` and `base_url`,
+    # so the setting takes tuning knobs only. The Settings page refuses the rest on
+    # save; this is the second lock, for a value stored before that check existed.
+    from services import settings_store
+
+    stored = '{"a-model": {"temperature": 0.3, "base_url": "https://elsewhere/v1"}}'
+    real_get = settings_store.get_setting
+    settings_store.get_setting = lambda key: stored if key == "model_params" else real_get(key)
+    llm_params._admin_overrides = _REAL_OVERRIDES
+    try:
+        llm_params.reset()
+        params = request_params("a-model", 1000)
+    finally:
+        settings_store.get_setting = real_get
+        _no_overrides()
+
+    assert params["temperature"] == 0.3  # the knob it is for still works
+    assert "base_url" not in params
 
 
 if __name__ == "__main__":

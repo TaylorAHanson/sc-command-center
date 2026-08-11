@@ -37,11 +37,10 @@ def _get_current_username(w: WorkspaceClient) -> str:
 
     Every route that owns rows by user goes through here, so it is one of the
     hottest calls in the app; ``caller_identity`` resolves it once per credential
-    per few minutes instead of once per request. See that module for why.
+    per few minutes instead of once per request. See that module for why — it also
+    handles a missing client, and returns "unknown" rather than guessing at a name
+    that would then be written to a table as though it were a person.
     """
-    if w is None:
-        import os
-        return "dev" if os.environ.get('DEV_MODE', '').lower() == 'true' else "unknown"
     return caller_identity.username(w)
 
 def get_user_entitlements(w: WorkspaceClient) -> List[str]:
@@ -142,16 +141,19 @@ def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"
         raise HTTPException(status_code=500, detail=str(e))
 
 def _get_user_permissions(w: WorkspaceClient, env: str) -> dict:
-    """Helper function to fetch user permissions so it can be reused."""
+    """The caller's identity and what they may do.
+
+    Whose identity this is matters beyond access control: it's the `username` the
+    frontend holds, so it ends up stamped on views, on widgets, and in whatever a
+    widget writes to a table. Bypassing the permission *checks* must not bypass
+    identity — this used to seed the literal string `"dev"` and only replace it
+    inside a bare `except: pass`, so anything that went wrong quietly credited real
+    work to a user called "dev".
+    """
     import os
     if _permissions_disabled() or os.environ.get('DEV_MODE', '').lower() == 'true':
-        username = "dev"
-        try:
-            username = _get_current_username(w)
-        except:
-            pass
         return {
-            "username": username,
+            "username": _get_current_username(w),
             "is_admin": True,
             "domain_permissions": {}
         }
@@ -187,6 +189,10 @@ def _get_user_permissions(w: WorkspaceClient, env: str) -> dict:
             domain_permissions[domain] = perm
             
     return {
+        # Carried in both shapes: the frontend reads `username` from here, and
+        # leaving it out of this branch left everyone as "unknown" whenever the
+        # permission checks were actually on.
+        "username": username,
         "is_admin": is_global_admin,
         "domain_permissions": domain_permissions
     }

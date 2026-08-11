@@ -13,6 +13,43 @@
 
 # Release Notes
 
+## 1.8.0 — 2026-08-11
+
+### Added
+
+- **The Widget Library says who built each widget.** Every card and list row credits
+  its creator, and clicking a name shows you everything else that person has built.
+- **A Top creators board.** The button in the Widget Library header opens a short
+  ranking of the people whose widgets get used, scored on what they've published,
+  how many people use it, and where it's placed. Using your own widget doesn't count
+  towards your own score.
+
+### Fixed
+
+- **Your name is recorded properly on what you create.** Widgets were being filed
+  under "dev" or "unknown" instead of the person who made them, which is also what
+  showed up when a widget wrote your name into a table. The app now resolves your
+  real identity — and where it genuinely can't, it says "unknown" rather than
+  inventing something that looks like a person. Widgets published before this keep
+  whatever they were stamped with; the Top creators board lists how many those are.
+- **Widgets stamped with a placeholder name can be deleted again.** A widget filed
+  under "dev" by the bug above had an owner nobody could match, so nobody could
+  remove it. Anything without a real author is now anyone's to tidy up, and your own
+  widgets stay yours whichever way your address happens to be capitalised.
+- **A long Widget Studio request keeps to the time you gave it.** The limit was being
+  applied per attempt rather than to the request, so a slow build could quietly run
+  about three times over. Planning the work is also capped separately now — a slow
+  plan used to be able to spend the entire allowance and leave nothing to build with,
+  which is how a big request could take the full timeout and come back empty.
+- **A SQL query that fails says why, in the widget.** A rejected query — a renamed
+  table, a column that needs backticks, a permission you don't have — reported itself
+  as "no data", so a fixable mistake looked like an empty result. The error now
+  reaches the widget and Widget Studio's auto-fix, which can act on it. Widgets built
+  before this change show the same empty state they always did rather than breaking.
+- **A model setting can't be pointed somewhere it shouldn't go.** The per-model
+  parameter overrides in Admin Panel → Settings now accept tuning parameters only,
+  and say which name they refused.
+
 ## 1.7.0 — 2026-08-10
 
 ### Added

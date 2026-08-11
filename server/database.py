@@ -496,6 +496,7 @@ def init_db(env: str = "dev"):
         CREATE TABLE IF NOT EXISTS widget_runs (
             id {auto_inc},
             widget_id TEXT NOT NULL,
+            username TEXT,
             timestamp TIMESTAMP {default_ts}
         )
     ''')
@@ -761,6 +762,16 @@ def init_db(env: str = "dev"):
         conn.rollback()
         pass
 
+    # Who added a widget, not just that it was added. Rows written before this
+    # column existed keep a NULL, which the creator leaderboard counts as a run
+    # but not as a distinct person.
+    try:
+        c.execute("ALTER TABLE widget_runs ADD COLUMN IF NOT EXISTS username TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+
     # Seed default global admin if none exists yet
     try:
         c.execute(
@@ -792,12 +803,21 @@ def init_db(env: str = "dev"):
 
     conn.close()
 
-def log_widget_run(widget_id: str, env: str = "dev"):
+def log_widget_run(widget_id: str, username: Optional[str] = None, env: str = "dev"):
+    """Record that someone put a widget on a view.
+
+    The username is what lets the creator leaderboard say how many *people* reach
+    for a widget rather than how many times it was clicked; "unknown" is stored as
+    NULL so an unresolved identity doesn't become a person in that count.
+    """
     conn = get_db_connection(env)
     c = conn.cursor()
+    who = (username or "").strip() or None
+    if who == "unknown":
+        who = None
     # Postgres uses %s for placeholders
-    c.execute('INSERT INTO widget_runs (widget_id) VALUES (%s)', (widget_id,))
-        
+    c.execute('INSERT INTO widget_runs (widget_id, username) VALUES (%s, %s)', (widget_id, who))
+
     conn.commit()
     conn.close()
     return {"status": "success", "widget_id": widget_id}

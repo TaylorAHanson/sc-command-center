@@ -400,18 +400,31 @@ class _Budget:
 
 
 def _widget_llm(api_key: str, base_url: str, model: str, budget: _Budget,
-                params: Optional[Dict[str, Any]] = None) -> ChatOpenAI:
+                params: Optional[Dict[str, Any]] = None,
+                limit: Optional[float] = None) -> ChatOpenAI:
     """A client for one call, bounded by the time this generation has left.
 
     Parameters come from `llm_params`, not from here: this used to pin
     `temperature=0.1`, so pointing the Settings page at a model that refuses
     temperature — the newer Claude and reasoning endpoints all do — failed every
     generation while the chat agent, which never sent it, carried on working.
+
+    `limit` caps this one call below the remaining allowance, for a call whose
+    job is to be quick (planning) and which must not be able to spend everything
+    the actual work needs.
+
+    `max_retries=0` is load-bearing, not a preference. `timeout` is per attempt,
+    and both langchain and the OpenAI client leave retries at 2 by default, so a
+    client built with `timeout=budget.left` could spend three times the whole
+    allowance on one call and blow through the deadline this class exists to
+    hold. A generation is long and expensive; retrying it silently is the wrong
+    default anyway — a timeout should surface as a timeout.
     """
     if params is None:
         params = llm_params.langchain_params(model, _widget_max_tokens())
+    seconds = budget.left if limit is None else min(budget.left, limit)
     return ChatOpenAI(api_key=api_key, base_url=base_url, model=model,
-                      timeout=max(5.0, budget.left), **params)
+                      timeout=max(5.0, seconds), max_retries=0, **params)
 
 
 # How many steps a plan may hold. Fewer than two is not a plan; more than six means
@@ -425,6 +438,18 @@ MAX_STAGES = 6
 # the ones that time out ask for several things at once, and say so — in their
 # length, or in a list, or with "and also".
 _STAGE_HINTS = ("\n-", "\n*", "\n1.", "\n2.", " and ", " also ", " then ", ";", "additionally")
+
+# Planning is a few dozen words of JSON, so it is capped well below the generation
+# allowance. Uncapped it was handed `budget.left` like every other call, and a slow
+# plan could return with nothing left to build anything with: every step would be
+# skipped for want of time and the user would wait out the full timeout for no code
+# at all. Planning is also the one call whose failure is free — there is always the
+# one-pass path — so it is the right place to be impatient.
+PLAN_SECONDS = 45
+
+# Below this there is no point starting a one-pass generation; say so instead of
+# spending what's left to arrive at the same timeout with nothing to show.
+MIN_ONE_PASS_SECONDS = 30
 
 
 def _wants_stages(req: GenerateRequest) -> bool:
@@ -455,7 +480,7 @@ def _plan_stages(ask, system_prompt: str, prompt: str) -> List[Dict[str, str]]:
             '{"steps": [{"title": "Short label", "detail": "What to change, concretely"}]}\n'
             "If the request is really a single change, reply with one step."
         )),
-    ])
+    ], limit=PLAN_SECONDS)
 
     try:
         text = reply
@@ -662,14 +687,15 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
                 return None
             return _widget_llm(api_key, base_url, model_name, budget)
 
-        def ask(messages: List[Any]) -> str:
+        def ask(messages: List[Any], limit: Optional[float] = None) -> str:
             """One plain call, with the parameters this model accepts.
 
             Wrapped in `with_adaptation` like the ReAct path, so a staged run learns
-            from a refused parameter on its first call rather than failing.
+            from a refused parameter on its first call rather than failing. `limit`
+            caps this call below the remaining allowance; a step takes what is left.
             """
             def attempt(params: Dict[str, Any]) -> str:
-                llm = _widget_llm(api_key, base_url, model_name, budget, params)
+                llm = _widget_llm(api_key, base_url, model_name, budget, params, limit)
                 return _reply_text(llm.invoke(messages))
 
             return llm_params.with_adaptation(
@@ -686,6 +712,16 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
             if stages:
                 print(f"Widget generation planned in {len(stages)} steps")
                 _run_stages(job_id, req, stages, ask, next_llm, budget)
+                return
+            # No plan, and planning took the allowance with it. Starting a one-pass
+            # generation now would spend the rest arriving at the same timeout with
+            # nothing to show, so say what happened while it can still be read.
+            if not budget.has(MIN_ONE_PASS_SECONDS):
+                generation_jobs[job_id] = {"status": "failed", "error": (
+                    f"Planning this request used the {budget.total}s allowed for it, leaving no "
+                    "time to build anything. Ask for one part of the widget at a time, or raise "
+                    "the widget generation timeout in Admin Panel → Settings."
+                )}
                 return
 
         response = llm_params.with_adaptation(

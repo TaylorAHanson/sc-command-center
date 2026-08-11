@@ -61,6 +61,21 @@ The authoritative, more detailed contract is
 generator, so if you change what the runtime supports, change that file too or
 the LLM will keep emitting code the runtime rejects.
 
+## Widget Library (`components/WidgetTray.tsx`)
+
+The bottom tray that lists every widget. Two things about attribution:
+
+- **A card only names an author it believes in.** `creatorOf` rejects the values a
+  failed identity lookup used to write (`unknown`, `dev`, and friends) and the card
+  shows nothing rather than "by unknown". The backend leaves the same values off
+  the leaderboard, so keep the two lists in step.
+- **The leaderboard is a way in, not a scoreboard.** `CreatorLeaderboard` opens from
+  the header and picking someone sets `creatorFilter`, which narrows the library to
+  their widgets and shows a chip that clears it. That filter deliberately *replaces*
+  the certified filter instead of stacking with it: asking for one person's widgets
+  and seeing only their certified ones makes it look like they have fewer than they
+  do.
+
 ## Widget Studio (`pages/WidgetStudio.tsx`)
 
 Two behaviors there are easy to break by accident:

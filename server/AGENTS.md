@@ -104,6 +104,29 @@ New columns go in as `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in the migration
 block *after* table creation, each in its own try/except with a rollback, so one
 failure can't abort the rest of the transaction.
 
+## Who made what (`services/creator_stats.py`)
+
+The Widget Library credits an author on every card and ranks creators behind the
+**Top creators** button (`GET /api/widgets/creators`). Three figures go into a
+rank, and they answer different questions: `published` (live widgets authored),
+`reach` (how many *other* people have one on a view) and `placements` (appearances
+across everyone's views), weighted 5/3/1 and always reported alongside the score so
+a rank can be explained rather than asserted.
+
+The parts that matter if you touch it:
+
+- **Using your own widget is not reach.** Otherwise the way to the top of the board
+  is to fill your own dashboards, and nobody trusts it twice.
+- **Placeholder authors are never credited.** `"dev"`, `"unknown"` and friends are
+  what a failed identity lookup used to write; counting them invents a prolific
+  creator who doesn't exist. They're reported as `unattributed_widgets` instead,
+  because a silent drop hides the identity problem that caused them.
+- **`tally` takes plain data**, so the ranking is tested without a database
+  (`tests/test_creator_stats.py`). Keep the queries out of it.
+- `widget_runs.username` records *who* added a widget, not just that it was added;
+  `"unknown"` is stored as NULL so an unresolved caller never becomes a person in
+  the reach count. Rows predating the column are counted as adds and nothing more.
+
 ## Agent runtime (`services/agent_runtime.py`)
 
 A self-contained streaming tool-calling loop that runs **in this process** —
@@ -281,6 +304,43 @@ undo by accident.
   and it is CPU under the GIL, so concurrent requests queued behind it. Every
   factory in `middleware/auth.py` and `agent_studio_store._client` goes through it.
 
+### The username is data, not a label
+
+`caller_identity.username` returns a real address or `"unknown"`, and nothing in
+between. Rows all over the app are owned by that string — views, conversations,
+uploads, widget authorship — and a widget can write it into a table of its own, so
+a plausible-looking stand-in is worse than an honest failure: after the fact it is
+indistinguishable from real attribution. Three things went wrong here and all three
+are worth not repeating:
+
+- `custom_widgets.py` defined its own resolver that **shadowed the import** from
+  `roles`, and it called `w.current_user()` — but `current_user` is a property
+  returning a `CurrentUserAPI`, which is not callable. Every call raised, so every
+  widget was published as `"dev"` locally and `"unknown"` in the deployment. Use
+  `roles._get_current_username`; don't add a local copy.
+- `_get_user_permissions` seeded the literal `"dev"` in the permissions-disabled
+  branch and only replaced it inside a bare `except: pass`. Bypassing permission
+  *checks* must never bypass identity.
+- The same function omitted `username` from its other return shape, so turning the
+  checks on made everyone `"unknown"` in the UI. Both shapes carry it now.
+
+Local runs authenticate as a service principal, which SCIM answers for with an
+application id — a bare UUID — or with nothing. `DEV_USERNAME` (only honoured when
+`DEV_MODE=true`) covers **both**, so a developer owns what they create. Covering
+only the "nothing" case was the same bug one layer down: the usual outcome is a
+UUID, which is not `"unknown"`, so it sailed past the override.
+
+An application id is a truthful owner and stays on the row, but it is not a person:
+`creator_stats.is_person` excludes it, alongside the placeholders in `NOT_A_PERSON`,
+so no UUID collects points on the leaderboard. That same predicate is what decides
+whether a widget **has** an owner at all — `custom_widgets.delete_custom_widget`
+uses it, because a row nobody owns should be anyone's to tidy up. Testing for
+`"unknown"` alone there left every widget the bug stamped `"dev"` undeletable by
+anyone. Comparisons go through `creator_stats.same_person` (and `isSamePerson` in
+`src/creators.ts`), since SCIM is not consistent about case.
+`tests/test_caller_identity.py` guards the lot, including that no caller ever
+resolves to `"dev"`.
+
 `/api/health` reports the pool's counters per worker. `reused` far above `opened`
 is healthy; a climbing `overflow` means bursts exceed `LAKEBASE_POOL_MAX_SIZE`, and
 a climbing `gc_released` means routes are leaking connections rather than closing
@@ -360,6 +420,15 @@ Two rules worth knowing before you change it:
   a loud failure into an agent that has mysteriously lost its tools.
 - **A missing parameter is only supplied if it's in `_SUPPLIABLE`.** We can name a
   reasoning effort; we are not going to invent a value for `safety_mode`.
+- **`model_params` may only name a key in `CONFIGURABLE`.** That setting's value is
+  spread into the request the app builds, next to `api_key`, `base_url`, `model` and
+  `messages`. Without the closed list an entry could replace any of them — a
+  `base_url` would mail the app's own credential and every prompt to another host,
+  and a `model` would collide with the argument already there and fail the call with
+  an error `adapt` cannot read. Enforced twice: `settings_store.validate_value`
+  refuses it on save with the offending names, and `_admin_overrides` drops it on
+  read, for a value stored before that check existed. Call sites also put the keys
+  they own **last** in the kwargs dict, so ordering can't be the weak link either.
 
 LangChain callers use `langchain_params`, not `request_params`. `ChatOpenAI` renames
 `max_tokens` to `max_completion_tokens` itself, and a `reasoning` **object** makes it
@@ -426,6 +495,18 @@ already applied (and the widget itself: a fragment is still refused when there's
 time to ask for edits) instead of losing the turn to a timeout, and it stops a slow
 first call from costing several multiples of the configured limit.
 
+Two things the clock depends on, both easy to undo by accident:
+
+- **`max_retries=0` on every client `_widget_llm` builds.** `timeout` is per
+  attempt, and langchain leaves retries at `None`, which the OpenAI client reads as
+  its own default of 2 — so a client built with `timeout=budget.left` could spend
+  three times the entire allowance on one call. The deadline held; nothing obeyed it.
+- **Planning is capped at `PLAN_SECONDS`, separately from the work.** It used to get
+  `budget.left` like everything else, so a slow plan could return with nothing left:
+  every step skipped for want of time, the full timeout spent, no code at all. If
+  planning yields nothing *and* leaves less than `MIN_ONE_PASS_SECONDS`, the job
+  fails saying so rather than starting a one-pass run that cannot finish.
+
 **Big requests are planned, then applied a step at a time.** Partial editing made
 one change cheap; it did nothing for "build a table, add filters, add an export",
 which is a single reply too long to finish. `_wants_stages` spots those (length, or
@@ -469,6 +550,18 @@ surfaces that run model-written SQL. Related: `routes/sql_query.py` now inspects
 rather than raising, so a failed query used to return HTTP 200 with zero rows, which
 is how a missing backtick became a blank widget instead of a fixable error.
 
+That error has to satisfy two audiences at once, which is why it is a
+`SqlStatementError` and not a plain `HTTPException` (`tests/test_sql_errors.py`):
+
+- **Non-2xx with the reason in `detail`**, for anything written against the current
+  contract — that is what lets the studio's auto-fix see a real error and repair the
+  query. Both endpoints re-raise it untouched; `execute_sql_query`'s blanket
+  `except Exception` would otherwise have turned every one into a 500.
+- **A body that still reads as an empty result** (`rows`, `columns`, `row_count`).
+  Widgets already in the `widgets` table were generated before that contract existed
+  and do `setRows(payload.rows)` without checking the status. Without this they
+  throw on `undefined` and take a live dashboard panel with them.
+
 A `widget-meta` JSON block carries proposed Configuration-tab values. Backend
 sanitizes: categories/domains must be one of the values the request supplied,
 dimensions are range-checked, and keys listed in `locked_settings` are dropped.
@@ -481,10 +574,13 @@ PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py   # 7 
 PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 3 passed
 PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 18 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 8 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 11 passed
-PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 13 passed
-PYTHONPATH=server server/venv/bin/python tests/test_llm_params.py           # 16 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 12 passed
+PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 14 passed
+PYTHONPATH=server server/venv/bin/python tests/test_caller_identity.py      # 11 passed
+PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed
+PYTHONPATH=server server/venv/bin/python tests/test_llm_params.py           # 17 passed
+PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 5 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server server/venv/bin/python tests/test_conversation_store.py   # 5 passed

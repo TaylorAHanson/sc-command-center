@@ -44,9 +44,12 @@ class Model:
     def __init__(self, replies):
         self.replies = list(replies)
         self.calls = 0
+        self.limits = []
 
-    def __call__(self, messages):
+    def __call__(self, messages, limit=None):
         self.calls += 1
+        # Planning passes a cap; a step takes whatever the budget has left.
+        self.limits.append(limit)
         return self.replies.pop(0) if self.replies else ""
 
 
@@ -83,6 +86,14 @@ def test_an_unreadable_or_single_step_plan_means_no_staging():
     assert _plan_stages(Model(["I'll just get on with it."]), "system", "do things") == []
     assert _plan_stages(Model(['{"steps": [{"title": "Just do it"}]}']), "system", "do things") == []
     assert _plan_stages(Model(['{"steps": "nonsense"}']), "system", "do things") == []
+
+
+def test_planning_cannot_spend_the_whole_allowance():
+    # Uncapped, a slow plan came back with nothing left to build with: every step
+    # would be skipped and the user would wait out the full timeout for no code.
+    model = Model([PLAN])
+    _plan_stages(model, "system", "do things")
+    assert model.limits == [agent_studio.PLAN_SECONDS]
 
 
 # ------------------------------------------------------------------- applying

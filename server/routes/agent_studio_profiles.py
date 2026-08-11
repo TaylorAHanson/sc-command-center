@@ -757,10 +757,16 @@ def _build_authoring_llm(api_key: str, base_url: str, params: Optional[Dict[str,
     if params is None:
         params = llm_params.langchain_params(model_name, _agent_studio_max_tokens())
     kwargs: Dict[str, Any] = {
+        **params,
+        # Last, so nothing arriving in `params` can displace them: this dict is the
+        # one place an admin-supplied value sits next to the credential and the host
+        # it is sent to, and spreading `params` over the top would let a `base_url`
+        # entry mail the app's token somewhere else. `llm_params.CONFIGURABLE` keeps
+        # such a key out of `params` to begin with; this is the order that makes it
+        # not matter.
         "api_key": api_key,
         "base_url": base_url,
         "model": model_name,
-        **params,
     }
     temp = (os.environ.get("AGENT_STUDIO_LLM_TEMPERATURE") or "").strip()
     if temp and "temperature" not in kwargs and "temperature" not in llm_params.describe(model_name)["omitted"]:

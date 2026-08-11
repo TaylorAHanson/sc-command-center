@@ -342,6 +342,16 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
             return "", 'Expected an object keyed by model name, e.g. {"my-model": {"temperature": null}}'
         if len(text) > 4000:
             return "", "Too long (4000 characters maximum)"
+        # These parameters are spread into the request alongside the endpoint URL and
+        # the app's credential, so the names allowed here are a closed list rather
+        # than anything the model might accept. `base_url` in this field would send
+        # the app's token and its prompts to whatever host it named.
+        from services.llm_params import CONFIGURABLE
+
+        stray = sorted({p for params in parsed.values() for p in params} - CONFIGURABLE)
+        if stray:
+            return "", (f"Not a model parameter: {', '.join(stray)}. "
+                        f"Allowed: {', '.join(sorted(CONFIGURABLE))}")
         return json.dumps(parsed, separators=(", ", ": ")), None
 
     try:

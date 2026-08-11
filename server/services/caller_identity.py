@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import threading
 import time
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
@@ -127,8 +128,38 @@ def resolve_for_token(token: Optional[str], client_factory) -> Identity:
     return identity
 
 
+#: A service principal's SCIM `userName` is its application id — a bare UUID. It is
+#: a truthful answer to "who is calling", but not a person, and a local run gets one
+#: every time because it authenticates as the app's own SP.
+_APPLICATION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def is_application_id(name: str) -> bool:
+    """Whether this username is a service principal's application id, not a person."""
+    return bool(_APPLICATION_ID.match((name or "").strip()))
+
+
 def username(w: Any) -> str:
-    return resolve(w).username
+    """The caller's username, or "unknown" — never a stand-in that reads as a person.
+
+    Rows all over the app are owned by this string, and a widget can write it into
+    a table of its own, so a plausible-looking placeholder is worse than an honest
+    "unknown": it is indistinguishable from real attribution after the fact.
+
+    Local runs authenticate as a service principal, so SCIM answers with an
+    application id — or with nothing, if it answers at all. Both are the developer,
+    and `DEV_USERNAME` lets them own what they create under their own address.
+    Covering only the "nothing" case meant the usual outcome, a UUID, sailed past
+    the override and got stamped on every widget built locally.
+    """
+    name = resolve(w).username
+    if os.environ.get("DEV_MODE", "").strip().lower() == "true":
+        if name == "unknown" or is_application_id(name):
+            # No DEV_USERNAME: keep whatever was resolved. An application id is
+            # honest about being a machine, and `creator_stats` knows not to credit
+            # one, so there is nothing to gain by throwing it away.
+            return os.environ.get("DEV_USERNAME", "").strip() or name
+    return name
 
 
 def entitlements(w: Any) -> List[str]:

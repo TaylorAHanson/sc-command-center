@@ -36,7 +36,15 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
 - The configured `props.data.dataSourceType` remains authoritative. If it conflicts with the user's requested operation, explain the recommended source-type change instead of silently hardcoding a different SQL statement or URL into the component.
 - Data Source Types (`props.data.dataSourceType`):
   - `'api'`: Use `fetch(props.data.dataSource)` to retrieve the data.
-  - `'sql'`: Use `fetch('/api/sql/execute-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: props.data.dataSource }) })` to execute the SQL. The response has `{ columns: string[], rows: object[], row_count: number }`.
+  - `'sql'`: Use `fetch('/api/sql/execute-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: props.data.dataSource }) })` to execute the SQL. A successful response has `{ columns: string[], rows: object[], row_count: number }`.
+    - **Check the status before reading the rows.** A query the warehouse refuses — a missing table, a column that needs backticks, no permission — comes back non-2xx with `{ detail: string }` explaining why. Show that message; never let it surface as "no data", which hides a fixable query behind an empty panel:
+
+          const res = await fetch('/api/sql/execute-raw', { /* … */ });
+          const payload = await res.json();
+          if (!res.ok) throw new Error(payload.detail || 'Query failed');
+          setRows(payload.rows);
+
+      Render the caught message in the widget's error state.
   - `'databricks_api'`: For authenticated Databricks APIs (like Model Serving or Volume File Uploads), use `fetch('/api/databricks/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: props.data.dataSource, method: 'GET' }) })`. Ensure you pass `path` (e.g. `/api/2.0/serving-endpoints/endpoint-name/invocations`) and `method` (e.g. `POST`) in the body along with any `body` data if necessary. For file uploads, you must also pass `fileUpload: true`, `fileBase64` (the base64 encoded file content), `fileName`, and `fileSize` in the body.
   - Assume the data returned matches the schema provided in the prompt.
 
