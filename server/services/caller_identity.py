@@ -131,7 +131,10 @@ def resolve_for_token(token: Optional[str], client_factory) -> Identity:
 #: A service principal's SCIM `userName` is its application id — a bare UUID. It is
 #: a truthful answer to "who is calling", but not a person, and a local run gets one
 #: every time because it authenticates as the app's own SP.
-_APPLICATION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+#: As a string too, for the queries that have to ask Postgres the same question.
+APPLICATION_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+
+_APPLICATION_ID = re.compile(APPLICATION_ID_PATTERN, re.I)
 
 
 def is_application_id(name: str) -> bool:

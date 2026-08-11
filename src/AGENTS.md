@@ -63,7 +63,7 @@ the LLM will keep emitting code the runtime rejects.
 
 ## Widget Library (`components/WidgetTray.tsx`)
 
-The bottom tray that lists every widget. Two things about attribution:
+The bottom tray that lists every widget. Three things about attribution:
 
 - **A card only names an author it believes in.** `creatorOf` rejects the values a
   failed identity lookup used to write (`unknown`, `dev`, and friends) and the card
@@ -75,6 +75,23 @@ The bottom tray that lists every widget. Two things about attribution:
   the certified filter instead of stacking with it: asking for one person's widgets
   and seeing only their certified ones makes it look like they have fewer than they
   do.
+- **Edit and Delete are two different rights, because the server applies two.**
+  Edit asks `canEditDomain` (the store's copy of `require_domain_editor`, the only
+  check `PUT /custom/{id}` makes); Delete asks `canManageWidget`, which is what
+  `delete_custom_widget` checks — the author, or anyone at all if the recorded
+  author was never a person. Never test `createdBy === currentUser`: that is what
+  broke the library the day authorship started resolving correctly. Every widget
+  already stamped `dev` or `unknown` suddenly matched nobody, which took away both
+  buttons *and* hid the widget behind the certified filter, which used the same
+  test. Both rules live next to `isPerson` in `creators.ts` and the store; if you
+  change a permission on the server, change its twin here or the library will
+  offer a button the save then refuses.
+- **An uncredited widget invites a claim instead of showing a blank byline.** No
+  widget built before the identity fix has a recoverable author (see
+  `server/routes/custom_widgets.py::claim_custom_widget`), so where a name would go
+  the card offers "Did you build this? Claim it" to anyone who could publish to
+  that domain. It's the only route back to real attribution, and it's deliberately
+  quiet — same size and colour as a byline, because most people should ignore it.
 
 ## Widget Studio (`pages/WidgetStudio.tsx`)
 

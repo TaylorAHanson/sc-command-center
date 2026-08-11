@@ -65,6 +65,25 @@ def same_person(a: Optional[str], b: Optional[str]) -> bool:
     return bool(a) and bool(b) and str(a).strip().lower() == str(b).strip().lower()
 
 
+def unowned_sql(column: str = "created_by") -> Tuple[str, List[str]]:
+    """`is_person` inverted, as a SQL condition and its parameters.
+
+    Claiming a widget has to fill the blank and check it is still blank in the one
+    statement, or two people who both recognise their work race and the loser
+    silently overwrites the winner. That means Postgres has to be able to ask the
+    question, so the answer is built here from the same `NOT_A_PERSON` list rather
+    than written out again in a query where it would quietly drift.
+    """
+    from services.caller_identity import APPLICATION_ID_PATTERN
+
+    names = sorted(NOT_A_PERSON)
+    slots = ",".join(["%s"] * len(names))
+    condition = (
+        f"({column} IS NULL OR lower(btrim({column})) IN ({slots}) OR {column} ~* %s)"
+    )
+    return condition, names + [APPLICATION_ID_PATTERN]
+
+
 def widget_key(widget_type: Optional[str]) -> str:
     """The widget id behind a placement.
 

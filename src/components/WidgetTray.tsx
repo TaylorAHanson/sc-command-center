@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid, Pencil, Trash2, Copy, Trophy } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { getWidgetCategories, getWidgetDomains, getAvailableWidgets, useWidgetRegistry } from '../widgetRegistry';
+import { getWidgetCategories, getWidgetDomains, getAvailableWidgets, loadCustomWidgets, useWidgetRegistry } from '../widgetRegistry';
 import type { WidgetDefinition } from '../widgetRegistry';
 import { WidgetPreview } from './WidgetPreview';
 import { CreatorLeaderboard } from './CreatorLeaderboard';
-import { creatorOf, displayName, isSamePerson } from '../creators';
+import { canManageWidget, creatorOf, displayName, isPerson, isSamePerson } from '../creators';
 import { logWidgetRun, getPopularityScores } from '../api';
 import clsx from 'clsx';
 
@@ -17,7 +17,7 @@ interface WidgetTrayProps {
 }
 
 export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditWidget, onCloneWidget }) => {
-  const { tabs, activeTabId, activeDomain, addWidget, openConfigModal } = useDashboardStore();
+  const { tabs, activeTabId, activeDomain, addWidget, openConfigModal, canEditDomain } = useDashboardStore();
   const activeTab = tabs.find(t => t.id === activeTabId);
   const isLocked = activeTab?.locked === true;
 
@@ -54,6 +54,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [claiming, setClaiming] = useState<string | null>(null);
   // Set by picking someone off the leaderboard: narrows the library to their
   // widgets, which is what makes the board a way in rather than a scoreboard.
   const [creatorFilter, setCreatorFilter] = useState<string | null>(null);
@@ -143,7 +144,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
       widgets = widgets.filter(w => (creatorOf(w) || '').toLowerCase() === wanted);
     } else if (showCertifiedOnly) {
       // Always show user-published custom widgets, even when certified filter is on
-      widgets = widgets.filter(w => w.isCertified || (currentUser && w.createdBy === currentUser) || !w.createdBy);
+      widgets = widgets.filter(w => w.isCertified || canManageWidget(w.createdBy, currentUser));
     }
     if (accessFilter === 'accessible') {
       widgets = widgets.filter(w => w.accessControl?.mockHasAccess !== false);
@@ -173,6 +174,35 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
       }
     } catch {
       alert('Network error deleting widget');
+    }
+  };
+
+  // Only offered where it means something: a widget nobody is credited with, in a
+  // domain you could publish to, and only when we know who you are. The endpoint
+  // applies the same three tests.
+  const canClaim = (widget: WidgetDefinition): boolean =>
+    !creatorOf(widget) && isPerson(currentUser) && canEditDomain(widget.domain);
+
+  // Nobody is recorded as having written the widgets built before authorship
+  // worked, and nothing we stored can work out who did — so the person who
+  // recognises their own work is the only way back to a real name.
+  const handleClaim = async (e: React.MouseEvent, widget: WidgetDefinition) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!confirm(`Claim "${widget.name}"? You'll be credited as its creator.`)) return;
+    setClaiming(widget.id);
+    try {
+      const res = await fetch(`/api/widgets/custom/${widget.id}/claim`, { method: 'POST' });
+      if (res.ok) {
+        await loadCustomWidgets();
+      } else {
+        const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+        alert(err.detail || 'Could not claim this widget.');
+      }
+    } catch {
+      alert('Network error claiming widget');
+    } finally {
+      setClaiming(null);
     }
   };
 
@@ -539,7 +569,11 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
 
                           {/* Drag Handle / Owner Actions */}
                           {hasAccess && (() => {
-                            const isOwned = currentUser && (widget.createdBy === currentUser || !widget.createdBy);
+                            // Two different rights, because the server applies two:
+                            // any editor of the domain may publish a new version,
+                            // only the author (or nobody) may delete.
+                            const mayEdit = canEditDomain(widget.domain);
+                            const mayDelete = canManageWidget(widget.createdBy, currentUser);
                             return (
                               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
                                 <button
@@ -549,24 +583,25 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                                 >
                                   <Copy className="w-3 h-3" />
                                 </button>
-                                {isOwned ? (
-                                  <>
-                                    <button
-                                      title="Edit in Widget Studio"
-                                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); onEditWidget?.(widget.id); onClose(); }}
-                                      className="p-1 rounded bg-white/90 hover:bg-indigo-100 text-indigo-600 shadow-sm border border-indigo-200"
-                                    >
-                                      <Pencil className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      title="Delete widget"
-                                      onClick={(e) => handleDeleteWidget(e, widget)}
-                                      className="p-1 rounded bg-white/90 hover:bg-red-100 text-red-600 shadow-sm border border-red-200"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </>
-                                ) : (
+                                {mayEdit && (
+                                  <button
+                                    title="Edit in Widget Studio"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onEditWidget?.(widget.id); onClose(); }}
+                                    className="p-1 rounded bg-white/90 hover:bg-indigo-100 text-indigo-600 shadow-sm border border-indigo-200"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                )}
+                                {mayDelete && (
+                                  <button
+                                    title="Delete widget"
+                                    onClick={(e) => handleDeleteWidget(e, widget)}
+                                    className="p-1 rounded bg-white/90 hover:bg-red-100 text-red-600 shadow-sm border border-red-200"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                )}
+                                {!mayEdit && !mayDelete && (
                                   <div className="p-1 flex items-center justify-center pointer-events-none drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
                                     <GripVertical className="w-4 h-4 text-gray-400" />
                                   </div>
@@ -582,7 +617,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                               component={widget.component}
                               snapshot={widget.snapshot}
                               widget={widget}
-                              canRefresh={!!currentUser && (widget.createdBy === currentUser || !widget.createdBy)}
+                              canRefresh={canEditDomain(widget.domain)}
                               className={clsx("h-full", !hasAccess && "opacity-50 grayscale")}
                             />
                           </div>
@@ -604,7 +639,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                               {widget.description}
                             </p>
 
-                            {creator && (
+                            {creator ? (
                               <button
                                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); setCreatorFilter(creator); }}
                                 title={`${creator} — show their widgets`}
@@ -612,6 +647,15 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                               >
                                 by {displayName(creator)}
                                 {isSamePerson(creator, currentUser) && ' (you)'}
+                              </button>
+                            ) : canClaim(widget) && (
+                              <button
+                                onClick={(e) => handleClaim(e, widget)}
+                                disabled={claiming === widget.id}
+                                title="Nobody is credited with this widget. Claim it if you built it."
+                                className="text-[10px] text-gray-400 hover:text-qualcomm-blue truncate text-left mb-2 self-start disabled:text-gray-300"
+                              >
+                                {claiming === widget.id ? 'Claiming…' : 'Did you build this? Claim it'}
                               </button>
                             )}
 
@@ -687,6 +731,15 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                                   className="text-gray-500 hover:text-qualcomm-blue truncate max-w-full"
                                 >
                                   {displayName(creator)}
+                                </button>
+                              ) : canClaim(widget) ? (
+                                <button
+                                  onClick={(e) => handleClaim(e, widget)}
+                                  disabled={claiming === widget.id}
+                                  title="Nobody is credited with this widget. Claim it if you built it."
+                                  className="text-gray-400 hover:text-qualcomm-blue disabled:text-gray-300"
+                                >
+                                  {claiming === widget.id ? 'Claiming…' : 'Claim'}
                                 </button>
                               ) : (
                                 <span className="text-gray-300">—</span>

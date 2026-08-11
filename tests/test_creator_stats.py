@@ -10,7 +10,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
-from services.creator_stats import WEIGHTS, is_person, same_person, tally, widget_key  # noqa: E402
+from services.creator_stats import (  # noqa: E402
+    NOT_A_PERSON, WEIGHTS, is_person, same_person, tally, unowned_sql, widget_key,
+)
 
 ANA = "ana@example.com"
 BEN = "ben@example.com"
@@ -143,6 +145,28 @@ def test_the_score_is_the_sum_of_the_parts_it_reports():
         "score": 2 * WEIGHTS["published"] + 2 * WEIGHTS["reach"] + 2 * WEIGHTS["placements"],
         "rank": 1,
     }
+
+
+# ---------------------------------------------------------------- claiming
+
+def test_the_claim_condition_asks_about_every_placeholder_we_know():
+    """`unowned_sql` is `is_person` for Postgres, and the two must not drift.
+
+    A value missing from the SQL is a widget nobody can claim; a value in the SQL
+    that `is_person` accepts would let someone take a widget with a real author.
+    """
+    condition, params = unowned_sql()
+    assert params[:-1] == sorted(NOT_A_PERSON), "every placeholder is passed to the query"
+    assert condition.count("%s") == len(params), "one slot per parameter"
+    for name in params[:-1]:
+        assert not is_person(name), f"{name!r} is in the SQL, so it must not be a person"
+
+
+def test_the_claim_condition_names_the_column_it_is_given():
+    assert "created_by IS NULL" in unowned_sql()[0]
+    qualified, _ = unowned_sql("w.created_by")
+    assert "w.created_by IS NULL" in qualified
+    assert "lower(btrim(w.created_by))" in qualified, "a joined query needs the table too"
 
 
 if __name__ == "__main__":

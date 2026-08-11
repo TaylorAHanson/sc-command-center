@@ -36,3 +36,17 @@ export const displayName = (username: string): string => {
 
 export const isSamePerson = (a?: string | null, b?: string | null): boolean =>
   !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Whether this person may edit or delete the widget.
+ *
+ * The same rule the delete endpoint applies (`is_person` / `same_person` in
+ * `services/creator_stats.py`): a widget whose author was never a person belongs
+ * to nobody, so anyone may look after it. Testing `createdBy === currentUser`
+ * instead is what took the Edit and Delete buttons away from every widget the
+ * identity bug had stamped `"dev"` or `"unknown"` — nobody could match an author
+ * who was never a user. Keep this in step with the server: an Edit button the
+ * server then refuses is worse than no button at all.
+ */
+export const canManageWidget = (createdBy?: string | null, me?: string | null): boolean =>
+  !isPerson(createdBy) || isSamePerson(createdBy, me);

@@ -27,6 +27,32 @@
   replacing it. If a view is pinned to an agent you can't open, the panel says so
   instead of leaving you wondering which agent is answering.
 
+### Added
+
+- **You can claim a widget you built.** Widgets made before the app could tell who
+  was signed in have nobody's name on them, and there's no record anywhere of who
+  wrote them. Where the creator's name would be, those cards now ask "Did you build
+  this? Claim it" — say yes and the credit is yours, on the card and on the Top
+  creators board. Only widgets with no creator can be claimed, and only by someone
+  who could publish to that domain, so nobody can take your work off you.
+
+### Changed
+
+- **You can edit any widget in a domain you're an editor of.** Saving a widget has
+  always only asked whether you can edit its domain, but the library was hiding the
+  Edit button on anything you hadn't written yourself, which sent you the long way
+  round for a colleague's typo. The button now matches what the save allows.
+  Deleting still belongs to whoever built it.
+
+### Fixed
+
+- **Widgets built before authorship worked can be edited again.** Correcting who gets
+  credited for a widget had a side effect: widgets created earlier were recorded
+  against a placeholder rather than a person, and the library treated them as
+  somebody else's — hiding them behind the Certified filter and taking away their
+  Edit and Delete buttons for everyone. A widget with no real author now belongs to
+  nobody, so anyone can pick it up, which is how deleting one already worked.
+
 ## 1.8.0 — 2026-08-11
 
 ### Added

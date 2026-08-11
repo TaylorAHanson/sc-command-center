@@ -3,10 +3,11 @@ from database import get_db_connection
 from middleware.auth import get_db_client, get_user_token
 from databricks.sdk import WorkspaceClient
 from typing import Optional
+import logging
 import uuid
 import os
 from routes.roles import require_domain_editor, _get_current_username, _get_user_permissions
-from services.creator_stats import is_person, same_person
+from services.creator_stats import is_person, same_person, unowned_sql
 
 router = APIRouter()
 
@@ -249,6 +250,71 @@ def update_widget_snapshot(widget_id: str, payload: dict, env: str = "dev"):
         raise HTTPException(status_code=500, detail=str(e))
     conn.close()
     return {"status": "success", "id": widget_id, "version": max_version}
+
+
+@router.post("/custom/{widget_id}/claim")
+def claim_custom_widget(widget_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """Put your name on a widget nobody is recorded as having written.
+
+    Authorship was recorded by a resolver that never worked — it shipped broken in
+    the same commit that added the `created_by` column — so the credit for every
+    widget built before that was fixed is a placeholder, and nothing we stored can
+    recover it. `action_logs` has no username, `widget_runs` says who *used* a
+    widget, and a view only says who placed one. So the person who recognises their
+    own work says so, and that is the only route back to a real name.
+
+    It can only ever fill a blank. A widget with a real author is not claimable —
+    including by that author's colleague — and the check happens inside the UPDATE
+    so that two people claiming at once can't overwrite each other.
+    """
+    me = _get_current_username(w)
+    if not is_person(me):
+        raise HTTPException(status_code=403, detail="We can't tell who you are, so we can't credit you.")
+
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        c.execute(
+            "SELECT created_by, domain FROM widgets WHERE id = %s ORDER BY version DESC LIMIT 1",
+            (widget_id,),
+        )
+        row = c.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Widget not found")
+        if hasattr(row, 'keys'):
+            owner, domain = row['created_by'], row['domain']
+        else:
+            owner, domain = row[0], row[1]
+
+        if is_person(owner):
+            raise HTTPException(status_code=409, detail=f"{owner} is already credited with this widget.")
+
+        # Claiming credit in a domain you couldn't publish to isn't yours to do.
+        require_domain_editor(w, domain or "General", env)
+
+        # Every version, because no version ever held a real name: this is filling
+        # in a blank rather than rewriting history. The condition repeats the
+        # placeholder test so the row can't have been claimed since we read it.
+        unowned, params = unowned_sql()
+        c.execute(
+            f"UPDATE widgets SET created_by = %s WHERE id = %s AND {unowned}",
+            [me, widget_id, *params],
+        )
+        claimed = c.rowcount
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        logging.exception("Failed to claim widget %s", widget_id)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+    if not claimed:
+        raise HTTPException(status_code=409, detail="Somebody else claimed this widget first.")
+    return {"status": "success", "id": widget_id, "created_by": me, "versions": claimed}
 
 
 @router.delete("/custom/{widget_id}")

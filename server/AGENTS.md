@@ -141,6 +141,16 @@ The parts that matter if you touch it:
 - `widget_runs.username` records *who* added a widget, not just that it was added;
   `"unknown"` is stored as NULL so an unresolved caller never becomes a person in
   the reach count. Rows predating the column are counted as adds and nothing more.
+- **The author of an old widget is gone and cannot be computed.** The resolver that
+  wrote `created_by` shipped broken in the same commit that added the column, so
+  nothing before the fix has a real name on it, and nothing else recorded one:
+  `action_logs` has no username, `widget_runs` says who *used* a widget, and a view
+  only says who placed one. Don't write a backfill from those — it would invent
+  attribution. `POST /custom/{id}/claim` lets the person who recognises their own
+  work say so, which is the only honest route back. It fills a blank and never
+  changes a real name: the placeholder test is repeated *inside* the UPDATE (via
+  `unowned_sql`, the same `NOT_A_PERSON` list rendered for Postgres) so two people
+  claiming at once can't overwrite each other, and the loser is told who won.
 
 ## Agent runtime (`services/agent_runtime.py`)
 
@@ -591,7 +601,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 18
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 12 passed
-PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 14 passed
+PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server server/venv/bin/python tests/test_caller_identity.py      # 11 passed
 PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed
 PYTHONPATH=server server/venv/bin/python tests/test_llm_params.py           # 17 passed

@@ -56,6 +56,8 @@ interface DashboardContextType {
   setPinnedAgent: (tabId: string, agentId: string | null) => void;
   /** Whether the signed-in user may change this view's settings (not its layout). */
   canEditView: (tab?: Tab | null) => boolean;
+  /** Whether the signed-in user may change a widget belonging to this domain. */
+  canEditDomain: (domain?: string | null) => boolean;
 
   addWidget: (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => void;
   removeWidget: (tabId: string, widgetId: string) => void;
@@ -293,6 +295,17 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return !tab.username || tab.username === username;
   }, [isAdmin, domainPermissions, username]);
 
+  // Who may edit a widget, mirroring `require_domain_editor` — the check its save
+  // actually goes through. Editing a widget is a domain right, not an ownership
+  // one: the server has never asked who wrote a widget before accepting a new
+  // version of it, and a library that hides Edit from people the server would let
+  // through just sends them the long way round. Deleting is the ownership one.
+  const canEditDomain = useCallback((domain?: string | null): boolean => {
+    if (isAdmin) return true;
+    const level = domainPermissions[domain || 'General'];
+    return level === 'editor' || level === 'admin';
+  }, [isAdmin, domainPermissions]);
+
   // Pin an agent to a view, or pass null to clear it. Saved like every other
   // view setting: optimistic locally, then a full PUT that lands a new version.
   const setPinnedAgent = (tabId: string, agentId: string | null) => {
@@ -440,7 +453,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       variables, setVariable,
       addTab, removeTab, renameTab, reorderTabs, setActiveTabId: handleSetActiveTabId,
       duplicateView, addWidget, removeWidget, updateWidget, updateLayout,
-      toggleLock, setPinnedAgent, canEditView, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
+      toggleLock, setPinnedAgent, canEditView, canEditDomain, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
     }}>
       {children}
     </DashboardContext.Provider>
