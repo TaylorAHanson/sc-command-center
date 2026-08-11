@@ -344,6 +344,34 @@ Things worth knowing before changing this:
   a zone and are UTC, so `relativeTime` appends `Z` before parsing — drop that and
   every conversation looks hours old.
 
+### Agents pinned to a view
+
+A view can name the agent the drawer opens with (`Tab.pinned_agent_id`, stored on
+the view row). The pin button beside the picker writes whatever is selected to the
+active view, through the same full-view PUT as renaming or locking it, so
+`canEditView` — not the layout lock — decides who may set one. `DEFAULT_AGENT_PIN`
+(`'default'`) is how a view pins the *built-in* agent; without it, "pinned to the
+default agent" and "not pinned" would be the same empty string.
+
+The pin is a default, not a lock, and the effect that applies it is fussier than
+it looks:
+
+- **It fires once per view activation** (`appliedPinRef`), so choosing a different
+  agent while you are on the view sticks. Leaving and coming back re-applies it.
+- **It defers to a reopened conversation on the first view it sees**
+  (`reopenedRef`). Applying the pin means starting a new conversation, so without
+  this every reload of a pinned view would file the chat you were reading into
+  history and greet you with an empty one.
+- **It skips while a turn is streaming** and lands on the next render instead.
+- **It ignores a pin naming an agent that isn't in `availableProfiles`** once that
+  list has loaded, because the runtime silently answers as the default agent when
+  it cannot resolve a `profile_ref` — the picker would claim an agent nobody could
+  open. The panel says so instead. The list is lazy, so an empty list means "not
+  known yet", not "no access".
+
+Setting `selectedProfileId` from that effect deliberately cascades into the
+agent-switch effect above: the pin does exactly what a click on the picker does.
+
 ## Layout of `src/`
 
 ```

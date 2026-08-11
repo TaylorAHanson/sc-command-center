@@ -13,6 +13,20 @@
 
 # Release Notes
 
+## 1.9.0 — 2026-08-11
+
+### Added
+
+- **A view can open with the agent that suits it.** Pick an agent in the assistant
+  panel and press the pin beside it, and that view will open with that agent from
+  then on — your own views, and the shared ones if you can edit them, so a team
+  board can ship with the agent that knows it. It's a starting point rather than a
+  restriction: you can still switch agents while you're there, and the pin comes
+  back the next time you open the view. Press the pin again to remove it.
+  Reloading the page keeps you in the conversation you were reading rather than
+  replacing it. If a view is pinned to an agent you can't open, the panel says so
+  instead of leaving you wondering which agent is answering.
+
 ## 1.8.0 — 2026-08-11
 
 ### Added

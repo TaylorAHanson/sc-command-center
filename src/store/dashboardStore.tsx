@@ -2,6 +2,11 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
 
+// A view can pin the built-in agent just as deliberately as an authored one, so
+// "no pin" and "pinned to the default" have to be different values. Authored
+// agents are UUIDs, so this word can never collide with one.
+export const DEFAULT_AGENT_PIN = 'default';
+
 export interface WidgetLayout {
   i: string;
   x: number;
@@ -23,6 +28,8 @@ export interface Tab {
   is_shared?: boolean;
   username?: string;
   version?: number;
+  /** Agent Studio profile the assistant opens with on this view. Null = no pin. */
+  pinned_agent_id?: string | null;
 }
 
 interface DashboardContextType {
@@ -46,6 +53,9 @@ interface DashboardContextType {
   setActiveTabId: (id: string) => void;
   duplicateView: (viewId: string) => void;
   toggleLock: (tabId: string) => void;
+  setPinnedAgent: (tabId: string, agentId: string | null) => void;
+  /** Whether the signed-in user may change this view's settings (not its layout). */
+  canEditView: (tab?: Tab | null) => boolean;
 
   addWidget: (tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => void;
   removeWidget: (tabId: string, widgetId: string) => void;
@@ -177,6 +187,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           domain: tab.domain || "General",
           is_global: tab.is_global || false,
           is_locked: tab.locked || false,
+          // Always sent, never omitted: the server reads an absent pin as "leave
+          // it alone", so an empty string is the only way a save can clear one.
+          pinned_agent_id: tab.pinned_agent_id || '',
           widgets: tab.widgets
         })
       });
@@ -262,6 +275,34 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (tab?.is_shared) return; // Cannot unlock shared tabs
 
     const newTabs = tabs.map(t => t.id === tabId ? { ...t, locked: !t.locked } : t);
+    setTabs(newTabs);
+    const updatedTab = newTabs.find(t => t.id === tabId);
+    if (updatedTab) apiSyncView(updatedTab);
+  };
+
+  // Who may change a view's settings. Layout editing has its own rule (a locked
+  // view is read-only even to its owner); this is about the view itself, which
+  // is why a locked view still answers true — the lock is one of these settings.
+  const canEditView = useCallback((tab?: Tab | null): boolean => {
+    if (!tab || tab.is_shared) return false;
+    if (tab.is_global) {
+      if (isAdmin) return true;
+      const level = domainPermissions[tab.domain || 'General'];
+      return level === 'editor' || level === 'admin';
+    }
+    return !tab.username || tab.username === username;
+  }, [isAdmin, domainPermissions, username]);
+
+  // Pin an agent to a view, or pass null to clear it. Saved like every other
+  // view setting: optimistic locally, then a full PUT that lands a new version.
+  const setPinnedAgent = (tabId: string, agentId: string | null) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (!tab || !canEditView(tab)) return;
+
+    const next = agentId || null;
+    if ((tab.pinned_agent_id || null) === next) return;
+
+    const newTabs = tabs.map(t => t.id === tabId ? { ...t, pinned_agent_id: next } : t);
     setTabs(newTabs);
     const updatedTab = newTabs.find(t => t.id === tabId);
     if (updatedTab) apiSyncView(updatedTab);
@@ -399,7 +440,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       variables, setVariable,
       addTab, removeTab, renameTab, reorderTabs, setActiveTabId: handleSetActiveTabId,
       duplicateView, addWidget, removeWidget, updateWidget, updateLayout,
-      toggleLock, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
+      toggleLock, setPinnedAgent, canEditView, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
     }}>
       {children}
     </DashboardContext.Provider>

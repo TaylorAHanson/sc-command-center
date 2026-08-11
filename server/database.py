@@ -564,6 +564,7 @@ def init_db(env: str = "dev"):
             is_global INTEGER DEFAULT 0,
             widgets_json TEXT,
             is_locked INTEGER DEFAULT 0,
+            pinned_agent_id TEXT,
             timestamp TIMESTAMP {default_ts},
             PRIMARY KEY (id, version)
         )
@@ -767,6 +768,15 @@ def init_db(env: str = "dev"):
     # but not as a distinct person.
     try:
         c.execute("ALTER TABLE widget_runs ADD COLUMN IF NOT EXISTS username TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+
+    # The Agent Studio profile a view opens the assistant with. NULL means the
+    # view has no opinion and the drawer keeps whichever agent is selected.
+    try:
+        c.execute("ALTER TABLE dashboard_views ADD COLUMN IF NOT EXISTS pinned_agent_id TEXT")
         conn.commit()
     except Exception as e:
         conn.rollback()

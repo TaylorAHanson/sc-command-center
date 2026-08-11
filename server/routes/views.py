@@ -16,6 +16,7 @@ class ViewCreate(BaseModel):
     domain: Optional[str] = "General"
     is_global: bool = False
     is_locked: bool = False
+    pinned_agent_id: Optional[str] = None
     widgets: List[Dict[str, Any]] = []
 
 class ViewUpdate(BaseModel):
@@ -23,7 +24,21 @@ class ViewUpdate(BaseModel):
     domain: Optional[str] = None
     is_global: Optional[bool] = None
     is_locked: Optional[bool] = None
+    pinned_agent_id: Optional[str] = None
     widgets: Optional[List[Dict[str, Any]]] = None
+
+
+def pin_value(incoming: Optional[str], previous: Optional[str]) -> Optional[str]:
+    """The agent id to store for a view, given what the client sent.
+
+    A save that says nothing about the pin keeps it: every widget move is a full
+    PUT, and those must not quietly unpin a view. An empty string is how a client
+    says "no agent" — JSON null can't carry that meaning here, since an absent
+    field arrives as null too.
+    """
+    if incoming is None:
+        return (previous or "").strip() or None
+    return incoming.strip() or None
 
 @router.get("/")
 def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
@@ -38,7 +53,8 @@ def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
         c = conn.cursor()
         
         c.execute("""
-            SELECT dv.id, dv.version, dv.name, dv.domain, dv.username, dv.is_global, dv.widgets_json, dv.is_locked, dv.timestamp,
+            SELECT dv.id, dv.version, dv.name, dv.domain, dv.username, dv.is_global, dv.widgets_json, dv.is_locked,
+                   dv.pinned_agent_id, dv.timestamp,
                    CASE WHEN dv.username != %s AND dv.is_global = 0 AND sv.username IS NOT NULL THEN 1 ELSE 0 END as is_shared
             FROM dashboard_views dv
             INNER JOIN (
@@ -80,6 +96,7 @@ def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
                 "is_global": bool(v['is_global']),
                 "is_locked": bool(v['is_locked']),
                 "is_shared": bool(v['is_shared']),
+                "pinned_agent_id": v.get('pinned_agent_id') or None,
                 "widgets": widgets
             })
             
@@ -176,9 +193,10 @@ def create_view(view: ViewCreate, w: WorkspaceClient = Depends(get_db_client), e
         c = conn.cursor()
         
         c.execute("""
-            INSERT INTO dashboard_views (id, version, name, domain, username, is_global, widgets_json, is_locked)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (view_id, 1, view.name, view.domain, actual_username, int(view.is_global), widgets_json, int(view.is_locked)))
+            INSERT INTO dashboard_views (id, version, name, domain, username, is_global, widgets_json, is_locked, pinned_agent_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (view_id, 1, view.name, view.domain, actual_username, int(view.is_global), widgets_json,
+              int(view.is_locked), pin_value(view.pinned_agent_id, None)))
             
         conn.commit()
         conn.close()
@@ -229,6 +247,7 @@ def update_view(view_id: str, view: ViewUpdate, w: WorkspaceClient = Depends(get
         domain = view.domain if view.domain is not None else full_existing['domain']
         is_global = view.is_global if view.is_global is not None else bool(full_existing['is_global'])
         is_locked = view.is_locked if view.is_locked is not None else bool(full_existing['is_locked'])
+        pinned_agent_id = pin_value(view.pinned_agent_id, full_existing.get('pinned_agent_id'))
         
         if view.widgets is not None:
             widgets_json = json.dumps(view.widgets)
@@ -238,9 +257,10 @@ def update_view(view_id: str, view: ViewUpdate, w: WorkspaceClient = Depends(get
         actual_username = 'system' if is_global else username
         
         c.execute("""
-            INSERT INTO dashboard_views (id, version, name, domain, username, is_global, widgets_json, is_locked)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (view_id, new_version, name, domain, actual_username, int(is_global), widgets_json, int(is_locked)))
+            INSERT INTO dashboard_views (id, version, name, domain, username, is_global, widgets_json, is_locked, pinned_agent_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (view_id, new_version, name, domain, actual_username, int(is_global), widgets_json,
+              int(is_locked), pinned_agent_id))
             
         conn.commit()
         conn.close()

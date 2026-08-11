@@ -104,6 +104,21 @@ New columns go in as `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in the migration
 block *after* table creation, each in its own try/except with a rollback, so one
 failure can't abort the rest of the transaction.
 
+### The agent a view is pinned to
+
+`dashboard_views.pinned_agent_id` holds the Agent Studio profile the assistant
+drawer opens with on that view (or the literal `'default'` for the built-in
+agent). Permission is the view's own: personal views by their owner, global ones
+by a domain editor, which `PUT /api/views/{id}` already enforces — there is no
+separate check, and none should be added.
+
+The one trap is that clients save a view **whole**: nudging a widget one square
+PUTs name, lock, widgets and all. So `pin_value` treats an absent pin as "keep
+what's there" and an empty string as "clear it", because a field that isn't sent
+and a field sent as `null` are both `None` by the time Pydantic is done with
+them. Get that backwards and every widget drag silently unpins the view.
+`tests/test_view_pins.py` holds the distinction.
+
 ## Who made what (`services/creator_stats.py`)
 
 The Widget Library credits an author on every card and ranks creators behind the
@@ -581,6 +596,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_caller_identity.py      # 11
 PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed
 PYTHONPATH=server server/venv/bin/python tests/test_llm_params.py           # 17 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 5 passed
+PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server server/venv/bin/python tests/test_conversation_store.py   # 5 passed
