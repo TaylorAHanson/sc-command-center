@@ -472,6 +472,39 @@ LangChain callers use `langchain_params`, not `request_params`. `ChatOpenAI` ren
 switch to the Responses API (`input`, `max_output_tokens`), which Databricks serving
 endpoints do not speak — so the effort has to travel as flat `reasoning_effort`.
 
+## What a message may look like (`services/llm_client.py`)
+
+Build LangChain clients with `chat_client()`, never `ChatOpenAI` directly. It is
+`ChatOpenAI` with one repair, and the repair is not optional on current models:
+
+    INVALID_PARAMETER_VALUE: Content in ChatMessage must have type in
+    String or List[ContentItem]
+
+A model that answers in content blocks — Claude Opus 5 does, Opus 4.8 did not —
+comes back as reasoning plus text. LangChain strips the reasoning on the way out
+and appends what it doesn't recognise verbatim (`_format_message_content`, the
+bare `else: formatted_content.append(block)`), so the assistant turn leaves as
+`["I'll start by..."]`: a list of bare strings, which is neither of the two things
+a ChatMessage accepts. Databricks refuses it on the request *after* the first tool
+call, so what a user sees is a studio that answers "test" with a 400 — and because
+the previous model was fine, it reads as "the new model is broken".
+
+`normalise_content` rebuilds the list: text becomes text, images pass through, the
+model's private reasoning is dropped because it cannot be replayed, and an all-text
+list collapses to the plain string these models used to send. Two things to keep
+in mind if you touch it:
+
+- **A null content is legitimate** on an assistant turn that only calls tools, and
+  every endpoint tested takes it. Don't "fix" it to an empty string.
+- **Don't gate this on a model name.** Nothing here knows about Opus 5; any model
+  that returns blocks does the same thing, and the list of which ones do changes
+  faster than this file.
+
+`tools/authoring_repro.py` runs one real authoring turn and prints every payload;
+`RAW=1` skips the repair, which is how to see the original failure or check
+whether an endpoint still needs it. `tools/tool_call_shape_probe.py` asks an
+endpoint directly which content shapes it will take.
+
 ## Agent Studio storage (`agent_studio_store.py`)
 
 Authored agents are DB rows in `agent_profiles`, versioned like widgets. This
@@ -617,6 +650,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 16
 PYTHONPATH=server server/venv/bin/python tests/test_caller_identity.py      # 11 passed
 PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed
 PYTHONPATH=server server/venv/bin/python tests/test_llm_params.py           # 17 passed
+PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 9 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed

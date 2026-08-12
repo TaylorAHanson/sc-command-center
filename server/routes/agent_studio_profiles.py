@@ -750,7 +750,7 @@ def _build_authoring_llm(api_key: str, base_url: str, params: Optional[Dict[str,
     still works for deployments that set it, and is overridden by the `model_params`
     setting if that names a temperature too.
     """
-    from langchain_openai import ChatOpenAI
+    from services.llm_client import chat_client
 
     # Admin-settable (Admin Panel → Settings), falling back to AGENT_STUDIO_LLM_MODEL.
     model_name = get_setting("authoring_model")
@@ -774,7 +774,7 @@ def _build_authoring_llm(api_key: str, base_url: str, params: Optional[Dict[str,
             kwargs["temperature"] = float(temp)
         except ValueError:
             pass
-    return ChatOpenAI(**kwargs)
+    return chat_client(**kwargs)
 
 
 def _llm_credentials(sp_client: WorkspaceClient) -> tuple[str, str]:

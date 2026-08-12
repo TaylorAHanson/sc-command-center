@@ -22,10 +22,10 @@ from services.code_patch import (
 )
 from services import llm_params
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
+from services.llm_client import DatabricksChatOpenAI, chat_client
 
 # LangChain imports
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
@@ -401,7 +401,7 @@ class _Budget:
 
 def _widget_llm(api_key: str, base_url: str, model: str, budget: _Budget,
                 params: Optional[Dict[str, Any]] = None,
-                limit: Optional[float] = None) -> ChatOpenAI:
+                limit: Optional[float] = None) -> DatabricksChatOpenAI:
     """A client for one call, bounded by the time this generation has left.
 
     Parameters come from `llm_params`, not from here: this used to pin
@@ -423,8 +423,8 @@ def _widget_llm(api_key: str, base_url: str, model: str, budget: _Budget,
     if params is None:
         params = llm_params.langchain_params(model, _widget_max_tokens())
     seconds = budget.left if limit is None else min(budget.left, limit)
-    return ChatOpenAI(api_key=api_key, base_url=base_url, model=model,
-                      timeout=max(5.0, seconds), max_retries=0, **params)
+    return chat_client(api_key=api_key, base_url=base_url, model=model,
+                       timeout=max(5.0, seconds), max_retries=0, **params)
 
 
 # How many steps a plan may hold. Fewer than two is not a plan; more than six means
@@ -681,7 +681,7 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
         # Every follow-up round asks for a client here, and gets None once the
         # allowance is spent — so a generation that runs long returns the work it
         # managed rather than dying on a timeout with nothing to show.
-        def next_llm() -> Optional[ChatOpenAI]:
+        def next_llm() -> Optional[DatabricksChatOpenAI]:
             if not budget.has(15):
                 print(f"Widget generation budget spent after {budget.spent}s; skipping follow-up round")
                 return None

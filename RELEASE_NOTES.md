@@ -43,6 +43,13 @@
 
 ### Fixed
 
+- **Agent Studio works on Claude Opus 5.** Every prompt came back as "Generation
+  Error: INVALID_PARAMETER_VALUE ... Content in ChatMessage", whatever you asked
+  for. Opus 5 replies in a different shape to the models before it, and the app
+  was handing part of that reply back to the model in a form it wouldn't accept —
+  it failed the moment the assistant used one of its tools, which is nearly
+  always. Both studios now tidy up any model's reply before continuing the
+  conversation, so this won't come back the next time a new model lands.
 - **The app doesn't freeze while it starts, and it starts a lot faster.** Every
   page load used to download every version of every widget ever published —
   including all their code and preview images, tens of megabytes on a mature
