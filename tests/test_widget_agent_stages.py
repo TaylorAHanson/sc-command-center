@@ -140,6 +140,48 @@ def test_progress_carries_the_code_so_the_studio_can_apply_it_as_it_goes():
     assert "CSV" in seen[1][1], "step 2 published the code including its change"
 
 
+def test_a_step_that_explains_itself_is_quoted_in_the_summary():
+    job, _ = run([
+        "Added a search box above the table.\n" +
+        edit("  const rows = props.data.rows || [];",
+             "  const rows = props.data.rows || [];\n  const [q, setQ] = React.useState('');"),
+        "Added a CSV download button.\n" +
+        edit("  return <div className=\"p-4\">{rows.length}</div>;",
+             "  return <div className=\"p-4\"><button>CSV</button>{rows.length}</div>;"),
+    ])
+    assert "Added a search box above the table." in job["result"]["explanation"]
+    assert "Added a CSV download button." in job["result"]["explanation"]
+
+
+def test_a_step_that_says_nothing_is_still_accounted_for():
+    # Models that reason privately answer with bare code, and the run used to
+    # come back as "Worked through 2 of 2 steps" and nothing else — the plan
+    # carried out invisibly. What the step was asked to do stands in for it.
+    job, _ = run([
+        edit("  const rows = props.data.rows || [];",
+             "  const rows = props.data.rows || [];\n  const [q, setQ] = React.useState('');"),
+        edit("  return <div className=\"p-4\">{rows.length}</div>;",
+             "  return <div className=\"p-4\"><button>CSV</button>{rows.length}</div>;"),
+    ])
+    explanation = job["result"]["explanation"]
+    assert "Filters" in explanation and "add a filter bar" in explanation
+    assert "Export" in explanation and "add a CSV button" in explanation
+
+
+def test_a_step_that_did_nothing_is_not_described_as_though_it_had():
+    # The fallback speaks for steps that landed. A failed step is already named
+    # in the "did not land" line, and repeating its plan as if it were done
+    # would be the summary lying about the widget.
+    job, _ = run([
+        "",  # nothing at all: no prose, no edits
+        edit("  return <div className=\"p-4\">{rows.length}</div>;",
+             "  return <div className=\"p-4\"><button>CSV</button>{rows.length}</div>;"),
+    ])
+    explanation = job["result"]["explanation"]
+    assert "add a filter bar" not in explanation
+    assert "did not land" in explanation and "Filters" in explanation
+
+
 def test_a_step_that_fails_does_not_take_the_rest_with_it():
     job, _ = run([
         "I could not work out how to do that.",  # no edits: nothing to apply

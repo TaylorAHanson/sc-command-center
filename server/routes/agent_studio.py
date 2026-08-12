@@ -22,7 +22,7 @@ from services.code_patch import (
 )
 from services import llm_params
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
-from services.llm_client import DatabricksChatOpenAI, chat_client
+from services.llm_client import DatabricksChatOpenAI, chat_client, reply_text
 
 # LangChain imports
 from langchain_core.tools import tool
@@ -252,7 +252,7 @@ def _continue_truncated(next_llm, system_prompt: str, user_prompt: str, content:
                 "component is complete."
             )),
         ])
-        addition = getattr(follow_up, "content", "") or ""
+        addition = reply_text(follow_up)
         # A continuation that opens with a fence is restating, not continuing.
         addition = re.sub(r"^\s*```[a-zA-Z]*\n", "", addition)
         if not addition.strip():
@@ -267,7 +267,7 @@ def _repair_edits(next_llm, system_prompt: str, user_prompt: str, content: str,
     llm = next_llm()
     if llm is None:
         return ""
-    return getattr(llm.invoke([
+    return reply_text(llm.invoke([
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_prompt),
         AIMessage(content=content),
@@ -278,7 +278,7 @@ def _repair_edits(next_llm, system_prompt: str, user_prompt: str, content: str,
             "Re-send only the blocks that failed, copying their SEARCH text exactly "
             "from the code above. No explanation."
         )),
-    ]), "content", "") or ""
+    ]))
 
 
 def _demand_edits(next_llm, system_prompt: str, user_prompt: str, content: str,
@@ -287,7 +287,7 @@ def _demand_edits(next_llm, system_prompt: str, user_prompt: str, content: str,
     llm = next_llm()
     if llm is None:
         return ""
-    return getattr(llm.invoke([
+    return reply_text(llm.invoke([
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_prompt),
         AIMessage(content=content),
@@ -300,7 +300,7 @@ def _demand_edits(next_llm, system_prompt: str, user_prompt: str, content: str,
             "each SEARCH text exactly from it, keep every block to the lines you are "
             "actually changing, and do not send a tsx block. No explanation."
         )),
-    ]), "content", "") or ""
+    ]))
 
 
 def _vet_rewrite(next_llm, system_prompt: str, user_prompt: str, content: str,
@@ -344,21 +344,6 @@ def _vet_rewrite(next_llm, system_prompt: str, user_prompt: str, content: str,
         f"Your code is unchanged. The reply looked like part of a widget rather than a whole one — {risk.reason} — "
         "and overwriting the file with it would have deleted the rest. Ask again, naming the part you want changed."
     ]
-
-
-def _reply_text(message: Any) -> str:
-    """The text of a model reply, whether it arrives as a string or content blocks.
-
-    Reasoning models answer with a list of typed parts; taking `str()` of that would
-    put Python list syntax into the widget file.
-    """
-    content = getattr(message, "content", message) or ""
-    if isinstance(content, list):
-        return "".join(
-            part.get("text", "") for part in content
-            if isinstance(part, dict) and part.get("type") in (None, "text")
-        )
-    return str(content)
 
 
 def _widget_max_tokens() -> int:
@@ -473,12 +458,24 @@ def _plan_stages(ask, system_prompt: str, prompt: str) -> List[Dict[str, str]]:
         SystemMessage(content=system_prompt),
         HumanMessage(content=(
             f"Before writing any code, plan this request:\n\n{prompt}\n\n"
-            f"Break it into {MIN_STAGES}-{MAX_STAGES} steps that each change one part of the "
-            "widget and can be applied in order, each building on the last. The first step "
-            "should establish the component and its data; later steps add one feature each. "
+            f"One step per thing the request asks for, up to {MAX_STAGES}. Not one per "
+            "thing you have to do to deliver it: holding a value in state, filtering by "
+            "it and rendering the result are a single step, because they are one feature "
+            "and none of them works without the others. A step that polishes, tidies, "
+            "reviews, tests or refines is not a step at all — that work belongs inside "
+            "the step it applies to.\n\n"
+            "Judge the count by the request and nothing else. Too many and the person "
+            "waits half a minute longer for each one; too few and a step becomes the "
+            "over-long reply that gets cut off half-written, which is what planning is "
+            "here to prevent. A step should be one solid change you can describe in a "
+            "sentence.\n\n"
+            "Each step changes one part of the widget, and they are applied in order, "
+            "each building on the last. The first establishes the component and its "
+            "data.\n\n"
             "Reply with nothing but JSON:\n"
             '{"steps": [{"title": "Short label", "detail": "What to change, concretely"}]}\n'
-            "If the request is really a single change, reply with one step."
+            "If the request is really a single change, reply with one step and it will "
+            "be built in one go."
         )),
     ], limit=PLAN_SECONDS)
 
@@ -517,7 +514,11 @@ def _stage_instruction(stages: List[Dict[str, str]], index: int, first: bool) ->
         f"The plan:\n{listing}\n\n"
         f"Do step {index + 1} only — {step['title']}: {step['detail']}\n\n"
         f"{shape} Later steps will handle the rest, so leave room for them and do not "
-        "do them now. No explanation beyond a sentence."
+        "do them now.\n\n"
+        "Begin with one sentence, outside any code block, saying what this step "
+        "changed. That sentence is the whole of what the user sees for this step, so "
+        "a reply that starts with a code fence ticks the step off with nothing beside "
+        "it. Nothing more than the sentence."
     )
 
 
@@ -601,8 +602,14 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
             stage["status"] = "failed"
             stage["note"] = "Nothing was changed by this step."
             _publish(job_id, stages=stages)
-        if explanation.strip():
-            summary.append(f"**{stage['title']}** — {explanation.strip()}")
+        # A step that says nothing still has to appear in the summary. Models that
+        # reason privately put their narration somewhere we never see and answer
+        # with bare code, which used to reduce the whole run to "Worked through 6
+        # of 6 steps" — the plan carried out invisibly. Falling back to what the
+        # step was asked to do is worth more than a blank line.
+        told = explanation.strip() or (stage["detail"] if stage["status"] == "done" else "")
+        if told:
+            summary.append(f"**{stage['title']}** — {told}")
 
     done = [s for s in stages if s.get("status") == "done"]
     failed = [s for s in stages if s.get("status") == "failed"]
@@ -696,7 +703,7 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
             """
             def attempt(params: Dict[str, Any]) -> str:
                 llm = _widget_llm(api_key, base_url, model_name, budget, params, limit)
-                return _reply_text(llm.invoke(messages))
+                return reply_text(llm.invoke(messages))
 
             return llm_params.with_adaptation(
                 model_name, attempt,
@@ -732,10 +739,10 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
 
         last_message = response["messages"][-1]
         truncated = (_finish_reason(last_message) == "length"
-                     or looks_truncated(_reply_text(last_message)))
+                     or looks_truncated(reply_text(last_message)))
 
         code, explanation, content, meta = _apply_reply(
-            _reply_text(last_message), truncated, req.current_code or "", req,
+            reply_text(last_message), truncated, req.current_code or "", req,
             next_llm, system_prompt, req.prompt, budget,
         )
 

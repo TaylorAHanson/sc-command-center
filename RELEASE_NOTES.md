@@ -43,6 +43,34 @@
 
 ### Fixed
 
+- **Widget Studio explains itself again.** On the newest models it had gone quiet:
+  a request came back as code with nothing said about it, and a large request that
+  was broken into steps ticked every step off under the heading "Worked through 6
+  of 6 steps" without saying what any of them did. These models do their thinking
+  privately, and the app never sees it, so the running commentary that used to
+  come with an answer simply stopped arriving. The studio now asks for it as part
+  of the answer, and a step that still says nothing is listed with what it was
+  asked to do rather than a blank line. The checklist ticking along is how you can
+  tell it's working rather than stuck.
+- **Big requests are broken into fewer, larger steps, so they finish sooner.** The
+  plan was counting the work it had to do rather than the things you'd asked for:
+  "add a search box and a row count" became four steps, and one dashboard turned
+  into six with "polish and responsiveness" tacked on the end. Each step is its own
+  round trip, and on the current models that's another half a minute of waiting for
+  something you never asked for. A request is now planned around what you actually
+  asked for: the same dashboard builds in three or four steps and finishes in under
+  a minute rather than the two to three it was taking, and small requests that used
+  to be split up are simply done.
+- **A widget the agent was editing could fail with a message about a "list".**
+  Only when its first attempt at an edit didn't fit the file, which is why it came
+  and went: the retry that would have fixed it crashed instead, and the turn was
+  lost. The same cause could put stray punctuation into a widget mid-generation.
+- **Widgets show why a query failed instead of a page of Python.** A query that
+  the warehouse never got to run — a warehouse still starting up, an expired
+  login, a table you don't have access to — filled the panel with an error report
+  meant for developers, under a message implying the app itself had fallen over.
+  You now get the reason in a sentence, and a widget can tell the difference
+  between "try again in a moment" and "this query is wrong".
 - **Agent Studio works on Claude Opus 5.** Every prompt came back as "Generation
   Error: INVALID_PARAMETER_VALUE ... Content in ChatMessage", whatever you asked
   for. Opus 5 replies in a different shape to the models before it, and the app

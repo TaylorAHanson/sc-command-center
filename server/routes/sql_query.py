@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.errors import DatabricksError, STATUS_CODE_MAPPING
 from databricks.sdk.service.sql import StatementExecutionAPI, Disposition, StatementState
 from typing import Optional, List, Dict, Any
 
@@ -189,6 +190,9 @@ def execute_sql_query(
        
     except SqlStatementError as e:
         return e.response()
+    except DatabricksError as e:
+        logging.warning("Warehouse refused a statement (%s): %s", type(e).__name__, e)
+        return _refusal(e, sql).response()
     except HTTPException:
         # Already carries the status the caller needs to branch on — a 400 naming
         # the query's own mistake, a 404 for a missing parameter, the 504 for a
@@ -243,6 +247,32 @@ class SqlStatementError(HTTPException):
                 "row_count": 0,
             },
         )
+
+
+#: The SDK's own view of what each of its errors means over HTTP, inverted. Kept
+#: from its table rather than a second one maintained here by hand.
+_SDK_STATUS = {cls: code for code, cls in STATUS_CODE_MAPPING.items()}
+
+
+def _refusal(exc: DatabricksError, sql: str) -> SqlStatementError:
+    """A warehouse error the request never got past, as something a widget can show.
+
+    `execute_statement` raises rather than returns when the query never ran at all
+    — a stopped or missing warehouse, an expired token, a statement the service
+    turned down before planning it. Those reached the catch-all handler and came
+    back as HTTP 500 with a Python traceback in `detail`, which widgets render
+    into the panel exactly as given: a stack trace where the numbers should be,
+    under a status code that blames the app rather than the query. A query that
+    fails *after* it starts is `_raise_if_unsuccessful`'s business; between them
+    every refusal now arrives in the same shape.
+    """
+    status = next((_SDK_STATUS[cls] for cls in type(exc).__mro__ if cls in _SDK_STATUS), 502)
+    message = str(exc).strip()
+    if message in ("", "None"):
+        # An SDK error carrying no message stringifies as the literal "None",
+        # and a widget shows `detail` to whoever is looking at the panel.
+        message = type(exc).__name__
+    return SqlStatementError(status_code=status, detail=message + quoting_hint(sql, message))
 
 
 def _raise_if_unsuccessful(statement, sql: str) -> None:
@@ -332,9 +362,13 @@ def execute_raw_sql(
         }
     except SqlStatementError as e:
         return e.response()
+    except DatabricksError as e:
+        logging.warning("Warehouse refused a statement (%s): %s", type(e).__name__, e)
+        return _refusal(e, sql_statement).response()
     except HTTPException:
         raise
     except Exception as e:
-        tb = traceback.format_exc()
-        logging.error(f"Error executing raw SQL:\n{tb}")
-        raise HTTPException(status_code=500, detail=f"SQL execution failed: {str(e)}\n\nTraceback:\n{tb}")
+        # The traceback goes to the log, not to the caller: widgets print `detail`
+        # straight into the panel, and it is no use to whoever is reading it there.
+        logging.error("Error executing raw SQL:\n%s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"SQL execution failed: {e}")

@@ -505,6 +505,27 @@ in mind if you touch it:
 whether an endpoint still needs it. `tools/tool_call_shape_probe.py` asks an
 endpoint directly which content shapes it will take.
 
+### Reading one back
+
+`reply_text` is the mirror, and the only sanctioned way to read a reply. Every
+other way of doing it has been in production and each failed differently, which
+is why they are worth listing:
+
+- `str(content)` on a block list splices `[{'type': 'text', ...}]` into a widget
+  file.
+- `getattr(msg, "content", "")` hands the list on unchanged, and it surfaces
+  wherever it lands — `TypeError: expected string or bytes-like object, got
+  'list'` out of `parse_edits`, from a repair path that only runs when an edit
+  fails to apply, which is why it was intermittent.
+- Matching only `dict` blocks returns `""` for a model that answers in bare
+  strings: a studio that runs its whole allowance and displays nothing.
+
+Do not expect to read the thinking. Claude returns its reasoning summary with
+`text: ''` and a signature, so there is nothing in it to show a user — if you
+want the model's narration on screen, the prompt has to ask for it as ordinary
+text. `tools/widget_repro.py` prints what a reply contained and how much of it
+survived the read, including how much prose arrived before the code.
+
 ## Agent Studio storage (`agent_studio_store.py`)
 
 Authored agents are DB rows in `agent_profiles`, versioned like widgets. This
@@ -600,6 +621,34 @@ What makes this worth the extra round trips is where the failures land:
   the user has rather than recording a no-op snapshot.
 - `DELETE /api/agent/widget/generate/{job_id}` sets `cancelled`, which is checked
   between steps. Stopping keeps the applied steps; it is not an undo.
+- Each step's line in the summary is the prose it wrote outside its code block —
+  and a model that thinks privately writes none, which reduced a whole run to
+  "Worked through 6 of 6 steps" with nothing underneath. Both ends are covered:
+  the prompt asks for the sentence and says why, and a step that lands silently
+  falls back to what it was asked to do. The fallback only speaks for steps that
+  succeeded, or the summary would describe work the widget doesn't contain.
+
+**The step count is the wait, so the plan is asked to earn each one.** A model
+call cost a few seconds when this was built and costs 20–35 on a thinking model,
+which turned a padded plan into minutes: asked for "a search box and a row
+count", the planner returned four steps — `add search input state`, `filter rows
+by search term` — splitting one feature into the mechanics of building it, and a
+four-feature dashboard came back as six with `Polish and responsiveness` on the
+end. The prompt now says one step per thing *the request asks for*, names the
+padding words, and gives the pressure in both directions: too many steps and the
+user waits, too few and a step becomes the over-long reply that staging exists to
+avoid. That took the two-thing request to one pass or two steps, and the
+dashboard from six steps to three or four — 40 to 50 seconds end to end on
+Sonnet 5, against the two to three minutes users were reporting. Per step it is
+5–15s, and the file grows rather than being rewritten (3.0k → 5.3k → 5.7k → 8.4k
+characters over four steps), which is the check that the edits are landing on
+each other rather than each step starting again.
+
+`MAX_STAGES` is a ceiling, not a target, and it is not the interesting number —
+what the planner does below it is. `SIZES=1 tools/widget_repro.py --plan` prints
+the step count for a tiny, a small and a large request, which is how both of the
+above were found; run it three times, since a single plan is not a measurement.
+`RUN_STAGES=1` walks a whole plan and prints what the user would end up reading.
 
 Anything unexpected in the plan means no plan and the request is answered in one
 pass, which is the pre-existing behavior — a plan that won't parse must never cost
@@ -632,6 +681,18 @@ That error has to satisfy two audiences at once, which is why it is a
   and do `setRows(payload.rows)` without checking the status. Without this they
   throw on `undefined` and take a live dashboard panel with them.
 
+A query can fail in two places and both have to arrive in that shape. `status`
+covers the ones the warehouse ran and rejected; the SDK *raises* for the ones it
+never ran at all — a stopped warehouse, an expired token, a statement refused
+before planning — and those went to the catch-all as HTTP 500 with a Python
+traceback in `detail`, which the widget printed into the panel. `_refusal` maps
+them instead, taking the status from the SDK's own `STATUS_CODE_MAPPING` so a
+permission problem reads as 403 and a starting warehouse as 503 rather than
+everything looking like the app falling over. Two details worth keeping: an SDK
+error carrying no message stringifies as the literal `"None"`, which is what the
+user would otherwise be shown as the reason, and tracebacks belong in the log —
+never in `detail`, which is rendered verbatim on someone's dashboard.
+
 A `widget-meta` JSON block carries proposed Configuration-tab values. Backend
 sanitizes: categories/domains must be one of the values the request supplied,
 dimensions are range-checked, and keys listed in `locked_settings` are dropped.
@@ -645,13 +706,13 @@ PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 3 
 PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 18 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 12 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
 PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server server/venv/bin/python tests/test_caller_identity.py      # 11 passed
 PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed
 PYTHONPATH=server server/venv/bin/python tests/test_llm_params.py           # 17 passed
-PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 9 passed
-PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 5 passed
+PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 16 passed
+PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed

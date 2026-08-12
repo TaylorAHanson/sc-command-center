@@ -63,6 +63,7 @@ from routes.roles import (
     require_global_admin,
 )
 from services import llm_params
+from services.llm_client import reply_text
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
 
 logger = logging.getLogger(__name__)
@@ -225,6 +226,21 @@ def _is_internal_mcp_tool(server_url: str, name: str) -> bool:
     return is_genie and "poll" in (name or "").lower()
 
 
+def _readable(exc: BaseException, depth: int = 0) -> str:
+    """The error inside the error.
+
+    The MCP client runs its transport in a task group, so a failure arrives as an
+    exception group and logs as "unhandled errors in a TaskGroup (1
+    sub-exception)" — accurate, and no use to whoever is reading the log. What
+    they need is the one underneath, which says whether the server is
+    unreachable, the token is wrong, or the endpoint isn't there at all.
+    """
+    inner = getattr(exc, "exceptions", None)
+    if inner and depth < 3:
+        return "; ".join(_readable(e, depth + 1) for e in inner)
+    return f"{type(exc).__name__}: {str(exc).strip() or 'no message'}"
+
+
 def discover_mcp_tools(ws: WorkspaceClient) -> List[Dict[str, Any]]:
     """List tools exposed by the configured AI Gateway MCP servers under OBO.
 
@@ -275,7 +291,7 @@ def discover_mcp_tools(ws: WorkspaceClient) -> List[Dict[str, Any]]:
                     }
                 )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("MCP list_tools failed for %s: %s", server_url, exc)
+            logger.warning("MCP list_tools failed for %s: %s", server_url, _readable(exc))
     return out
 
 
@@ -950,7 +966,7 @@ def run_authoring_task(
             max_tokens=_agent_studio_max_tokens(),
             params_fn=llm_params.langchain_params,
         )
-        content = response["messages"][-1].content
+        content = reply_text(response["messages"][-1])
         draft = _extract_json_block(content)
 
         explanation = _split_explanation(content) if draft is not None else content
@@ -1207,11 +1223,7 @@ async def stream_authoring(
                         tool_calls.append({"tool_name": _FRIENDLY_TOOL.get(nm, nm), "status": "running"})
                         await queue.put(_sse({"type": "tool_calls", "content": tool_calls}))
 
-                content = getattr(msg, "content", "") or ""
-                if isinstance(content, list):
-                    content = "".join(
-                        p.get("text", "") if isinstance(p, dict) else str(p) for p in content
-                    )
+                content = reply_text(msg)
                 if not content:
                     continue
                 msg_id = getattr(msg, "id", None)

@@ -151,8 +151,13 @@ unnecessary comments, no elaborate utility layers, no large inline datasets.
 
 ### Both cases
 
-- You may include brief conversational text outside the blocks. Say what you
-  changed and why in a sentence or two.
+- **Open with one or two plain sentences saying what you changed and why**,
+  before any code block. This is required, not optional. It is the only thing the
+  user reads in the chat panel, and when your reply is one step of a larger plan
+  it is the record of what that step did. If you think privately before
+  answering, none of that thinking reaches the user — it is discarded unread — so
+  a reply that opens straight with a code fence arrives with no explanation at
+  all, and the user is left watching a silent studio.
 - Never include the same code twice.
 
 ### Proposing widget settings

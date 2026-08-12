@@ -14,8 +14,11 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 try:
+    from databricks.sdk.errors import (BadRequest, DatabricksError, DeadlineExceeded,
+                                       PermissionDenied, ResourceDoesNotExist,
+                                       TemporarilyUnavailable)
     from databricks.sdk.service.sql import StatementState
-    from routes.sql_query import SqlStatementError, _raise_if_unsuccessful
+    from routes.sql_query import SqlStatementError, _raise_if_unsuccessful, _refusal
 except Exception as e:  # pragma: no cover - needs the backend venv
     print(f"SKIP test_sql_errors: {e}")
     sys.exit(0)
@@ -74,6 +77,42 @@ def test_the_error_body_still_looks_like_an_empty_result_set():
     assert payload["rows"] == [] and payload["columns"] == [] and payload["row_count"] == 0
     assert payload["detail"] == error.detail
     assert error.response().status_code == 400
+
+
+# ------------------------------- the other half: a query that never got to run
+
+def test_a_rejected_statement_says_so_instead_of_returning_a_server_error():
+    # These reached the catch-all and came back as HTTP 500 with a Python
+    # traceback in `detail`, which widgets print into the panel verbatim.
+    error = _refusal(BadRequest("[UNRESOLVED_COLUMN] `Order Number`"), "SELECT Order Number FROM t")
+    assert error.status_code == 400
+    assert "UNRESOLVED_COLUMN" in error.detail
+    assert "Traceback" not in error.detail
+
+
+def test_the_reason_it_was_refused_survives_in_the_status_code():
+    # A widget showing "no permission" should not read as "the app is broken",
+    # and a warehouse still starting is worth retrying where a bad query isn't.
+    assert _refusal(PermissionDenied("no SELECT on main.sales"), "").status_code == 403
+    assert _refusal(TemporarilyUnavailable("warehouse starting"), "").status_code == 503
+    assert _refusal(DeadlineExceeded("timed out"), "").status_code == 504
+    assert _refusal(ResourceDoesNotExist("no such warehouse"), "").status_code == 404
+
+
+def test_an_error_the_sdk_has_no_status_for_is_still_not_blamed_on_the_app():
+    assert _refusal(DatabricksError("something new"), "").status_code == 502
+
+
+def test_a_refusal_carries_the_quoting_hint_and_the_empty_result_too():
+    error = _refusal(BadRequest("[UNRESOLVED_COLUMN] A column with name `Order` cannot be resolved"),
+                     "SELECT Order Number FROM t")
+    assert "backtick" in error.detail.lower()
+    payload = body(error)
+    assert payload["rows"] == [] and payload["row_count"] == 0
+
+
+def test_an_error_with_nothing_to_say_still_names_itself():
+    assert "DeadlineExceeded" in _refusal(DeadlineExceeded(""), "").detail
 
 
 if __name__ == "__main__":

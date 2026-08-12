@@ -71,6 +71,42 @@ def normalise_content(content: Any, role: str = "") -> Union[str, List[Dict[str,
     return items
 
 
+def reply_text(message: Any) -> str:
+    """The readable text of a reply, whatever shape it came back in.
+
+    The mirror of `normalise_content`: that one prepares a message to send, this
+    one reads one that arrived. A reply is a plain string on older models and a
+    list of blocks on current ones — reasoning first, then text, occasionally a
+    bare string where LangChain passed something through untouched. The model's
+    private reasoning is left out; there is nothing readable in it anyway, as
+    Claude returns an encrypted signature and an empty summary.
+
+    Read a reply with this and nothing else. Every way of getting it wrong has
+    been in production: `str(content)` splices Python list syntax into a widget
+    file, `getattr(msg, "content", "")` hands a list to `parse_edits` and raises
+    `expected string or bytes-like object, got 'list'`, and matching only on
+    `dict` blocks silently returns "" for a model that answers in bare strings —
+    a studio that runs for two minutes and shows nothing.
+    """
+    content = getattr(message, "content", message)
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+
+    parts: List[str] = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type") in (None, "text"):
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+    return "".join(parts)
+
+
 class DatabricksChatOpenAI(ChatOpenAI):
     """`ChatOpenAI` with every outgoing message's content in an accepted shape.
 

@@ -18,7 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
-from services.llm_client import normalise_content  # noqa: E402
+from services.llm_client import normalise_content, reply_text  # noqa: E402
 
 
 # ------------------------------------------------- what already worked, still does
@@ -102,6 +102,65 @@ def test_the_client_repairs_every_message_on_its_way_out():
     kinds = [type(m["content"]).__name__ for m in out["messages"]]
     assert kinds == ["str", "str", "str", "str"], "no message may leave as a list of strings"
     assert out["messages"][2]["content"] == "thinking out loud"
+
+
+# ------------------------------------------------------- reading what comes back
+
+class _Reply:
+    """Stands in for an AIMessage, which is all `reply_text` looks at."""
+
+    def __init__(self, content):
+        self.content = content
+
+
+def test_a_string_reply_reads_as_itself():
+    assert reply_text(_Reply("Here is your widget.")) == "Here is your widget."
+
+
+def test_a_reply_of_reasoning_then_text_reads_as_the_text():
+    # What Claude Sonnet 5 sends for every Widget Studio generation. The summary
+    # is empty and signed, so there is nothing to show even if we wanted to.
+    reply = _Reply([
+        {"type": "reasoning", "summary": [{"type": "summary_text", "text": "", "signature": "Es0F"}]},
+        {"type": "text", "text": "```tsx\nexport default function W() {}\n```"},
+    ])
+    assert reply_text(reply) == "```tsx\nexport default function W() {}\n```"
+
+
+def test_a_reply_of_bare_strings_is_not_silently_empty():
+    # The shape that returned "" and left a studio to run its whole allowance and
+    # display nothing at the end of it.
+    assert reply_text(_Reply(["I'll add the chart ", "and wire up the data."])) == (
+        "I'll add the chart and wire up the data."
+    )
+
+
+def test_the_pieces_of_a_split_code_block_are_joined_without_gaps():
+    # Joined bare, not with blank lines: these arrive mid-token and a separator
+    # would land inside the widget's source.
+    reply = _Reply([{"type": "text", "text": "```tsx\nconst a"},
+                    {"type": "text", "text": " = 1;\n```"}])
+    assert reply_text(reply) == "```tsx\nconst a = 1;\n```"
+
+
+def test_a_reply_that_says_nothing_reads_as_empty_rather_than_none():
+    # Callers hand this straight to `parse_edits` and `looks_truncated`, which
+    # want a string. None was never a valid answer here.
+    assert reply_text(_Reply(None)) == ""
+    assert reply_text(_Reply([])) == ""
+
+
+def test_a_content_list_never_escapes_as_python_syntax():
+    # The failure this is really guarding: `str(content)` on a list puts
+    # "[{'type': 'text'..." into a widget file, and handing the list itself to
+    # parse_edits raises "expected string or bytes-like object, got 'list'".
+    for content in ([{"type": "text", "text": "ok"}], ["ok"], None, "ok"):
+        assert isinstance(reply_text(_Reply(content)), str)
+        assert not reply_text(_Reply(content)).startswith("[")
+
+
+def test_the_reader_accepts_a_bare_content_value_as_well_as_a_message():
+    assert reply_text(["already unwrapped"]) == "already unwrapped"
 
 
 if __name__ == "__main__":
