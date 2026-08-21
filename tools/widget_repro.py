@@ -31,7 +31,7 @@ from databricks.sdk import WorkspaceClient  # noqa: E402
 from langchain_core.messages import HumanMessage  # noqa: E402
 from langgraph.prebuilt import create_react_agent  # noqa: E402
 
-import routes.agent_studio as studio  # noqa: E402
+import routes.widget_studio as studio  # noqa: E402
 from services.settings_store import base_path_for_model, get_setting  # noqa: E402
 
 PROMPT = "Build a widget that shows a count of orders."

@@ -73,6 +73,18 @@ SETTING_SPECS: Dict[str, Spec] = {
         help="Writes widget code in Widget Studio. Favour a model with a large output budget.",
         group="models",
     ),
+    "widget_helper_model": Spec(
+        env="WIDGET_AGENT_HELPER_MODEL",
+        # Blank on purpose. The small jobs fall back to `widget_model`, so an
+        # untouched deployment behaves exactly as it did; pointing this at a
+        # small fast endpoint is what makes them cheap enough to be worth doing
+        # before every request rather than only before large ones.
+        default="",
+        kind="endpoint",
+        label="Widget helper model",
+        help="Small model for Widget Studio's quick jobs: tightening a request, summarising the conversation so far, and deciding whether to ask a clarifying question. Leave blank to use the widget generation model for these too.",
+        group="models",
+    ),
     "authoring_model": Spec(
         env="AGENT_STUDIO_LLM_MODEL",
         default="databricks-claude-sonnet-4-6",

@@ -22,7 +22,6 @@ data, only the messages we hand it. The loop streams drawer-shaped SSE frames
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -30,7 +29,7 @@ import re
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from services import llm_params
+from services import llm_params, native_files
 from services.app_help import APP_PRIMER, app_help, app_help_tool_spec
 from services.sql_advice import quoting_hint
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
@@ -678,104 +677,6 @@ def _system_prompt(profile: Optional[Dict[str, Any]], ui_context: str,
     return prompt
 
 
-# --------------------------------------------------- native file passthrough
-
-# Both providers read images and PDFs directly, but through different content
-# parts: Anthropic wants a `document` block and rejects `file`, OpenAI wants
-# `file` and rejects `document`. Anything else gets neither and works from the
-# extracted text instead, which is why extraction is never skipped.
-_NATIVE_ANTHROPIC = "anthropic"
-_NATIVE_OPENAI = "openai"
-
-
-def _native_flavor(model: str) -> Optional[str]:
-    name = (model or "").lower()
-    if "claude" in name:
-        return _NATIVE_ANTHROPIC
-    if "gpt" in name or name.startswith("system.ai.o"):
-        return _NATIVE_OPENAI
-    return None
-
-
-def _native_file_limits() -> Tuple[int, int]:
-    """(max bytes, max PDF pages) for handing a file over verbatim."""
-    try:
-        mb = int(os.environ.get("AGENT_RUNTIME_NATIVE_FILE_MB", "") or 8)
-    except ValueError:
-        mb = 8
-    try:
-        pages = int(os.environ.get("AGENT_RUNTIME_NATIVE_PDF_PAGES", "") or 20)
-    except ValueError:
-        pages = 20
-    return max(1, mb) * 1024 * 1024, max(1, pages)
-
-
-def _native_parts(model: str, env: str, attachments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Content parts for files the model should read itself rather than via tools.
-
-    Images always go over: there is no text to extract, and they are cheap. A PDF
-    only goes over when it is small, or when extraction found no text at all —
-    that last case is a scanned document, where the model's own reading is the
-    only thing that will work. Big text-bearing PDFs deliberately stay on the
-    tool path, since pushing 300 pages through the context window to answer one
-    question is exactly what this design avoids.
-    """
-    flavor = _native_flavor(model)
-    if not flavor or not attachments:
-        return []
-
-    from services import upload_store
-
-    max_bytes, max_pages = _native_file_limits()
-    parts: List[Dict[str, Any]] = []
-    for meta in attachments:
-        kind = meta.get("kind") or ""
-        size = int(meta.get("size_bytes") or 0)
-        if size > max_bytes:
-            continue
-
-        mime = (meta.get("mime") or "").lower()
-        filename = meta.get("filename") or "file"
-        if kind == "image":
-            media_type = mime if mime.startswith("image/") else _guess_image_mime(filename)
-        elif kind == "document" and (mime == "application/pdf" or filename.lower().endswith(".pdf")):
-            profile = meta.get("profile") or {}
-            pages = int(profile.get("pages") or 0)
-            has_text = int(profile.get("chars") or 0) > 40
-            if has_text and pages > max_pages:
-                continue
-            media_type = "application/pdf"
-        else:
-            continue
-
-        raw = upload_store.load_raw(env, meta["id"])
-        if not raw:
-            continue
-        encoded = base64.b64encode(raw).decode("ascii")
-
-        if kind == "image":
-            parts.append({"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{encoded}"}})
-        elif flavor == _NATIVE_ANTHROPIC:
-            parts.append({
-                "type": "document",
-                "source": {"type": "base64", "media_type": media_type, "data": encoded},
-            })
-        else:
-            parts.append({
-                "type": "file",
-                "file": {"filename": filename, "file_data": f"data:{media_type};base64,{encoded}"},
-            })
-    return parts
-
-
-def _guess_image_mime(filename: str) -> str:
-    ext = os.path.splitext(filename)[1].lower()
-    return {
-        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".webp": "image/webp", ".gif": "image/gif",
-    }.get(ext, "image/png")
-
-
 def _history_messages(history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
     out: List[Dict[str, str]] = []
     for m in (history or [])[-20:]:
@@ -833,7 +734,7 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
         messages.extend(prior)
         # Files the model reads itself ride on THIS turn's user message only;
         # history keeps plain text, so re-sending a PDF never compounds per turn.
-        native = _native_parts(model, env, attachments or [])
+        native = native_files.parts(model, env, attachments or [])
         if native:
             messages.append({"role": "user", "content": [{"type": "text", "text": query}] + native})
         else:

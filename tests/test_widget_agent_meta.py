@@ -5,7 +5,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 try:
-    from routes.agent_studio import GenerateRequest, _extract_meta
+    from routes.widget_studio import GenerateRequest, _extract_meta
 except Exception as e:  # pragma: no cover - needs the backend venv (langchain, fastapi)
     print(f"SKIP test_widget_agent_meta: {e}")
     sys.exit(0)

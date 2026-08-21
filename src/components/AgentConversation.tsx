@@ -1,34 +1,10 @@
 import React, { useRef, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import {
-    Send, Square, AlertCircle, ChevronRight, Paperclip, X, FileSpreadsheet,
-    FileText, Image as ImageIcon, FileJson, Loader2,
-} from 'lucide-react';
-import type { AgentChat, AgentMessage, Attachment } from '../hooks/useAgentChat';
-
-const ThinkingDisclosure: React.FC<{ text: string; label: string; defaultOpen: boolean }> = ({ text, label, defaultOpen }) => {
-    const [openOverride, setOpenOverride] = useState<boolean | null>(null);
-    const open = openOverride === null ? defaultOpen : openOverride;
-    const trimmed = text.replace(/\n{3,}/g, '\n\n').trim();
-    return (
-        <div className="mb-2">
-            <button
-                type="button"
-                onClick={() => setOpenOverride(!open)}
-                className="flex items-center gap-1.5 text-[11px] font-medium text-gray-400 hover:text-gray-600 transition-colors"
-            >
-                <ChevronRight className={`w-3 h-3 transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
-                <span>{label}</span>
-            </button>
-            {open && (
-                <div className="mt-1.5 max-h-64 overflow-y-auto rounded-md bg-gray-50 border border-gray-100 px-3 py-2 text-[12px] text-gray-500 whitespace-pre-wrap leading-relaxed">
-                    {trimmed}
-                </div>
-            )}
-        </div>
-    );
-};
+import { Send, Square, AlertCircle, Paperclip, X, Loader2 } from 'lucide-react';
+import type { AgentChat, AgentMessage } from '../hooks/useAgentChat';
+import { AttachmentChip, SentAttachments } from './AttachmentChip';
+import { ThinkingDisclosure } from './ThinkingDisclosure';
 
 const TypingDots: React.FC = () => (
     <div className="flex items-center space-x-1.5 h-5 px-1">
@@ -48,60 +24,6 @@ const stripAgentMarkers = (text: string): string =>
         .replace(/<!--[\s\S]*?-->/g, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
-
-const KIND_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-    table: FileSpreadsheet,
-    document: FileText,
-    image: ImageIcon,
-    data: FileJson,
-};
-
-const FileIcon: React.FC<{ kind: string; className?: string }> = ({ kind, className }) => {
-    const Icon = KIND_ICONS[kind] || FileText;
-    return <Icon className={className} />;
-};
-
-const humanSize = (bytes: number): string => {
-    if (!bytes) return '';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-// A file waiting to be sent. Parsing happens server-side, so the chip shows
-// progress and then what the agent will actually be able to see (row and column
-// counts, page counts) — a file that failed says so instead of quietly doing
-// nothing when the question is asked.
-const AttachmentChip: React.FC<{ file: Attachment; onRemove: (id: string) => void }> = ({ file, onRemove }) => {
-    const failed = file.status === 'failed';
-    const parsing = file.status === 'parsing';
-    return (
-        <div
-            className={`group flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] max-w-full ${
-                failed
-                    ? 'border-rose-200 bg-rose-50 text-rose-700'
-                    : 'border-gray-200 bg-gray-50 text-gray-600'
-            }`}
-            title={failed ? file.error : [file.filename, file.summary, humanSize(file.size_bytes)].filter(Boolean).join(' · ')}
-        >
-            {parsing
-                ? <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-qualcomm-blue" />
-                : <FileIcon kind={file.kind} className="w-3.5 h-3.5 shrink-0 text-qualcomm-blue" />}
-            <span className="truncate max-w-[11rem] font-medium">{file.filename}</span>
-            <span className="text-gray-400 shrink-0">
-                {parsing ? 'reading…' : failed ? 'unreadable' : file.summary || humanSize(file.size_bytes)}
-            </span>
-            <button
-                type="button"
-                onClick={() => onRemove(file.id)}
-                className="ml-0.5 p-0.5 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 shrink-0"
-                title="Remove file"
-            >
-                <X className="w-3 h-3" />
-            </button>
-        </div>
-    );
-};
 
 type ConversationChat = Pick<AgentChat, 'messages' | 'input' | 'setInput' | 'isLoading' | 'send' | 'stop'>
     & Partial<Pick<AgentChat, 'attachments' | 'attachFiles' | 'removeAttachment' | 'isUploading' | 'uploadError' | 'clearUploadError' | 'persists' | 'isRestoring'>>;
@@ -183,20 +105,7 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                         >
                             {msg.role === 'user' ? (
                                 <>
-                                    {msg.attachments && msg.attachments.length > 0 && (
-                                        <div className="flex flex-wrap gap-1 mb-1.5">
-                                            {msg.attachments.map(file => (
-                                                <span
-                                                    key={file.id}
-                                                    className="inline-flex items-center gap-1 rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-medium"
-                                                    title={file.filename}
-                                                >
-                                                    <FileIcon kind={file.kind} className="w-3 h-3" />
-                                                    <span className="truncate max-w-[10rem]">{file.filename}</span>
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
+                                    <SentAttachments files={msg.attachments || []} />
                                     <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">{msg.content}</p>
                                 </>
                             ) : (() => {

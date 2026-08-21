@@ -13,6 +13,139 @@
 
 # Release Notes
 
+## 1.10.0 — 2026-08-21
+
+### Added
+
+- **Widget Studio shows you what it's thinking.** Expand **Thinking** while the
+  agent works and you can see how it read your request, the steps it planned, the
+  files it opened, and anything it gave up on because it ran short of time. It
+  stays with the answer afterwards, so a widget that came out wrong can be traced
+  back to the assumption that caused it instead of guessed at.
+- **Send the agent a screenshot of your widget.** Under the preview there's a
+  **Send screenshot to agent** button that attaches a picture of the widget
+  exactly as it looks — at the size you dragged it to — to your next message. It
+  doesn't send on its own, so "this column is too narrow and the total is in the
+  wrong place" arrives alongside the thing it's describing. Describing a layout
+  problem in words was the slowest part of getting one fixed.
+- **Attach files in Widget Studio.** The paperclip beside the message box takes
+  spreadsheets, documents and images — a sample export, a design someone sent
+  you, a screenshot of the report you're replacing — and the agent reads them the
+  same way the assistant does.
+- **Agent settings, on the sliders icon above the chat.** Two options, remembered
+  in your browser rather than set for everyone. *Conduct review after change* is
+  off unless you ask for it: once new code compiles, the agent reads it back —
+  does it do everything you asked, does it handle loading, empty and error states,
+  does it hold up squashed narrow and stretched wide, is every text colour dark
+  enough to read — and fixes what it finds. It costs an extra turn, which is why
+  it isn't on by default. *Ask before large builds* is the questions behaviour
+  below, and is on; turn it off if you would rather it always guessed.
+- **The review says what would make the widget better, not just what's broken.**
+  It now finishes with **Worth considering**: up to three changes judged the way
+  the person living with the widget would judge it rather than against the words
+  of your request — the sort order a table of unranked rows is missing, the
+  comparison a number without a reference point can't support, the click that
+  should follow what it just drew your attention to. A widget can pass every
+  correctness check and still stop one step short of being useful, and that gap
+  is invisible to a review that only asks "did it do what was asked". These are
+  suggestions and nothing else: the agent is not allowed to build them, so the
+  setting can stay on without your widget quietly growing features you didn't ask
+  for. The other half of the review got shorter at the same time — it lists what
+  it would change and stops, instead of walking you through each thing it checked
+  and found to be fine, which read as work done rather than anything you could
+  act on.
+- **Everything the review suggests is a button.** Under the findings there's a
+  **Do next** row: one chip per suggestion, plus an amber one for anything it
+  spotted but didn't fix. Clicking a chip writes the instruction into the message
+  box — it doesn't send, so you can add "…and default to spend descending" before
+  you commit a minute of generation to it. A review that ends in three good ideas
+  you then have to retype is a review that mostly gets skimmed.
+- **The agent asks before it spends ten minutes building the wrong thing.** On a
+  large or vague request it can come back with up to three questions instead of
+  code — which measure, which grouping, what a click should do — and you answer
+  the ones that matter or press **Build it anyway** to have it choose sensible
+  defaults. Small requests are never interrupted: a one-line change is quicker to
+  make and correct than to ask about.
+- **A helper model for the studio's small jobs.** Global admins can set a **Widget
+  helper model** in Admin Panel → Settings, and a small fast model is the right
+  choice. It tightens up a vague request before the expensive call sees it,
+  summarises a long conversation so it stays affordable, and decides whether a
+  question is worth asking. Leave it blank and the widget generation model does
+  those too, as before.
+
+### Changed
+
+- **Save keeps you in the studio.** The **Update** button is now **Save**, and it
+  no longer closes the studio and drops you back on your dashboard — people save
+  every few minutes while they work, and every save meant navigating back and
+  finding your place again. A line at the top of the chat confirms the save and
+  clears itself. Use **Done** when you've actually finished with the widget.
+- **The agent knows how much data it's dealing with.** Testing a SQL data source
+  now counts the rows it returns, and that number changes what gets built. A few
+  thousand rows are fetched once and sorted, filtered and paged in the browser. A
+  large table gets all of that pushed into SQL, so the widget holds one page at a
+  time and asks the warehouse for totals rather than adding up what it happens to
+  have. Widgets that fetched a 40,000-row table a page at a time and then worked
+  on it in the browser were slow to load, slow to use, and wrong whenever they
+  summed a page and called it a total. An untested source is treated as large.
+- **Long Widget Studio conversations stay usable.** A conversation that went on
+  for a while was replaying its recent turns in full on every request, which is a
+  lot of text once the agent has been explaining itself for twenty minutes. Older
+  turns are now summarised down to what still constrains the widget, so the
+  request that matters gets the room.
+
+### Fixed
+
+- **A bad edit can no longer wreck your widget with `=======` lines.** If the
+  agent slipped while writing an edit — it would say so, something like "I
+  accidentally left a duplicate marker" — the stray marker was written into your
+  code, which then couldn't compile. Each automatic fix-up attempt was editing a
+  file that was itself part marker, so a small change could spiral into a widget
+  full of `=======` and duplicated lines. Those edits are now refused before
+  anything is written, your code is left as it was, and the agent is told exactly
+  what to send instead. A widget already damaged this way repairs itself the next
+  time you ask the agent for anything: it recognises the leftover markers and
+  rewrites the file cleanly.
+- **Edits land where they were meant to.** When the text the agent searched for
+  appeared in several places — a lone `);`, a repeated `}, []);` — the change was
+  applied to the first one, which was usually not the one it had in mind, so you
+  got a widget that was subtly wrong rather than an error you could see. An
+  ambiguous edit is now refused and re-requested with enough context to place it.
+- **The message box is the right size for what's in it.** It grew as you typed
+  but nowhere else, so text that arrived any other way — clicking a suggestion,
+  reopening a studio session you'd left mid-sentence — sat in a one-line box with
+  the rest of it clipped out of sight, and sending a long prompt with the Send
+  button left an empty box still several lines tall. It now sizes itself whenever
+  its contents change, and scrolls once it reaches full height rather than hiding
+  the overflow.
+- **A fixed widget actually shows up as fixed.** When a widget crashed while
+  rendering, the red "Build Succeeded, Render Failed" panel stayed on screen even
+  after the agent repaired the code and the repair compiled — so a fix that worked
+  was indistinguishable from a request the agent had ignored, and the only way out
+  was Reload. The panel now clears itself the moment new code is ready, and its
+  **Try Again** button re-runs the widget properly instead of leaving the preview
+  stuck on "Evaluating Component…" forever.
+- **Maps and other Highcharts modules work.** Anything that plugs into a library
+  rather than being one — Highcharts Maps, exporting, treemap, heatmap — silently
+  failed to load, and the widget died on `Highcharts.mapChart is not a function`
+  however clearly you asked for a map. The library loader decided whether to fetch
+  a file by looking for the library's name on the page rather than at the file
+  itself, and since Highcharts is always present, a module was reported as loaded
+  without ever being downloaded. It now goes by the file, and files load in the
+  order a widget asks for them, so a module always runs after the library it
+  extends.
+- **A crash that repeats no longer re-generates forever.** Auto-fixing a render
+  error had no attempt limit — each fix compiled, which reset the counter meant to
+  stop it — so a widget that threw on every render could keep calling the model.
+  It now gets the same three attempts a compile error gets.
+- **Widget Studio stops showing you a stray `<!-- widget-clarify -->`.** An
+  internal marker on the agent's clarifying questions was being printed at the end
+  of the message instead of staying invisible.
+- **A render error is described as one.** Auto-fix messages called every failure a
+  "compilation error", including crashes in code that compiled perfectly well —
+  misleading to read, and it sent the agent looking at syntax rather than at what
+  runs on mount.
+
 ## 1.9.0 — 2026-08-11
 
 ### Added

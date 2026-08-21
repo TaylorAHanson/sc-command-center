@@ -315,10 +315,11 @@ export const UserGuidePage: React.FC = () => {
           </p>
 
           <div className="bg-white border rounded-lg p-6 shadow-sm">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">The three models</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">The four models</h3>
             <ul className="list-disc pl-5 text-sm text-gray-700 space-y-2">
               <li><strong>Chat agent model</strong> — powers the assistant panel. An agent saved in Agent Studio can pin its own model, which wins for that agent only.</li>
               <li><strong>Widget generation model</strong> — writes widget code in Widget Studio. Prefer a model with a large output budget; long widgets are the ones that suffer from a small one.</li>
+              <li><strong>Widget helper model</strong> — Widget Studio's quick jobs: tightening up a vague request before the expensive call, summarising a long conversation so it stays affordable, and deciding whether a request is worth a question first. A small, fast model is the right choice here, and leaving it blank uses the widget generation model for these too.</li>
               <li><strong>Agent authoring model</strong> — drafts and reviews agents in Agent Studio.</li>
             </ul>
             <p className="text-sm text-gray-500 mt-4">
@@ -357,7 +358,7 @@ export const UserGuidePage: React.FC = () => {
               <ul className="list-disc pl-5 text-gray-700 space-y-2">
                 <li><strong>Metadata:</strong> Provide a Name, Description, and select a Category.</li>
                 <li><strong>Domain:</strong> Assign the widget to a Domain to enforce RBAC.</li>
-                <li><strong>Data Source:</strong> Choose None, API, or SQL. Test and extract schemas to make data available to the AI when generating your widget.</li>
+                <li><strong>Data Source:</strong> Choose None, API, or SQL. Test and extract schemas to make data available to the AI when generating your widget. Testing a SQL source also counts the rows it returns, and that number changes how the widget gets built: a few thousand rows are fetched once and sorted, filtered and paged in the browser, while a large table has all of that pushed into SQL so the widget only ever holds the page you are looking at. An untested source is assumed to be large.</li>
                 <li><strong>Is Executable Action:</strong> Toggle this to indicate whether the widget performs an action (e.g., submitting a form). This is essential for telemetry collection.</li>
                 <li><strong>Configuration Mode:</strong> Dictate if end-users can provide runtime inputs (like changing a URL or a parameter threshold) to the widget when placing it on a dashboard.</li>
               </ul>
@@ -368,15 +369,39 @@ export const UserGuidePage: React.FC = () => {
               <p className="text-gray-700 mb-2">
                 Switch to the TSX Editor to view the code. Instead of writing everything from scratch, you can use natural language prompts to have the AI generate your widget based on your Data Source schemas.
               </p>
-              <p className="text-gray-700">
+              <p className="text-gray-700 mb-2">
                 The editor provides real-time rendering logic. Make sure your component scales dynamically and utilizes the Tailwind CSS classes supported natively. Toggle the <strong>Preview</strong> mode to test appearance and behavior live.
+              </p>
+              <p className="text-gray-700">
+                While the agent works, expand <strong>Thinking</strong> to see how it read your request, the steps it planned, and anything it decided to skip. On a large or vague request it may come back with up to three questions instead of code — answer the ones that matter, or press <strong>Build it anyway</strong> and it will pick sensible defaults. Two minutes of questions is cheaper than ten minutes spent building the wrong widget.
               </p>
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-2">3. Publish</h3>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">3. Showing the Agent What You Mean</h3>
+              <p className="text-gray-700 mb-2">
+                The paperclip beside the message box attaches spreadsheets, documents and images for the agent to read — a sample export, say, or a design someone sent you. Below the preview, <strong>Send screenshot to agent</strong> attaches a picture of the widget exactly as it looks right now, at the size you have dragged it to.
+              </p>
               <p className="text-gray-700">
-                When you click <strong>Publish</strong> or <strong>Update</strong>, your code is saved to the Dev environment database and is immediately available in the Widget Library for users with Dev access to test.
+                Neither one sends by itself. The file waits on your next message, so "this column is too narrow and the total is in the wrong place" arrives alongside the thing it is describing. Grabbing a second screenshot replaces the first.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">4. Agent Settings</h3>
+              <p className="text-gray-700 mb-2">
+                The sliders icon above the chat holds two options. Both are remembered in your browser, so they are yours rather than everyone's.
+              </p>
+              <ul className="list-disc pl-5 text-gray-700 space-y-2">
+                <li><strong>Conduct review after change</strong> (off by default): once new code compiles, the agent reads it back as a reviewer — does it do everything you asked, does it handle loading, empty and error states, does it hold up squashed narrow and stretched wide, is every text colour dark enough to read — and fixes what it finds. It then steps back and answers a different question under <strong>Worth considering</strong>: is this widget actually good at its job, and what are the two or three changes that would most improve it. Those are suggestions only — it never builds them unasked, so you can leave the setting on without the widget growing behind your back. Each one appears as a chip under <strong>Do next</strong>, along with an amber chip for anything it found but didn't fix; clicking one writes that instruction into the message box for you to edit or send, so you never have to retype a suggestion to act on it. It costs an extra turn, which is why you have to ask for it.</li>
+                <li><strong>Ask before large builds</strong> (on by default): the clarifying questions described above. Turn it off if you would rather it always guessed and got straight to work.</li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">5. Save and Publish</h3>
+              <p className="text-gray-700">
+                <strong>Save</strong> (or <strong>Publish</strong>, the first time) writes your code to the Dev environment database and increments the version, and it is immediately available in the Widget Library for users with Dev access to test. Saving leaves you in the studio, so you can keep working and save as often as you like. Use <strong>Done</strong> when you have finished with the widget.
               </p>
             </div>
           </div>

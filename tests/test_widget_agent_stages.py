@@ -12,8 +12,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 try:
-    from routes import agent_studio
-    from routes.agent_studio import (
+    from routes import widget_studio
+    from routes.widget_studio import (
         GenerateRequest,
         _Budget,
         _plan_stages,
@@ -56,14 +56,14 @@ class Model:
 def run(replies, current_code=WIDGET, stages=None, seconds=600, job_id="job"):
     """Drive a staged run against a scripted model, returning (job, model)."""
     model = Model(replies)
-    agent_studio.generation_jobs[job_id] = {"status": "pending", "result": None, "error": None}
+    widget_studio.generation_jobs[job_id] = {"status": "pending", "result": None, "error": None}
     plan = stages if stages is not None else [
         {"title": "Filters", "detail": "add a filter bar"},
         {"title": "Export", "detail": "add a CSV button"},
     ]
     req = GenerateRequest(prompt="add filters and an export button", current_code=current_code)
     _run_stages(job_id, req, plan, model, lambda: None, _Budget(seconds))
-    return agent_studio.generation_jobs[job_id], model
+    return widget_studio.generation_jobs[job_id], model
 
 
 # ------------------------------------------------------------------- planning
@@ -93,7 +93,7 @@ def test_planning_cannot_spend_the_whole_allowance():
     # would be skipped and the user would wait out the full timeout for no code.
     model = Model([PLAN])
     _plan_stages(model, "system", "do things")
-    assert model.limits == [agent_studio.PLAN_SECONDS]
+    assert model.limits == [widget_studio.PLAN_SECONDS]
 
 
 # ------------------------------------------------------------------- applying
@@ -117,14 +117,14 @@ def test_progress_carries_the_code_so_the_studio_can_apply_it_as_it_goes():
     # what puts every step in History and what keeps earlier work if a later step
     # fails. `stage_code` is that channel.
     seen = []
-    original = agent_studio._publish
+    original = widget_studio._publish
 
     def spy(job_id, **fields):
         if "stage_code" in fields:
             seen.append((fields.get("stage_index"), fields["stage_code"]))
         original(job_id, **fields)
 
-    agent_studio._publish = spy
+    widget_studio._publish = spy
     try:
         run([
             edit("  const rows = props.data.rows || [];",
@@ -133,7 +133,7 @@ def test_progress_carries_the_code_so_the_studio_can_apply_it_as_it_goes():
                  "  return <div className=\"p-4\"><button>CSV</button>{rows.length}</div>;"),
         ])
     finally:
-        agent_studio._publish = original
+        widget_studio._publish = original
 
     assert [index for index, _ in seen] == [1, 2]
     assert "setQ" in seen[0][1] and "CSV" not in seen[0][1], "step 1 published its own code"
@@ -204,11 +204,11 @@ def test_a_step_that_raises_is_reported_rather_than_ending_the_run():
                         "  const rows = props.data.rows || [];\n  const done = true;")
 
     model = Angry([])
-    agent_studio.generation_jobs["raise"] = {"status": "pending"}
+    widget_studio.generation_jobs["raise"] = {"status": "pending"}
     _run_stages("raise", GenerateRequest(prompt="two things", current_code=WIDGET),
                 [{"title": "One", "detail": "a"}, {"title": "Two", "detail": "b"}],
                 model, lambda: None, _Budget(600))
-    job = agent_studio.generation_jobs["raise"]
+    job = widget_studio.generation_jobs["raise"]
     assert job["status"] == "completed"
     assert job["stages"][0]["status"] == "failed"
     assert "const done = true;" in job["result"]["code"]
@@ -218,25 +218,25 @@ def test_running_out_of_time_keeps_what_landed_and_says_what_to_do():
     budget = _Budget(600)
     model = Model([edit("  const rows = props.data.rows || [];",
                         "  const rows = props.data.rows || [];\n  const [q, setQ] = React.useState('');")])
-    agent_studio.generation_jobs["slow"] = {"status": "pending"}
+    widget_studio.generation_jobs["slow"] = {"status": "pending"}
 
     # Spend the allowance during the first step, as a slow model would.
-    original = agent_studio._publish
+    original = widget_studio._publish
 
     def burn(job_id, **fields):
         if fields.get("stage_index") == 1:
             budget.deadline = budget.deadline - 600
         original(job_id, **fields)
 
-    agent_studio._publish = burn
+    widget_studio._publish = burn
     try:
         _run_stages("slow", GenerateRequest(prompt="two things", current_code=WIDGET),
                     [{"title": "Filters", "detail": "a"}, {"title": "Export", "detail": "b"}],
                     model, lambda: None, budget)
     finally:
-        agent_studio._publish = original
+        widget_studio._publish = original
 
-    job = agent_studio.generation_jobs["slow"]
+    job = widget_studio.generation_jobs["slow"]
     assert "setQ" in job["result"]["code"], "the finished step is kept"
     assert job["stages"][1]["status"] == "skipped"
     assert "Ran out of time" in job["result"]["explanation"]
@@ -247,23 +247,23 @@ def test_running_out_of_time_keeps_what_landed_and_says_what_to_do():
 def test_stopping_leaves_the_finished_steps_in_place():
     model = Model([edit("  const rows = props.data.rows || [];",
                         "  const rows = props.data.rows || [];\n  const [q, setQ] = React.useState('');")])
-    agent_studio.generation_jobs["stop"] = {"status": "pending"}
-    original = agent_studio._publish
+    widget_studio.generation_jobs["stop"] = {"status": "pending"}
+    original = widget_studio._publish
 
     def cancel_after_first(job_id, **fields):
         if fields.get("stage_index") == 1:
-            agent_studio.generation_jobs[job_id]["cancelled"] = True
+            widget_studio.generation_jobs[job_id]["cancelled"] = True
         original(job_id, **fields)
 
-    agent_studio._publish = cancel_after_first
+    widget_studio._publish = cancel_after_first
     try:
         _run_stages("stop", GenerateRequest(prompt="two things", current_code=WIDGET),
                     [{"title": "Filters", "detail": "a"}, {"title": "Export", "detail": "b"}],
                     model, lambda: None, _Budget(600))
     finally:
-        agent_studio._publish = original
+        widget_studio._publish = original
 
-    job = agent_studio.generation_jobs["stop"]
+    job = widget_studio.generation_jobs["stop"]
     assert "setQ" in job["result"]["code"]
     assert job["stages"][1]["status"] == "skipped"
     assert "Stopped after 1 of 2 steps" in job["result"]["explanation"]

@@ -67,7 +67,12 @@ Practical consequences for widget code:
   runs in a user's dashboard. Anything not React or a loaded global still throws.
 - Third-party libraries load through `useScript(url, globalName)` from the
   jsDelivr CDN (do not redefine it), initialized imperatively against a `useRef`
-  container with a cleanup function to avoid duplicate renders.
+  container with a cleanup function to avoid duplicate renders. **The hook decides
+  whether to fetch from the `url`, never from `globalName`** — see
+  `hooks/useScript.ts` for why that distinction is the whole thing. Appended
+  scripts are `async = false` so they execute in call order, which is what lets a
+  plugin module simply be the next `useScript` call after its library. An empty
+  `url` makes the hook do nothing, so a widget can still gate one on another.
 - `lucide-react` icons are unavailable inside widget code.
 - Arbitrary Tailwind values (`w-[150px]`, `bg-[#ff0000]`) don't work, because only
   standard utility classes exist in the compiled stylesheet — use an inline
@@ -190,6 +195,41 @@ Two behaviors there are easy to break by accident:
   loses everything when a big request runs out of time. The completed handler only
   writes `result.code` when it differs from what's already in the editor, or a
   planned run would end with a duplicate snapshot.
+- **Generate and review share one poller (`runJob`).** Both endpoints answer with
+  the same job shape, so the loop that applies stages, mirrors `trace` into the
+  Thinking disclosure, and settles the turn is parameterized by endpoint rather
+  than duplicated. A new studio turn type should go through it too.
+- **The review pass is chained off the compile, not off the turn.** The only
+  compiler here is the browser's, so nothing else can know whether the code the
+  agent produced builds. A generation that produced code sets `reviewPendingRef`
+  and the compile effect fires the review on a clean compile — which is why it is a
+  ref: naming it as a dependency would recompile the widget every time it changed.
+  Reviewing code that doesn't build is a wasted turn, and a review is itself a
+  change, so nothing about a review may set that ref again or the two take turns
+  indefinitely.
+- **Saving stays on the page.** `handlePublish` reports through the inline
+  `saveNotice` and does not call `onClose`; people save every few minutes and a
+  modal or a navigation for each one is what this replaced. That makes `onClose`
+  the Done button's job alone, and it is the only thing that clears
+  `editWidgetId` — without it, reopening the studio reloads the widget over
+  unsaved work. Session state is likewise cleared on close, not on save.
+- **Agent settings are per user, so they live in `localStorage`.** `app_settings`
+  is deployment-global and these are one person's preference about their own turns.
+  Read through `readAgentPrefs`, which must tolerate a missing or malformed value.
+- **The error boundary has to be told the code changed.** A React error boundary
+  that has caught something renders its fallback forever; new children don't clear
+  it. `WidgetErrorBoundary` takes `resetKey={previewComponent}` and clears itself
+  in `componentDidUpdate` when that identity changes — recompiling produces a new
+  function, so the identity is the signal that the crash belongs to code that no
+  longer exists. Without it the agent could fix a widget, the fix could compile,
+  and the pane would still show the old crash. Its **Try Again** goes through
+  `handleReloadPreview`, not `setPreviewComponent(null)`: nothing else recompiles,
+  so clearing the component alone wedges the pane on "Evaluating Component…".
+- **Compile failures and render failures are counted separately.**
+  `autoRetryCountRef` is reset by a clean compile — and a render crash happens
+  *after* a clean compile, so sharing the counter means no limit at all and a
+  widget that throws every render regenerates forever. `renderRetryCountRef` is
+  reset only by a deliberate act: a typed request, Reload, or a restore.
 
 Category and domain come from `/api/taxonomy/*`. A failed load keeps the previous
 values and shows a retry rather than falling back to an empty list — an empty
@@ -397,12 +437,22 @@ Things worth knowing before changing this:
   conversation adopts the agent it was held with, and sets `prevProfileIdRef`
   alongside `selectedProfileId` so the agent-switch effect doesn't see a switch and
   immediately wipe what was just restored. If you touch that effect, check this.
-- **Uploads are polled, not awaited.** `POST /api/agent/uploads` returns
-  immediately with `status: "parsing"` and the chip fills in from
-  `GET /api/agent/uploads/{id}`; parsing a large workbook takes seconds.
-  `sentAttachmentsRef` tracks which files already appeared on a message so a file
-  chips onto one turn rather than every later one — the agent can still query every
-  file on the conversation, so this is presentation only.
+- **Uploads are polled, not awaited** — `hooks/useChatUploads.ts`, shared with
+  Widget Studio. `POST /api/agent/uploads` returns immediately with
+  `status: "parsing"` and the chip fills in from `GET /api/agent/uploads/{id}`;
+  parsing a large workbook takes seconds. `conversationId` is passed as a function
+  rather than a value because the drawer mints one lazily and a file attached
+  before the first turn must still land on the right conversation. `attachBlob` is
+  the same path for bytes that were never a file on disk, which is what Widget
+  Studio's screenshot button uses. `sentAttachmentsRef` (in `useAgentChat`) tracks
+  which files already appeared on a message so a file chips onto one turn rather
+  than every later one — the agent can still query every file on the conversation,
+  so this is presentation only.
+- **The chat furniture is shared, and has a dark variant.**
+  `components/ThinkingDisclosure.tsx`, `components/AttachmentChip.tsx` and its
+  `SentAttachments` are used by both this panel (light) and Widget Studio
+  (`variant="dark"`). Both chats grew their own copy first; if you need a third
+  look, add a variant rather than a fourth copy.
 - `components/ConversationHistory.tsx` is the header dropdown (list, rename,
   delete). It reads the list on open rather than subscribing, since it only changes
   when a turn completes or the user acts there. Postgres timestamps arrive without
@@ -449,8 +499,9 @@ pages/admin/            WidgetManager, ViewManager, RoleMappings, TaxonomyManage
                         SettingsManager
 components/             BaseWidget, WidgetPreview, WidgetTray, Layout, modals,
                         AgentPanel/AgentConversation, ConversationHistory,
-                        ThumbnailCapture
-hooks/                  useAgentChat, useActionLogger, useDashboardContext, useScript
+                        ThinkingDisclosure, AttachmentChip, ThumbnailCapture
+hooks/                  useAgentChat, useChatUploads, useActionLogger,
+                        useDashboardContext, useScript
 contexts/ store/        ActionContext, dashboardStore
 ```
 

@@ -269,7 +269,9 @@ services. The load-bearing decisions:
   revenue is units times price per row, `sum(units) * mean(price)` is a different
   number, and without them a model will page through the file by hand or answer
   wrongly. `tests/test_upload_tools.py` pins that distinction.
-- **Images and short PDFs go to the model directly** (`_native_parts`), because
+- **Images and short PDFs go to the model directly** (`services/native_files.py`,
+  shared with Widget Studio — a screenshot of a widget is an image with no text in
+  it, and the flavor table is not worth writing twice), because
   extraction cannot read a chart or a scan. The content part differs by provider —
   Claude takes an Anthropic `document` block and rejects `file`, GPT takes `file`
   and rejects `document`, and anything else gets neither and falls back to the
@@ -401,7 +403,9 @@ a failing request doesn't poison a connection, and no lease is lost.
 
 ## Deployment settings (`services/settings_store.py`)
 
-Which model each of the three LLM callers uses, plus the chat agent's step and
+Which model each LLM caller uses — chat, widget generation, the studio's cheap
+side-calls (`widget_helper_model`, blank means reuse `widget_model`), and agent
+authoring — plus the chat agent's step and
 token caps, are rows in `app_settings` edited from Admin Panel → Settings
 (`routes/app_settings.py`, global admin only). Resolution is
 **row > env var > built-in default**, so an untouched deployment behaves exactly as
@@ -540,7 +544,14 @@ Skills, MCP tools, and Python tools are stored inline as JSON on the row so an
 agent is one atomic record set. The default agent is the runtime's built-in
 persona and is unaffected by this storage.
 
-## Widget generation (`routes/agent_studio.py`)
+## Widget generation (`routes/widget_studio.py`)
+
+This module was called `agent_studio` until it was renamed, which put it one
+character from `agent_studio_profiles` — the *authored agents* studio — and cost
+at least one person a jump-scare on their own codebase. Widget Studio is
+`routes/widget_studio.py` at `/api/agent/widget`; Agent Studio is
+`routes/agent_studio_profiles.py` at `/api/agent/studio`. Anything mounted on the
+old name in a branch you are rebasing needs the same rename.
 
 A background job (`generation_jobs`, polled by the studio) that drives a LangGraph
 ReAct agent. The contract for what it may emit is
@@ -557,6 +568,17 @@ failing:
   gets **one** corrective round trip, then is reported in the explanation rather
   than guessed at. Re-emitting a whole component used to blow the token budget
   and arrive truncated.
+
+  Two things are refused outright rather than approximated, because both produce
+  a broken widget that then costs several auto-fix rounds. A block carrying a
+  **stray marker line** — the regex splits SEARCH at the first `=======`, so a
+  duplicated one lands inside the replacement and gets written into the file. And
+  a SEARCH matching in **more than one place**, which used to take the first
+  match and so edited the wrong region most of the time. Once markers are in a
+  file, edits cannot remove them (no SEARCH body can quote a `=======`), so
+  `has_conflict_markers` gates the prompt: damaged code asks for a whole-file
+  rewrite instead, and `assess_rewrite` blocks a rewrite that echoes the markers
+  back.
 - **Creating** — a whole `tsx` block. If the response is cut off (unbalanced code
   fence, or `finish_reason == "length"`) it's continued from its own tail, up to
   `WIDGET_AGENT_MAX_CONTINUATIONS` (3) times, instead of restarted.
@@ -698,15 +720,61 @@ sanitizes: categories/domains must be one of the values the request supplied,
 dimensions are range-checked, and keys listed in `locked_settings` are dropped.
 The frontend applies what's left only to fields the user hasn't touched.
 
+**The cheap side-calls (`ask_helper`).** Refining the prompt, compacting history
+and deciding whether to ask a question all run on `widget_helper_model` with their
+own small `HELPER_SECONDS` / `HELPER_MAX_TOKENS` slice of the same `_Budget`. Every
+one of them is skippable by construction: `ask_helper` returns `""` when there is
+no time or the call fails, and each caller reads that as "do what you did before".
+Nothing here may become load-bearing — a helper outage must cost quality, never a
+turn. They also share `_json_reply`, which digs the object out of a fenced or
+chatty reply and returns `{}` rather than raising.
+
+`_base_url` is per model, not per job, and this is the trap: a `system.ai.…` name
+resolves only on the AI Gateway route and a plain endpoint name only on
+`/serving-endpoints`, so deriving one URL from one of the two 404s the other. A job
+that calls a helper alongside the generation model needs both.
+
+**Clarifying questions** (`_clarify`) are gated on `_wants_stages` — the same
+judgement that decides a request is worth planning decides it is worth a question,
+because that is exactly where a wrong guess costs minutes. A question set settles
+the job with `code: None` and a `questions` list; nothing is generated. Two guards
+stop a loop: the client sends `allow_clarify: false` on the answering turn, and
+`CLARIFY_MARKER` in the history means one has already been asked.
+
+**Row estimate.** `POST /datasource/test` on a SQL source returns `row_estimate`
+from a wrapped `COUNT(*)`, the studio keeps it, and it comes back on generate as
+`data_source_row_estimate`. `_size_guidance` turns it into the paragraph that
+decides whether the widget pages in SQL or in the browser, appended to the system
+prompt rather than living in `agent_instructions.md`: the instructions are paid for
+on every call including every step of a plan, and only a request with a tested
+source can be told anything specific. **`None` means "treat as large"** — reading
+silence as "small" is how a 40,000-row table ends up in a tab.
+
+**Trace (`_trace` / `_settle`).** The studio's "Thinking" is narration the job
+writes about its own decisions, not model reasoning — the current models keep that
+private and the app never sees it. `_settle` exists because a plain
+`generation_jobs[id] = {...}` drops the trace that was accumulating alongside it.
+
+**`POST /review`** is the QA pass, and it is deliberately a second request rather
+than a tail on the generation job: the only compiler here is the browser's, so the
+studio is the one that knows whether the code it was handed builds, and reviewing
+before that means auditing code that may not run. It shares the job shape, so the
+studio polls it with the same code, and findings come back through `_apply_reply`
+like any other reply — a review is not allowed to eat the widget it was checking.
+It gets `REVIEW_SECONDS`, a fraction of the generation allowance, and a failure
+settles as *completed* with an apology: the user's code is already fine.
+
 ## Tests
 
 ```bash
 PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py   # 7 passed
-PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 3 passed
-PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 18 passed
+PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 5 passed
+PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 22 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_helper.py  # 23 passed
+PYTHONPATH=server server/venv/bin/python tests/test_native_files.py         # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server server/venv/bin/python tests/test_caller_identity.py      # 11 passed
 PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed

@@ -41,10 +41,36 @@ _EDIT_BLOCK_RE = re.compile(
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z]*[ \t]*$", re.MULTILINE)
 
+# A line that is nothing but a conflict marker. Never valid TSX, so finding one
+# inside a SEARCH or REPLACE body means the block was malformed and the regex
+# above split it in the wrong place.
+#
+# This is how the studio corrupted widgets. `(.*?)` for the REPLACE body is
+# non-greedy up to `>>>>>>> REPLACE`, not up to the next marker — so a block
+# carrying a stray second `=======` (a model "leaving a duplicate marker" mid
+# edit) parsed as one edit whose replacement *contained* that marker line, and
+# the splicer wrote it into the widget. The file then had a literal `=======`
+# in it, which doesn't compile, so the auto-fix asked the model to repair code
+# that was now half conflict marker — and each attempt added more.
+_MARKER_LINE_RE = re.compile(
+    r"^[ \t]*(?:<{4,}[ \t]*SEARCH\b[^\n]*|={4,}[ \t]*|>{4,}[ \t]*REPLACE\b[^\n]*)$",
+    re.MULTILINE,
+)
+
 
 class Edit(NamedTuple):
     search: str
     replace: str
+
+
+def has_conflict_markers(code: str) -> bool:
+    """True when a file carries edit markers, i.e. a previous splice damaged it.
+
+    Such a file cannot be repaired with more edits: a SEARCH body ends at the
+    first `=======` line by construction, so no block can even quote the damage
+    it means to remove. The caller has to ask for the whole file instead.
+    """
+    return bool(_MARKER_LINE_RE.search(code or ""))
 
 
 class EditResult(NamedTuple):
@@ -86,22 +112,44 @@ def _find_exact(code: str, search: str) -> Tuple[Optional[int], int]:
     return (code.find(search) if count else None, count)
 
 
-def _find_lines(code_lines: List[str], search_lines: List[str], strip_indent: bool) -> Optional[int]:
-    """Index in `code_lines` where `search_lines` matches, or None.
+def _find_lines(code_lines: List[str], search_lines: List[str],
+                strip_indent: bool) -> Tuple[Optional[int], int]:
+    """Where `search_lines` matches in `code_lines`, and how many places it could.
 
     With `strip_indent`, leading whitespace is ignored too — which is what lets a
     model that reproduced a nested block at the wrong indentation still land its
-    edit.
+    edit. The count is returned for the same reason the exact path returns one:
+    more than one candidate means we don't know which was meant.
     """
     norm = (lambda s: s.strip()) if strip_indent else (lambda s: s.rstrip())
     needle = [norm(s) for s in search_lines]
     if not needle:
-        return None
+        return None, 0
     span = len(needle)
+    first: Optional[int] = None
+    count = 0
     for i in range(0, len(code_lines) - span + 1):
         if [norm(s) for s in code_lines[i:i + span]] == needle:
-            return i
-    return None
+            count += 1
+            if first is None:
+                first = i
+    return first, count
+
+
+def _ambiguous(n: int, count: int) -> str:
+    """The failure text for a SEARCH that matches in more than one place.
+
+    Applying it to the first match used to be the behaviour, and it is wrong far
+    more often than it is right: with four candidates the odds are three in four
+    that the edit lands somewhere the model never looked at, and the result is a
+    widget that is subtly wrong rather than one that failed. Refusing sends this
+    message back through the repair round, which asks for a bigger SEARCH.
+    """
+    return (
+        f"Edit {n}: the SEARCH text matches {count} different places in the file, so it is "
+        "ambiguous and was not applied. Re-send it with enough surrounding lines "
+        "(the enclosing function or JSX element) to identify one place uniquely."
+    )
 
 
 def _leading_ws(line: str) -> str:
@@ -143,6 +191,20 @@ def apply_edits(code: str, edits: List[Edit]) -> EditResult:
     warnings: List[str] = []
 
     for n, edit in enumerate(edits, start=1):
+        # Checked before anything else, because this is the failure that
+        # compounds: a marker written into the widget breaks the build, and the
+        # fix-it round then edits a file that is itself part conflict marker.
+        stray = _MARKER_LINE_RE.search(edit.search) or _MARKER_LINE_RE.search(edit.replace)
+        if stray:
+            failures.append(
+                f"Edit {n}: the block contains a stray conflict marker "
+                f"(\"{stray.group(0).strip()}\"), so its SEARCH and REPLACE halves could not be "
+                "told apart, and it was not applied. Send exactly one <<<<<<< SEARCH, one "
+                "=======, and one >>>>>>> REPLACE per block, and split unrelated changes "
+                "into separate blocks."
+            )
+            continue
+
         if not edit.search.strip():
             # An empty SEARCH is only meaningful as "write the whole file".
             if not current.strip():
@@ -153,12 +215,10 @@ def apply_edits(code: str, edits: List[Edit]) -> EditResult:
             continue
 
         offset, count = _find_exact(current, edit.search)
+        if count > 1:
+            failures.append(_ambiguous(n, count))
+            continue
         if offset is not None:
-            if count > 1:
-                warnings.append(
-                    f"Edit {n}: SEARCH text occurs {count} times; applied to the first match. "
-                    "Include more surrounding context to disambiguate."
-                )
             replacement = edit.replace
             # A match that starts part-way into a line of pure indentation means
             # the model dropped the leading whitespace. Its first line splices in
@@ -176,11 +236,17 @@ def apply_edits(code: str, edits: List[Edit]) -> EditResult:
         code_lines = current.split("\n")
         search_lines = edit.search.split("\n")
 
-        idx = _find_lines(code_lines, search_lines, strip_indent=False)
+        idx, found = _find_lines(code_lines, search_lines, strip_indent=False)
+        if found > 1:
+            failures.append(_ambiguous(n, found))
+            continue
         if idx is not None:
             replacement = edit.replace.split("\n")
         else:
-            idx = _find_lines(code_lines, search_lines, strip_indent=True)
+            idx, found = _find_lines(code_lines, search_lines, strip_indent=True)
+            if found > 1:
+                failures.append(_ambiguous(n, found))
+                continue
             if idx is None:
                 preview = search_lines[0][:80] if search_lines else ""
                 failures.append(
@@ -302,6 +368,13 @@ def assess_rewrite(old_code: str, new_code: str) -> Optional[RewriteRisk]:
     marker = _elision_marker(new)
     if marker:
         return RewriteRisk(True, f'it leaves the rest of the widget out, marked "{marker}"')
+
+    # The other direction of the same corruption: asked to repair a widget that
+    # has a conflict marker in it, a model will sometimes echo the marker back
+    # inside an otherwise plausible whole-file reply.
+    stray = _MARKER_LINE_RE.search(new)
+    if stray:
+        return RewriteRisk(True, f'it still contains the edit marker "{stray.group(0).strip()}", which is not valid code')
 
     if new in old:
         return RewriteRisk(True, "it is an excerpt of the code that is already there, not a whole widget")

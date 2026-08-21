@@ -24,6 +24,17 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
   - Only render your library component (e.g. the chart) once `loaded` is true.
   - Create a `useRef` for a container `div`, and initialize the vanilla library inside a `useEffect` using the global object (e.g., `window.Highcharts.chart(containerRef.current, options)`). 
   - Make sure to return a cleanup function from the `useEffect` that calls the library's destroy method (e.g., `chart.destroy()`) to prevent memory leaks and duplicate renders during hot reloading.
+  - **A plugin module (maps, exporting, treemap, heatmap, a Leaflet plugin) gets its own `useScript` call**, listed after the library it extends. They load in the order you call them, so the module always runs after the library. Wait for *both* `loaded` flags before drawing, and pin both to the same version.
+  - Highcharts Maps, in full — copy this shape:
+
+```jsx
+const [coreLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/highcharts.js', 'Highcharts');
+const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/modules/map.js', 'Highcharts');
+// Map data is fetched, not scripted:
+// fetch('https://cdn.jsdelivr.net/npm/@highcharts/map-collection@2.3.0/custom/world.topo.json')
+// Draw only once coreLoaded && mapLoaded, and the topology has arrived.
+// For US states: .../custom/usa.topo.json, joining on the 'postal-code' property.
+```
 
 ## Configuration & Data
 
@@ -47,6 +58,17 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
       Render the caught message in the widget's error state.
   - `'databricks_api'`: For authenticated Databricks APIs (like Model Serving or Volume File Uploads), use `fetch('/api/databricks/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: props.data.dataSource, method: 'GET' }) })`. Ensure you pass `path` (e.g. `/api/2.0/serving-endpoints/endpoint-name/invocations`) and `method` (e.g. `POST`) in the body along with any `body` data if necessary. For file uploads, you must also pass `fileUpload: true`, `fileBase64` (the base64 encoded file content), `fileName`, and `fileSize` in the body.
   - Assume the data returned matches the schema provided in the prompt.
+
+### How much data to pull
+
+- **Size the fetch to the data, and never fetch a table in order to reduce it.**
+  Requesting page after page in a loop to assemble a full result is slower than
+  one query, holds every row in the browser tab, and is the most common way a
+  widget ends up unusable. If a total, a count or a sorted top-N is what gets
+  displayed, ask the warehouse for that — a `SELECT COUNT(*)`, a `GROUP BY`, an
+  `ORDER BY … LIMIT` — rather than for the rows behind it.
+- Where the prompt tells you the size of a result set, it also tells you which
+  side to do the work on. Where it doesn't, assume the table is large.
 
 ### Writing SQL for Databricks
 
@@ -129,7 +151,16 @@ changing**, as one or more search-and-replace blocks:
 - The SEARCH text must be copied **exactly** from the current code, character for
   character, including indentation. It is located by literal match.
 - Include enough surrounding lines that the SEARCH text appears exactly once in
-  the file.
+  the file. A SEARCH that matches in more than one place is **refused**, not
+  applied to the first match — a short fragment like `);` or `}, []);` will
+  always need the enclosing function or JSX element around it to be usable.
+- Each block contains **exactly one** `<<<<<<< SEARCH`, one `=======`, and one
+  `>>>>>>> REPLACE`, in that order. An extra marker line makes the two halves
+  impossible to tell apart, so the block is refused. If you notice a mistake
+  part-way through a block, do not add another marker to correct it — send the
+  whole block again, correctly.
+- Never include a marker line in the code you are writing. Two unrelated changes
+  are two blocks, not one block with a divider in the middle.
 - Emit as many blocks as you need. They are applied in order, top to bottom.
 - Do not put line numbers in a block, and do not wrap blocks in a `tsx` fence.
 - Keep each block tight — the lines you are changing plus a little context, never

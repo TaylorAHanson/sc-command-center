@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDashboardContext, buildContextPreamble, type DashboardContext } from './useDashboardContext';
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
+import { useChatUploads } from './useChatUploads';
+
+export type { Attachment } from './useChatUploads';
 
 export interface ToolCall {
     tool_name: string;
@@ -16,19 +19,6 @@ export interface AgentProfile {
     owned_by_me?: boolean;
     /** 'personal' | 'domain' | 'global' — who else can run this agent. */
     visibility?: string;
-}
-
-// A file the user attached, as the composer and transcript see it. Parsing runs
-// server-side after the bytes land, so `status` moves parsing -> ready|failed.
-export interface Attachment {
-    id: string;
-    filename: string;
-    kind: string;
-    status: 'parsing' | 'ready' | 'failed' | string;
-    size_bytes: number;
-    summary?: string;
-    error?: string;
-    warnings?: string[];
 }
 
 export interface MessageAttachment {
@@ -122,11 +112,6 @@ const rememberConversation = (id: string) => {
     try { localStorage.setItem(CONVERSATION_KEY, id); } catch { /* private browsing */ }
 };
 
-// Files still being parsed are polled until the server settles them. Parsing a
-// large workbook takes seconds, so this needs room without hanging forever.
-const UPLOAD_POLL_MS = 900;
-const UPLOAD_TIMEOUT_MS = 180_000;
-
 /**
  * Owns the EDH Agent conversation. Lives above the panel component so the chat
  * (messages, session, in-flight request) survives the panel being collapsed or
@@ -152,9 +137,6 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
     const persists = !isDraftMode;
     const [conversationId, setConversationId] = useState<string>(() => newConversationId());
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-    const [attachments, setAttachments] = useState<Attachment[]>([]);
-    const [uploadError, setUploadError] = useState<string | null>(null);
-    const [isUploading, setIsUploading] = useState(false);
     const [isRestoring, setIsRestoring] = useState(persists);
 
     // Set the moment the user does something of their own — sends a turn, attaches
@@ -193,6 +175,18 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         setConversationId(id);
         rememberConversation(id);
     }, []);
+
+    // Files belong to the conversation, and the id is read at upload time rather
+    // than captured for the reason above: a file attached in the tick after
+    // switching conversations must land on the one the user is now in.
+    const {
+        attachments, setAttachments, attachFiles, removeAttachment,
+        isUploading, uploadError, setUploadError, clearUploadError,
+    } = useChatUploads({
+        conversationId: () => conversationIdRef.current,
+        enabled: persists,
+        beforeUpload: engage,
+    });
 
     // Agent profiles authored in the Agent Studio. Selecting one runs the EDH
     // drawer as that profile (its prompt, skills, tools, model) via the
@@ -277,7 +271,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         } catch {
             return false;
         }
-    }, [adoptConversation]);
+    }, [adoptConversation, setAttachments, setUploadError]);
 
     const startConversation = useCallback((greeting?: string) => {
         engagedRef.current = true;
@@ -287,7 +281,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         setAttachments([]);
         setUploadError(null);
         sentAttachmentsRef.current = new Set();
-    }, [adoptConversation]);
+    }, [adoptConversation, setAttachments, setUploadError]);
 
     // On mount, reopen where the user left off. Falls back to their most recent
     // conversation when the remembered one is gone (deleted, or pruned).
@@ -429,68 +423,6 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
             }
         } catch {
             lastProfileLoadRef.current = 0; // allow a retry on next interaction
-        }
-    }, []);
-
-    // Upload files, then poll each one until the server has parsed it. Parsing is
-    // a background task server-side (a 25 MB workbook is far too slow to hold a
-    // request open), so the chip appears immediately and fills in its summary.
-    const attachFiles = useCallback(async (files: FileList | File[]) => {
-        const list = Array.from(files || []);
-        if (!list.length || !persists) return;
-        engage();
-        setUploadError(null);
-        setIsUploading(true);
-        try {
-            for (const file of list) {
-                const form = new FormData();
-                form.append('file', file);
-                form.append('conversation_id', conversationIdRef.current);
-
-                const uploaded = await (async (): Promise<Attachment | null> => {
-                    try {
-                        const r = await fetch('/api/agent/uploads', { method: 'POST', body: form });
-                        const payload = await r.json().catch(() => ({}));
-                        if (!r.ok) {
-                            setUploadError(payload?.detail || `Could not upload ${file.name}.`);
-                            return null;
-                        }
-                        return payload as Attachment;
-                    } catch {
-                        setUploadError(`Could not upload ${file.name}.`);
-                        return null;
-                    }
-                })();
-                if (!uploaded) continue;
-                setAttachments(prev => [...prev.filter(a => a.id !== uploaded.id), uploaded]);
-
-                let latest = uploaded;
-                const startedAt = Date.now();
-                while (latest.status === 'parsing' && Date.now() - startedAt < UPLOAD_TIMEOUT_MS) {
-                    await new Promise(resolve => setTimeout(resolve, UPLOAD_POLL_MS));
-                    try {
-                        const poll = await fetch(`/api/agent/uploads/${encodeURIComponent(latest.id)}`);
-                        if (!poll.ok) break;
-                        latest = await poll.json() as Attachment;
-                    } catch {
-                        break;
-                    }
-                    const settled = latest;
-                    setAttachments(prev => prev.map(a => (a.id === settled.id ? settled : a)));
-                }
-                if (latest.status === 'failed' && latest.error) setUploadError(latest.error);
-            }
-        } finally {
-            setIsUploading(false);
-        }
-    }, [persists, engage]);
-
-    const removeAttachment = useCallback(async (id: string) => {
-        setAttachments(prev => prev.filter(a => a.id !== id));
-        try {
-            await fetch(`/api/agent/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        } catch {
-            // The chip is already gone; a failed delete only leaves a stray row.
         }
     }, []);
 
@@ -869,7 +801,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         removeAttachment,
         isUploading,
         uploadError,
-        clearUploadError: () => setUploadError(null),
+        clearUploadError,
     };
 };
 

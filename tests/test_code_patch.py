@@ -9,6 +9,7 @@ from services.code_patch import (  # noqa: E402
     assess_rewrite,
     continuation_anchor,
     extract_code_block,
+    has_conflict_markers,
     looks_truncated,
     parse_edits,
     sloc,
@@ -114,12 +115,54 @@ def test_partial_application_keeps_the_good_edit():
     assert len(result.failures) == 1
 
 
-def test_ambiguous_match_warns_and_takes_the_first():
+def test_ambiguous_match_is_refused_rather_than_guessed_at():
     code = "const a = 1;\nconst b = 2;\nconst a = 1;"
     result = apply_edits(code, parse_edits(_block("const a = 1;", "const a = 99;")))
-    assert result.applied == 1
-    assert result.code == "const a = 99;\nconst b = 2;\nconst a = 1;"
-    assert any("occurs 2 times" in w for w in result.warnings)
+    assert result.applied == 0
+    assert result.code == code
+    assert "matches 2 different places" in result.failures[0]
+
+
+def test_ambiguity_is_refused_on_the_whitespace_tolerant_paths_too():
+    # The same duplicate, reachable only after the exact pass misses on indentation.
+    code = "  const a = 1;   \nconst b = 2;\n    const a = 1;"
+    result = apply_edits(code, parse_edits(_block("const a = 1;", "const a = 99;")))
+    assert result.applied == 0 and result.code == code
+    assert "matches 2 different places" in result.failures[0]
+
+
+def test_a_block_carrying_a_stray_marker_is_refused_not_written():
+    # The regression: a model that "left a duplicate marker" mid-edit. SEARCH stops
+    # at the first =======, so the second one lands inside REPLACE, and applying it
+    # writes a conflict marker into the widget — which then can't compile, and the
+    # auto-fix rounds edit a file that is half marker.
+    malformed = (
+        "<<<<<<< SEARCH\n  const [rows, setRows] = useState([]);\n"
+        "=======\n  const [mapReady, setMapReady] = React.useState(false);\n"
+        "=======\n  );\n>>>>>>> REPLACE"
+    )
+    result = apply_edits(WIDGET, parse_edits(malformed))
+    assert result.applied == 0
+    assert result.code == WIDGET
+    assert "=======" not in result.code
+    assert "stray conflict marker" in result.failures[0]
+
+
+def test_damaged_code_is_recognised_so_a_rewrite_can_be_asked_for():
+    # Edits cannot repair this: a SEARCH body ends at the first ======= line, so
+    # no block can quote the damage. Detecting it is what lets the caller ask for
+    # the whole file instead of looping on edits that can never land.
+    assert has_conflict_markers("const a = 1;\n=======\nconst b = 2;")
+    assert has_conflict_markers("<<<<<<< SEARCH\nconst a = 1;")
+    assert not has_conflict_markers(WIDGET)
+    # Not so trigger-happy that ordinary code trips it.
+    assert not has_conflict_markers("const line = '========';\n// ====== section ======")
+
+
+def test_a_rewrite_that_echoes_the_damage_back_is_refused():
+    damaged = WIDGET.replace("  useEffect", "=======\n  useEffect")
+    risk = assess_rewrite(damaged, damaged.replace("fetch('/api/data')", "fetch('/api/rows')"))
+    assert risk and risk.blocking and "edit marker" in risk.reason
 
 
 def test_empty_search_writes_a_new_file_but_never_overwrites():
@@ -229,7 +272,11 @@ if __name__ == "__main__":
         test_tolerates_trailing_whitespace_difference,
         test_reports_unmatched_block_without_touching_code,
         test_partial_application_keeps_the_good_edit,
-        test_ambiguous_match_warns_and_takes_the_first,
+        test_ambiguous_match_is_refused_rather_than_guessed_at,
+        test_ambiguity_is_refused_on_the_whitespace_tolerant_paths_too,
+        test_a_block_carrying_a_stray_marker_is_refused_not_written,
+        test_damaged_code_is_recognised_so_a_rewrite_can_be_asked_for,
+        test_a_rewrite_that_echoes_the_damage_back_is_refused,
         test_empty_search_writes_a_new_file_but_never_overwrites,
         test_ignores_fences_a_model_wrapped_around_blocks,
         test_extract_code_block_prefers_typed_fence_over_sql,

@@ -179,7 +179,7 @@ app.include_router(tableau.router, prefix="/api", tags=["tableau"])
 app.include_router(roles.router, prefix="/api/roles", tags=["roles"])
 
 from routes import custom_widgets
-from routes import agent_studio
+from routes import widget_studio
 from routes import agent_studio_profiles
 from routes import agent_proxy
 from routes import promotion
@@ -190,7 +190,7 @@ from routes import app_settings
 from routes import conversations
 from routes import chat_uploads
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
-app.include_router(agent_studio.router, prefix="/api/agent/widget", tags=["agent_studio"])
+app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widget_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
 app.include_router(agent_proxy.router, prefix="/api/agent", tags=["agent_proxy"])
 app.include_router(promotion.router, prefix="/api/promotion", tags=["promotion"])

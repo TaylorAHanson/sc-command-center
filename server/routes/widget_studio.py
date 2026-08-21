@@ -1,3 +1,16 @@
+"""The agent behind Widget Studio: it writes and edits widget TSX.
+
+Mounted at ``/api/agent/widget``. This is not the Agent Studio, which authors
+the chat agents kept as database rows — that is ``routes/agent_studio_profiles``
+at ``/api/agent/studio``, backed by ``agent_studio_store``. This module was
+called ``agent_studio`` for long enough to fool people editing their own
+codebase, so if you are here to change how an *authored agent* behaves, you are
+in the wrong file.
+
+Generation is a polled background job rather than a stream: ``/generate`` returns
+a job id and the browser polls it. The contract the code it writes must satisfy
+is ``routes/agent_instructions.md``, which is loaded into the system prompt.
+"""
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from openai import OpenAI
@@ -15,14 +28,16 @@ from services.code_patch import (
     assess_rewrite,
     continuation_anchor,
     extract_code_block,
+    has_conflict_markers,
     looks_truncated,
     parse_edits,
     sloc,
     strip_edit_blocks,
 )
-from services import llm_params
+from services import llm_params, native_files
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
 from services.llm_client import DatabricksChatOpenAI, chat_client, reply_text
+from services.upload_tools import attachments_prompt
 
 # LangChain imports
 from langchain_core.tools import tool
@@ -81,6 +96,17 @@ class GenerateRequest(BaseModel):
     # Metadata fields the user has already filled in themselves. The model is
     # told not to bother proposing values for these.
     locked_settings: List[str] = []
+    # How many rows the configured data source actually returns, when the studio
+    # has tested it. The agent cannot judge whether to page, filter and sort in
+    # the database or in the browser without knowing this, and left guessing it
+    # writes widgets that pull whole tables down a page at a time.
+    data_source_row_estimate: Optional[int] = None
+    # Files the user attached to this turn (ids from POST /api/agent/uploads).
+    attachment_ids: List[str] = []
+    # False on the turn that answers a clarifying question, so answering one can
+    # never be met with another. See `_clarify`.
+    allow_clarify: bool = True
+    env: str = "dev"
 
 class DataSourceTestRequest(BaseModel):
     data_source_type: str
@@ -92,6 +118,55 @@ class DataSourceTestRequest(BaseModel):
 MAX_CONTINUATIONS = int(os.environ.get("WIDGET_AGENT_MAX_CONTINUATIONS", "3"))
 
 _META_BLOCK_RE = re.compile(r"```widget-meta[ \t]*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+
+_NEXT_BLOCK_RE = re.compile(r"```widget-next[ \t]*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+
+# A suggestion is a prompt the user is one click from sending, so it is bounded
+# on both ends: a label short enough for a chip, and a prompt short enough to
+# read before sending something that costs a minute of generation.
+_SUGGESTION_LIMITS = {"label": 70, "prompt": 400}
+MAX_SUGGESTIONS = 4
+
+
+def _extract_next(content: str) -> tuple[List[Dict[str, str]], str]:
+    """Pull the review's follow-up actions out of a reply, and remove the block.
+
+    The review already writes what it would change and what it would add. Left as
+    prose that is where it stops: the user reads three good ideas and then retypes
+    one of them. This turns each into a prompt the studio can offer as a button —
+    the same "see it, act on it" the rest of the app is built around, applied to
+    the agent's own findings.
+
+    Unparseable or malformed entries are dropped rather than raised: suggestions
+    are a nicety on top of a review that has already done its job.
+    """
+    match = _NEXT_BLOCK_RE.search(content or "")
+    if not match:
+        return [], content or ""
+
+    remainder = re.sub(r"\n{3,}", "\n\n", content[:match.start()] + content[match.end():]).strip()
+    try:
+        raw = json.loads(match.group(1).strip())
+    except Exception as e:  # noqa: BLE001 — malformed JSON costs the buttons, not the review
+        print(f"Ignoring malformed widget-next block: {e}")
+        return [], remainder
+    if not isinstance(raw, list):
+        return [], remainder
+
+    out: List[Dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        prompt = str(item.get("prompt") or "").strip()
+        if not label or not prompt:
+            continue
+        out.append({
+            "kind": "fix" if str(item.get("kind") or "").strip().lower() == "fix" else "idea",
+            "label": label[:_SUGGESTION_LIMITS["label"]],
+            "prompt": prompt[:_SUGGESTION_LIMITS["prompt"]],
+        })
+    return out[:MAX_SUGGESTIONS], remainder
 
 # Bounds on what the model may propose for the Configuration tab. Anything not
 # listed here is dropped rather than trusted.
@@ -162,6 +237,69 @@ def _extract_meta(content: str, req: GenerateRequest) -> tuple[Dict[str, Any], s
     return meta, remainder
 
 
+# Above this, a widget that fetches everything and works in the browser is the
+# wrong shape: the payload is slow to arrive, the tab holds all of it, and sorting
+# or filtering it in JavaScript re-does work the warehouse is built for. Below it,
+# pushing every interaction back to SQL costs a round trip per keystroke to solve
+# a problem that doesn't exist yet. The number is a judgement rather than a
+# measurement, chosen because a few thousand rows of a handful of columns is still
+# a fraction of a megabyte.
+CLIENT_SIDE_ROW_CEILING = 2000
+
+
+def _size_guidance(req: GenerateRequest) -> str:
+    """Where filtering, sorting and paging should happen, given what we know.
+
+    This is conditional and not part of `agent_instructions.md` on purpose. The
+    instructions are paid for on every call including every step of a plan, and
+    only a request with a tested data source can be told anything specific — with
+    no row count the honest advice is to find out, which is a different paragraph
+    from the one a 40,000-row table needs.
+    """
+    if req.data_source_type != "sql":
+        return ""
+
+    rows = req.data_source_row_estimate
+    if rows is None:
+        return (
+            "\n\nThe size of this result set is unknown — the data source hasn't been "
+            "tested, so treat it as potentially large. Add a `LIMIT` to what you display "
+            "and do the filtering, sorting and aggregating in SQL rather than in the "
+            "component. Never fetch a whole table in order to reduce it in JavaScript."
+        )
+
+    if rows <= CLIENT_SIDE_ROW_CEILING:
+        return (
+            f"\n\nThis query returns about {rows:,} rows, which is small enough to fetch "
+            "in one go. Sort, filter and page in the component over the rows you already "
+            "have — a round trip per keystroke would be slower, not faster. Still cap the "
+            "rows you render at once and keep the query's own `WHERE` doing the coarse work."
+        )
+
+    return (
+        f"\n\nThis query returns about {rows:,} rows. **Do the work in the database, not "
+        "the browser.** Compose the SQL for `props.data.dataSource` per interaction and "
+        "re-query:\n"
+        "- Page with `LIMIT`/`OFFSET` — one page of rows per request, never the whole "
+        "table in batches. Fetching sequential pages in a loop to assemble the full "
+        "result is the thing this rule exists to prevent: it is slower than one large "
+        "query and it holds every row in the tab.\n"
+        "- Sort by putting the column and direction in `ORDER BY`, not by sorting an "
+        "array you fetched. Whitelist the column names against the schema you were given "
+        "before interpolating them, and backtick them.\n"
+        "- Filter and search with `WHERE` (`ILIKE '%' || :term || '%'` shaped predicates), "
+        "debounced by ~300ms so typing doesn't fire a query per character.\n"
+        "- Aggregate with `GROUP BY` and read the totals back; never sum a page of rows "
+        "and present it as a total for the table.\n"
+        "- Get the row count for the pager from a separate `SELECT COUNT(*)` over the same "
+        "`WHERE`, not from the length of the page you fetched.\n"
+        "Wrap the configured query rather than editing it — "
+        "`SELECT * FROM (<props.data.dataSource>) AS t WHERE … ORDER BY … LIMIT … OFFSET …` "
+        "— so the user's own SQL keeps working. Show a loading state on each re-query and "
+        "keep the previous page visible while the next one arrives."
+    )
+
+
 def _build_system_prompt(req: GenerateRequest) -> str:
     import json
 
@@ -179,11 +317,23 @@ def _build_system_prompt(req: GenerateRequest) -> str:
         system_prompt += f"\n\nPrevious attempt failed with error:\n{req.error_log}\nPlease fix the issue."
 
     if req.current_code:
-        system_prompt += (
-            f"\n\nHere is the CURRENT state of the widget code:\n```tsx\n{req.current_code}\n```\n"
-            "Modify this code according to the user's instructions using SEARCH/REPLACE blocks "
-            "as described in Output Format. Do not re-send the parts you aren't changing."
-        )
+        system_prompt += f"\n\nHere is the CURRENT state of the widget code:\n```tsx\n{req.current_code}\n```\n"
+        if has_conflict_markers(req.current_code):
+            # Edits can't clean this: a SEARCH body ends at the first ======= line,
+            # so no block can quote the damage. Left to try anyway, the model spends
+            # every round on edits that are refused and the widget stays broken.
+            system_prompt += (
+                "That code was damaged by a bad edit — it contains leftover <<<<<<< / ======= / "
+                ">>>>>>> markers, which is why it does not compile. Edits cannot remove them. "
+                "Reply with the complete corrected widget in a single tsx block: keep everything "
+                "the widget was doing, delete the marker lines, and resolve each spot where they "
+                "left duplicated or half-written code."
+            )
+        else:
+            system_prompt += (
+                "Modify this code according to the user's instructions using SEARCH/REPLACE blocks "
+                "as described in Output Format. Do not re-send the parts you aren't changing."
+            )
 
     if req.data_source:
         # Always tell the LLM what data source is configured so it can wire it up correctly
@@ -194,6 +344,7 @@ def _build_system_prompt(req: GenerateRequest) -> str:
         else:
             ds_label = "API endpoint URL"
         system_prompt += f"\n\nThe widget has a configured data source ({ds_label}):\n```\n{req.data_source}\n```\nYou MUST use `props.data.dataSource` directly in your fetch/query call — do NOT hardcode the SQL or URL."
+        system_prompt += _size_guidance(req)
 
     if req.data_source_schema:
         schema_str = json.dumps(req.data_source_schema, indent=2)
@@ -223,7 +374,8 @@ def _finish_reason(message: Any) -> str:
     return metadata.get("finish_reason") or ""
 
 
-def _continue_truncated(next_llm, system_prompt: str, user_prompt: str, content: str) -> str:
+def _continue_truncated(next_llm, system_prompt: str, user_prompt: str, content: str,
+                        *, job_id: Optional[str] = None) -> str:
     """Extend a response that ran out of room, one continuation at a time.
 
     `next_llm()` hands back a client for another round, or None once the
@@ -238,7 +390,7 @@ def _continue_truncated(next_llm, system_prompt: str, user_prompt: str, content:
             break
         code_so_far, _ = extract_code_block(content)
         anchor = continuation_anchor(code_so_far or content)
-        print(f"Widget generation looks truncated; requesting continuation {round_no + 1}")
+        _trace(job_id, f"the reply was cut off mid-file; asking it to carry on (continuation {round_no + 1})")
         follow_up = llm.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt),
@@ -304,7 +456,8 @@ def _demand_edits(next_llm, system_prompt: str, user_prompt: str, content: str,
 
 
 def _vet_rewrite(next_llm, system_prompt: str, user_prompt: str, content: str,
-                 base_code: str, new_code: str) -> tuple[Optional[str], List[str]]:
+                 base_code: str, new_code: str,
+                 *, job_id: Optional[str] = None) -> tuple[Optional[str], List[str]]:
     """Decide what to do with a whole-file reply to an edit request.
 
     Returns the code to write — None to keep what the user already has — and notes
@@ -319,13 +472,13 @@ def _vet_rewrite(next_llm, system_prompt: str, user_prompt: str, content: str,
         # A complete widget, just a much smaller one. Asking for it as edits instead
         # would be second-guessing a request to simplify or start over, so write it
         # and make sure the user knows the old version is still reachable.
-        print(f"Whole-file reply is a large shrink: {risk.reason}")
+        _trace(job_id, f"it replaced the whole widget and {risk.reason} — writing it, and pointing at History")
         return new_code, [
             f"This replaced the entire widget — {risk.reason}. "
             "If that wasn't what you wanted, open History in the TSX Editor toolbar and restore the previous version."
         ]
 
-    print(f"Whole-file reply refused: {risk.reason}")
+    _trace(job_id, f"refused a whole-file reply — {risk.reason}; asking for the change as edits instead")
     edits = parse_edits(_demand_edits(next_llm, system_prompt, user_prompt, content, base_code, risk.reason))
     if edits:
         result = apply_edits(base_code, edits)
@@ -436,6 +589,190 @@ PLAN_SECONDS = 45
 # spending what's left to arrive at the same timeout with nothing to show.
 MIN_ONE_PASS_SECONDS = 30
 
+# The small jobs — tightening the request, summarising the conversation, deciding
+# whether to ask a question — are each a few dozen words in and out, so they are
+# capped hard and separately from the work. On a small model they cost a second
+# or two; on the generation model they would cost a third of a minute each, which
+# is why every one of them is optional and skipped when the budget is thin.
+HELPER_SECONDS = 20
+HELPER_MAX_TOKENS = 700
+
+# History older than this many messages is summarised rather than replayed. Two
+# turns is enough for "no, the other column" to make sense; the rest is what the
+# summary is for. This used to be a flat last-six slice, and six of these
+# messages is not a small payload — an assistant turn carries a step-by-step
+# summary and every italic warning the run produced.
+HISTORY_VERBATIM = 2
+
+
+def _helper_model() -> str:
+    """The endpoint for the cheap side-calls, falling back to the main one."""
+    return get_setting("widget_helper_model") or get_setting("widget_model")
+
+
+def _base_url(host: str, model: str) -> str:
+    """Where to call `model`. Derived per model, not per job.
+
+    `system.ai.…` names only resolve on the AI Gateway route and plain endpoint
+    names only on `/serving-endpoints`, so a job that uses two models cannot share
+    one URL between them — that combination 404s whichever of the two didn't
+    choose it.
+    """
+    if not host:
+        return os.environ.get("OPENAI_BASE_URL", "https://adb-1234.1.azuredatabricks.net/serving-endpoints")
+    return f"{host}{base_path_for_model(model)}"
+
+
+def _attachments(req: GenerateRequest) -> List[Dict[str, Any]]:
+    """Metadata for the files on this turn, skipping any that failed to be read.
+
+    Ownership is not checked here because it cannot be: the generation runs as a
+    background task with no caller to check against, which is why `username` is
+    `None` rather than a blank — a blank is a filter that matches nobody. It is
+    enforced at the point the ids are minted: `/api/agent/uploads` writes the
+    caller's username onto the row, and only that caller can read it back.
+    """
+    if not req.attachment_ids:
+        return []
+    from services import upload_store
+
+    out: List[Dict[str, Any]] = []
+    for upload_id in req.attachment_ids[:5]:
+        try:
+            meta = upload_store.get_upload(req.env, upload_id, None)
+        except Exception as exc:  # noqa: BLE001 — a missing file is not a failed turn
+            print(f"Could not read attachment {upload_id}: {exc}")
+            continue
+        if meta and meta.get("status") == "ready":
+            out.append(meta)
+    return out
+
+
+def _turn_message(model: str, env: str, prompt: str, attachments: List[Dict[str, Any]]) -> HumanMessage:
+    """This turn's message, carrying any files the model can read for itself.
+
+    A screenshot is the case that matters: there is no text in it to extract, so
+    "the header is misaligned" only means something if the picture travels with
+    it. `native_files` decides the content-part shape per provider.
+    """
+    parts = native_files.parts(model, env, attachments)
+    if not parts:
+        return HumanMessage(content=prompt)
+    return HumanMessage(content=[{"type": "text", "text": prompt}] + parts)
+
+
+def _compact_history(ask_helper, history: List[Message]) -> List[Any]:
+    """The conversation as messages to replay: recent turns, plus a digest.
+
+    Returning the raw tail is always correct and always available, so every
+    failure here — an unusable reply, no budget, no summary — falls back to it.
+    """
+    def replay(messages: List[Message]) -> List[Any]:
+        out: List[Any] = []
+        for msg in messages:
+            if msg.role == "user":
+                out.append(HumanMessage(content=msg.content))
+            elif msg.role in ("assistant", "system"):
+                out.append(AIMessage(content=msg.content))
+        return out
+
+    recent = history[-HISTORY_VERBATIM:] if len(history) > HISTORY_VERBATIM else history
+    older = history[:-HISTORY_VERBATIM] if len(history) > HISTORY_VERBATIM else []
+    # Not worth a round trip until the tail we would be replacing is actually big.
+    if len(older) < 2 or sum(len(m.content or "") for m in older) < 1200:
+        return replay(history[-6:] if len(history) > 6 else history)
+
+    summary = ask_helper([HumanMessage(content=(
+        "Summarise this Widget Studio conversation for the developer picking it "
+        "up. Keep what still constrains the widget — what it is for, decisions "
+        "the user made, things they rejected, problems still outstanding — and "
+        "drop everything about how it was built. No preamble, at most 120 words.\n\n"
+        + "\n\n".join(f"{m.role}: {(m.content or '')[:1500]}" for m in older)
+    ))])
+    if not summary.strip():
+        return replay(history[-6:] if len(history) > 6 else history)
+    return [AIMessage(content=f"Earlier in this conversation:\n{summary.strip()}")] + replay(recent)
+
+
+def _refine_prompt(ask_helper, req: GenerateRequest) -> str:
+    """The request, restated concretely. Returns `""` to use it as written.
+
+    Widget requests arrive as asides — "make it better", "the table is slow, also
+    the colours" — and the generation model spends its first and most expensive
+    call working out what was meant. A small model can do that for a fraction of
+    the time, against the code that is actually open. Anything unexpected in the
+    reply means the original prompt is used, which is what happened before.
+    """
+    prompt = (req.prompt or "").strip()
+    if not prompt or req.error_log:
+        return ""  # a compile error is already precise; rewriting it loses detail
+
+    code = req.current_code or ""
+    reply = ask_helper([HumanMessage(content=(
+        "Restate this Widget Studio request as an instruction to a developer. Keep "
+        "every thing it asks for and add nothing it does not: you are removing "
+        "ambiguity, not designing. Name the parts of the code involved where the "
+        "request is vague about them. If it is already clear and specific, reply "
+        "with it unchanged.\n\n"
+        f"Request:\n{prompt}\n\n"
+        + (f"The widget being changed:\n```tsx\n{code[:6000]}\n```\n\n" if code.strip() else "")
+        + 'Reply with nothing but JSON: {"request": "..."}'
+    ))])
+
+    refined = str(_json_reply(reply, "refined request").get("request") or "").strip()
+    # A refinement that dropped most of the request, or ballooned into a design
+    # document, has stopped being a restatement. Both have been seen; neither is
+    # worth handing to the generation model in place of what the user wrote.
+    if not refined or refined == prompt:
+        return ""
+    if len(refined) < len(prompt) // 2 or len(refined) > max(1200, len(prompt) * 6):
+        return ""
+    return refined
+
+
+# Marks an assistant turn as a question set, so the history alone is enough to
+# tell that one has already been asked.
+CLARIFY_MARKER = "<!-- widget-clarify -->"
+
+
+def _clarify(ask_helper, req: GenerateRequest) -> List[str]:
+    """Questions worth asking before spending a generation, or `[]` to get on with it.
+
+    Gated on `_wants_stages`, deliberately: a short instruction is one edit, and
+    asking about it is slower than doing it and being told to change it. A request
+    big enough to be worth planning is the one where a wrong guess costs minutes,
+    and that is exactly the judgement `_wants_stages` already makes.
+    """
+    if not req.allow_clarify or req.error_log or not _wants_stages(req):
+        return []
+    # Belt as well as braces: a client that forgets to set `allow_clarify` on the
+    # answering turn must not be able to produce a loop, and a conversation that
+    # already contains a question set is one where the user has answered it.
+    if any(CLARIFY_MARKER in (m.content or "") for m in req.history):
+        return []
+
+    reply = ask_helper([HumanMessage(content=(
+        "You are about to spend several minutes building this. Before you start: "
+        "is there anything you would have to guess at, where guessing wrong means "
+        "the user waits for a widget they then have to ask you to change?\n\n"
+        f"Request:\n{req.prompt}\n\n"
+        + (f"The widget being changed:\n```tsx\n{(req.current_code or '')[:4000]}\n```\n\n"
+           if (req.current_code or "").strip() else "")
+        + "Ask only about things that change what you would build and that you "
+        "cannot reasonably default: which measure, which grouping, what happens "
+        "on a click, which of two readings of an ambiguous phrase. Never ask "
+        "about styling, sizing, library choice, or anything the instructions you "
+        "were given already decide — pick a sensible default for those and say so "
+        "afterwards. Most requests need no questions at all.\n\n"
+        'Reply with nothing but JSON: {"questions": ["...", "..."]} — at most '
+        "three, each a single sentence, or an empty list if you can build this now."
+    ))])
+
+    raw = _json_reply(reply, "clarifying questions").get("questions")
+    if not isinstance(raw, list):
+        return []
+    return [q.strip() for q in raw if isinstance(q, str) and q.strip()][:3]
+
 
 def _wants_stages(req: GenerateRequest) -> bool:
     """Whether this request is big enough to be worth planning first."""
@@ -445,6 +782,24 @@ def _wants_stages(req: GenerateRequest) -> bool:
     if len(prompt) >= 240:
         return True
     return sum(1 for hint in _STAGE_HINTS if hint in prompt.lower()) >= 2
+
+
+def _json_reply(reply: str, what: str) -> Dict[str, Any]:
+    """The JSON object in a reply, or `{}` if there isn't a readable one.
+
+    Every cheap side-call in this module — planning, refining, deciding whether to
+    ask a question, reviewing — asks for JSON and must tolerate not getting it: a
+    model that answers in prose, wraps the object in a fence, or adds a sentence
+    after it has still done nothing worth failing a turn over. Callers treat `{}`
+    as "skip this step", which is always a path they already have.
+    """
+    try:
+        start, end = reply.find("{"), reply.rfind("}")
+        parsed = json.loads(reply[start:end + 1]) if start >= 0 < end else {}
+    except (ValueError, AttributeError, TypeError) as exc:
+        print(f"Widget generation {what} could not be read ({exc}); skipping it")
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _plan_stages(ask, system_prompt: str, prompt: str) -> List[Dict[str, str]]:
@@ -479,13 +834,8 @@ def _plan_stages(ask, system_prompt: str, prompt: str) -> List[Dict[str, str]]:
         )),
     ], limit=PLAN_SECONDS)
 
-    try:
-        text = reply
-        start, end = text.find("{"), text.rfind("}")
-        parsed = json.loads(text[start:end + 1]) if start >= 0 < end else {}
-        steps = parsed.get("steps") or []
-    except (ValueError, AttributeError) as exc:
-        print(f"Widget generation plan could not be read ({exc}); answering in one pass")
+    steps = _json_reply(reply, "plan").get("steps") or []
+    if not isinstance(steps, list):
         return []
 
     stages = [
@@ -529,6 +879,47 @@ def _publish(job_id: str, **fields) -> None:
         job.update(fields)
 
 
+# How much narration one job may accumulate. A run cannot produce many of these —
+# there is one per decision, not one per token — but a bound keeps a wedged job
+# from growing without limit in a dict that lives for the process.
+MAX_TRACE_LINES = 60
+
+
+def _trace(job_id: Optional[str], line: str) -> None:
+    """Say what the generation just decided, to the log and to the user.
+
+    Every interesting thing this module does — planning, refusing a whole-file
+    rewrite, repairing an edit that wouldn't apply, giving up on a step for want
+    of time — used to reach a `print()` and stop there, so the only account of a
+    three-minute generation was in `backend.log`. The studio polls this and shows
+    it in a thinking disclosure, which is the nearest honest equivalent of the
+    chat agent's: there is no readable reasoning to stream from these models (see
+    services/llm_client.reply_text), but there is plenty worth saying about the
+    decisions taken around them.
+    """
+    print(f"Widget generation: {line}")
+    if job_id is None:
+        return
+    job = generation_jobs.get(job_id)
+    if job is None:
+        return
+    trace = job.setdefault("trace", [])
+    if len(trace) < MAX_TRACE_LINES:
+        trace.append(line)
+
+
+def _settle(job_id: str, **fields) -> None:
+    """Replace the job with its final state, keeping the narration.
+
+    The completion paths deliberately assign a whole new dict rather than
+    updating in place, so that a stale `stage_code` or `error` from mid-run can't
+    survive into the result. The trace has to be carried across by hand for that
+    reason — it is the one field whose value is the whole history.
+    """
+    previous = generation_jobs.get(job_id) or {}
+    generation_jobs[job_id] = {"trace": previous.get("trace", []), **fields}
+
+
 def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
                 ask, next_llm, budget: "_Budget") -> None:
     """Work through a plan, applying each step to the code the last one produced.
@@ -558,6 +949,7 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
         if not budget.has(25):
             for pending in stages[index:]:
                 pending["status"] = "skipped"
+            _trace(job_id, f"out of time after {budget.spent}s; skipping the remaining {len(stages) - index} step(s)")
             summary.append(
                 f"Ran out of time after {applied} of {len(stages)} steps ({budget.spent}s). "
                 "The steps that finished are applied — ask me to carry on, or raise the "
@@ -567,6 +959,7 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
 
         stage["status"] = "running"
         _publish(job_id, stages=stages)
+        _trace(job_id, f"step {index + 1} of {len(stages)} — {stage['title']}: {stage['detail']}")
 
         prompt_for_stage = _stage_instruction(stages, index, first=not code.strip())
         staged_req = req.model_copy(update={"current_code": code})
@@ -579,10 +972,10 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
             ])
             next_code, explanation, _raw, meta = _apply_reply(
                 reply, looks_truncated(reply), code, staged_req,
-                next_llm, stage_system, prompt_for_stage, budget,
+                next_llm, stage_system, prompt_for_stage, budget, job_id=job_id,
             )
         except Exception as exc:  # noqa: BLE001 — one step failing must not end the run
-            print(f"Widget generation step {index + 1} failed: {exc}")
+            _trace(job_id, f"step {index + 1} failed: {exc}")
             stage["status"] = "failed"
             stage["note"] = _failure_text(exc, budget)
             _publish(job_id, stages=stages)
@@ -619,7 +1012,7 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
             ". Ask again for just those and I'll retry them against the current code."
         )
 
-    generation_jobs[job_id] = {
+    _settle(job_id, **{
         "status": "completed",
         "stages": stages,
         "stage_index": len(done),
@@ -631,7 +1024,7 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
             "raw": "",
             "settings": settings,
         },
-    }
+    })
 
 
 def _failure_text(exc: Exception, budget: "_Budget") -> str:
@@ -661,21 +1054,78 @@ def _failure_text(exc: Exception, budget: "_Budget") -> str:
     return raw
 
 
-def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_url: str):
+def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: str):
     budget = _Budget(_widget_timeout())
     try:
-        # Admin-settable (Admin Panel → Settings), falling back to LLM_MODEL.
+        # Admin-settable (Admin Panel → Settings), falling back to LLM_MODEL. The
+        # base path follows each model name independently: a `system.ai.…` helper
+        # alongside a plain generation endpoint resolves on different routes, and
+        # deriving one URL from one of them 404s the other.
         model_name = get_setting("widget_model")
-        system_prompt = _build_system_prompt(req)
+        helper_name = _helper_model()
+        base_url = _base_url(host, model_name)
+        helper_base_url = _base_url(host, helper_name)
 
-        # Limit history to the last 6 messages to avoid massive context payloads causing timeouts
-        history_to_keep = req.history[-6:] if len(req.history) > 6 else req.history
-        lc_history = []
-        for msg in history_to_keep:
-            if msg.role == 'user':
-                lc_history.append(HumanMessage(content=msg.content))
-            elif msg.role in ('assistant', 'system'):
-                lc_history.append(AIMessage(content=msg.content))
+        def ask_helper(messages: List[Any]) -> str:
+            """One quick side-call, or `""` if there is no time for it.
+
+            Every caller treats an empty reply as "skip this step", so the helper
+            is never the reason a turn fails: it either saves the generation model
+            some work or it gets out of the way.
+            """
+            if not budget.has(HELPER_SECONDS + 10):
+                return ""
+            try:
+                def attempt(params: Dict[str, Any]) -> str:
+                    llm = _widget_llm(api_key, helper_base_url, helper_name, budget,
+                                      params, HELPER_SECONDS)
+                    return reply_text(llm.invoke(messages))
+
+                return llm_params.with_adaptation(
+                    helper_name, attempt,
+                    max_tokens=HELPER_MAX_TOKENS,
+                    params_fn=llm_params.langchain_params,
+                )
+            except Exception as exc:  # noqa: BLE001 — an optional step, by design
+                _trace(job_id, f"skipped a quick check ({helper_name} said: {exc})")
+                return ""
+
+        # Asked before anything is built, and only for requests big enough that a
+        # wrong guess costs real time. Nothing is generated and no code is
+        # touched: the studio shows the questions and the next turn answers them.
+        questions = _clarify(ask_helper, req)
+        if questions:
+            _trace(job_id, f"this looks big enough to be worth {len(questions)} question(s) first")
+            _settle(job_id, status="completed", result={
+                "code": None,
+                "explanation": (
+                    "Before I spend a few minutes on this, a couple of things I'd otherwise "
+                    "have to guess at:\n\n"
+                    + "\n".join(f"{i + 1}. {q}" for i, q in enumerate(questions))
+                    + "\n\nAnswer what matters and ignore the rest — or press **Build it anyway** "
+                    "and I'll pick sensible defaults.\n" + CLARIFY_MARKER
+                ),
+                "raw": "",
+                "settings": {},
+                "questions": questions,
+            })
+            return
+
+        refined = _refine_prompt(ask_helper, req)
+        if refined:
+            _trace(job_id, f"read the request as: {refined}")
+        prompt = refined or req.prompt
+        working = req.model_copy(update={"prompt": prompt})
+
+        system_prompt = _build_system_prompt(working)
+        lc_history = _compact_history(ask_helper, req.history)
+        # Files the user attached ride on this turn's message only, so re-sending
+        # never compounds them across a conversation.
+        attachments = _attachments(req)
+        turn = _turn_message(model_name, req.env, prompt, attachments)
+        if attachments:
+            _trace(job_id, "reading " + ", ".join(a.get("filename") or "a file" for a in attachments))
+            system_prompt += "\n\n" + attachments_prompt(attachments)
 
         # The first call is where a parameter the endpoint refuses shows up, so it
         # runs under `with_adaptation`: the offending parameter is dropped and the
@@ -683,14 +1133,14 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
         def generate(params: Dict[str, Any]):
             llm = _widget_llm(api_key, base_url, model_name, budget, params)
             agent = create_react_agent(model=llm, tools=[search_widgets], prompt=system_prompt)
-            return agent.invoke({"messages": lc_history + [HumanMessage(content=req.prompt)]})
+            return agent.invoke({"messages": lc_history + [turn]})
 
         # Every follow-up round asks for a client here, and gets None once the
         # allowance is spent — so a generation that runs long returns the work it
         # managed rather than dying on a timeout with nothing to show.
         def next_llm() -> Optional[DatabricksChatOpenAI]:
             if not budget.has(15):
-                print(f"Widget generation budget spent after {budget.spent}s; skipping follow-up round")
+                _trace(job_id, f"out of time after {budget.spent}s; skipping the follow-up round")
                 return None
             return _widget_llm(api_key, base_url, model_name, budget)
 
@@ -714,22 +1164,24 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
         # A request asking for several things at once is planned and applied a step
         # at a time: each call is small enough to finish, progress is visible, and
         # what lands stays landed. One instruction still goes straight to the model.
-        if _wants_stages(req):
-            stages = _plan_stages(ask, system_prompt, req.prompt)
+        if _wants_stages(working):
+            stages = _plan_stages(ask, system_prompt, prompt)
             if stages:
-                print(f"Widget generation planned in {len(stages)} steps")
-                _run_stages(job_id, req, stages, ask, next_llm, budget)
+                _trace(job_id, "planned this in "
+                       + ", ".join(f"{i + 1}) {s['title']}" for i, s in enumerate(stages)))
+                _run_stages(job_id, working, stages, ask, next_llm, budget)
                 return
             # No plan, and planning took the allowance with it. Starting a one-pass
             # generation now would spend the rest arriving at the same timeout with
             # nothing to show, so say what happened while it can still be read.
             if not budget.has(MIN_ONE_PASS_SECONDS):
-                generation_jobs[job_id] = {"status": "failed", "error": (
+                _settle(job_id, status="failed", error=(
                     f"Planning this request used the {budget.total}s allowed for it, leaving no "
                     "time to build anything. Ask for one part of the widget at a time, or raise "
                     "the widget generation timeout in Admin Panel → Settings."
-                )}
+                ))
                 return
+            _trace(job_id, "no usable plan came back; building it in one pass")
 
         response = llm_params.with_adaptation(
             model_name, generate,
@@ -742,28 +1194,205 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, base_ur
                      or looks_truncated(reply_text(last_message)))
 
         code, explanation, content, meta = _apply_reply(
-            reply_text(last_message), truncated, req.current_code or "", req,
-            next_llm, system_prompt, req.prompt, budget,
+            reply_text(last_message), truncated, req.current_code or "", working,
+            next_llm, system_prompt, prompt, budget, job_id=job_id,
         )
 
-        generation_jobs[job_id] = {
-            "status": "completed",
-            "result": {
-                "code": code,
-                "explanation": explanation,
-                "raw": content,
-                "settings": meta,
-            }
-        }
+        _settle(job_id, status="completed", result={
+            "code": code,
+            "explanation": explanation,
+            "raw": content,
+            "settings": meta,
+        })
     except Exception as e:
         import traceback
         traceback.print_exc()
-        generation_jobs[job_id] = {"status": "failed", "error": _failure_text(e, budget)}
+        _settle(job_id, status="failed", error=_failure_text(e, budget))
+
+
+# A review is one reading pass plus, at most, one round of fixes. It gets a
+# fraction of the generation allowance because it runs *after* the user already
+# has working code: a review that takes as long as the build is not worth waiting
+# for, and one that runs out of time simply reports what it found.
+REVIEW_SECONDS = 120
+
+
+def _review_instruction(req: GenerateRequest) -> str:
+    """What to look for. Names no rules — it points back at the ones already given.
+
+    Restating the widget contract here would be a second copy of
+    `agent_instructions.md` to keep in step with the first, and the reviewer is
+    already holding it: `_build_system_prompt` puts it in the system message.
+
+    Two halves, because checking the code against the request can only ever
+    confirm the request. Asked for a supplier table with a search box, a model
+    reviewing its own work reported six paragraphs of things that were correct
+    and stopped — while the widget had no way to sort, which is the first thing
+    anyone would want from a scorecard and something nobody had thought to ask
+    for. So the first half hunts defects and may fix them, and the second asks
+    whether the widget is any good and may not touch anything: a review that
+    builds what it just suggested is one users switch off.
+    """
+    asked = (req.prompt or "").strip()
+    return (
+        "Review the widget above as a second pair of eyes. It compiles and renders "
+        "— that has already been checked, so do not comment on syntax.\n\n"
+        + (f"What the user asked for:\n{asked}\n\n" if asked else "")
+        + "Answer in two parts, under those headings.\n\n"
+        "## What's wrong\n\n"
+        "Judge it against the instructions you were given:\n"
+        "1. **Does it do what was asked?** Every part of the request, not most of "
+        "it. A silently dropped requirement is the finding that matters most.\n"
+        "2. **Data.** Does it read the configured source correctly, show the reason "
+        "when a query is refused rather than an empty panel, and do its filtering "
+        "and aggregating on the side it was told to?\n"
+        "3. **States.** Loading, empty, error and too-much-data — is each one a "
+        "thing the user can read, or does the widget just sit blank?\n"
+        "4. **Layout.** Does it still work squashed narrow and stretched wide, and "
+        "does it fill the space it is given rather than assuming a size?\n"
+        "5. **Legibility.** Go through every text and icon colour in the file, not "
+        "only the ones the request drew attention to: placeholder, helper, "
+        "disabled, empty-state and hover text are where the unreadable ones "
+        "survive. Name any that is 400 or lighter on a light background. Also "
+        "flag arbitrary Tailwind values.\n"
+        "6. **Correctness in the small.** Effects cleaned up, keys on lists, no "
+        "work repeated on every render that could be held.\n\n"
+        "Report findings only, worst first, one sentence of why each. **Do not "
+        "walk back through those six confirming what is fine.** A list of things "
+        "that are correct is not a review — it is padding that buries the one "
+        "line that mattered, and it reads as work done rather than work found. If "
+        "a choice is a fair reading of an ambiguous request rather than a defect, "
+        "leave it alone. If there is genuinely nothing, one line saying so is the "
+        "whole of this part.\n\n"
+        "Fix what you found, as SEARCH/REPLACE blocks against the code above. "
+        "Defects and omissions only — do not restyle, rename, reorganise or add "
+        "features nobody asked for, and do not send a tsx block.\n\n"
+        "## Worth considering\n\n"
+        "Now stop comparing the code to the request, which can only ever tell you "
+        "the request was followed, and judge the widget as the person who has to "
+        "use it every day. Open with one line: is this good at the job it exists "
+        "to do? Then name up to three changes that would most improve it, best "
+        "first, each with what it would be worth and roughly what it would take.\n\n"
+        "Look for what the request could not tell you:\n"
+        "- **The question someone opens this widget with.** Can they answer it at "
+        "a glance, or must they read every row and hold it in their head?\n"
+        "- **Ranking and comparison.** A table nothing sorts by cannot answer "
+        "\"which are the worst\", and a headline number with no target, total or "
+        "prior period cannot be judged good or bad by the person reading it.\n"
+        "- **The next move it invites and does not support** — a filter for the "
+        "category it just colour-coded, a click through to the row behind a "
+        "figure, a way to take the finding somewhere else.\n"
+        "- **Whether it holds up at real size.** Demo data is small and sorted "
+        "conveniently; production data is neither.\n"
+        "- **Anything on screen that carries no information** — a chart with no "
+        "scale, a colour that encodes a rule it never reveals.\n\n"
+        "Be concrete: name the control, the column or the number you would add, "
+        "not a quality like \"improve usability\". A widget can satisfy every word "
+        "of the request and still stop one step short of being useful, and that "
+        "gap is invisible to the first part of this review — it is the whole "
+        "reason this part exists. Only conclude there is nothing worth doing if "
+        "you have genuinely looked and the widget is complete for its purpose, "
+        "and say why you think so.\n\n"
+        "These are suggestions, not work: do not implement them and do not send "
+        "SEARCH/REPLACE blocks for them. A review that quietly grows the widget "
+        "is one nobody can leave switched on.\n\n"
+        "## Finally, make them actionable\n\n"
+        "End your reply with a ```widget-next block: a JSON array turning what "
+        "you just wrote into things the user can click, in the order you argued "
+        "for them. This is not code and is not an edit — it is stripped out "
+        "before anyone sees it, and each entry becomes a button that writes its "
+        "prompt into the message box.\n\n"
+        "```widget-next\n"
+        '[{"kind": "idea", "label": "Sortable columns",\n'
+        '  "prompt": "Make the columns sortable, defaulting to risk descending, '
+        'so the suppliers that need attention are at the top."}]\n'
+        "```\n\n"
+        f"At most {MAX_SUGGESTIONS} entries. `kind` is \"idea\" for anything from "
+        "Worth considering, and \"fix\" for a defect you reported but did not "
+        "fix — never for one you already fixed, since there is nothing left to "
+        "do. `label` is a few words for the button. `prompt` is the instruction "
+        "written as the user would write it to you, specific enough to act on "
+        "without the rest of this review for context. Send no block at all if "
+        "you had nothing to report and nothing to suggest."
+    )
+
+
+def run_review_task(job_id: str, req: GenerateRequest, api_key: str, host: str):
+    """Read the generated widget back and fix what's wrong with it.
+
+    Off by default, because it is another model call on top of a generation that
+    has already finished. Findings that come back as edits go through
+    `_apply_reply` like any other reply, so the fragment vetting and the failed-edit
+    repair apply here too — a review is not allowed to eat the widget it was
+    checking.
+    """
+    budget = _Budget(min(REVIEW_SECONDS, _widget_timeout()))
+    code = req.current_code or ""
+    try:
+        if not code.strip():
+            _settle(job_id, status="completed", result={"code": None, "explanation": "", "raw": "", "settings": {}})
+            return
+
+        model_name = get_setting("widget_model")
+        base_url = _base_url(host, model_name)
+        system_prompt = _build_system_prompt(req)
+        instruction = _review_instruction(req)
+        _trace(job_id, "reviewing the widget against what you asked for")
+
+        def next_llm() -> Optional[DatabricksChatOpenAI]:
+            if not budget.has(15):
+                return None
+            return _widget_llm(api_key, base_url, model_name, budget)
+
+        def attempt(params: Dict[str, Any]) -> str:
+            llm = _widget_llm(api_key, base_url, model_name, budget, params)
+            return reply_text(llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=instruction),
+            ]))
+
+        reply = llm_params.with_adaptation(
+            model_name, attempt,
+            max_tokens=_widget_max_tokens(),
+            params_fn=llm_params.langchain_params,
+        )
+
+        fixed, explanation, content, _meta = _apply_reply(
+            reply, looks_truncated(reply), code, req,
+            next_llm, system_prompt, instruction, budget, job_id=job_id,
+        )
+        suggestions, explanation = _extract_next(explanation)
+        _trace(job_id, "fixed what the review found" if fixed else "the review found nothing worth changing")
+        if suggestions:
+            _trace(job_id, f"offered {len(suggestions)} thing(s) you can do next in one click")
+
+        _settle(job_id, status="completed", result={
+            "code": fixed,
+            "explanation": ("**Review**\n\n" + explanation).strip() if explanation.strip() else "",
+            "raw": content,
+            "suggestions": suggestions,
+            # A review never proposes Configuration-tab values: those were settled
+            # when the widget was built, and second-guessing them here would
+            # overwrite what the user has since typed.
+            "settings": {},
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # A failed review must never look like a failed generation — the code the
+        # user is holding is fine, and this was an optional extra pass over it.
+        _settle(job_id, status="completed", result={
+            "code": None,
+            "explanation": f"_I couldn't finish the review pass ({_failure_text(e, budget)}). Your widget is unchanged._",
+            "raw": "",
+            "settings": {},
+        })
 
 
 def _apply_reply(reply: str, truncated: bool, base_code: str, req: GenerateRequest,
                  next_llm, system_prompt: str, user_prompt: str,
-                 budget: "_Budget") -> tuple[Optional[str], str, str, Dict[str, Any]]:
+                 budget: "_Budget",
+                 *, job_id: Optional[str] = None) -> tuple[Optional[str], str, str, Dict[str, Any]]:
     """Turn one model reply into code, an explanation, and proposed settings.
 
     Shared by the single-pass path and each step of a staged run, so a step gets the
@@ -783,6 +1412,7 @@ def _apply_reply(reply: str, truncated: bool, base_code: str, req: GenerateReque
         notes.extend(result.warnings)
 
         if result.failures:
+            _trace(job_id, f"{len(result.failures)} of its edits didn't match the file; asking for corrected search text")
             repair = _repair_edits(next_llm, system_prompt, user_prompt, content,
                                    result.code, result.failures)
             retry_edits = parse_edits(repair)
@@ -825,7 +1455,7 @@ def _apply_reply(reply: str, truncated: bool, base_code: str, req: GenerateReque
         # Whole-file response: either a new widget or a rewrite the model
         # judged too pervasive to express as edits.
         if truncated:
-            content = _continue_truncated(next_llm, system_prompt, user_prompt, content)
+            content = _continue_truncated(next_llm, system_prompt, user_prompt, content, job_id=job_id)
         code, explanation = extract_code_block(content)
         if code:
             # Failsafe cleanup of any lingering backticks just in case
@@ -835,7 +1465,7 @@ def _apply_reply(reply: str, truncated: bool, base_code: str, req: GenerateReque
                 # Editing, not creating: whatever this block holds is about to
                 # become the whole widget, so make sure it is one.
                 code, vet_notes = _vet_rewrite(next_llm, system_prompt, user_prompt, content,
-                                               base_code, code)
+                                               base_code, code, job_id=job_id)
                 notes.extend(vet_notes)
         if looks_truncated(content):
             notes.append(
@@ -853,36 +1483,62 @@ def _apply_reply(reply: str, truncated: bool, base_code: str, req: GenerateReque
     return code, explanation, content, meta
 
 
-@router.post("/generate")
-async def start_generate_widget(req: GenerateRequest, background_tasks: BackgroundTasks, db_client: WorkspaceClient = Depends(get_db_client_sp)):
-    # Use the WorkspaceClient config to initialize the OpenAI client securely
+def _llm_credentials(db_client: WorkspaceClient) -> tuple[str, str]:
+    """(api_key, host) for the LLM calls a job will make.
+
+    Inference is signed by the app's service principal here for the same reason
+    it is in the chat runtime: per-user foundation-model entitlements produced
+    403s. No user data passes through it — the widget code and the request are
+    the whole payload.
+    """
     try:
         host = db_client.config.host
-        
         # Databricks Python SDK encapsulates dynamic tokens (like OAuth/SP) inside authenticate()
         auth_headers_fn = db_client.config.authenticate()
         auth_headers = auth_headers_fn() if callable(auth_headers_fn) else auth_headers_fn
         api_key = auth_headers.get("Authorization", "").replace("Bearer ", "") if auth_headers else ""
-        
         # Some dev setups might not have a token directly accessible, fallback to env
         api_key = api_key or db_client.config.token or os.environ.get("OPENAI_API_KEY") or os.environ.get("DATABRICKS_TOKEN") or "dummy"
-        # Base path follows the configured model: `system.ai.…` names only resolve
-        # on the AI Gateway route, plain endpoint names only on /serving-endpoints.
-        base_path = base_path_for_model(get_setting("widget_model"))
-        base_url = f"{host}{base_path}" if host else os.environ.get("OPENAI_BASE_URL", "https://adb-1234.1.azuredatabricks.net/serving-endpoints")
-        
+        return api_key, host
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI client init failed: {e}")
-        
+
+
+@router.post("/generate")
+async def start_generate_widget(req: GenerateRequest, background_tasks: BackgroundTasks, db_client: WorkspaceClient = Depends(get_db_client_sp)):
+    api_key, host = _llm_credentials(db_client)
+
     job_id = str(uuid.uuid4())
-    generation_jobs[job_id] = {"status": "pending", "result": None, "error": None}
-    
-    background_tasks.add_task(run_generation_task, job_id, req, api_key, base_url)
+    generation_jobs[job_id] = {"status": "pending", "result": None, "error": None, "trace": []}
+
+    # The host, not a URL: this job may call two models on two different routes,
+    # so each one derives its own base path. See `_base_url`.
+    background_tasks.add_task(run_generation_task, job_id, req, api_key, host)
 
     # The studio sizes its own polling from this rather than from a hardcoded
     # number, so raising the limit in Settings is enough — the client used to give
     # up at five minutes no matter what the server was still willing to do.
     return {"job_id": job_id, "timeout_seconds": _widget_timeout()}
+
+@router.post("/review")
+async def start_review_widget(req: GenerateRequest, background_tasks: BackgroundTasks, db_client: WorkspaceClient = Depends(get_db_client_sp)):
+    """Queue a QA pass over code that has just been generated and compiled.
+
+    Deliberately a second request rather than a tail on the generation job: the
+    only compiler this app has is the browser's, so the studio is the one that
+    knows whether the code it was handed actually builds. Reviewing before that
+    would mean auditing code that may not run.
+
+    The job shape is identical to `/generate`, so the studio polls it with the
+    same code and a finding that comes back as an edit lands in History like any
+    other change.
+    """
+    api_key, host = _llm_credentials(db_client)
+    job_id = str(uuid.uuid4())
+    generation_jobs[job_id] = {"status": "pending", "result": None, "error": None, "trace": []}
+    background_tasks.add_task(run_review_task, job_id, req, api_key, host)
+    return {"job_id": job_id, "timeout_seconds": _widget_timeout()}
+
 
 @router.get("/generate/{job_id}")
 async def get_generate_status(job_id: str):
@@ -904,6 +1560,36 @@ async def stop_generate(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     job["cancelled"] = True
     return {"status": job.get("status", "running"), "cancelled": True}
+
+def _row_estimate(sql_api, warehouse_id: str, query: str) -> Optional[int]:
+    """How many rows the configured query returns, or None if we couldn't find out.
+
+    Deliberately best-effort and short-fused. It is the difference between the
+    agent writing a widget that pages in SQL and one that pulls 40,000 rows into
+    the browser, but it is not worth failing a data-source test over: a query the
+    warehouse won't wrap, or one slow enough to outlast the wait, leaves the
+    estimate unknown and the prompt says so.
+    """
+    from databricks.sdk.service.sql import Disposition
+
+    counted = query.strip().rstrip(";")
+    if not counted:
+        return None
+    # A LIMIT inside the wrapped query is honoured by the count, which is what we
+    # want: the widget sees that result set, not the table behind it.
+    try:
+        statement = sql_api.execute_statement(
+            warehouse_id=warehouse_id,
+            statement=f"SELECT COUNT(*) AS n FROM ({counted}) AS _row_estimate",
+            wait_timeout="30s",
+            disposition=Disposition.INLINE,
+        )
+        data = statement.result.data_array if statement.result else None
+        return int(data[0][0]) if data and data[0] and data[0][0] is not None else None
+    except Exception as exc:  # noqa: BLE001 — an unknown count is a supported outcome
+        print(f"Could not estimate row count for the configured query: {exc}")
+        return None
+
 
 def extract_schema_from_json(data):
     if isinstance(data, list) and len(data) > 0:
@@ -991,7 +1677,11 @@ async def test_datasource(req: DataSourceTestRequest, db_client: WorkspaceClient
                     rows.append(row_dict)
 
             schema = {col: type(rows[0].get(col)).__name__ if rows and rows[0].get(col) is not None else "string" for col in columns}
-            return {"schema": schema, "sample": rows}
+            return {
+                "schema": schema,
+                "sample": rows,
+                "row_estimate": _row_estimate(sql_api, warehouse_id, req.data_source),
+            }
         except HTTPException:
             raise
         except Exception as e:

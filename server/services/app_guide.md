@@ -74,17 +74,44 @@ description.
    default size, whether the widget performs an executable action, and its
    configuration mode (whether end users can pass runtime inputs). The Data
    Source (None, API, or SQL) can be tested here, and the extracted schema is
-   handed to the generating agent.
+   handed to the generating agent. Testing a SQL source also counts the rows it
+   returns, which decides how the agent builds: a few thousand rows are fetched
+   and worked with in the browser, while a large table gets paging, sorting,
+   searching and totals pushed into SQL so the widget only ever holds one page.
+   An untested source is treated as large.
 2. **The agent** — describe the widget in the chat and it writes the TSX. Asking
    for a change edits the existing code in place rather than rewriting the whole
    component. After generating, it also proposes Configuration-tab values;
-   anything already filled in by hand is left alone.
-3. **TSX Editor / Live Preview** — the code and its live rendering. **Reload**
+   anything already filled in by hand is left alone. While it works, **Thinking**
+   can be expanded to see what it decided — how it read the request, the steps it
+   planned, and anything it skipped — and that stays with the answer afterwards.
+   On a large or vague request it may ask up to three questions first rather than
+   guess; answer them, or press **Build it anyway** to have it choose defaults.
+3. **Attachments and screenshots** — the paperclip attaches spreadsheets,
+   documents and images for the agent to read, and **Send screenshot to agent**
+   under the preview attaches a picture of the widget as it currently looks.
+   Neither sends on its own: the file waits on the next message, so "this column
+   is too narrow" arrives with the thing it describes.
+4. **TSX Editor / Live Preview** — the code and its live rendering. **Reload**
    re-runs the widget so anything that only happens on first load can be
    repeated without editing code.
-4. **Publish / Update** — saves to the Dev environment and increments the
-   version. The widget is immediately available in the Widget Library to users
-   with Dev access.
+5. **Agent settings** (the sliders icon above the chat) — two options, remembered
+   in that browser rather than set for everyone. *Conduct review after change*
+   (off by default) has the agent re-read its own code once it compiles, as a QA
+   pass over behaviour, states, layout and legibility, and fix what it finds. It
+   then adds a *Worth considering* note — up to three changes that would make the
+   widget better at its job, judged as a product owner would rather than against
+   the request. Those are only ever suggestions; the review never implements them,
+   so it cannot quietly grow a widget. Each one appears as a chip under **Do
+   next**: clicking it writes that instruction into the message box, ready to
+   edit or send, so acting on a suggestion is one click rather than retyping it.
+   It costs an extra turn. *Ask before large builds* (on by default) is the
+   clarifying-question behaviour above, and can be switched off by anyone who
+   would rather it always guessed.
+6. **Save / Publish** — saves to the Dev environment and increments the version,
+   and leaves you in the studio to carry on working. The widget is immediately
+   available in the Widget Library to users with Dev access. **Done** (the X)
+   closes the studio.
 
 A widget can also be exported to a JSON file and imported elsewhere, which is
 how widgets move between disconnected environments.
@@ -168,10 +195,13 @@ agent is used when none is chosen.
 ## Which model the assistant uses
 
 Global admins choose the model in **Admin Panel → Settings**, from a searchable
-list of the workspace's chat-capable models. Three are set separately: the model
-behind this chat, the one that writes widget code in Widget Studio, and the one
-that drafts agents in Agent Studio. The same page holds the chat agent's limits —
-how many tool calls it may make in one turn, and how long a single answer may be.
+list of the workspace's chat-capable models. Four are set separately: the model
+behind this chat, the one that writes widget code in Widget Studio, a small
+helper model for the studio's quick jobs (tightening up a request, summarising a
+long conversation, deciding whether to ask a question), and the one that drafts
+agents in Agent Studio. Leaving the helper blank uses the widget generation model
+for those too. The same page holds the chat agent's limits — how many tool calls
+it may make in one turn, and how long a single answer may be.
 
 The response length limit is a ceiling, not a target — raising it costs nothing
 until an answer needs the room, and models that allow less than the configured

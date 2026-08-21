@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X } from 'lucide-react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X, Paperclip, Camera, Sliders, Loader2, Wrench, Lightbulb } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
+import { useChatUploads } from '../hooks/useChatUploads';
 import { BaseWidget } from '../components/BaseWidget';
 import { CodeEditor } from '../components/CodeEditor';
+import { AttachmentChip, SentAttachments } from '../components/AttachmentChip';
+import { ThinkingDisclosure } from '../components/ThinkingDisclosure';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
 import { useDashboardStore } from '../store/dashboardStore';
 import ReactMarkdown from 'react-markdown';
@@ -18,7 +21,13 @@ interface WidgetStudioProps {
 }
 
 class WidgetErrorBoundary extends React.Component<
-    { children: React.ReactNode; onReset?: () => void; onError?: (error: Error) => void },
+    {
+        children: React.ReactNode;
+        /** Change this to give new code a clean slate. See componentDidUpdate. */
+        resetKey?: unknown;
+        onReset?: () => void;
+        onError?: (error: Error) => void;
+    },
     { hasError: boolean; error: Error | null }
 > {
     constructor(props: any) {
@@ -33,6 +42,20 @@ class WidgetErrorBoundary extends React.Component<
     componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
         console.error('Widget preview error:', error, errorInfo);
         this.props.onError?.(error);
+    }
+
+    /**
+     * A boundary that has caught something goes on showing it forever — new
+     * children don't clear it. That made a fixed widget indistinguishable from an
+     * ignored request: the agent repaired the code, it compiled, and the pane kept
+     * rendering the old crash. Recompiling produces a new component function, so
+     * the component identity is the signal that this error belongs to code that
+     * no longer exists.
+     */
+    componentDidUpdate(prev: { resetKey?: unknown }) {
+        if (this.state.hasError && prev.resetKey !== this.props.resetKey) {
+            this.setState({ hasError: false, error: null });
+        }
     }
 
     render() {
@@ -134,6 +157,81 @@ type GenerationStage = {
 };
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/**
+ * One turn in the studio's chat.
+ *
+ * `thinking` is the account the server gives of what it decided while it worked
+ * — the plan it made, a rewrite it refused, a step it ran out of time for. It is
+ * not the model's reasoning, which these models keep to themselves; it is the
+ * decisions taken around them, which is the part worth reading.
+ */
+type StudioMessage = {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    thinking?: string;
+    /** Questions the agent wants answered before it spends a generation. */
+    questions?: string[];
+    /** What the review would do next, as prompts a click away. */
+    suggestions?: StudioSuggestion[];
+    attachments?: { id: string; filename: string; kind: string }[];
+};
+
+/** One follow-up the review offered: a defect it left, or an improvement.
+ *
+ *  `prompt` is written as an instruction to the agent rather than a description,
+ *  because clicking one puts it in the message box for the user to send or edit.
+ */
+type StudioSuggestion = {
+    kind: 'fix' | 'idea';
+    label: string;
+    prompt: string;
+};
+
+/**
+ * A turn as the user should read it.
+ *
+ * The server marks a question set with an HTML comment so it can recognise one in
+ * the history it gets back, and that has to survive in `content` for the round
+ * trip — but a comment is only invisible in HTML, and this is markdown rendered
+ * without raw-HTML support, so it was being printed to the user verbatim. Strip
+ * it here, at the last possible moment, rather than from the stored message.
+ */
+const displayText = (content: string) => content.replace(/<!--[\s\S]*?-->/g, '').trim();
+
+/** What a settled generation or review turn came back with. */
+type JobResult = {
+    /** Absent when nothing was applied — a review that found nothing, or a
+     *  question asked instead of an answer. The editor keeps what it has. */
+    code?: string | null;
+    explanation?: string;
+    questions?: string[];
+    suggestions?: StudioSuggestion[];
+    settings?: Record<string, unknown>;
+};
+
+// Studio preferences, per person and per browser rather than per deployment:
+// whether to review after a change is a working style, not something an admin
+// should decide for everyone (and app_settings is deployment-global by design).
+const AGENT_PREFS_KEY = "sc_widget_studio_agent_prefs";
+
+type AgentPrefs = { reviewAfterChange: boolean; askQuestions: boolean };
+
+const DEFAULT_AGENT_PREFS: AgentPrefs = {
+    // Off: it is another model call after the work has already finished, and the
+    // wait is the cost people notice most.
+    reviewAfterChange: false,
+    askQuestions: true,
+};
+
+const readAgentPrefs = (): AgentPrefs => {
+    try {
+        const stored = localStorage.getItem(AGENT_PREFS_KEY);
+        return stored ? { ...DEFAULT_AGENT_PREFS, ...JSON.parse(stored) } : DEFAULT_AGENT_PREFS;
+    } catch {
+        return DEFAULT_AGENT_PREFS;
+    }
+};
 
 /** The state of one planned step, at a glance. */
 const StageMark: React.FC<{ status?: GenerationStage['status'] }> = ({ status }) => {
@@ -363,12 +461,16 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const sessionState = getSessionState();
     const { username } = useDashboardStore();
 
-    const [messages, setMessages] = useState<{ role: 'user' | 'assistant' | 'system', content: string }[]>(sessionState?.messages || [{
+    const [messages, setMessages] = useState<StudioMessage[]>(sessionState?.messages || [{
         role: 'assistant',
         content: "Welcome to the Widget Studio! Briefly describe the widget you want to build."
     }]);
 
     const [prompt, setPrompt] = useState(sessionState?.prompt || "");
+    const composerRef = useRef<HTMLTextAreaElement>(null);
+    // Set when text is placed in the composer on the user's behalf, so the caret
+    // follows it there without hijacking the cursor during ordinary typing.
+    const focusComposerRef = useRef(false);
     const [isGenerating, setIsGenerating] = useState(false);
     // Seconds spent on the request in flight. A big widget takes minutes, and a
     // spinner with no clock on it is indistinguishable from a hang.
@@ -377,8 +479,18 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // over as each step lands, so a multi-minute generation shows what it is doing
     // instead of one spinner.
     const [stages, setStages] = useState<GenerationStage[]>([]);
+    // What the run in flight has decided so far. Shown live, then attached to the
+    // answer it belongs to so it can be read back afterwards.
+    const [liveThinking, setLiveThinking] = useState<string[]>([]);
     const [stopping, setStopping] = useState(false);
+    const [agentPrefs, setAgentPrefs] = useState<AgentPrefs>(readAgentPrefs);
+    const [showAgentPrefs, setShowAgentPrefs] = useState(false);
+    const [isCapturing, setIsCapturing] = useState(false);
+    const attachInputRef = useRef<HTMLInputElement>(null);
     const [isPublishing, setIsPublishing] = useState(false);
+    // Outcome of the last save, shown inline and briefly. Saving keeps you on the
+    // page now, so this replaced an alert — see handlePublish.
+    const [saveNotice, setSaveNotice] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
     const [code, setCode] = useState<string>(sessionState?.code || DEFAULT_WIDGET_CODE);
     const [checkpoints, setCheckpoints] = useState<CodeCheckpoint[]>(sessionState?.checkpoints || []);
     const [showHistory, setShowHistory] = useState(false);
@@ -397,6 +509,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [dataSourceType, setDataSourceType] = useState<"none" | "api" | "sql" | "databricks_api">(sessionState?.dataSourceType || "none");
     const [dataSource, setDataSource] = useState(sessionState?.dataSource || "");
     const [dataSourceSchema, setDataSourceSchema] = useState<any>(sessionState?.dataSourceSchema || null);
+    // How many rows the tested query returns. Sent with every request: without it
+    // the agent has no way to know whether to page in SQL or in the browser, and
+    // guessing wrong is how a 40,000-row table ends up being fetched in batches.
+    const [rowEstimate, setRowEstimate] = useState<number | null>(sessionState?.rowEstimate ?? null);
     const [isTestingDataSource, setIsTestingDataSource] = useState(false);
     const [dataSourceTestError, setDataSourceTestError] = useState<string | null>(null);
     const [defaultW, setDefaultW] = useState(sessionState?.defaultW || 6);
@@ -411,6 +527,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // this would otherwise call the LLM forever. Reset on a clean compile or a
     // manual generate.
     const autoRetryCountRef = useRef(0);
+    // Counted separately from compile failures, because a render crash follows a
+    // *successful* compile — which clears the counter above. Only a deliberate act
+    // (a typed request, Reload, a restore) resets this one.
+    const renderRetryCountRef = useRef(0);
     const MAX_AUTO_RETRIES = 3;
     // The generation being polled, so Stop has something to address.
     const jobIdRef = useRef<string | null>(null);
@@ -439,6 +559,28 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
     const { version: registryVersion } = useWidgetRegistry();
 
+    // Files are stored against a conversation id, and the studio has no
+    // conversation — so it mints one per session. Nothing reads it back; it only
+    // has to be stable and unique, so the per-conversation attachment limit
+    // applies to this studio session rather than to every session at once.
+    // Minted on first use rather than on render, since generating it is not
+    // something a render may do.
+    const uploadConversationId = useRef(sessionState?.uploadConversationId || '');
+    const conversationId = React.useCallback(() => {
+        if (!uploadConversationId.current) {
+            uploadConversationId.current = `widget-studio-${crypto.randomUUID().slice(0, 8)}`;
+        }
+        return uploadConversationId.current;
+    }, []);
+    const {
+        attachments, setAttachments, attachFiles, attachBlob, removeAttachment,
+        isUploading, uploadError, setUploadError, clearUploadError,
+    } = useChatUploads({ conversationId });
+
+    useEffect(() => {
+        try { localStorage.setItem(AGENT_PREFS_KEY, JSON.stringify(agentPrefs)); } catch { /* private browsing */ }
+    }, [agentPrefs]);
+
     // What's in the editor right now, readable from callbacks that were created
     // before the latest keystroke — a checkpoint has to capture what the user can
     // see, not what `code` was when the agent request went out.
@@ -451,8 +593,17 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // dependencies would recompile the preview on every render instead, and reading
     // `handleGenerate` directly would reach for a function declared below it.
     const generateRef = useRef<(error?: string) => void | Promise<void>>(() => { });
+    const reviewRef = useRef<(request: string) => void | Promise<void>>(() => { });
     const isGeneratingRef = useRef(isGenerating);
     const previewErrorRef = useRef(previewError);
+    // Set when a generation produced code and the review pass is switched on;
+    // consumed by the next clean compile. Holding it here rather than in state is
+    // what makes "after the code builds" expressible: the compile effect is the
+    // only thing that knows, and it must not re-run when this changes.
+    const reviewPendingRef = useRef<{ request: string } | null>(null);
+    // The last thing actually asked for, so "Build it anyway" can re-send it
+    // without the user retyping a request they have already made.
+    const lastRequestRef = useRef("");
 
     const pushCheckpoint = React.useCallback((snapshot: string, label: string) => {
         if (!snapshot || !snapshot.trim()) return;
@@ -499,10 +650,11 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         // A deliberate restore starts with a clean auto-fix budget rather than
         // inheriting the count from whatever error prompted it.
         autoRetryCountRef.current = 0;
+        renderRetryCountRef.current = 0;
         setViewMode('code');
         setMessages(prev => [...prev, {
             role: 'system',
-            content: `Restored ${description}. Nothing is published yet — press ${editingId ? 'Update' : 'Publish'} to keep it, or open History again to go back.`
+            content: `Restored ${description}. Nothing is saved yet — press ${editingId ? 'Save' : 'Publish'} to keep it, or open History again to go back.`
         }]);
     }, [replaceCode, editingId]);
 
@@ -556,8 +708,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         if (!editWidgetId && !cloneWidgetId) { // We only automatically sync to session storage if we aren't loading an externally provided edit ID over it. Let the edit load effect take priority.
             const currentState = {
                 messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
-                isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId,
-                checkpoints
+                isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, rowEstimate, defaultW, defaultH, configMode, configSchema, editingId,
+                checkpoints, uploadConversationId: uploadConversationId.current
             };
             try {
                 sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
@@ -573,7 +725,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             }
         }
     }, [messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
-        isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, defaultW, defaultH, configMode, configSchema, editingId,
+        isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, rowEstimate, defaultW, defaultH, configMode, configSchema, editingId,
         checkpoints, editWidgetId, cloneWidgetId]);
 
     // Load existing widget data when editWidgetId or cloneWidgetId is provided
@@ -649,6 +801,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         return () => clearTimeout(timeoutId);
     }, [messages, isGenerating]);
 
+    // A successful save clears itself; a failure stays until the next attempt,
+    // because it names something that still needs doing.
+    useEffect(() => {
+        if (saveNotice?.tone !== 'ok') return;
+        const timer = setTimeout(() => setSaveNotice(null), 6000);
+        return () => clearTimeout(timer);
+    }, [saveNotice]);
+
     // Count up while a request is in flight. The first tick lands a second in, so
     // a fast generation never flashes a stray "0s".
     useEffect(() => {
@@ -721,6 +881,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 setPreviewComponent(() => Component);
                 // Clean compile: clear the auto-retry budget for the next error.
                 autoRetryCountRef.current = 0;
+
+                // The code builds, so the review pass has something worth reading.
+                // This is the only place that can know that — the compiler is the
+                // browser's, so the server cannot wait for it.
+                const pending = reviewPendingRef.current;
+                if (pending && !isGeneratingRef.current) {
+                    reviewPendingRef.current = null;
+                    setTimeout(() => reviewRef.current(pending.request), 400);
+                }
             } catch (err) {
                 const errorMsg = errorText(err);
                 if (previewErrorRef.current !== errorMsg) {
@@ -747,8 +916,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setViewMode('preview');
         setPreviewError(null);
         setPreviewComponent(null);
-        // A deliberate reload shouldn't consume the compile-error retry budget.
+        // A deliberate reload shouldn't consume either retry budget.
         autoRetryCountRef.current = 0;
+        renderRetryCountRef.current = 0;
         setPreviewNonce(n => n + 1);
     };
 
@@ -815,192 +985,325 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         }
     };
 
-    const handleGenerate = async (autoRetryError?: string) => {
-        if (!prompt && !autoRetryError) return;
+    /**
+     * Everything the agent needs to know about the widget as it stands.
+     *
+     * Shared by generation and the review pass, which has to be looking at the
+     * same widget through the same lens — a reviewer told nothing about the data
+     * source reports the data handling as broken.
+     */
+    const requestContext = () => ({
+        current_code: codeRef.current,
+        data_source_schema: dataSourceSchema,
+        data_source: dataSourceType !== 'none' ? dataSource : null,
+        data_source_type: dataSourceType !== 'none' ? dataSourceType : null,
+        data_source_row_estimate: rowEstimate,
+        configuration_mode: configMode,
+        config_schema: dataSourceType !== 'none'
+            ? [{ key: 'dataSource', label: 'Data Source', type: 'textarea' }, ...configSchema]
+            : configSchema,
+        available_categories: availableCategories,
+        available_domains: availableDomains,
+        locked_settings: SETTING_KEYS.filter(k => touchedSettingsRef.current.has(k)),
+    });
 
-        // Captured before the box is cleared, to label the snapshot this turn leaves
-        // behind with the request that caused it.
-        const asked = prompt.trim().replace(/\s+/g, ' ');
-        const checkpointLabel = autoRetryError
-            ? 'Before an automatic compile fix'
-            : `Before "${asked.length > 60 ? `${asked.slice(0, 57)}…` : asked}"`;
-
-        let newMessages = [...messages];
-        if (autoRetryError) {
-            setMessages(prev => [...prev, { role: 'system', content: `Auto-retrying due to compilation error: ${autoRetryError}` }]);
-            newMessages.push({ role: 'system', content: `Auto-retrying due to compilation error: ${autoRetryError}` });
-        } else {
-            newMessages.push({ role: 'user' as const, content: prompt });
-            setMessages(newMessages);
-            setPrompt("");
-            // Clear any old preview errors on a fresh prompt
-            setPreviewError(null);
-            // A manual generate restarts the auto-retry budget.
-            autoRetryCountRef.current = 0;
-        }
+    /**
+     * Start a job on the widget agent and follow it to the end.
+     *
+     * Generation and review are the same thing from here: a POST that returns a
+     * job id, a poll that reports steps, narration and code as they land, and one
+     * assistant turn at the end. Sharing this is what lets the review pass reuse
+     * the staged-progress UI, the History checkpoints and the failure handling
+     * rather than growing a second copy of all three.
+     */
+    const runJob = async (endpoint: 'generate' | 'review', body: Record<string, unknown>, opts: {
+        baseMessages: StudioMessage[];
+        checkpointLabel: string;
+        fallbackText: string;
+        /** Ran with the settled result, for whatever should follow this turn. */
+        onSettled?: (result: JobResult) => void;
+    }) => {
+        const { baseMessages, checkpointLabel, fallbackText, onSettled } = opts;
+        const finish = (extra: StudioMessage) => {
+            setIsGenerating(false);
+            jobIdRef.current = null;
+            setMessages([...baseMessages, extra]);
+            setLiveThinking([]);
+        };
 
         setIsGenerating(true);
         setElapsed(0);
+        setStages([]);
+        setStopping(false);
+        setLiveThinking([]);
 
         try {
-            const resp = await fetch('/api/agent/widget/generate', {
+            const resp = await fetch(`/api/agent/widget/${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt: prompt || "Please fix the compilation error in the code.",
-                    history: messages.filter(m => m.role !== 'system'),
-                    error_log: autoRetryError || previewError,
-                    current_code: code,
-                    data_source_schema: dataSourceSchema,
-                    data_source: dataSourceType !== 'none' ? dataSource : null,
-                    data_source_type: dataSourceType !== 'none' ? dataSourceType : null,
-                    configuration_mode: configMode,
-                    config_schema: dataSourceType !== 'none' ? [{ key: 'dataSource', label: 'Data Source', type: 'textarea' }, ...configSchema] : configSchema,
-                    available_categories: availableCategories,
-                    available_domains: availableDomains,
-                    locked_settings: SETTING_KEYS.filter(k => touchedSettingsRef.current.has(k))
-                })
+                body: JSON.stringify(body),
             });
-
             const data = await resp.json();
 
             if (!resp.ok) {
-                setMessages([...newMessages, { role: 'system', content: `Server Error: ${data.detail || resp.statusText}` }]);
-                setIsGenerating(false);
+                finish({ role: 'system', content: `Server Error: ${data.detail || resp.statusText}` });
                 return;
             }
 
-            if (data.job_id) {
-                // Poll for completion
-                const jobId = data.job_id;
-                let pollCount = 0;
-                // The server says how long it is prepared to work (Admin Panel →
-                // Settings), and we wait that long plus a margin for the last poll.
-                // A hardcoded five minutes here used to declare a timeout while the
-                // server was still going, so raising the limit changed nothing.
-                const serverBudget = Number(data.timeout_seconds) || 300;
-                const maxPolls = Math.ceil((serverBudget + 20) / 2);
-                // Steps we have already put in the editor. A planned run publishes
-                // each step's code as it lands so the work shows up while the rest is
-                // still running, and so a step that fails later can't take the
-                // finished ones with it.
-                let stepsApplied = 0;
-                setStages([]);
-                setStopping(false);
-                jobIdRef.current = jobId;
-
-                const pollInterval = setInterval(async () => {
-                    try {
-                        pollCount++;
-                        const statusResp = await fetch(`/api/agent/widget/generate/${jobId}`);
-                        const statusData = await statusResp.json();
-
-                        if (Array.isArray(statusData.stages)) {
-                            setStages(statusData.stages);
-                        }
-                        // Each step's snapshot is labelled with the step it precedes,
-                        // so History reads as a list of places to go back to.
-                        const stepLabel = (n: number) => {
-                            if (stepsApplied === 0) return checkpointLabel;
-                            const title = statusData.stages?.[n - 1]?.title;
-                            return `Before step ${n}${title ? `: ${title}` : ''}`;
-                        };
-
-                        const landed = Number(statusData.stage_index) || 0;
-                        if (statusData.stage_code && landed > stepsApplied) {
-                            replaceCode(statusData.stage_code, stepLabel(landed));
-                            stepsApplied = landed;
-                        }
-
-                        if (statusData.status === 'completed') {
-                            clearInterval(pollInterval);
-                            setIsGenerating(false);
-                            jobIdRef.current = null;
-
-                            const result = statusData.result;
-                            // A planned run has already applied its steps as they
-                            // landed; writing the same code again would only add an
-                            // identical history entry.
-                            if (result.code && result.code !== codeRef.current) {
-                                replaceCode(result.code, stepLabel(stepsApplied + 1));
-                            }
-
-                            setMessages([...newMessages, {
-                                role: 'assistant',
-                                content: describeGeneration(
-                                    result,
-                                    autoRetryError ? "I've attempted to fix the compilation error." : "Widget code generated."
-                                )
-                            }]);
-                        } else if (statusData.status === 'failed') {
-                            clearInterval(pollInterval);
-                            setIsGenerating(false);
-                            jobIdRef.current = null;
-                            setMessages([...newMessages, { role: 'system', content: `Generation Error: ${statusData.error}` }]);
-                        }
-
-                        if (pollCount > maxPolls) {
-                            clearInterval(pollInterval);
-                            setIsGenerating(false);
-                            jobIdRef.current = null;
-                            setMessages([...newMessages, {
-                                role: 'system',
-                                content: `The server stopped responding about this request after ${serverBudget}s. `
-                                    + 'Ask for one part of the widget at a time, or raise the widget generation '
-                                    + 'timeout in Admin Panel → Settings.',
-                            }]);
-                        }
-                    } catch (pollErr) {
-                        clearInterval(pollInterval);
-                        setIsGenerating(false);
-                        jobIdRef.current = null;
-                        setMessages([...newMessages, { role: 'system', content: `Polling Error: ${pollErr}` }]);
-                    }
-                }, 2000);
-            } else if (data.code) {
-                // Fallback if backend hasn't updated yet or returns directly
-                replaceCode(data.code, checkpointLabel);
-                setMessages([...newMessages, {
-                    role: 'assistant',
-                    content: describeGeneration(
-                        data,
-                        autoRetryError ? "I've attempted to fix the compilation error." : "Widget code generated."
-                    )
-                }]);
-                setIsGenerating(false);
+            if (!data.job_id) {
+                // Fallback if the backend returns the code directly.
+                if (data.code) {
+                    replaceCode(data.code, checkpointLabel);
+                    finish({ role: 'assistant', content: describeGeneration(data, fallbackText) });
+                } else {
+                    setIsGenerating(false);
+                }
+                return;
             }
+
+            const jobId = data.job_id;
+            let pollCount = 0;
+            // The server says how long it is prepared to work (Admin Panel →
+            // Settings), and we wait that long plus a margin for the last poll.
+            // A hardcoded five minutes here used to declare a timeout while the
+            // server was still going, so raising the limit changed nothing.
+            const serverBudget = Number(data.timeout_seconds) || 300;
+            const maxPolls = Math.ceil((serverBudget + 20) / 2);
+            // Steps we have already put in the editor. A planned run publishes
+            // each step's code as it lands so the work shows up while the rest is
+            // still running, and so a step that fails later can't take the
+            // finished ones with it.
+            let stepsApplied = 0;
+            let thinking: string[] = [];
+            jobIdRef.current = jobId;
+
+            const pollInterval = setInterval(async () => {
+                try {
+                    pollCount++;
+                    const statusResp = await fetch(`/api/agent/widget/generate/${jobId}`);
+                    const statusData = await statusResp.json();
+
+                    if (Array.isArray(statusData.stages)) setStages(statusData.stages);
+                    if (Array.isArray(statusData.trace)) {
+                        thinking = statusData.trace;
+                        setLiveThinking(thinking);
+                    }
+                    // Each step's snapshot is labelled with the step it precedes,
+                    // so History reads as a list of places to go back to.
+                    const stepLabel = (n: number) => {
+                        if (stepsApplied === 0) return checkpointLabel;
+                        const title = statusData.stages?.[n - 1]?.title;
+                        return `Before step ${n}${title ? `: ${title}` : ''}`;
+                    };
+
+                    const landed = Number(statusData.stage_index) || 0;
+                    if (statusData.stage_code && landed > stepsApplied) {
+                        replaceCode(statusData.stage_code, stepLabel(landed));
+                        stepsApplied = landed;
+                    }
+
+                    if (statusData.status === 'completed') {
+                        clearInterval(pollInterval);
+                        const result = statusData.result || {};
+                        // A planned run has already applied its steps as they
+                        // landed; writing the same code again would only add an
+                        // identical history entry.
+                        if (result.code && result.code !== codeRef.current) {
+                            replaceCode(result.code, stepLabel(stepsApplied + 1));
+                        }
+                        finish({
+                            role: 'assistant',
+                            content: describeGeneration(result, fallbackText),
+                            thinking: thinking.join('\n'),
+                            questions: Array.isArray(result.questions) ? result.questions : undefined,
+                            suggestions: Array.isArray(result.suggestions) && result.suggestions.length
+                                ? result.suggestions
+                                : undefined,
+                        });
+                        onSettled?.(result);
+                    } else if (statusData.status === 'failed') {
+                        clearInterval(pollInterval);
+                        finish({
+                            role: 'system',
+                            content: `Generation Error: ${statusData.error}`,
+                            thinking: thinking.join('\n'),
+                        });
+                    } else if (pollCount > maxPolls) {
+                        clearInterval(pollInterval);
+                        finish({
+                            role: 'system',
+                            content: `The server stopped responding about this request after ${serverBudget}s. `
+                                + 'Ask for one part of the widget at a time, or raise the widget generation '
+                                + 'timeout in Admin Panel → Settings.',
+                            thinking: thinking.join('\n'),
+                        });
+                    }
+                } catch (pollErr) {
+                    clearInterval(pollInterval);
+                    finish({ role: 'system', content: `Polling Error: ${errorText(pollErr)}` });
+                }
+            }, 2000);
         } catch (e) {
-            setMessages([...newMessages, { role: 'system', content: `Network Error: ${e}` }]);
-            setIsGenerating(false);
+            finish({ role: 'system', content: `Network Error: ${errorText(e)}` });
         }
     };
+
+    const handleGenerate = async (autoRetryError?: string, options?: {
+        allowClarify?: boolean;
+        overridePrompt?: string;
+        /** Which kind of failure we're asking it to fix. Compiling and rendering
+         *  fail for different reasons, and telling the model "compile error" about
+         *  a crash sends it looking at the syntax of code that parsed fine. */
+        errorKind?: 'compile' | 'render';
+    }) => {
+        const asking = options?.overridePrompt ?? prompt;
+        if (!asking && !autoRetryError) return;
+
+        const rendering = options?.errorKind === 'render';
+
+        // Captured before the box is cleared, to label the snapshot this turn leaves
+        // behind with the request that caused it.
+        const asked = asking.trim().replace(/\s+/g, ' ');
+        if (!autoRetryError && !options?.overridePrompt) lastRequestRef.current = asked;
+        const checkpointLabel = autoRetryError
+            ? `Before an automatic ${rendering ? 'render' : 'compile'} fix`
+            : `Before "${asked.length > 60 ? `${asked.slice(0, 57)}…` : asked}"`;
+
+        // This turn answers a question the agent asked, so it must not be met with
+        // another. The server has its own guard on the history; this one is local
+        // and exact, and doesn't depend on a marker surviving the round trip.
+        const answeringQuestions = messages[messages.length - 1]?.questions?.length ? true : false;
+
+        const sending = attachments.filter(a => a.status === 'ready');
+        const newMessages = [...messages];
+        if (autoRetryError) {
+            newMessages.push({
+                role: 'system',
+                content: `Auto-retrying to fix a ${rendering ? 'render' : 'compile'} error: ${autoRetryError}`,
+            });
+            setMessages(newMessages);
+        } else {
+            newMessages.push({
+                role: 'user',
+                content: asking,
+                attachments: sending.map(a => ({ id: a.id, filename: a.filename, kind: a.kind })),
+            });
+            setMessages(newMessages);
+            if (!options?.overridePrompt) setPrompt("");
+            // Clear any old preview errors on a fresh prompt
+            setPreviewError(null);
+            // A manual generate restarts both auto-retry budgets.
+            autoRetryCountRef.current = 0;
+            renderRetryCountRef.current = 0;
+            // Files ride on the turn that sent them. The chips go now so the
+            // composer is clear; the rows stay on the server, which is what the
+            // agent reads them from.
+            setAttachments([]);
+        }
+
+        // Review is chained off the compile that follows this turn, not off the
+        // turn itself: there is no point auditing code that doesn't build, and
+        // the studio is the only thing here that knows whether it does.
+        reviewPendingRef.current = null;
+
+        await runJob('generate', {
+            ...requestContext(),
+            prompt: asking || (rendering
+                ? "The widget compiled but threw while React was rendering it. Fix the cause of "
+                  + "that error. The syntax is fine — look at what runs on mount and on first paint."
+                : "Please fix the compilation error in the code."),
+            history: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
+            error_log: autoRetryError || previewError,
+            attachment_ids: autoRetryError ? [] : sending.map(a => a.id),
+            allow_clarify: (options?.allowClarify ?? agentPrefs.askQuestions)
+                && !autoRetryError && !answeringQuestions,
+        }, {
+            baseMessages: newMessages,
+            checkpointLabel,
+            fallbackText: autoRetryError ? "I've attempted to fix the compilation error." : "Widget code generated.",
+            onSettled: result => {
+                // Nothing changed, or the agent asked a question instead of
+                // building — either way there is nothing to review.
+                if (agentPrefs.reviewAfterChange && result.code && !result.questions?.length) {
+                    reviewPendingRef.current = { request: asked };
+                }
+            },
+        });
+    };
+
+    /**
+     * The QA pass, run once the code the agent produced has compiled.
+     *
+     * Nothing here re-triggers a review: a review is a change like any other, so
+     * without that the two would take turns indefinitely.
+     */
+    const handleReview = async (request: string) => {
+        const opening: StudioMessage = { role: 'system', content: 'Reviewing the change…' };
+        const baseMessages = [...messages, opening];
+        setMessages(baseMessages);
+        await runJob('review', { ...requestContext(), prompt: request }, {
+            baseMessages,
+            checkpointLabel: 'Before the review pass',
+            fallbackText: 'Reviewed the widget; nothing needed changing.',
+        });
+    };
+
+    /** Load a review's follow-up into the message box, ready to send or edit.
+     *
+     * Deliberately not sent on click. These are the agent's ideas rather than the
+     * user's, and each one costs a minute of generation and rewrites the widget —
+     * so the last word stays with the person whose widget it is. Landing in the
+     * box also makes the prompt editable, which is where "sortable columns"
+     * becomes "sortable columns, default to spend descending".
+     */
+    const applySuggestion = (suggestion: StudioSuggestion) => {
+        setPrompt(suggestion.prompt);
+        focusComposerRef.current = true;
+    };
+
+    /** Size the composer to its content, however the content got there.
+     *
+     * The change handler used to do this, which covered typing and nothing else:
+     * text arriving from a suggestion chip, a restored session, or the clear after
+     * send never fires `onChange`, so the box stayed one line tall with the rest
+     * of the prompt clipped out of sight. Reading `scrollHeight` inside the click
+     * handler doesn't work either — React hasn't re-rendered, so it measures the
+     * value that was there before.
+     *
+     * A layout effect runs after the DOM has the new value but before the browser
+     * paints, so a long prompt is never briefly shown as one line.
+     */
+    useLayoutEffect(() => {
+        const box = composerRef.current;
+        if (!box) return;
+        box.style.height = 'auto';
+        box.style.height = `${box.scrollHeight}px`;
+        // Caret to the end, but only when the text was put there for the user.
+        // Doing it on every change would drag the cursor along while they type.
+        if (focusComposerRef.current) {
+            focusComposerRef.current = false;
+            box.focus();
+            box.setSelectionRange(box.value.length, box.value.length);
+        }
+    }, [prompt]);
 
     // Kept current for the compile effect above, which reads them through refs so it
     // isn't re-run by anything but a code change.
     useEffect(() => {
         generateRef.current = handleGenerate;
+        reviewRef.current = handleReview;
         isGeneratingRef.current = isGenerating;
         previewErrorRef.current = previewError;
     });
 
     const handlePublish = async () => {
-        if (!widgetName.trim()) {
-            alert('Please provide a Widget Name before publishing.');
-            setViewMode('config');
-            return;
-        }
-        if (!widgetDescription.trim()) {
-            alert('Please provide a Description before publishing.');
-            setViewMode('config');
-            return;
-        }
-        if (!widgetCategory || widgetCategory === 'Custom') {
-            alert('Please select a Category before publishing.');
-            setViewMode('config');
-            return;
-        }
-        if (!widgetDomain || widgetDomain.toLowerCase() === 'custom') {
-            alert('Please select a Domain before publishing.');
+        const missing = !widgetName.trim() ? 'a Widget Name'
+            : !widgetDescription.trim() ? 'a Description'
+                : (!widgetCategory || widgetCategory === 'Custom') ? 'a Category'
+                    : (!widgetDomain || widgetDomain.toLowerCase() === 'custom') ? 'a Domain'
+                        : null;
+        if (missing) {
+            setSaveNotice({ tone: 'error', text: `Fill in ${missing} on the Configuration tab first.` });
             setViewMode('config');
             return;
         }
@@ -1059,25 +1362,28 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
             if (res.ok) {
                 await loadCustomWidgets();
-                alert(isEditing
-                    ? `"${widgetName}" updated! Changes are live in the Widget Library.`
-                    : `"${widgetName}" published! Open the Widget Library (press W) to find it.`
-                );
-                
-                // If it was a new publish, update editingId so subsequent publishes are updates
+                // Saving no longer closes the studio, so this can't be an alert:
+                // people save every few minutes while they work, and a modal to
+                // dismiss on every one of them is worse than no confirmation. The
+                // session is kept for the same reason — clearing it while staying
+                // on the page would mean a reload lost everything.
+                setSaveNotice({
+                    tone: 'ok',
+                    text: isEditing
+                        ? `Saved. "${widgetName}" is live in the Widget Library.`
+                        : `Published. Open the Widget Library (press W) to find "${widgetName}".`,
+                });
+
+                // If it was a new publish, update editingId so subsequent saves are updates
                 if (!isEditing && responseData?.id) {
                     setEditingId(responseData.id);
                 }
-                
-                // Clear session storage upon successful publish/update to avoid carrying state over for new widgets
-                sessionStorage.removeItem(WIDGET_STUDIO_SESSION_KEY);
-                if (isEditing) onClose?.();
             } else {
                 const err = responseData || await res.json().catch(() => ({ detail: res.statusText }));
-                alert(`Failed to ${isEditing ? 'update' : 'publish'} widget: ${err.detail || res.statusText}`);
+                setSaveNotice({ tone: 'error', text: `Could not save: ${err.detail || res.statusText}` });
             }
         } catch (err) {
-            alert(`Error: ${err}`);
+            setSaveNotice({ tone: 'error', text: `Could not save: ${errorText(err)}` });
         } finally {
             setIsPublishing(false);
         }
@@ -1088,6 +1394,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setIsTestingDataSource(true);
         setDataSourceTestError(null);
         setDataSourceSchema(null);
+        setRowEstimate(null);
         try {
             const res = await fetch('/api/agent/widget/datasource/test', {
                 method: 'POST',
@@ -1100,6 +1407,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             const data = await res.json();
             if (res.ok) {
                 setDataSourceSchema(data.schema);
+                // Absent for API sources, and for a query the warehouse wouldn't
+                // count. The agent is told "size unknown" in that case rather than
+                // being left to assume it is small.
+                setRowEstimate(typeof data.row_estimate === 'number' ? data.row_estimate : null);
             } else {
                 setDataSourceTestError(data.detail || "Error testing data source");
             }
@@ -1107,6 +1418,44 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             setDataSourceTestError(err.message || String(err));
         } finally {
             setIsTestingDataSource(false);
+        }
+    };
+
+    /**
+     * Put a picture of the rendered widget in the composer, ready to be sent.
+     *
+     * Attaching rather than sending is the point: "this column is too narrow" only
+     * means something alongside the thing it is describing, and the sentence is
+     * the user's to write. Only one screenshot is kept — a second replaces the
+     * first, since two pictures of the same widget say nothing extra and the
+     * per-conversation attachment limit is small.
+     */
+    const handleInjectScreenshot = async () => {
+        const captureArea = document.getElementById('widget-preview-capture-area');
+        if (!captureArea) return;
+        setIsCapturing(true);
+        clearUploadError();
+        try {
+            const dataUrl = await toPng(captureArea, { cacheBust: true, pixelRatio: 1 });
+            const blob = await (await fetch(dataUrl)).blob();
+
+            // Drop the previous screenshot first, so repeatedly grabbing one
+            // during a back-and-forth can't exhaust the attachment limit.
+            const previous = attachments.filter(a => a.filename.startsWith('widget-screenshot'));
+            await Promise.all(previous.map(a => removeAttachment(a.id)));
+
+            const landed = await attachBlob(blob, `widget-screenshot-${Date.now()}.png`);
+            if (!landed) return;
+            setMessages(prev => [...prev, {
+                role: 'system',
+                content: 'Screenshot attached. Say what you want changed about it and press send.',
+            }]);
+        } catch (e) {
+            // Unlike the publish snapshot, a failure here is the whole point of
+            // the button, so it has to be visible rather than logged.
+            setUploadError(`Could not capture the widget: ${errorText(e)}. A widget drawing from a cross-origin image or canvas can't be captured.`);
+        } finally {
+            setIsCapturing(false);
         }
     };
 
@@ -1138,6 +1487,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         }]);
         setViewMode('preview');
         setPreviewError(null);
+        setRowEstimate(null);
+        setAttachments([]);
+        setSaveNotice(null);
     };
 
     // Export the current widget definition (code + all settings) as a portable
@@ -1232,6 +1584,59 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             className="hidden"
                             onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ''; }}
                         />
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowAgentPrefs(v => !v)}
+                                title="Agent settings"
+                                className={`flex items-center justify-center p-1.5 rounded-md transition-colors ${showAgentPrefs ? 'bg-indigo-600 text-white' : 'text-slate-300 bg-slate-700 hover:bg-slate-600'}`}>
+                                <Sliders size={14} />
+                            </button>
+                            {showAgentPrefs && (
+                                <>
+                                    {/* Click-away, behind the panel: a popover this small is more
+                                        annoying to dismiss with a second click on the gear. */}
+                                    <div className="fixed inset-0 z-30" onClick={() => setShowAgentPrefs(false)} />
+                                    <div className="absolute left-0 top-full mt-2 z-40 w-72 rounded-lg border border-slate-600 bg-slate-800 p-3 shadow-xl">
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Agent settings</div>
+                                        <label className="flex gap-2 cursor-pointer py-1.5">
+                                            <input
+                                                type="checkbox"
+                                                checked={agentPrefs.reviewAfterChange}
+                                                onChange={e => setAgentPrefs(p => ({ ...p, reviewAfterChange: e.target.checked }))}
+                                                className="mt-0.5 accent-indigo-500"
+                                            />
+                                            <span className="text-xs">
+                                                <span className="font-medium text-slate-200">Conduct review after change</span>
+                                                <span className="block text-slate-400 mt-0.5">
+                                                    Once new code compiles, the agent re-reads it for broken behaviour,
+                                                    layout and styling problems, and fixes what it finds. It then suggests
+                                                    what would make the widget better without building it. Slower, and it
+                                                    costs an extra turn.
+                                                </span>
+                                            </span>
+                                        </label>
+                                        <label className="flex gap-2 cursor-pointer py-1.5">
+                                            <input
+                                                type="checkbox"
+                                                checked={agentPrefs.askQuestions}
+                                                onChange={e => setAgentPrefs(p => ({ ...p, askQuestions: e.target.checked }))}
+                                                className="mt-0.5 accent-indigo-500"
+                                            />
+                                            <span className="text-xs">
+                                                <span className="font-medium text-slate-200">Ask before large builds</span>
+                                                <span className="block text-slate-400 mt-0.5">
+                                                    On a big or vague request the agent asks a couple of questions first
+                                                    instead of guessing and building the wrong widget.
+                                                </span>
+                                            </span>
+                                        </label>
+                                        <div className="mt-1 pt-2 border-t border-slate-700 text-[10px] text-slate-500">
+                                            Saved in this browser.
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                         <button
                             onClick={() => importInputRef.current?.click()}
                             title="Import a widget from a .json file"
@@ -1255,10 +1660,31 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             disabled={isPublishing}
                             className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors font-medium ${isPublishing ? 'bg-indigo-400 cursor-not-allowed text-indigo-100' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
                             {isPublishing ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-                            {isPublishing ? (editingId ? 'Updating...' : 'Publishing...') : (editingId ? 'Update' : 'Publish')}
+                            {isPublishing ? (editingId ? 'Saving...' : 'Publishing...') : (editingId ? 'Save' : 'Publish')}
+                        </button>
+                        {/* Saving keeps you here, so leaving needs its own button —
+                            and it is the only exit that clears the widget the
+                            studio was opened on. */}
+                        <button
+                            onClick={onClose}
+                            title="Close the studio and go back to your dashboard"
+                            className="flex items-center justify-center p-1.5 text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors">
+                            <X size={14} />
                         </button>
                     </div>
                 </div>
+
+                {saveNotice && (
+                    <div className={`px-4 py-2 text-xs flex items-start gap-2 border-b ${saveNotice.tone === 'ok'
+                        ? 'bg-emerald-950/40 border-emerald-900/50 text-emerald-300'
+                        : 'bg-rose-950/40 border-rose-900/50 text-rose-300'}`}>
+                        {saveNotice.tone === 'ok' ? <Check size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+                        <span className="flex-1 break-words">{saveNotice.text}</span>
+                        <button onClick={() => setSaveNotice(null)} aria-label="Dismiss" className="shrink-0 opacity-70 hover:opacity-100">
+                            <X size={12} />
+                        </button>
+                    </div>
+                )}
 
                 {/* Chat History */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -1268,11 +1694,54 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                 m.role === 'system' ? 'bg-slate-700/50 text-slate-300 border border-slate-600/50 rounded-bl-none' :
                                     'bg-slate-700 text-slate-200 rounded-bl-none border border-slate-600'
                                 }`}>
+                                <SentAttachments files={m.attachments || []} />
+                                {m.thinking && (
+                                    <ThinkingDisclosure text={m.thinking} label="Thoughts" defaultOpen={false} variant="dark" />
+                                )}
                                 <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0">
                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {m.content}
+                                        {displayText(m.content)}
                                     </ReactMarkdown>
                                 </div>
+                                {/* Only the newest question set is answerable — an older one has
+                                    already been answered or abandoned. */}
+                                {m.questions && m.questions.length > 0 && i === messages.length - 1 && !isGenerating && (
+                                    <button
+                                        onClick={() => handleGenerate(undefined, {
+                                            allowClarify: false,
+                                            overridePrompt: `${lastRequestRef.current} — go ahead and pick sensible defaults for anything you asked about.`,
+                                        })}
+                                        className="mt-2 px-2.5 py-1 text-xs font-medium rounded-md bg-slate-600 hover:bg-slate-500 text-slate-100 transition-colors"
+                                    >
+                                        Build it anyway
+                                    </button>
+                                )}
+                                {/* Only on the newest turn: once the widget has moved on, what
+                                    the review suggested may no longer be what it would say. */}
+                                {m.suggestions && m.suggestions.length > 0 && i === messages.length - 1 && !isGenerating && (
+                                    <div className="mt-2.5 pt-2.5 border-t border-slate-600">
+                                        <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-1.5">
+                                            Do next
+                                        </p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {m.suggestions.map((s, n) => (
+                                                <button
+                                                    key={n}
+                                                    onClick={() => applySuggestion(s)}
+                                                    title={s.prompt}
+                                                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                                                        s.kind === 'fix'
+                                                            ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40'
+                                                            : 'bg-slate-600 hover:bg-slate-500 text-slate-100 border border-slate-500'
+                                                    }`}
+                                                >
+                                                    {s.kind === 'fix' ? <Wrench size={12} /> : <Lightbulb size={12} />}
+                                                    {s.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -1288,6 +1757,16 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                         {elapsed ? ` — ${elapsed}s` : ''}...
                                     </span>
                                 </div>
+                                {liveThinking.length > 0 && (
+                                    <div className="mt-2">
+                                        <ThinkingDisclosure
+                                            text={liveThinking.join('\n')}
+                                            label="Thinking…"
+                                            defaultOpen
+                                            variant="dark"
+                                        />
+                                    </div>
+                                )}
                                 {stages.length > 0 && (
                                     <ul className="mt-2 space-y-1">
                                         {stages.map((stage, i) => (
@@ -1332,24 +1811,60 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                 {dataSourceType === 'databricks_api' ? 'DATABRICKS API' : dataSourceType.toUpperCase()}
                             </span>
                             <span className="truncate text-slate-400 font-mono">{dataSource.replace(/\s+/g, ' ').slice(0, 80)}{dataSource.length > 80 ? '…' : ''}</span>
+                            {rowEstimate !== null && (
+                                <span className="ml-auto shrink-0 text-slate-400" title="Rows this query returns. The agent uses this to decide whether to page in SQL or in the browser.">
+                                    {rowEstimate.toLocaleString()} rows
+                                </span>
+                            )}
+                        </div>
+                    )}
+                    {uploadError && (
+                        <div className="mb-2 flex items-start gap-1.5 rounded-md border border-rose-900/50 bg-rose-950/40 px-2 py-1.5 text-[11px] text-rose-300">
+                            <AlertCircle size={13} className="mt-px shrink-0" />
+                            <span className="flex-1 break-words">{uploadError}</span>
+                            <button type="button" onClick={clearUploadError} title="Dismiss" className="p-0.5 hover:text-rose-200">
+                                <X size={12} />
+                            </button>
+                        </div>
+                    )}
+                    {attachments.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                            {attachments.map(file => (
+                                <AttachmentChip key={file.id} file={file} onRemove={removeAttachment} variant="dark" />
+                            ))}
                         </div>
                     )}
                     <div className="flex border border-slate-600 rounded-md bg-slate-900 focus-within:border-indigo-500 ring-1 focus-within:ring-indigo-500 overflow-hidden transition-all shadow-inner items-end">
+                        <input
+                            ref={attachInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            accept=".csv,.tsv,.xlsx,.xlsm,.json,.ndjson,.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp,.gif"
+                            onChange={e => {
+                                if (e.target.files?.length) attachFiles(e.target.files);
+                                // Reset so re-picking the same file still fires a change.
+                                e.target.value = '';
+                            }}
+                        />
+                        <button
+                            onClick={() => attachInputRef.current?.click()}
+                            disabled={isUploading}
+                            title="Attach a spreadsheet, document, or screenshot for the agent to read"
+                            className="px-3 py-3 self-stretch text-slate-400 hover:text-indigo-400 disabled:opacity-40 transition-colors"
+                        >
+                            {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
+                        </button>
                         <textarea
-                            className="flex-1 bg-transparent border-none px-4 py-3 text-sm focus:outline-none text-slate-200 placeholder-slate-500 resize-none min-h-[44px] max-h-32 overflow-hidden"
+                            ref={composerRef}
+                            className="flex-1 bg-transparent border-none px-4 py-3 text-sm focus:outline-none text-slate-200 placeholder-slate-500 resize-none min-h-[44px] max-h-32 overflow-y-auto"
                             placeholder="Create a bar chart showing total sales..."
                             value={prompt}
-                            onChange={e => {
-                                setPrompt(e.target.value);
-                                e.target.style.height = 'auto';
-                                e.target.style.height = `${e.target.scrollHeight}px`;
-                            }}
+                            onChange={e => setPrompt(e.target.value)}
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
                                     handleGenerate();
-                                    // Reset height on submit
-                                    e.currentTarget.style.height = 'auto';
                                 }
                             }}
                             rows={1}
@@ -1452,11 +1967,21 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                             >
                                                 {/* */}
                                                 <WidgetErrorBoundary
-                                                    onReset={() => setPreviewComponent(null)}
+                                                    resetKey={previewComponent}
+                                                    onReset={handleReloadPreview}
                                                     onError={(err) => {
-                                                        if (!isGenerating) {
-                                                            setTimeout(() => handleGenerate(err.message || String(err)), 1000);
-                                                        }
+                                                        // Its own budget, not the compile one: a render
+                                                        // crash only happens *after* a successful
+                                                        // compile, which resets that counter — so
+                                                        // sharing it would mean no limit at all, and a
+                                                        // widget that throws every render would
+                                                        // generate, crash and generate again forever.
+                                                        if (isGenerating || renderRetryCountRef.current >= MAX_AUTO_RETRIES) return;
+                                                        renderRetryCountRef.current += 1;
+                                                        setTimeout(() => handleGenerate(
+                                                            err.message || String(err),
+                                                            { errorKind: 'render' },
+                                                        ), 1000);
                                                     }}
                                                 >
                                                     <ExecuteActionPropInjector>
@@ -1480,6 +2005,24 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                     </ExecuteActionPropInjector>
                                                 </WidgetErrorBoundary>
                                             </BaseWidget>
+                                        </div>
+                                        {/* Under the widget, because what it captures is the widget
+                                            as drawn — including the resize the user just did. */}
+                                        <div className="mt-3 flex items-center gap-2">
+                                            <button
+                                                onClick={handleInjectScreenshot}
+                                                disabled={isCapturing || isUploading}
+                                                title="Attach a picture of the widget as it looks now to your next message"
+                                                className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                {isCapturing
+                                                    ? <Loader2 size={13} className="animate-spin" />
+                                                    : <Camera size={13} />}
+                                                {isCapturing ? 'Capturing…' : 'Send screenshot to agent'}
+                                            </button>
+                                            <span className="text-[11px] text-slate-500">
+                                                Then describe what to change about what it sees.
+                                            </span>
                                         </div>
                                     </div>
                                 ) : (
