@@ -51,26 +51,33 @@ export const useActionLogger = ({ widgetId, widgetName }: UseActionLoggerProps) 
     }, []);
 
     const confirmAction = useCallback(async (explanation: string) => {
-        if (pendingAction) {
-            // Log the action first (or in parallel)
-            const context = getDashboardContext();
-            // Minted here so the same id reaches the audit row and the widget: the
-            // approval and the work it authorised are only joinable afterwards if
-            // both carry it.
-            const requestId = newRequestId();
-
-            logAction({
-                widget_id: widgetId,
-                widget_name: widgetName,
-                action_name: actionName,
-                explanation,
-                context,
-                request_id: requestId
-            });
-
-            // Execute the action
-            pendingAction({ requestId });
+        if (!pendingAction) {
+            return;
         }
+
+        const context = getDashboardContext();
+        // Minted here so the same id reaches the audit row and the widget: the
+        // approval and the work it authorised are only joinable afterwards if
+        // both carry it.
+        const requestId = newRequestId();
+
+        const logged = await logAction({
+            widget_id: widgetId,
+            widget_name: widgetName,
+            action_name: actionName,
+            explanation,
+            context,
+            request_id: requestId
+        });
+
+        if (!logged) {
+            window.alert(
+                'Could not record this action in the audit log, so it was not run. Try again or contact an administrator.'
+            );
+            return;
+        }
+
+        pendingAction({ requestId });
         setIsConfirming(false);
         setPendingAction(null);
         setActionName('');

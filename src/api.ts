@@ -56,7 +56,7 @@ export interface ActionLogPayload {
     request_id?: string;
 }
 
-export const logAction = async (payload: ActionLogPayload) => {
+export const logAction = async (payload: ActionLogPayload): Promise<boolean> => {
     try {
         const response = await fetch(`${API_BASE}/actions/log`, {
             method: 'POST',
@@ -67,8 +67,11 @@ export const logAction = async (payload: ActionLogPayload) => {
             console.error('Failed to log action');
             const err = await response.text();
             console.error(err);
+            return false;
         }
+        return true;
     } catch (error) {
         console.error('Error logging action:', error);
+        return false;
     }
 };

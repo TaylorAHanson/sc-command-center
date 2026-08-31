@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import json
+import re
 import uuid
 from database import get_db_connection
 from middleware.auth import get_db_client
@@ -9,6 +10,12 @@ from databricks.sdk import WorkspaceClient
 from routes.roles import _get_current_username, require_domain_editor, _get_user_permissions
 
 router = APIRouter()
+
+# Custom widgets are stored under UUID ids; built-in types (iframe, etc.) have no row.
+_CUSTOM_WIDGET_ID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 def _require_certified_widgets(widgets: List[Dict[str, Any]], env: str) -> None:
@@ -30,7 +37,8 @@ def _require_certified_widgets(widgets: List[Dict[str, Any]], env: str) -> None:
         return
 
     types = {str(w.get("type")) for w in (widgets or []) if w.get("type")}
-    if not types:
+    custom_ids = sorted(t for t in types if _CUSTOM_WIDGET_ID.match(t))
+    if not custom_ids:
         return
 
     conn = get_db_connection(env)
@@ -38,13 +46,29 @@ def _require_certified_widgets(widgets: List[Dict[str, Any]], env: str) -> None:
         c = conn.cursor()
         c.execute(
             """
-            SELECT name, MAX(is_certified) FROM widgets
-             WHERE id = ANY(%s) AND is_deprecated = 0
-             GROUP BY name, id
+            SELECT w.id, w.name, COALESCE(w.is_certified, 0) AS is_certified
+              FROM widgets w
+              INNER JOIN (
+                    SELECT id, MAX(version) AS version
+                      FROM widgets
+                     WHERE is_deprecated = 0
+                       AND id = ANY(%s)
+                     GROUP BY id
+                   ) latest ON w.id = latest.id AND w.version = latest.version
             """,
-            (list(types),),
+            (custom_ids,),
         )
-        uncertified = sorted(name for name, certified in c.fetchall() if not certified)
+        uncertified: List[str] = []
+        found_ids: set[str] = set()
+        for row in c.fetchall():
+            wid, name, certified = row[0], row[1], row[2]
+            found_ids.add(str(wid))
+            if not certified:
+                uncertified.append(name)
+        for missing_id in custom_ids:
+            if missing_id not in found_ids:
+                uncertified.append(f"unknown widget ({missing_id})")
+        uncertified = sorted(uncertified)
     finally:
         try:
             conn.close()

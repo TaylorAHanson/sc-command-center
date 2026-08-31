@@ -96,6 +96,23 @@
   them only to people who have completed your secure-development training, and
   read a new tool before its agent gets domain or global visibility.
 
+### Fixed
+
+- **Approved actions no longer run when audit logging fails.** If the log row
+  cannot be saved, the confirmation stays open and the widget callback is not
+  called — so a write is never executed without a matching audit record.
+- **Action log search matches request IDs.** Paste a correlation id from
+  Databricks query history or an expanded Action Logs row and the table filters
+  to it.
+- **Certified-only global views check the current widget version.** A widget
+  that was certified on an older version but not on its latest copy is blocked,
+  and a custom widget id with no database row is treated as uncertified.
+- **Widget generation instructions document write SQL.** The generator is told
+  to use `/api/sql/execute-write` for mutations, stamp `ctx.requestId`, and pass
+  the callback through `executeAction`.
+
+## 1.10.0 — 2026-08-24
+
 ### Added
 
 - **Widget Studio shows you what it's thinking.** Expand **Thinking** while the

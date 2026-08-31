@@ -55,7 +55,8 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
         (log.action_name ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (log.username ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         log.user_explanation.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (log.domain ?? '').toLowerCase().includes(searchTerm.toLowerCase())
+        (log.domain ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.request_id ?? '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     return (

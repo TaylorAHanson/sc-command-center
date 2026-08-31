@@ -48,7 +48,9 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 - The configured `props.data.dataSourceType` remains authoritative. If it conflicts with the user's requested operation, explain the recommended source-type change instead of silently hardcoding a different SQL statement or URL into the component.
 - Data Source Types (`props.data.dataSourceType`):
   - `'api'`: Use `fetch(props.data.dataSource)` to retrieve the data.
-  - `'sql'`: Use `fetch('/api/sql/execute-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: props.data.dataSource }) })` to execute the SQL. A successful response has `{ columns: string[], rows: object[], row_count: number }`.
+  - `'sql'`: Use `/api/sql/execute-raw` for **read-only** queries (`SELECT`, `SHOW`, `DESCRIBE`, and similar). Use `/api/sql/execute-write` for statements that change data (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, …). `execute-raw` refuses writes with a clear error. A successful response has `{ columns: string[], rows: object[], row_count: number }`.
+    - Read-only example: `fetch('/api/sql/execute-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: props.data.dataSource }) })`.
+    - Write example (executable widgets only): include the approval `request_id` from `ctx` as a leading SQL comment so audit logs join to Databricks query history — `` fetch('/api/sql/execute-write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: \`/* cc-action: \${ctx.requestId} */ \${props.data.dataSource}\`, request_id: ctx.requestId }) }) ``.
     - **Check the status before reading the rows.** A query the warehouse refuses — a missing table, a column that needs backticks, no permission — comes back non-2xx with `{ detail: string }` explaining why. Show that message; never let it surface as "no data", which hides a fixable query behind an empty panel:
 
           const res = await fetch('/api/sql/execute-raw', { /* … */ });
@@ -103,7 +105,7 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 - If the widget is executable, it will receive a `props.executeAction(actionName: string, callback: (ctx: { requestId: string }) => void)` function.
 - **A callback that writes data must tag its statement with `ctx.requestId`**, as a leading SQL comment: `` `/* cc-action: ${ctx.requestId} */ UPDATE ...` ``. The app records the approval and the user's written reason under that id, and Databricks records the statement separately; the comment is the only thing that lets an auditor line the two up. Read-only widgets can ignore `ctx`.
 - **CRITICAL**: Use this for any "Submit", "Run", "Sync", or "Update" buttons. It will automatically handle showing a confirmation modal, collecting a mandatory explanation from the user, and logging the action to the audit trail.
-- Example: `<button onClick={() => props.executeAction("Sync Data", () => handleSync())}>Sync Now</button>`
+- Example (write path): `<button onClick={() => props.executeAction("Sync Data", (ctx) => handleSync(ctx))}>Sync Now</button>` where `handleSync` calls `/api/sql/execute-write` with `ctx.requestId` as shown above.
 
 ### Emitters and Receivers (Dashboard Variables)
 
