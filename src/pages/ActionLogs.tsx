@@ -6,6 +6,8 @@ interface ActionLog {
     widget_id: string;
     widget_name: string;
     action_name: string | null;
+    username: string | null;
+    request_id: string | null;
     domain: string | null;
     user_explanation: string;
     dashboard_context: string;
@@ -51,6 +53,7 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
     const filteredLogs = logs.filter(log =>
         log.widget_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (log.action_name ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.username ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         log.user_explanation.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (log.domain ?? '').toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -95,6 +98,7 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
                                 <th className="px-6 py-3">Timestamp</th>
                                 <th className="px-6 py-3">Widget</th>
                                 <th className="px-6 py-3">Action</th>
+                                <th className="px-6 py-3">User</th>
                                 <th className="px-6 py-3">Domain</th>
                                 <th className="px-6 py-3">User Explanation</th>
                                 <th className="px-6 py-3 w-20">Action ID</th>
@@ -103,7 +107,7 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
                         <tbody>
                             {filteredLogs.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
+                                    <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
                                         No logs found
                                     </td>
                                 </tr>
@@ -130,6 +134,11 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
                                             <td className="px-6 py-4 italic text-gray-600">
                                                 {log.action_name || <span className="text-gray-400">—</span>}
                                             </td>
+                                            <td className="px-6 py-4 text-gray-700">
+                                                {/* Actions logged before the acting user was recorded have no
+                                                    name to show, and inventing one would be worse than a blank. */}
+                                                {log.username || <span className="text-gray-400">—</span>}
+                                            </td>
                                             <td className="px-6 py-4">
                                                 {log.domain ? (
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
@@ -148,8 +157,14 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
                                         </tr>
                                         {expandedRow === log.id && (
                                             <tr className="bg-gray-50">
-                                                <td colSpan={7} className="px-6 py-4 border-b">
+                                                <td colSpan={8} className="px-6 py-4 border-b">
                                                     <div className="space-y-2">
+                                                        {/* The handle that joins this approval to the statement it
+                                                            authorised in Databricks' own query history. */}
+                                                        <h4 className="text-xs font-semibold uppercase text-gray-500">Request ID</h4>
+                                                        <p className="font-mono text-xs text-gray-700">
+                                                            {log.request_id || <span className="text-gray-400">Not recorded</span>}
+                                                        </p>
                                                         <h4 className="text-xs font-semibold uppercase text-gray-500">Dashboard Context</h4>
                                                         <pre className="bg-gray-900 text-gray-100 p-4 rounded-md text-xs font-mono overflow-auto max-h-96">
                                                             {JSON.stringify(JSON.parse(log.dashboard_context), null, 2)}

@@ -5,6 +5,7 @@ This router provides endpoints to execute pre-configured SQL queries
 using the user's Databricks token (On-Behalf-Of authentication).
 """
 import os
+import re
 import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
@@ -17,6 +18,7 @@ from typing import Optional, List, Dict, Any
 from config.sql_queries import get_sql_query_config, get_all_sql_query_configs, SqlQueryConfig
 from middleware.auth import get_user_token
 from services.sql_advice import quoting_hint
+from services.sql_safety import describe_refusal
 
 # --- Configuration & Client Setup ---
 
@@ -305,22 +307,80 @@ class RawSqlRequest(BaseModel):
     sql: Optional[str] = None
     raw_query: Optional[str] = None  # Alias accepted for convenience
     max_rows: Optional[int] = 500
+    #: Correlation handle from the action confirmation, recorded in `action_logs`.
+    #: Prepended to the statement as a comment so the same id appears in
+    #: Databricks' own query history and the two records can be joined.
+    request_id: Optional[str] = None
 
 
-@router.post("/execute-raw", summary="Execute a raw SQL string against Databricks")
+@router.post("/execute-raw", summary="Execute a read-only SQL string against Databricks")
 def execute_raw_sql(
     req: RawSqlRequest,
     w: WorkspaceClient = Depends(get_db_client)
 ):
     """
-    Executes an arbitrary SQL query string on the configured SQL Warehouse.
+    Executes a **read-only** SQL query on the configured SQL Warehouse.
     Used by generated widgets that receive their SQL via props.data.dataSource.
-    """
-    import traceback
 
+    A statement that changes anything is refused here and belongs on
+    `/execute-write`, which exists so that mutation is a deliberate choice made
+    by a widget its author marked executable — not something a panel can do
+    because its query happened to start with MERGE. Unity Catalog still decides
+    whether the caller may write either way; this decides whether *the app* will
+    carry the statement without a confirmation behind it.
+    """
     sql_statement = req.sql or req.raw_query
     if not sql_statement:
         raise HTTPException(status_code=400, detail="Request body must include a 'sql' field with the SQL query to execute.")
+
+    refusal = describe_refusal(sql_statement)
+    if refusal:
+        # Returned rather than raised: `.response()` carries the empty
+        # rows/columns body that widgets predating the error contract read without
+        # checking the status. Raising would give them `detail` alone and they
+        # would throw on `undefined`, taking a live panel down over a refusal.
+        return SqlStatementError(status_code=400, detail=refusal).response()
+
+    return _run_statement(sql_statement, req, w)
+
+
+@router.post("/execute-write", summary="Execute a data-modifying SQL statement")
+def execute_write_sql(
+    req: RawSqlRequest,
+    w: WorkspaceClient = Depends(get_db_client)
+):
+    """
+    Executes a statement that may change data, under the caller's OBO token.
+
+    Separate from `/execute-raw` so that "this widget writes" is visible in the
+    widget's own code and at publish time, rather than being a property of a
+    string nobody looked at. Callers should pass `request_id` from the action
+    confirmation; it is stamped into the statement text so the approval recorded
+    in `action_logs` can be matched to the row Databricks records in
+    `system.query.history`.
+    """
+    sql_statement = req.sql or req.raw_query
+    if not sql_statement:
+        raise HTTPException(status_code=400, detail="Request body must include a 'sql' field with the SQL query to execute.")
+
+    correlation = (req.request_id or "").strip()
+    if correlation:
+        # Comment rather than a parameter: it survives into the statement text
+        # that query history stores, which is the only field the two records share.
+        safe = re.sub(r"[^A-Za-z0-9_.:-]", "", correlation)[:80]
+        if safe:
+            sql_statement = f"/* cc-action: {safe} */\n{sql_statement}"
+
+    return _run_statement(sql_statement, req, w)
+
+
+def _run_statement(
+    sql_statement: str,
+    req: RawSqlRequest,
+    w: WorkspaceClient,
+):
+    """Shared execution for both raw endpoints, so they cannot drift apart."""
+    import traceback
 
     warehouse_id = os.environ.get("SQL_WAREHOUSE_ID", "")
     if not warehouse_id:

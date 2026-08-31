@@ -41,7 +41,7 @@ class Spec(NamedTuple):
     """One setting: where it falls back to, and what a valid value looks like."""
     env: str
     default: str
-    kind: str  # "endpoint" | "int" | "json"
+    kind: str  # "endpoint" | "int" | "json" | "bool"
     label: str
     help: str
     minimum: Optional[int] = None
@@ -179,11 +179,87 @@ SETTING_SPECS: Dict[str, Spec] = {
         maximum=128000,
         group="widget",
     ),
+    # --- Data reach -------------------------------------------------------
+    # Switches, not limits: they decide whether the assistant can reach workspace
+    # data at all. A deployment handling classified data can turn the data tools
+    # off and keep an assistant that still answers questions about the app itself.
+    # Genie matters most: Unity Catalog's request-context policies can restrict
+    # what an OAuth application reads on a user's behalf, but they do not identify
+    # Genie, so this switch is the only way to keep the agent away from a Genie
+    # space that reaches classified tables.
+    "enable_genie_tool": Spec(
+        env="AGENT_TOOLS_ENABLE_GENIE",
+        default="true",
+        kind="bool",
+        label="Allow the assistant to query Genie",
+        help="Off removes every Genie tool from the assistant. Turn it off where Genie spaces can reach data the assistant must not read — Unity Catalog policies that restrict other agents cannot restrict Genie.",
+        group="tools",
+    ),
+    "enable_sql_tool": Spec(
+        env="AGENT_TOOLS_ENABLE_SQL",
+        default="true",
+        kind="bool",
+        label="Allow the assistant to run SQL",
+        help="Off removes the SQL and Unity Catalog tools from the assistant. Widgets are unaffected — this governs the chat agent only.",
+        group="tools",
+    ),
+    "conversation_retention_days": Spec(
+        env="CONVERSATION_RETENTION_DAYS",
+        # 0, not a number, because picking one for every deployment would be
+        # guessing: chats are the record of what people asked the data, and how
+        # long that may be kept is a policy question, not an engineering default.
+        default="0",
+        kind="int",
+        label="Delete conversations after (days)",
+        help="Chats untouched for this long are deleted, with their attached files. 0 keeps them indefinitely. Applies to everyone; users can always delete their own from the chat drawer.",
+        minimum=0,
+        maximum=3650,
+        group="privacy",
+    ),
+    "send_dashboard_context": Spec(
+        env="AGENT_SEND_DASHBOARD_CONTEXT",
+        default="true",
+        kind="bool",
+        label="Tell the assistant what is on screen",
+        help="On, each question carries a summary of the current dashboard — widget names, titles and configuration — so the assistant can answer about what the user is looking at. Off, it sees only the question, which suits deployments where widget configuration is itself sensitive.",
+        group="privacy",
+    ),
+    "enforce_content_security_policy": Spec(
+        env="ENFORCE_CSP",
+        default="true",
+        kind="bool",
+        label="Enforce the Content Security Policy",
+        help="On, the browser blocks widget code from loading scripts or sending data anywhere except this app and the approved CDNs. Turn it off only to diagnose a widget that has stopped working — it downgrades the policy to report-only, so violations are logged in the browser console instead of blocked.",
+        group="tools",
+    ),
+    "require_certified_for_global_views": Spec(
+        env="REQUIRE_CERTIFIED_FOR_GLOBAL_VIEWS",
+        # Off by default because certification is applied during promotion to
+        # production: on a dev or test deployment nothing is certified yet, and
+        # defaulting this on would mean no global view could be created there at
+        # all. Turn it on for the deployment where "published to everyone" is
+        # supposed to mean "someone reviewed this".
+        default="false",
+        kind="bool",
+        label="Global views may only contain certified widgets",
+        help="On, a view shared with everyone can only hold widgets an admin has certified. Leave off in dev and test, where nothing is certified yet.",
+        group="tools",
+    ),
+    "enable_native_file_passthrough": Spec(
+        env="AGENT_TOOLS_ENABLE_NATIVE_FILES",
+        default="true",
+        kind="bool",
+        label="Send images and PDFs to the model directly",
+        help="Off means attachments are only ever read through extraction tools, so no raw image or PDF is uploaded to the model. Scanned documents and screenshots stop working.",
+        group="tools",
+    ),
 }
 
 # Cards on the Settings page, in order. A group with no settings isn't rendered.
 SETTING_GROUPS: List[Dict[str, str]] = [
     {"key": "models", "label": "Models"},
+    {"key": "tools", "label": "What the assistant may reach"},
+    {"key": "privacy", "label": "Retention and context"},
     {"key": "chat", "label": "Chat agent limits"},
     {"key": "widget", "label": "Studio limits"},
     {"key": "limits", "label": "Other limits"},
@@ -278,6 +354,25 @@ def get_setting(key: str) -> str:
     return (os.environ.get(spec.env) or "").strip() or spec.default
 
 
+_TRUTHY = ("1", "true", "yes", "on")
+_FALSEY = ("0", "false", "no", "off")
+
+
+def get_bool_setting(key: str) -> bool:
+    """Resolved boolean, following the same row > env var > default chain.
+
+    Anything unrecognised falls back to the built-in default rather than being
+    read as false: these switches gate whether the assistant can reach data at
+    all, and a typo silently disabling a tool looks exactly like a broken agent.
+    """
+    raw = get_setting(key).strip().lower()
+    if raw in _TRUTHY:
+        return True
+    if raw in _FALSEY:
+        return False
+    return SETTING_SPECS[key].default.strip().lower() in _TRUTHY
+
+
 def get_int_setting(key: str) -> int:
     spec = SETTING_SPECS[key]
     raw = get_setting(key)
@@ -340,6 +435,18 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
         if any(ch.isspace() for ch in text):
             return "", "Endpoint names cannot contain spaces"
         return text, None
+
+    if spec.kind == "bool":
+        # Stored as an explicit word rather than as presence/absence, because an
+        # empty value already means "clear the override and inherit" — without a
+        # spelled-out "false" there would be no way to turn something off whose
+        # fallback is on.
+        lowered = text.lower()
+        if lowered in _TRUTHY:
+            return "true", None
+        if lowered in _FALSEY:
+            return "false", None
+        return "", f"{spec.label} must be true or false"
 
     if spec.kind == "json":
         # Rejected here rather than at request time: a typo in this field would

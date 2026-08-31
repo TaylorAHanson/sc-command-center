@@ -12,6 +12,44 @@ const resolveGlobal = (path: string): unknown =>
     );
 
 /**
+ * CDN hosts a widget may load a library from.
+ *
+ * Widget code is generated from a natural-language prompt and can also be typed
+ * or imported by hand, so the url reaching this hook is untrusted input that ends
+ * up as a `<script>` on the same origin as the app. The generator prompt has
+ * always told the model to use jsDelivr, but a prompt is advice; this is the
+ * enforcement. Keep it in step with the CDN rule in
+ * `server/routes/agent_instructions.md`, and with the preloads in `index.html`
+ * (unpkg for Babel, code.highcharts.com for Highcharts) — a host used there but
+ * missing here would block a widget from loading its own copy.
+ */
+const ALLOWED_SCRIPT_HOSTS = new Set([
+    'cdn.jsdelivr.net',
+    'code.highcharts.com',
+    'unpkg.com',
+    'cdnjs.cloudflare.com',
+]);
+
+/**
+ * Whether `url` may become a script tag.
+ *
+ * Same-origin urls pass whatever the scheme, because that is the app serving its
+ * own assets (and dev runs on http). Everything else must be https from an
+ * allowlisted host, which is what rejects `javascript:` and `data:` payloads —
+ * they parse fine as URLs and fail on the protocol test.
+ */
+export const isAllowedScriptUrl = (url: string): boolean => {
+    let parsed: URL;
+    try {
+        parsed = new URL(url, window.location.href);
+    } catch {
+        return false;
+    }
+    if (parsed.origin === window.location.origin) return true;
+    return parsed.protocol === 'https:' && ALLOWED_SCRIPT_HOSTS.has(parsed.hostname);
+};
+
+/**
  * Load a library from a CDN and report when it is ready.
  *
  * **The decision to fetch is made on the url, never on `name`.** It used to be
@@ -39,6 +77,19 @@ export const useScript = (url: string, name: string) => {
         if (!url) {
             setLoaded(false);
             setError(false);
+            return;
+        }
+
+        // Refused before a tag exists, so a blocked url is never fetched or run.
+        // Reported as a load error, which widgets already handle, rather than by
+        // throwing and taking the panel down.
+        if (!isAllowedScriptUrl(url)) {
+            console.error(
+                `useScript refused to load "${url}": scripts must be https from an allowlisted CDN ` +
+                `(${[...ALLOWED_SCRIPT_HOSTS].join(', ')}).`,
+            );
+            setLoaded(false);
+            setError(true);
             return;
         }
 

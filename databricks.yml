@@ -90,9 +90,10 @@ resources:
             value: "${var.lakebase_enabled}"
           - name: LAKEBASE_INSTANCE_NAME
             value: "${resources.database_instances.command_center_db.name}"
-          # ⚠️ TEMPORARY demo kill-switch — when "true", ALL role/permission checks
-          # are bypassed and every signed-in user is treated as a global admin.
-          # REVERT TO "false" (or remove) AFTER THE DEMO. See var.disable_permission_checks.
+          # ⚠️ Demo kill-switch — when "true", ALL role/permission checks are
+          # bypassed and every signed-in user is treated as a global admin.
+          # Defaults to "false"; set it per-target only for a throwaway demo, and
+          # never on a target real users are on. See var.disable_permission_checks.
           - name: DISABLE_PERMISSION_CHECKS
             value: "${var.disable_permission_checks}"
           # ── Optional env (omitted when blank) ──────────────────────────────────
@@ -339,8 +340,8 @@ variables:
     description: "Lakebase Enabled"
     default: "true"
   disable_permission_checks:
-    description: "⚠️ TEMPORARY: when 'true', bypass ALL role/permission checks (everyone is a global admin). Revert to 'false' after the demo."
-    default: "true"
+    description: "⚠️ When 'true', bypass ALL role/permission checks (everyone is a global admin). Leave 'false' outside a throwaway demo — widget certification, domain-editor publishing and promotion rights all become decorative while it is on."
+    default: "false"
   consolidated_agent_url:
     description: "URL of the consolidated Self-Service agent runtime app (edh-ssc). The Command Center proxies /api/v1/agent calls here. Override per-target for stage/prod."
     default: "https://edh-ssc-dev-todo.aws.databricksapps.com"

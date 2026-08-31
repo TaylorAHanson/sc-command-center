@@ -771,6 +771,22 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         }
     }, [availableProfiles, selectedProfileId, startConversation, refreshConversations]);
 
+    const deleteAllConversations = useCallback(async () => {
+        listEditRef.current += 1;
+        setConversations([]);
+        try {
+            await fetch('/api/conversations/delete-all', { method: 'POST' });
+        } catch {
+            refreshConversations();
+            return;
+        }
+        refreshConversations();
+        // Whatever was on screen is gone too, so land on a fresh chat rather than
+        // a transcript whose history no longer exists.
+        const active = availableProfiles.find(p => p.id === selectedProfileId);
+        startConversation(greetingFor(active?.name, active?.description));
+    }, [availableProfiles, selectedProfileId, startConversation, refreshConversations]);
+
     return {
         messages,
         input,
@@ -795,6 +811,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         openConversation,
         renameConversation,
         deleteConversation,
+        deleteAllConversations,
         // Attachments
         attachments,
         attachFiles,

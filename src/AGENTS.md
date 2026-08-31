@@ -69,7 +69,13 @@ Practical consequences for widget code:
   jsDelivr CDN (do not redefine it), initialized imperatively against a `useRef`
   container with a cleanup function to avoid duplicate renders. **The hook decides
   whether to fetch from the `url`, never from `globalName`** — see
-  `hooks/useScript.ts` for why that distinction is the whole thing. Appended
+  `hooks/useScript.ts` for why that distinction is the whole thing.
+  **The url must be same-origin, or https from `ALLOWED_SCRIPT_HOSTS`**; anything
+  else is refused before a tag is created and surfaces as a load error, because
+  widget code is generated from a prompt and ends up as a script on the app's own
+  origin. Adding a host means editing that set *and* the CDN rule in
+  `server/routes/agent_instructions.md`, or the generator will keep emitting a url
+  the runtime rejects. Appended
   scripts are `async = false` so they execute in call order, which is what lets a
   plugin module simply be the next `useScript` call after its library. An empty
   `url` makes the hook do nothing, so a widget can still gate one on another.

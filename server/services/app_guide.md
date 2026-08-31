@@ -57,6 +57,21 @@ pages, or buttons that perform an action.
 - Widgets that exist in more than one version have a version picker in the
   header, so a user can pin an older version on their own view.
 
+**What a widget is allowed to contain.** Saving a widget — in Widget Studio or by
+importing one — is refused if its code uses `eval`, `new Function`,
+`document.write`, `innerHTML` or `dangerouslySetInnerHTML`, or if it references
+any address other than this app's own `/api/...` paths and the approved CDNs
+(cdn.jsdelivr.net, code.highcharts.com, unpkg.com, cdnjs.cloudflare.com). The
+browser enforces the same rule independently, so a widget that got round the save
+check still could not load a script or send data off-list. Widget code is
+generated from a prompt, and these two rules are what keep "generated" from
+meaning "can reach anywhere".
+
+A widget whose SQL data source **changes** data (INSERT, UPDATE, DELETE, MERGE and
+so on) can only be saved if the widget is marked **Executable**. That is what puts
+its controls behind the confirmation prompt, so every change is recorded with who
+approved it and why.
+
 ## Widget Library
 
 Opens from the **Widget Library** button in the sidebar, or by pressing `w`.
@@ -185,6 +200,16 @@ authored. An agent is a saved bundle of:
   and so on),
 - optional small **Python tools** the author writes for it.
 
+**Python tools carry real privilege, and authoring one is a trusted activity.**
+The code an author writes runs on the server whenever the agent decides to call
+it. It runs in a restricted subprocess with the app's credentials stripped out
+and limits on time and memory, which stops the common accidents — but it is a
+validation sandbox, not a jail, and it is not a substitute for review. Domain
+admins should grant the editor rights that allow Python tool authoring only to
+people who have been through the organisation's secure-development training, and
+should treat a new Python tool as code to be read before the agent goes anywhere
+near a shared domain or global visibility.
+
 The **Try it** tab runs the draft agent exactly as the sidebar chat would.
 Saved agents have one of three visibilities: **personal** (only the author),
 **domain** (anyone with access to that domain; domain editors can edit), or
@@ -259,6 +284,38 @@ Conversations are private to each user; nobody else, including admins, sees them
 in the app. The 50 most recent per user are kept, and older ones are removed
 automatically. Choosing a different agent in the picker starts a new conversation,
 leaving the previous one in the history list.
+
+**Delete all my conversations** sits at the bottom of that clock-icon list and
+removes every conversation the user owns, with their attached files. It asks for
+confirmation once and cannot be undone.
+
+An admin may also set **Delete conversations after (days)** in Admin Panel →
+Settings. When set, any conversation untouched for that long is deleted for
+everyone, attachments included; the default of 0 keeps them indefinitely.
+
+## What the assistant is and is not
+
+Answers come from a generative model. They can be wrong, and they can be
+confidently wrong, so anything being acted on should be checked against the
+source. A notice to that effect sits under the message box.
+
+Everything the assistant reads, it reads as the signed-in user: Unity Catalog
+decides which tables and Genie spaces are visible, and two people asking the same
+question can correctly get different answers. Generating the reply itself is the
+one exception — that runs as the application, because per-user entitlements to
+foundation models proved unreliable — but no user data is read on that path.
+
+Admins can narrow what the assistant may reach, in Admin Panel → Settings:
+
+- **Allow the assistant to query Genie** and **Allow the assistant to run SQL**
+  remove those tools entirely when off. The assistant still answers questions
+  about the app itself and about attached files.
+- **Send images and PDFs to the model directly** governs whether raw attachments
+  are uploaded to the model. Off, files are only ever read through text
+  extraction, so scanned documents and screenshots stop working.
+- **Tell the assistant what is on screen** governs whether each question carries a
+  summary of the current dashboard. Off, the assistant cannot answer "what am I
+  looking at" but nothing about the layout leaves the app.
 
 ## Where to find help and what changed
 

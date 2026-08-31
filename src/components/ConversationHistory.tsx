@@ -20,7 +20,7 @@ const relativeTime = (iso?: string | null): string => {
 
 type HistoryChat = Pick<AgentChat,
     'conversationId' | 'conversations' | 'refreshConversations' | 'openConversation' |
-    'renameConversation' | 'deleteConversation'>;
+    'renameConversation' | 'deleteConversation' | 'deleteAllConversations'>;
 
 /**
  * Past conversations for the assistant drawer. The list is read on open rather
@@ -28,10 +28,13 @@ type HistoryChat = Pick<AgentChat,
  * here.
  */
 export const ConversationHistory: React.FC<{ chat: HistoryChat; disabled?: boolean }> = ({ chat, disabled }) => {
-    const { conversationId, conversations, refreshConversations, openConversation, renameConversation, deleteConversation } = chat;
+    const { conversationId, conversations, refreshConversations, openConversation, renameConversation, deleteConversation, deleteAllConversations } = chat;
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState<string | null>(null);
     const [draftTitle, setDraftTitle] = useState('');
+    // Two-step rather than a window.confirm: this deletes everything the user has
+    // ever asked, and a misclick should not be one dialog away from doing it.
+    const [confirmingWipe, setConfirmingWipe] = useState(false);
     const wrapperRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -136,6 +139,37 @@ export const ConversationHistory: React.FC<{ chat: HistoryChat; disabled?: boole
                             </div>
                         );
                     })}
+                    {conversations.length > 0 && (
+                        <div className="mt-1 border-t border-gray-100 px-2 pt-1.5">
+                            {confirmingWipe ? (
+                                <div className="flex items-center gap-1">
+                                    <span className="flex-1 text-[11px] text-gray-600">Delete all {conversations.length}?</span>
+                                    <button
+                                        type="button"
+                                        onClick={async () => { setConfirmingWipe(false); setOpen(false); await deleteAllConversations(); }}
+                                        className="rounded px-1.5 py-1 text-[11px] font-medium text-rose-600 hover:bg-rose-50"
+                                    >
+                                        Delete
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setConfirmingWipe(false)}
+                                        className="rounded px-1.5 py-1 text-[11px] text-gray-500 hover:bg-gray-100"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => setConfirmingWipe(true)}
+                                    className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-[11px] text-gray-500 hover:bg-rose-50 hover:text-rose-600"
+                                >
+                                    <Trash2 className="w-3 h-3" /> Delete all my conversations
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
         </div>

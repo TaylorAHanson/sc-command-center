@@ -33,11 +33,27 @@ class ProxyHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
+# Interactive API docs are a development tool, and they publish the whole route
+# surface — every path, body shape and parameter — to anyone who can reach the
+# app. Useful locally and in dev, an unnecessary map of the attack surface in a
+# deployment users are on.
+#
+# An unset APP_ENVIRONMENT is deliberately NOT treated as "safe to expose": a
+# deployment that forgot to set it would otherwise publish its own docs. It is
+# only unset on a developer machine, and `.env` there carries DEV_MODE=true, so
+# that is what re-enables them locally without loosening anything deployed.
+from config.settings import get_app_environment
+
+_APP_ENVIRONMENT = get_app_environment()
+_EXPOSE_API_DOCS = _APP_ENVIRONMENT in ("local", "dev") or (
+    not _APP_ENVIRONMENT and os.environ.get("DEV_MODE", "").strip().lower() == "true"
+)
+
 app = FastAPI(
     title="Enterprise Command Center",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
+    docs_url="/api/docs" if _EXPOSE_API_DOCS else None,
+    redoc_url="/api/redoc" if _EXPOSE_API_DOCS else None,
+    openapi_url="/api/openapi.json" if _EXPOSE_API_DOCS else None,
 )
 
 @app.on_event("startup")
@@ -121,6 +137,65 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Hosts widget code is allowed to reach. Kept in step with ALLOWED_SCRIPT_HOSTS in
+# `src/hooks/useScript.ts` and ALLOWED_HOSTS in `services/widget_safety.py`: the
+# runtime refuses to load an off-list script, publishing refuses to store one, and
+# this stops the browser fetching one if both are somehow bypassed.
+_CDN_HOSTS = (
+    "https://cdn.jsdelivr.net",
+    "https://code.highcharts.com",
+    "https://unpkg.com",
+    "https://cdnjs.cloudflare.com",
+)
+
+# Widget TSX is compiled by Babel and evaluated in the page, so 'unsafe-eval' is
+# load-bearing here rather than an oversight — remove it and no custom widget
+# renders at all. That is the trade this app makes, and the reason the other two
+# controls above exist: if arbitrary code is going to run, the useful question is
+# not "can it run" but "where can it send what it read". `connect-src` is the
+# answer to that, and it is the directive to be most careful about relaxing.
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval' " + " ".join(_CDN_HOSTS),
+    # react-grid-layout and the charting libraries set style attributes directly.
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "font-src 'self' data:",
+    "connect-src 'self' " + " ".join(_CDN_HOSTS),
+    # Embeds (a Tableau dashboard, for example) are a documented capability, and
+    # they authenticate themselves rather than borrowing this app's session.
+    "frame-src 'self' https:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+])
+
+
+@app.middleware("http")
+async def content_security_policy(request: Request, call_next):
+    """Attach the CSP, enforcing unless an admin has switched to report-only.
+
+    The escape hatch exists because a CSP that breaks the dashboard is worse than
+    one that is slightly loose: an admin can downgrade to Report-Only, see what
+    the console complains about, and report it rather than having to redeploy.
+    Never let a settings lookup failure drop the header — falling back to
+    enforcing is the safe direction.
+    """
+    response = await call_next(request)
+    try:
+        from services.settings_store import get_bool_setting
+
+        enforce = get_bool_setting("enforce_content_security_policy")
+    except Exception:  # noqa: BLE001
+        enforce = True
+    header = "Content-Security-Policy" if enforce else "Content-Security-Policy-Report-Only"
+    response.headers.setdefault(header, _CSP)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
+
 
 # Middleware to log all requests
 @app.middleware("http")

@@ -35,7 +35,22 @@ class RenameConversation(BaseModel):
 @router.get("/")
 def list_conversations(env: str = "dev", limit: int = 50, w: WorkspaceClient = Depends(get_db_client)):
     username = _get_current_username(w)
+    # There is no scheduler here, so the retention sweep rides on the request that
+    # happens whenever anyone opens the drawer. Throttled and non-fatal inside.
+    store.maybe_purge_expired(env)
     return {"conversations": store.list_conversations(env, username, limit)}
+
+
+@router.post("/delete-all")
+def delete_all_conversations(env: str = "dev", w: WorkspaceClient = Depends(get_db_client)):
+    """Delete every conversation belonging to the caller.
+
+    A POST to a named path rather than `DELETE /` on purpose: this removes all of
+    someone's history at once, and it should not be reachable by a client that
+    meant to delete one conversation and lost the id from the URL.
+    """
+    username = _get_current_username(w)
+    return {"status": "success", "deleted": store.delete_all_conversations(env, username)}
 
 
 @router.post("")

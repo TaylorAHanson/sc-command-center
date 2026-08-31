@@ -508,6 +508,8 @@ def init_db(env: str = "dev"):
             widget_id TEXT,
             widget_name TEXT,
             action_name TEXT,
+            username TEXT,
+            request_id TEXT,
             user_explanation TEXT,
             dashboard_context TEXT,
             timestamp TIMESTAMP {default_ts}
@@ -741,6 +743,20 @@ def init_db(env: str = "dev"):
     except Exception as e:
         conn.rollback() # MUST rollback aborted transaction before continuing
         pass # Ignore if not supported
+
+    try:
+        c.execute("ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS username TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+
+    try:
+        c.execute("ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS request_id TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
         
     try:
         c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS snapshot TEXT")
@@ -789,7 +805,17 @@ def init_db(env: str = "dev"):
         )
         count = c.fetchone()[0]
         if count == 0:
-            logging.info("No global admin mapping found - seeding default global admin for group 'users'")
+            # Lockout prevention: a deployment with no global admin has nobody who
+            # can create the first role mapping, and no way back in. The cost is
+            # that `users` contains essentially everyone, so until an admin
+            # replaces this row the app has role checks switched on and a mapping
+            # that makes them moot. Warn rather than log quietly — this is the
+            # single most likely reason a hardened deployment isn't.
+            logging.warning(
+                "No global admin mapping found - seeding 'users' -> Global/admin so the deployment "
+                "is administrable. This grants EVERY member of the 'users' group global admin. "
+                "Replace it in Admin Panel -> Role Mappings with your real admin group."
+            )
             c.execute(
                 "INSERT INTO role_mappings (external_role, domain, permission_level) VALUES (%s, %s, %s)",
                 ("users", "Global", "admin")
@@ -832,14 +858,33 @@ def log_widget_run(widget_id: str, username: Optional[str] = None, env: str = "d
     conn.close()
     return {"status": "success", "widget_id": widget_id}
 
-def log_user_action(widget_id: str, widget_name: str, explanation: str, context: str, action_name: str = "", env: str = "dev"):
+def log_user_action(widget_id: str, widget_name: str, explanation: str, context: str, action_name: str = "", username: Optional[str] = None, request_id: Optional[str] = None, env: str = "dev"):
+    """Record a confirmed executable action.
+
+    The written explanation is the audit trail this app exists to produce, and an
+    explanation nobody is attached to is worth much less than one that names who
+    gave it. "unknown" is stored as NULL for the same reason it is in
+    `log_widget_run`: after the fact, a placeholder is indistinguishable from real
+    attribution, so an honest blank beats a plausible stand-in.
+
+    `request_id` is the correlation handle a reviewer needs to get from "who
+    approved this and why" to "and here is the statement it ran". This row records
+    intent; Databricks records the effect in `system.query.history` and the table's
+    own Delta history, and the two are only joinable if something carries an id
+    across the gap.
+    """
     conn = get_db_connection(env)
     c = conn.cursor()
-    
+
+    who = (username or "").strip() or None
+    if who == "unknown":
+        who = None
+    correlation = (request_id or "").strip() or None
+
     c.execute('''
-        INSERT INTO action_logs (widget_id, widget_name, action_name, user_explanation, dashboard_context) 
-        VALUES (%s, %s, %s, %s, %s) RETURNING id
-    ''', (widget_id, widget_name, action_name, explanation, context))
+        INSERT INTO action_logs (widget_id, widget_name, action_name, username, request_id, user_explanation, dashboard_context) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
+    ''', (widget_id, widget_name, action_name, who, correlation, explanation, context))
     last_id = c.fetchone()[0]
         
     conn.commit()
@@ -851,8 +896,8 @@ def get_action_logs(limit: int = 100, offset: int = 0, env: str = "dev") -> List
     
     c = conn.cursor(cursor_factory=RealDictCursor)
     query = '''
-        SELECT al.id, al.widget_id, al.widget_name, al.action_name, al.user_explanation, al.dashboard_context,
-               al.timestamp, w.domain
+        SELECT al.id, al.widget_id, al.widget_name, al.action_name, al.username, al.request_id,
+               al.user_explanation, al.dashboard_context, al.timestamp, w.domain
         FROM action_logs al
         LEFT JOIN (
             SELECT id, domain

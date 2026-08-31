@@ -10,6 +10,57 @@ from routes.roles import _get_current_username, require_domain_editor, _get_user
 
 router = APIRouter()
 
+
+def _require_certified_widgets(widgets: List[Dict[str, Any]], env: str) -> None:
+    """Block a global view holding widgets nobody has certified, when configured to.
+
+    A global view is the one place in this app where one person's work lands on
+    everyone else's screen without them choosing it, so it is the place worth
+    gating on review. Off by default — see the setting's own note: certification
+    happens during promotion to production, so requiring it everywhere would make
+    global views impossible to create in dev and test.
+
+    Only widgets present in the `widgets` table are considered. Built-in widget
+    types ship with the app and are reviewed by the act of being in the repo;
+    they have no row here and are not something an author can introduce.
+    """
+    from services.settings_store import get_bool_setting
+
+    if not get_bool_setting("require_certified_for_global_views"):
+        return
+
+    types = {str(w.get("type")) for w in (widgets or []) if w.get("type")}
+    if not types:
+        return
+
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        c.execute(
+            """
+            SELECT name, MAX(is_certified) FROM widgets
+             WHERE id = ANY(%s) AND is_deprecated = 0
+             GROUP BY name, id
+            """,
+            (list(types),),
+        )
+        uncertified = sorted(name for name, certified in c.fetchall() if not certified)
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    if uncertified:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "A view shared with everyone may only contain certified widgets. "
+                f"Not yet certified: {', '.join(uncertified)}."
+            ),
+        )
+
+
 class ViewCreate(BaseModel):
     id: Optional[str] = None
     name: str
@@ -183,7 +234,8 @@ def create_view(view: ViewCreate, w: WorkspaceClient = Depends(get_db_client), e
     
     if view.is_global:
         require_domain_editor(w, view.domain, env)
-        
+        _require_certified_widgets(view.widgets, env)
+
     actual_username = 'system' if view.is_global else username
     view_id = view.id if view.id else str(uuid.uuid4())
     widgets_json = json.dumps(view.widgets)
@@ -255,7 +307,20 @@ def update_view(view_id: str, view: ViewUpdate, w: WorkspaceClient = Depends(get
             widgets_json = full_existing['widgets_json']
             
         actual_username = 'system' if is_global else username
-        
+
+        # Checked on update too, and against the resulting widget list rather than
+        # the submitted one: a view that passed at creation must not become a way
+        # to put an uncertified widget in front of everyone by editing it later.
+        if is_global:
+            try:
+                _require_certified_widgets(json.loads(widgets_json or "[]"), env)
+            except HTTPException:
+                # This connection is still open and the outer handler re-raises
+                # HTTPException untouched, so release it here rather than leaving
+                # it to garbage collection.
+                conn.close()
+                raise
+
         c.execute("""
             INSERT INTO dashboard_views (id, version, name, domain, username, is_global, widgets_json, is_locked, pinned_agent_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)

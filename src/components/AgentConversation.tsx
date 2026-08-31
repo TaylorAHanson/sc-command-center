@@ -238,6 +238,14 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                         </button>
                     )}
                 </div>
+                {/* Stated at the point of use rather than buried in the user guide:
+                    the two things someone needs to know before typing are that the
+                    answer is generated and may be wrong, and that what they type is
+                    kept. Both are also in the User Guide and app_guide.md. */}
+                <p className="mt-1.5 px-0.5 text-[10px] leading-tight text-gray-400">
+                    Responses are AI-generated and can be wrong — check anything you plan to act on.
+                    Conversations are saved to your history and may be retained by your administrator.
+                </p>
             </form>
         </div>
     );

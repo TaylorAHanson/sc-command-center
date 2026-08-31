@@ -27,6 +27,8 @@ import logging
 import os
 import re
 import threading
+import time
+import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from services import llm_params, native_files
@@ -81,7 +83,13 @@ def _max_tokens() -> int:
     return get_int_setting("chat_max_tokens")
 
 
-def _stream_completion(client, kwargs: Dict[str, Any]):
+#: Models that rejected `client_request_id`, so it is offered once per model and
+#: then dropped. Same shape as `llm_params`' adaptation: learn from the refusal
+#: rather than asking every deployment to configure around it.
+_REQUEST_ID_UNSUPPORTED: set = set()
+
+
+def _stream_completion(client, kwargs: Dict[str, Any], request_id: str = ""):
     """Start the streamed completion with the parameters this model accepts.
 
     Endpoints disagree about the optional parameters and about how much output they
@@ -89,11 +97,29 @@ def _stream_completion(client, kwargs: Dict[str, Any]):
     number for the whole deployment. `llm_params` owns that reconciliation: it names
     the output budget the way this model wants it, and a rejection is read, learned
     from and retried rather than surfaced to whoever is chatting.
+
+    `request_id` addresses a gap this app creates deliberately. Inference is signed
+    by the service principal (see the module docstring), so an AI Gateway usage or
+    payload row says only "the app called the model" — every user looks the same
+    there. Passing `client_request_id` puts an id the app also logged next to the
+    real username into that row, which is what makes the gateway's record
+    attributable after the fact. Best-effort by design: an endpoint that refuses
+    the field costs traceability, and must never cost the user their answer.
     """
     model = str(kwargs.get("model") or "")
     budget = int(kwargs.pop("max_tokens", 0) or 0)
 
     def send(params: Dict[str, Any]):
+        if request_id and model not in _REQUEST_ID_UNSUPPORTED:
+            try:
+                return client.chat.completions.create(
+                    **kwargs, **params, extra_body={"client_request_id": request_id}
+                )
+            except Exception as exc:  # noqa: BLE001
+                if "client_request_id" not in str(exc):
+                    raise
+                _REQUEST_ID_UNSUPPORTED.add(model)
+                logger.info("%s rejects client_request_id; continuing without it", model)
         return client.chat.completions.create(**kwargs, **params)
 
     return llm_params.with_adaptation(model, send, max_tokens=budget)
@@ -101,6 +127,20 @@ def _stream_completion(client, kwargs: Dict[str, Any]):
 
 def _tool_timeout() -> int:
     return get_int_setting("chat_tool_timeout")
+
+
+def _send_dashboard_context() -> bool:
+    """Whether the on-screen dashboard summary may go into the prompt.
+
+    Guarded: a settings outage should leave the assistant working as it always
+    has, not silently blind it to the screen the user is asking about.
+    """
+    try:
+        from services.settings_store import get_bool_setting
+
+        return get_bool_setting("send_dashboard_context")
+    except Exception:  # noqa: BLE001
+        return True
 
 
 def _with_sql_hint(result: str, args: Dict[str, Any]) -> str:
@@ -336,6 +376,34 @@ def _is_genie_poll_tool(name: str) -> bool:
     return "poll" in (name or "").lower()
 
 
+def _is_sql_server(url: str) -> bool:
+    from urllib.parse import urlparse
+
+    return "/mcp/sql" in (urlparse(url or "").path or "")
+
+
+def _tool_is_disabled(server_url: str) -> bool:
+    """Whether an admin has switched this family of data tools off.
+
+    Applied where the tool list is built rather than where a tool runs, so a
+    disabled tool is never advertised to the model in the first place — an agent
+    that can see a tool and is refused when it calls one spends its steps arguing
+    with the refusal, and tells the user the data is unavailable for the wrong
+    reason. Never let this raise: a settings outage must not silently strip every
+    tool from the agent.
+    """
+    try:
+        from services.settings_store import get_bool_setting
+
+        if _is_genie_server(server_url) and not get_bool_setting("enable_genie_tool"):
+            return True
+        if _is_sql_server(server_url) and not get_bool_setting("enable_sql_tool"):
+            return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tool switch lookup failed, leaving tools enabled: %s", exc)
+    return False
+
+
 def _is_genie_ask_tool(name: str) -> bool:
     n = (name or "").lower()
     return n in ("genie_ask", "ask_your_data") or n.endswith("_ask")
@@ -540,6 +608,10 @@ def _build_tools(
         # poll by hand and burn tool-call rounds on a handle it can't manage.
         if _is_genie_server(server_url) and _is_genie_poll_tool(entry["name"]):
             continue
+        # An admin switch beats a profile's tool list: a saved agent naming a
+        # Genie tool must not reintroduce Genie on a deployment that turned it off.
+        if _tool_is_disabled(server_url):
+            continue
         fn = _sanitize(entry["id"])
         if fn in dispatch:
             continue
@@ -593,20 +665,52 @@ def _build_tools(
     return specs, dispatch
 
 
+#: Ceiling on what one tool call may return into the prompt. Individual paths cap
+#: their own output too; this is the backstop that covers every path, including
+#: ones added later, because the cost of forgetting is a whole table pasted into
+#: the context window and then into whatever logs the conversation.
+_MAX_TOOL_RESULT_CHARS = 8000
+
+
+def _truncate_result(text: str) -> str:
+    if len(text) <= _MAX_TOOL_RESULT_CHARS:
+        return text
+    # Say so in-band: a model handed a silently clipped table will summarise it as
+    # if it were the whole thing.
+    return text[:_MAX_TOOL_RESULT_CHARS] + "\n\n[... truncated; narrow the query to see the rest]"
+
+
 def _run_tool(ws, desc: Dict[str, Any], args: Dict[str, Any]) -> str:
+    started = time.monotonic()
     try:
         if desc["kind"] == "app_help":
-            return app_help(str((args or {}).get("question") or ""))
-        if desc["kind"] == "mcp":
-            return _exec_mcp(ws, desc["server_url"], desc["real_name"], args)
-        if desc["kind"] == "upload":
+            out = app_help(str((args or {}).get("question") or ""))
+        elif desc["kind"] == "mcp":
+            out = _exec_mcp(ws, desc["server_url"], desc["real_name"], args)
+        elif desc["kind"] == "upload":
             from services.upload_tools import run_tool as run_upload_tool
 
-            return run_upload_tool(desc["env"], desc["tool_name"], args or {}, desc["attachments"])
-        return _exec_python(desc["code"], desc["func_name"], args)
+            out = run_upload_tool(desc["env"], desc["tool_name"], args or {}, desc["attachments"])
+        else:
+            out = _exec_python(desc["code"], desc["func_name"], args)
     except Exception as exc:  # noqa: BLE001
         logger.warning("tool %s failed: %s", desc.get("friendly"), exc)
         return f"Tool '{desc.get('friendly')}' failed: {exc}"
+
+    out = _truncate_result(out or "")
+    # Metadata only. A tool result is business data — query rows, file contents,
+    # whatever Genie returned — and logs are retained longer and read by more
+    # people than the chat it belongs to. Argument NAMES are safe and useful for
+    # debugging; argument values are not, because that is where the filters and
+    # identifiers live.
+    logger.info(
+        "tool %s completed in %.1fs, %d chars%s",
+        desc.get("friendly"),
+        time.monotonic() - started,
+        len(out),
+        f" (args: {', '.join(sorted((args or {}).keys()))})" if args else "",
+    )
+    return out
 
 
 # --------------------------------------------------------------- prompt build
@@ -662,7 +766,11 @@ def _system_prompt(profile: Optional[Dict[str, Any]], ui_context: str,
             "line yourself; it is added for you."
         )
 
-    if ui_context:
+    # Dropped here rather than in the browser: the client sends what it has, and
+    # whether that reaches the model is the deployment's decision, not the page's.
+    # A client that keeps sending context after an admin turns it off is then
+    # simply ignored, instead of quietly defeating the setting.
+    if ui_context and _send_dashboard_context():
         prompt += f"\n\n## Current dashboard context\n{ui_context.strip()}"
 
     # Files come last so they read as the immediate task, and because a card is a
@@ -727,6 +835,18 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
 
         specs, dispatch = _build_tools(ws, profile, attachments, env)
 
+        # One id for the whole turn, logged here with the caller's name and sent
+        # to the endpoint below. This log line is the app's half of the join: the
+        # gateway knows the id, only this knows who it was.
+        turn_id = f"cc-{uuid.uuid4()}"
+        try:
+            from services import caller_identity
+
+            who = caller_identity.username(ws)
+        except Exception:  # noqa: BLE001
+            who = "unknown"
+        logger.info("chat turn %s user=%s model=%s env=%s", turn_id, who, model, env)
+
         prior = _history_messages(history)
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": _system_prompt(profile, ui_context, attachments, bool(prior))}
@@ -757,7 +877,7 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
                 kwargs["tools"] = specs
                 kwargs["tool_choice"] = "auto"
 
-            stream = _stream_completion(client, kwargs)
+            stream = _stream_completion(client, kwargs, request_id=turn_id)
 
             turn_text = ""
             tool_acc: Dict[int, Dict[str, str]] = {}

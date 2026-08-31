@@ -20,7 +20,8 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
 - **External Libraries (Charts, Maps, etc.)**: You CANNOT `import` any external libraries. Instead, you MUST use the ALWAYS-PROVIDED `useScript(url, globalName)` hook to dynamically load the library from a CDN. **CRITICAL: DO NOT define or implement `useScript` yourself in the component code; it is already injected into the global execution environment.** Do NOT use React-wrapper libraries (like `HighchartsReact`, `react-leaflet`) as they will not be available.
   - Example: `const [loaded, error] = useScript('https://cdn.jsdelivr.net/npm/highcharts@10.3.3/highcharts.js', 'Highcharts');`
   - **CRITICAL**: Use the jsDelivr CDN (`cdn.jsdelivr.net`) instead of the official `code.highcharts.com` or other CDNs, as certain environments block the official CDNs resulting in 403 Forbidden errors.
-  - If you are in a loop and can't figure out why something isn't rendering, you may attempt to use a different CDN or a different library.
+  - **The runtime enforces an allowlist**, so this is not merely a preference: `useScript` refuses any url that is not `https` from `cdn.jsdelivr.net`, `code.highcharts.com`, `unpkg.com`, or `cdnjs.cloudflare.com`, and reports it as a load error. A url on any other host will never load, however correct the rest of the widget is.
+  - If you are in a loop and can't figure out why something isn't rendering, you may attempt a different allowlisted CDN or a different library — never a host outside that list.
   - Only render your library component (e.g. the chart) once `loaded` is true.
   - Create a `useRef` for a container `div`, and initialize the vanilla library inside a `useEffect` using the global object (e.g., `window.Highcharts.chart(containerRef.current, options)`). 
   - Make sure to return a cleanup function from the `useEffect` that calls the library's destroy method (e.g., `chart.destroy()`) to prevent memory leaks and duplicate renders during hot reloading.
@@ -99,7 +100,8 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 ### Executable Actions
 
 - Some widgets are "executable" (meaning they perform an action that needs to be audited).
-- If the widget is executable, it will receive a `props.executeAction(actionName: string, callback: () => void)` function.
+- If the widget is executable, it will receive a `props.executeAction(actionName: string, callback: (ctx: { requestId: string }) => void)` function.
+- **A callback that writes data must tag its statement with `ctx.requestId`**, as a leading SQL comment: `` `/* cc-action: ${ctx.requestId} */ UPDATE ...` ``. The app records the approval and the user's written reason under that id, and Databricks records the statement separately; the comment is the only thing that lets an auditor line the two up. Read-only widgets can ignore `ctx`.
 - **CRITICAL**: Use this for any "Submit", "Run", "Sync", or "Update" buttons. It will automatically handle showing a confirmation modal, collecting a mandatory explanation from the user, and logging the action to the audit trail.
 - Example: `<button onClick={() => props.executeAction("Sync Data", () => handleSync())}>Sync Now</button>`
 

@@ -48,6 +48,12 @@ export interface ActionLogPayload {
     action_name: string;
     explanation: string;
     context: any;
+    /**
+     * Correlation handle for this approval, also handed to the widget's callback
+     * so it can tag the statement it runs. It is what lets an auditor get from
+     * "who approved this and why" to the row Databricks recorded for the work.
+     */
+    request_id?: string;
 }
 
 export const logAction = async (payload: ActionLogPayload) => {

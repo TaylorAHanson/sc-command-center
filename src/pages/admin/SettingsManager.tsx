@@ -13,7 +13,7 @@ interface Setting {
     key: string;
     label: string;
     help: string;
-    kind: 'endpoint' | 'int' | 'json';
+    kind: 'endpoint' | 'int' | 'json' | 'bool';
     /** Which card this belongs under; the backend decides the grouping. */
     group: string;
     /** Value in force right now, whatever its source. */
@@ -184,6 +184,20 @@ export const SettingsManager: React.FC = () => {
                     placeholder='{"model-name": {"reasoning_effort": "medium"}}'
                     className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 focus:border-qualcomm-blue focus:outline-none"
                 />
+            ) : setting.kind === 'bool' ? (
+                // Written as an explicit "true"/"false" rather than cleared when
+                // off: an empty value means "inherit", so a blank could not turn
+                // off something whose fallback is on.
+                <label className="flex items-center gap-2 text-sm text-gray-800">
+                    <input
+                        type="checkbox"
+                        checked={(draft[setting.key] ?? '').trim().toLowerCase() !== 'false'}
+                        onChange={e => edit(setting.key, e.target.checked ? 'true' : 'false')}
+                        aria-label={setting.label}
+                        className="h-4 w-4 rounded border-gray-300 text-qualcomm-blue focus:ring-qualcomm-blue"
+                    />
+                    {(draft[setting.key] ?? '').trim().toLowerCase() !== 'false' ? 'Allowed' : 'Blocked'}
+                </label>
             ) : (
                 <input
                     type="number"

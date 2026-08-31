@@ -394,6 +394,82 @@ def delete_conversation(env: str, username: str, conversation_id: str) -> bool:
         conn.close()
 
 
+def delete_all_conversations(env: str, username: str) -> int:
+    """Delete every conversation this user owns. Returns how many went.
+
+    Scoped to one username and one env by the same rule the rest of this module
+    follows: a user may remove their own history, and nothing here can be aimed
+    at anyone else's.
+    """
+    conn = _conn(env)
+    try:
+        c = conn.cursor()
+        c.execute("SELECT id FROM chat_conversations WHERE username = %s", (username,))
+        ids = [row[0] for row in c.fetchall()]
+        if not ids:
+            return 0
+        c.execute("DELETE FROM chat_messages WHERE conversation_id = ANY(%s)", (ids,))
+        c.execute("DELETE FROM chat_uploads WHERE conversation_id = ANY(%s)", (ids,))
+        c.execute("DELETE FROM chat_conversations WHERE id = ANY(%s)", (ids,))
+        conn.commit()
+        return len(ids)
+    finally:
+        conn.close()
+
+
+#: Last purge per env, so opening the drawer doesn't run a delete every time.
+_purged_at: Dict[str, float] = {}
+_PURGE_INTERVAL_SECONDS = 3600.0
+
+
+def purge_expired(env: str, days: int) -> int:
+    """Delete conversations older than `days`, across all users. 0 means keep."""
+    if days <= 0:
+        return 0
+    conn = _conn(env)
+    try:
+        c = conn.cursor()
+        c.execute(
+            "SELECT id FROM chat_conversations WHERE updated_at < NOW() - make_interval(days => %s)",
+            (int(days),),
+        )
+        stale = [row[0] for row in c.fetchall()]
+        if not stale:
+            return 0
+        c.execute("DELETE FROM chat_messages WHERE conversation_id = ANY(%s)", (stale,))
+        c.execute("DELETE FROM chat_uploads WHERE conversation_id = ANY(%s)", (stale,))
+        c.execute("DELETE FROM chat_conversations WHERE id = ANY(%s)", (stale,))
+        conn.commit()
+        return len(stale)
+    finally:
+        conn.close()
+
+
+def maybe_purge_expired(env: str) -> None:
+    """Apply the retention setting, at most hourly, without failing the caller.
+
+    There is no scheduler in this app, so retention is enforced from the request
+    that is most likely to happen anyway — listing conversations. Throttled
+    because that request happens every time the drawer opens, and never allowed
+    to raise: a retention sweep failing must not stop someone reading their chats.
+    """
+    import time as _time
+
+    now = _time.monotonic()
+    if now - _purged_at.get(env, 0.0) < _PURGE_INTERVAL_SECONDS:
+        return
+    _purged_at[env] = now
+    try:
+        from services.settings_store import get_int_setting
+
+        days = get_int_setting("conversation_retention_days")
+        removed = purge_expired(env, days)
+        if removed:
+            logger.info("retention: removed %d conversation(s) older than %d days in %s", removed, days, env)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("conversation retention sweep failed: %s", exc)
+
+
 def prune_conversations(env: str, username: str, keep: Optional[int] = None) -> int:
     """Drop all but this user's most recent conversations. Returns how many went."""
     limit = keep if keep is not None else _keep_per_user()

@@ -68,6 +68,17 @@ def parts(model: str, env: str, attachments: List[Dict[str, Any]]) -> List[Dict[
     if not shape or not attachments:
         return []
 
+    # An admin can stop raw bytes reaching the model entirely; extraction still
+    # runs, so files remain readable through the tools. Guarded because a settings
+    # outage must not quietly change what the model can see.
+    try:
+        from services.settings_store import get_bool_setting
+
+        if not get_bool_setting("enable_native_file_passthrough"):
+            return []
+    except Exception:  # noqa: BLE001
+        pass
+
     from services import upload_store
 
     max_bytes, max_pages = limits()

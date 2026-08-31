@@ -156,6 +156,32 @@ def get_widget_version(widget_id: str, version: int, env: str = "dev"):
 
 
 
+def _reject_unsafe(tsx_code, data_source, data_source_type, is_executable, conn=None) -> None:
+    """Refuse to store a widget that breaks the runtime's safety rules.
+
+    Applied on create and update alike: an author who cannot publish unsafe code
+    but can update their way to it has not been stopped by anything. The open
+    connection is closed first — this raises, and a leaked connection here would
+    be held until garbage collection reclaims it.
+    """
+    from services.widget_safety import review_widget
+
+    problems = review_widget(
+        tsx_code or "",
+        data_source or "",
+        data_source_type or "none",
+        bool(is_executable),
+    )
+    if not problems:
+        return
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+    raise HTTPException(status_code=400, detail=" ".join(problems))
+
+
 @router.post("/custom")
 def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     domain = widget.get("domain", "General")
@@ -181,6 +207,8 @@ def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_clien
     open_in_new_tab_link = widget.get("open_in_new_tab_link", None)
     is_executable = 1 if widget.get("isExecutable", False) else 0
     created_by = _get_current_username(w)
+
+    _reject_unsafe(tsx_code, data_source, data_source_type, is_executable, conn)
 
     c.execute("SELECT MAX(version) FROM widgets WHERE id = %s", (widget_id,))
     
@@ -255,6 +283,8 @@ def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient = Depe
     if not name or not tsx_code:
         conn.close()
         raise HTTPException(status_code=400, detail="Name and tsx_code are required")
+
+    _reject_unsafe(tsx_code, data_source, data_source_type, is_executable, conn)
 
     new_version = current_version + 1
 

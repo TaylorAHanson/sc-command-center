@@ -13,7 +13,88 @@
 
 # Release Notes
 
-## 1.10.0 — 2026-08-21
+## 1.10.1 — 2026-08-24
+
+### Added
+
+- **Action Logs name who acted.** The telemetry table has a **User** column, and
+  the search box matches on it, so "who approved this sync and what did they say
+  the reason was" is one question instead of two. The name is taken from the
+  signed-in identity rather than anything the page sends, and actions recorded
+  before this release show a dash — there is no name to recover for them, and
+  guessing one would be worse than leaving it blank.
+- **Every approved action gets a request ID.** Expanding a row in Action Logs
+  shows it, and a widget that writes stamps the same id into the statement it
+  runs. That's the handle that connects "who approved this and why" in the app to
+  the statement Databricks recorded in its own query history — previously two
+  records with no field in common.
+- **Delete all my conversations.** At the bottom of the clock-icon history list.
+  It removes every conversation you own and the files attached to them, asks once,
+  and can't be undone.
+- **Admins can switch off what the assistant may reach.** New options in Admin
+  Panel → Settings turn off Genie queries, SQL, sending images and PDFs to the
+  model, and telling the assistant what's on your screen. A tool that's off isn't
+  offered to the assistant at all, so it doesn't try and fail — and an agent saved
+  in Agent Studio can't turn one back on by listing it.
+- **A retention period for conversations.** *Delete conversations after (days)* in
+  Admin Panel → Settings deletes chats untouched for that long, attachments
+  included. It defaults to 0, which keeps them indefinitely, because how long
+  chat history may be kept is a policy question rather than something to guess.
+- **The assistant says what it is.** A line under the message box notes that
+  answers are generated and can be wrong, and that conversations are saved. The
+  User Guide has a fuller version, and the assistant will tell you the same thing
+  if you ask it.
+
+### Changed
+
+- **Widgets load charting libraries only from approved CDNs.** `useScript` now
+  accepts scripts from jsDelivr, code.highcharts.com, unpkg and cdnjs over HTTPS,
+  and refuses anything else before it is fetched. Nearly every widget already uses
+  jsDelivr, which the generator has always been told to prefer. If one of yours
+  pointed somewhere else it will show a load error, and repointing it at jsDelivr
+  fixes it.
+- **Saving a widget now checks what's in it.** A widget is refused if its code
+  uses `eval`, `new Function`, `document.write`, `innerHTML` or
+  `dangerouslySetInnerHTML`, or if it points at any address other than this app's
+  own `/api/...` paths and those four CDNs. The message names what tripped it.
+  Widget code is generated from a prompt, and until now the rules about what that
+  code may contain lived only in the prompt — advice the generator usually
+  followed and hand-edited code never saw at all.
+- **A widget whose SQL changes data must be marked Executable.** If your data
+  source contains INSERT, UPDATE, DELETE, MERGE or similar, saving is refused
+  until the Executable toggle is on. That's the toggle that puts the widget's
+  controls behind the confirmation prompt, so the change is recorded with who
+  approved it and why — which is the whole point of it being an action.
+- **The read-only query endpoint is now actually read-only.** `/api/sql/execute-raw`
+  refuses a statement that would change anything and says so; writes go to a new
+  `/api/sql/execute-write`. Your Databricks permissions decided this before and
+  still do — what's new is that a panel can't quietly mutate a table because its
+  query happened to start with MERGE. Existing read-only widgets are unaffected.
+- **The browser now enforces where widget code can send data.** A Content
+  Security Policy limits widgets to this app and the approved CDNs. Custom
+  widgets keep working — compiling them in the browser is explicitly allowed,
+  since that's how they run — but a widget can no longer post what it read
+  somewhere else. Admins have a report-only switch in Settings for diagnosing a
+  widget that stops rendering.
+- **Role and permission checks are on by default.** The demo kill-switch that
+  made every signed-in user a global admin now defaults to off. See the note
+  below if your deployment relies on it.
+- **The API documentation pages are no longer public.** `/api/docs`, `/api/redoc`
+  and `/api/openapi.json` are served in local and dev only.
+
+### Notes for administrators
+
+- **Check your role mappings before deploying.** With permission checks now on,
+  what you're mapped to is what you get. If a deployment has never had a mapping
+  created, it still carries the fallback that grants the `users` group global
+  admin — which is nearly everyone. Replace it in Admin Panel → Access Management
+  with your real admin group; until you do, checks are on but they aren't
+  restricting anything.
+- **Python tools in Agent Studio are a trusted activity.** The code runs on the
+  server, in a restricted subprocess with the app's credentials removed — enough
+  to prevent accidents, not a substitute for review. Grant the rights to author
+  them only to people who have completed your secure-development training, and
+  read a new tool before its agent gets domain or global visibility.
 
 ### Added
 
