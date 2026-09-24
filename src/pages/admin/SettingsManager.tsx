@@ -44,6 +44,20 @@ const SOURCE_NOTE: Record<Setting['source'], string> = {
     default: 'Built-in default',
 };
 
+// Syntax only, as you type. What the object may contain (which models, which
+// parameter names) is `settings_store.validate_value`'s call on save, and its
+// message replaces this one when it has something to say.
+const jsonProblem = (text?: string): string | null => {
+    const raw = (text ?? '').trim();
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? null : 'Must be a JSON object: { … }';
+    } catch (e) {
+        return `Not valid JSON: ${e instanceof Error ? e.message : String(e)}`;
+    }
+};
+
 export const SettingsManager: React.FC = () => {
     const [settings, setSettings] = useState<Setting[]>([]);
     const [groups, setGroups] = useState<Group[]>(FALLBACK_GROUPS);
@@ -182,7 +196,7 @@ export const SettingsManager: React.FC = () => {
                     onChange={e => edit(setting.key, e.target.value)}
                     aria-label={setting.label}
                     placeholder='{"model-name": {"reasoning_effort": "medium"}}'
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 focus:border-qualcomm-blue focus:outline-none"
+                    className={`w-full rounded-md border px-3 py-2 font-mono text-xs text-gray-900 focus:outline-none ${jsonProblem(draft[setting.key]) ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-qualcomm-blue'}`}
                 />
             ) : setting.kind === 'bool' ? (
                 // Written as an explicit "true"/"false" rather than cleared when
@@ -208,6 +222,11 @@ export const SettingsManager: React.FC = () => {
                     aria-label={setting.label}
                     className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-qualcomm-blue focus:outline-none"
                 />
+            )}
+            {setting.kind === 'json' && jsonProblem(draft[setting.key]) && !fieldErrors[setting.key] && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-red-600">
+                    <AlertCircle size={12} /> {jsonProblem(draft[setting.key])}
+                </p>
             )}
             <p className="mt-1 text-xs text-gray-500">{setting.help}</p>
             {fieldErrors[setting.key] && (

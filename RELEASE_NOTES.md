@@ -13,6 +13,47 @@
 
 # Release Notes
 
+## 1.11.0 — 2026-09-24
+
+### Added
+
+- **Move everything to another app.** Admin Panel → **Data Migration** (global
+  admins) downloads a snapshot of this app's widgets, views, agents, taxonomy,
+  role mappings, settings and activity history, and imports one taken from a
+  different app — which is how people move from the dev app to the test app
+  without rebuilding their widgets and agents. **Merge** adds only what's missing
+  and can be run again safely; **Replace** makes this app an exact copy.
+  **Preview** runs the whole import and undoes it, so you see exactly what would
+  change before anything does. Imports are all-or-nothing, can't remove your own
+  admin access, and are recorded in Action Logs. Saved conversations can be
+  included too, but aren't by default.
+- **Widget Studio can look at your data.** Before writing a widget, the agent can
+  run read-only SQL and ask Genie — as you, so it sees only what you're allowed to
+  — to check real table names, columns and values instead of guessing them. Name
+  the table in your request and it will. Each lookup shows under **Thinking**.
+- **Agent Studio researches while it drafts.** The authoring assistant can now run
+  read-only queries and ask Genie, so a drafted agent's prompt describes the real
+  data — the status values that actually exist, what "late" means here — rather
+  than five sample rows.
+
+### Changed
+
+- **Role mappings pick real groups, and check them.** The group field in Admin
+  Panel → Role Mappings searches your Databricks groups and users as you type, and
+  refuses a name nobody holds — including one that exists with different capitals,
+  which used to save and then silently grant nothing. It offers the right spelling
+  when that's the problem. The domain is picked from Categories & Domains instead
+  of typed, and old mappings pointing at a domain that no longer exists are flagged.
+- **Create Global View lists your real domains.** The domain picker was a fixed
+  list that didn't match the taxonomy; it now shows the domains you can edit.
+- **Categories & Domains catch near-duplicates.** Adding `logistics` when
+  `Logistics` exists is refused, so widgets can't end up split between two entries
+  that look the same in every dropdown.
+- **Settings flags broken JSON as you type.** The model-parameter overrides box
+  shows a syntax error immediately instead of on save.
+- The Genie and SQL switches in Admin Panel → Settings now also govern the Widget
+  Studio and Agent Studio research tools.
+
 ## 1.10.1 — 2026-08-24
 
 ### Added

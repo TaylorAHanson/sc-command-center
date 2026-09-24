@@ -131,6 +131,36 @@ export const ViewManager: React.FC = () => {
     const [newViewName, setNewViewName] = useState('');
     const [newViewDomain, setNewViewDomain] = useState('General');
     const [isCreating, setIsCreating] = useState(false);
+    // The domains a global view may be filed under: the taxonomy's, narrowed to
+    // those this user can edit (the same check `POST /api/views/` makes). This was
+    // a hardcoded list that had drifted from the taxonomy — it offered
+    // "Manufacturing" and "Finance" whether or not they existed, and nothing an
+    // admin added under Categories & Domains.
+    const [taxonomyDomains, setTaxonomyDomains] = useState<string[] | null>(null);
+    const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
+    const loadTaxonomyDomains = async () => {
+        try {
+            const res = await fetch('/api/taxonomy/domains');
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+            setTaxonomyDomains((data.domains || []).map((d: { name?: string }) => d.name).filter(Boolean));
+            setTaxonomyError(null);
+        } catch (e) {
+            setTaxonomyError(e instanceof Error ? e.message : String(e));
+        }
+    };
+    const creatableDomains = useMemo(
+        () => (taxonomyDomains ?? []).filter(d => isAdmin || ['admin', 'editor'].includes(domainPermissions[d])),
+        [taxonomyDomains, isAdmin, domainPermissions],
+    );
+    useEffect(() => {
+        if (isCreateModalOpen && taxonomyDomains === null) loadTaxonomyDomains();
+    }, [isCreateModalOpen, taxonomyDomains]);
+    useEffect(() => {
+        // Keep the choice valid as the list arrives: a default of "General" the
+        // user can't file under would fail on save for a reason the form hid.
+        if (creatableDomains.length && !creatableDomains.includes(newViewDomain)) setNewViewDomain(creatableDomains[0]);
+    }, [creatableDomains, newViewDomain]);
 
     const checkIsPromoter = (domain: string) => {
         return isAdmin || domainPermissions[domain] === 'admin' || domainPermissions[domain] === 'editor';
@@ -524,11 +554,8 @@ export const ViewManager: React.FC = () => {
                                             onChange={(e) => setNewViewDomain(e.target.value)}
                                             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:border-qualcomm-blue focus:ring-1 focus:ring-qualcomm-blue appearance-none"
                                         >
-                                            <option value="General">General</option>
-                                            <option value="Supply Chain">Supply Chain</option>
-                                            <option value="Manufacturing">Manufacturing</option>
-                                            <option value="Finance">Finance</option>
-                                            <option value="Sales">Sales</option>
+                                            {taxonomyDomains === null && <option value={newViewDomain}>Loading domains…</option>}
+                                            {creatableDomains.map(d => <option key={d} value={d}>{d}</option>)}
                                         </select>
                                         <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
                                             <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -536,6 +563,15 @@ export const ViewManager: React.FC = () => {
                                             </svg>
                                         </div>
                                     </div>
+                                    {taxonomyError && (
+                                        <p className="mt-1 text-xs text-amber-700">
+                                            Couldn't load domains: {taxonomyError}{' '}
+                                            <button type="button" onClick={loadTaxonomyDomains} className="underline">Retry</button>
+                                        </p>
+                                    )}
+                                    {taxonomyDomains !== null && creatableDomains.length === 0 && !taxonomyError && (
+                                        <p className="mt-1 text-xs text-gray-500">You can't edit any domain, so there is nowhere to file a global view.</p>
+                                    )}
                                 </div>
                             </div>
                             <div className="mt-6 flex justify-end gap-3">
@@ -548,7 +584,7 @@ export const ViewManager: React.FC = () => {
                                 </button>
                                 <button
                                     type="submit"
-                                    disabled={isCreating || !newViewName.trim() || !newViewDomain.trim()}
+                                    disabled={isCreating || !newViewName.trim() || !creatableDomains.includes(newViewDomain)}
                                     className="px-4 py-2 text-sm font-medium text-white bg-qualcomm-blue border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-qualcomm-blue disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
                                     {isCreating && <RefreshCw size={14} className="animate-spin" />}

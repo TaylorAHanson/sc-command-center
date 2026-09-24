@@ -34,7 +34,7 @@ from services.code_patch import (
     sloc,
     strip_edit_blocks,
 )
-from services import llm_params, native_files
+from services import llm_params, native_files, research_tools
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
 from services.llm_client import DatabricksChatOpenAI, chat_client, reply_text
 from services.upload_tools import attachments_prompt
@@ -784,6 +784,80 @@ def _wants_stages(req: GenerateRequest) -> bool:
     return sum(1 for hint in _STAGE_HINTS if hint in prompt.lower()) >= 2
 
 
+# A planned run is plain model calls, which can't reach a tool, so its research is
+# done up front in one short ReAct round whose findings ride along with the plan and
+# every step. That round costs a model call even when it decides nothing needs
+# looking up — 20 to 30 seconds on a thinking model — so it only runs when the
+# request points at data: a catalog.schema.table name, or words that ask for the
+# data to be looked at. A one-pass request needs none of this; it has the tools.
+RESEARCH_SECONDS = 90
+_TABLE_NAME_RE = re.compile(r"`?\b[A-Za-z_][\w-]*`?\.`?[A-Za-z_][\w-]*`?\.`?[A-Za-z_][\w-]*\b`?")
+_RESEARCH_HINTS = (
+    "genie", "which table", "what table", "what columns", "which columns", "look up",
+    "find out", "research", "check the data", "look at the data", "from the table",
+    "in the table", "the data in",
+)
+# Dotted names that are code, not tables. `props.data.username` is in half the
+# requests people type, and each false match is a research round that finds nothing.
+_CODE_PREFIXES = ("props.", "window.", "document.", "react.", "this.", "console.",
+                  "math.", "json.", "object.", "array.", "e.target.", "event.")
+
+
+def _wants_research(req: GenerateRequest) -> bool:
+    """Whether a planned run should look at the data before it plans."""
+    if req.error_log:
+        return False  # a compile error is about the code, not the data
+    prompt = (req.prompt or "").lower()
+    for match in _TABLE_NAME_RE.finditer(req.prompt or ""):
+        if not match.group(0).strip("`").lower().startswith(_CODE_PREFIXES):
+            return True
+    return any(hint in prompt for hint in _RESEARCH_HINTS)
+
+
+def _research(model: str, make_llm, tools: List[Any], prompt: str, schema_hint: str) -> str:
+    """Findings about the data a planned run is about to build on, or `""`.
+
+    Optional by construction, like the helpers: no tools, no time, a failure or a
+    reply of NONE all mean "plan without it", which is what happened before this
+    existed. `make_llm(params)` builds the client, so a parameter the endpoint
+    refuses is dropped and retried here as it is everywhere else.
+    """
+    if not tools:
+        return ""
+    instructions = (
+        "You are researching the data for a dashboard widget that is about to be "
+        "built. Do not write any code. Use the tools to confirm the tables, column "
+        "names and types, and the real values the widget will depend on. Then reply "
+        "with the findings only, under 200 words: fully qualified table names, the "
+        "exact column names with types, notable values or ranges, and anything that "
+        "could not be confirmed. If nothing needs looking up, reply with the single "
+        "word NONE.\n\n" + research_tools.prompt_section(tools)
+    )
+
+    def attempt(params: Dict[str, Any]) -> str:
+        agent = create_react_agent(model=make_llm(params), tools=tools, prompt=instructions)
+        result = agent.invoke(
+            {"messages": [HumanMessage(content=f"The widget request:\n\n{prompt}{schema_hint}")]},
+            config={"recursion_limit": 10},
+        )
+        return reply_text(result["messages"][-1]).strip()
+
+    try:
+        reply = llm_params.with_adaptation(
+            model, attempt,
+            # The generation ceiling, not a helper's: a thinking model spends its
+            # reasoning out of this too, and a small cap ends the round mid-thought.
+            max_tokens=_widget_max_tokens(),
+            params_fn=llm_params.langchain_params,
+        )
+    except Exception as exc:  # noqa: BLE001 — research is optional, the build is not
+        print(f"Widget generation research skipped: {exc}")
+        return ""
+    if not reply or reply.upper().startswith("NONE"):
+        return ""
+    return reply[:3000]
+
+
 def _json_reply(reply: str, what: str) -> Dict[str, Any]:
     """The JSON object in a reply, or `{}` if there isn't a readable one.
 
@@ -921,7 +995,7 @@ def _settle(job_id: str, **fields) -> None:
 
 
 def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
-                ask, next_llm, budget: "_Budget") -> None:
+                ask, next_llm, budget: "_Budget", context: str = "") -> None:
     """Work through a plan, applying each step to the code the last one produced.
 
     Progress goes onto the job as it happens — including the code so far — so the
@@ -963,7 +1037,9 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
 
         prompt_for_stage = _stage_instruction(stages, index, first=not code.strip())
         staged_req = req.model_copy(update={"current_code": code})
-        stage_system = _build_system_prompt(staged_req)
+        # Rebuilt per step because the code changes, so anything learned before
+        # the plan (research findings) has to be carried across by hand.
+        stage_system = _build_system_prompt(staged_req) + context
 
         try:
             reply = ask([
@@ -1054,7 +1130,15 @@ def _failure_text(exc: Exception, budget: "_Budget") -> str:
     return raw
 
 
-def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: str):
+def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: str,
+                        research_ws: Optional[WorkspaceClient] = None):
+    """One Widget Studio turn.
+
+    `research_ws` is the caller's OBO client, for the research tools. Inference is
+    signed by the service principal (`api_key`); the data those tools read never
+    is. Without it the turn simply has no research tools, which is what a caller
+    that predates them expects.
+    """
     budget = _Budget(_widget_timeout())
     try:
         # Admin-settable (Admin Panel → Settings), falling back to LLM_MODEL. The
@@ -1127,12 +1211,25 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             _trace(job_id, "reading " + ", ".join(a.get("filename") or "a file" for a in attachments))
             system_prompt += "\n\n" + attachments_prompt(attachments)
 
+        # Read-only SQL and Genie, as the user, narrated into the Thinking panel and
+        # held to this job's clock. Empty when an admin has switched both off.
+        research = research_tools.langchain_tools(
+            research_ws,
+            note=lambda line: _trace(job_id, line),
+            seconds_left=lambda: budget.left,
+        )
+        research_prompt = research_tools.prompt_section(research)
+
         # The first call is where a parameter the endpoint refuses shows up, so it
         # runs under `with_adaptation`: the offending parameter is dropped and the
         # call retried, and every later call in this job inherits the lesson.
         def generate(params: Dict[str, Any]):
             llm = _widget_llm(api_key, base_url, model_name, budget, params)
-            agent = create_react_agent(model=llm, tools=[search_widgets], prompt=system_prompt)
+            agent = create_react_agent(
+                model=llm,
+                tools=[search_widgets, *research],
+                prompt=system_prompt + ("\n\n" + research_prompt if research_prompt else ""),
+            )
             return agent.invoke({"messages": lc_history + [turn]})
 
         # Every follow-up round asks for a client here, and gets None once the
@@ -1165,11 +1262,38 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
         # at a time: each call is small enough to finish, progress is visible, and
         # what lands stays landed. One instruction still goes straight to the model.
         if _wants_stages(working):
-            stages = _plan_stages(ask, system_prompt, prompt)
+            findings = ""
+            if research and _wants_research(working) and budget.has(RESEARCH_SECONDS + MIN_ONE_PASS_SECONDS):
+                _trace(job_id, "looking at the data before planning")
+                # Its own clock, inside the job's: a slow Genie answer may cost the
+                # research, never the time the plan and its steps need.
+                window = _Budget(RESEARCH_SECONDS)
+                scoped = research_tools.langchain_tools(
+                    research_ws,
+                    note=lambda line: _trace(job_id, line),
+                    seconds_left=lambda: min(window.left, budget.left - MIN_ONE_PASS_SECONDS),
+                )
+                schema_hint = (
+                    f"\n\nThe configured data source already returns: {json.dumps(req.data_source_schema)}"
+                    if req.data_source_schema else ""
+                )
+                findings = _research(
+                    model_name,
+                    lambda params: _widget_llm(api_key, base_url, model_name, window, params),
+                    scoped, prompt, schema_hint,
+                )
+                if findings:
+                    _trace(job_id, "research found: " + " ".join(findings.split())[:300])
+            context = (
+                "\n\nWhat research into the user's data found before this plan was made "
+                "(trust it over guesses; it was checked against the live tables):\n" + findings
+                if findings else ""
+            )
+            stages = _plan_stages(ask, system_prompt + context, prompt)
             if stages:
                 _trace(job_id, "planned this in "
                        + ", ".join(f"{i + 1}) {s['title']}" for i, s in enumerate(stages)))
-                _run_stages(job_id, working, stages, ask, next_llm, budget)
+                _run_stages(job_id, working, stages, ask, next_llm, budget, context)
                 return
             # No plan, and planning took the allowance with it. Starting a one-pass
             # generation now would spend the rest arriving at the same timeout with
@@ -1505,7 +1629,12 @@ def _llm_credentials(db_client: WorkspaceClient) -> tuple[str, str]:
 
 
 @router.post("/generate")
-async def start_generate_widget(req: GenerateRequest, background_tasks: BackgroundTasks, db_client: WorkspaceClient = Depends(get_db_client_sp)):
+async def start_generate_widget(req: GenerateRequest, background_tasks: BackgroundTasks,
+                                db_client: WorkspaceClient = Depends(get_db_client_sp),
+                                user_client: WorkspaceClient = Depends(get_db_client)):
+    # Two identities on purpose: the service principal signs inference (see
+    # `_llm_credentials`), and the user's own OBO client runs the research tools,
+    # so what the studio can read is exactly what Unity Catalog grants this user.
     api_key, host = _llm_credentials(db_client)
 
     job_id = str(uuid.uuid4())
@@ -1513,7 +1642,7 @@ async def start_generate_widget(req: GenerateRequest, background_tasks: Backgrou
 
     # The host, not a URL: this job may call two models on two different routes,
     # so each one derives its own base path. See `_base_url`.
-    background_tasks.add_task(run_generation_task, job_id, req, api_key, host)
+    background_tasks.add_task(run_generation_task, job_id, req, api_key, host, user_client)
 
     # The studio sizes its own polling from this rather than from a hardcoded
     # number, so raising the limit in Settings is enough — the client used to give

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Book, Shield, Layers, Code, PlayCircle, Settings, Users, LayoutGrid, MousePointerClick, Lock, Copy, PlusCircle, Bot, Paperclip, History } from 'lucide-react';
+import { Book, Shield, Layers, Code, PlayCircle, Settings, Users, LayoutGrid, MousePointerClick, Lock, Copy, PlusCircle, Bot, Paperclip, History, ArrowRightLeft } from 'lucide-react';
 import clsx from 'clsx';
 
 type Section = {
@@ -248,7 +248,7 @@ export const UserGuidePage: React.FC = () => {
         <div className="space-y-6">
           <h2 className="text-2xl font-bold text-gray-900">Managing Access</h2>
           <p className="text-gray-600">
-            Domain Administrators can manage who has access to their domains seamlessly from the Command Center UI, without needing database or code changes.
+            Global Administrators manage who has access to which domain from the Command Center UI, without needing database or code changes.
           </p>
           <div className="bg-white border rounded-lg p-6 shadow-sm mb-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-3">Global Admin</h3>
@@ -260,18 +260,17 @@ export const UserGuidePage: React.FC = () => {
           <div className="bg-white border rounded-lg p-6 shadow-sm">
             <h3 className="text-lg font-semibold text-gray-900 mb-3">How to Map Roles to Domains</h3>
             <p className="text-sm text-gray-700 mb-4">
-              Because permissions are driven by Databricks, granting access means creating a "Mapping" between a Databricks Group/Role and a Command Center Domain.
+              Because permissions are driven by Databricks, granting access means creating a "Mapping" between a Databricks group (or one user) and a Command Center Domain.
             </p>
             <ol className="list-decimal pl-5 space-y-3 text-gray-700">
-              <li>Navigate to the <strong>Admin Panel</strong> by clicking on the shield icon in the left navigation sidebar.</li>
-              <li>Under the <strong>Access Management</strong> tab, you will see a table of all existing role mappings.</li>
-              <li>Under "Create New Mapping", enter the exact name of the Databricks role or group (e.g., <code>finance-team</code> or <code>supply-chain-viewers</code>).</li>
-              <li>Type in the name of the Domain you wish to grant access to (e.g., <code>Finance</code>).</li>
+              <li>Navigate to the <strong>Admin Panel</strong> by clicking on the shield icon in the left navigation sidebar, and open <strong>Role Mappings</strong>.</li>
+              <li>Under "Create Domain Mapping", start typing in <strong>Databricks group or user</strong> and pick from the matching groups and users (e.g., <code>finance-team</code>).</li>
+              <li>Choose the <strong>Mapped Domain</strong> from the list. The list is the domains under <strong>Categories &amp; Domains</strong>, so add a new domain there first.</li>
               <li>Select the appropriate Permission Level: <code>Viewer</code>, <code>Editor</code>, or <code>Admin</code>.</li>
-              <li>Click <strong>Add Role Mapping</strong>. The backend will automatically apply this permission to any user belonging to that Databricks group upon their next session.</li>
+              <li>Click <strong>Add Mapping</strong>. The backend applies this permission to any user belonging to that Databricks group upon their next session.</li>
             </ol>
-            <p className="text-sm text-gray-500 mt-4 italic">
-              Note: Administrators can only create or delete mappings for domains to which they have been explicitly granted admin rights (unless they are a Global Admin).
+            <p className="text-sm text-gray-700 mt-4">
+              The group field is checked against Databricks as you type, because a mapping only applies to someone whose group or username matches it <strong>exactly, capitals included</strong>. A name that doesn't exist, or exists with different capitals, can't be saved — for a capitalisation slip the form offers the right spelling. If Databricks can't be reached for the check, the name is saved as typed and the form tells you so. A mapping whose domain has since been renamed or removed is marked <em>not a domain</em> in the table.
             </p>
           </div>
         </div>
@@ -319,6 +318,32 @@ export const UserGuidePage: React.FC = () => {
       ),
     },
     {
+      id: 'migration',
+      category: 'Admin Guide',
+      title: 'Moving Data to Another App',
+      icon: <ArrowRightLeft className="w-4 h-4" />,
+      content: (
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold text-gray-900">Moving Data to Another App</h2>
+          <p className="text-gray-600">
+            Promotion moves single widgets and views between Dev, Test and Prod inside one app. Each deployment of the Command Center — the dev app, the test app, production — has a database of its own, though, so moving people from one app to another means moving the data with them. <strong>Admin Panel → Data Migration</strong> does that. It is available to Global Administrators.
+          </p>
+          <div className="bg-white border rounded-lg p-6 shadow-sm">
+            <ol className="list-decimal pl-5 space-y-3 text-gray-700">
+              <li>In the app that has the data, tick what to include and click <strong>Download snapshot</strong>. Widgets, views and agents (every version), categories, domains and role mappings, deployment settings, and activity history are included by default. Saved conversations and their attached files are off by default, because the file would then contain every user's chats.</li>
+              <li>Open <strong>Data Migration</strong> in the other app and choose the file.</li>
+              <li>Pick a mode. <strong>Merge</strong> adds only what this app is missing and changes nothing already here; running it twice adds nothing the second time. <strong>Replace</strong> makes the chosen parts an exact copy of the snapshot and deletes this app's own rows in them.</li>
+              <li>Click <strong>Preview</strong>. It runs the whole import and then undoes it, and shows per table what would be added, skipped and deleted.</li>
+              <li>Click <strong>Import</strong>. It is only offered for the file and options you just previewed.</li>
+            </ol>
+            <p className="text-sm text-gray-700 mt-4">
+              An import is all-or-nothing: if anything fails, nothing is changed. A Replace that would remove your own global admin mapping is refused, so you can't lock yourself out. Both exports and imports are recorded in Action Logs. The apps never connect to each other — the file is the only thing that moves — so treat it like a database backup.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
       id: 'models',
       category: 'Admin Guide',
       title: 'Choosing Models',
@@ -360,8 +385,8 @@ export const UserGuidePage: React.FC = () => {
               These switch capabilities off for the whole deployment. A tool that's off isn't offered to the assistant at all, so it won't try to use it and won't explain a refusal — it simply doesn't have it. An agent saved in Agent Studio can't re-enable one by listing it.
             </p>
             <ul className="list-disc pl-5 text-sm text-gray-700 space-y-2">
-              <li><strong>Allow the assistant to query Genie</strong> — the one to reach for where Genie spaces can see data the assistant shouldn't. Unity Catalog policies that constrain other callers can't distinguish Genie, so this switch is the control that does.</li>
-              <li><strong>Allow the assistant to run SQL</strong> — removes the SQL and Unity Catalog tools. Widgets are unaffected; this governs the chat assistant only.</li>
+              <li><strong>Allow the assistant to query Genie</strong> — the one to reach for where Genie spaces can see data the assistant shouldn't. Unity Catalog policies that constrain other callers can't distinguish Genie, so this switch is the control that does. It also removes Genie from Widget Studio's and Agent Studio's research.</li>
+              <li><strong>Allow the assistant to run SQL</strong> — removes the SQL and Unity Catalog tools, and SQL research in Widget Studio and Agent Studio. Widgets themselves are unaffected.</li>
               <li><strong>Send images and PDFs to the model directly</strong> — off, attachments are only ever read through text extraction, so no raw image or PDF is uploaded to the model. Scanned documents and screenshots stop working.</li>
               <li><strong>Tell the assistant what is on screen</strong> — off, questions no longer carry a summary of the current dashboard.</li>
               <li><strong>Global views may only contain certified widgets</strong> — off by default, because certification is applied when work is promoted to production and nothing in Dev or Test is certified yet. Turn it on where "shared with everyone" should mean "reviewed".</li>
@@ -426,6 +451,9 @@ export const UserGuidePage: React.FC = () => {
               </p>
               <p className="text-gray-700">
                 While the agent works, expand <strong>Thinking</strong> to see how it read your request, the steps it planned, and anything it decided to skip. On a large or vague request it may come back with up to three questions instead of code — answer the ones that matter, or press <strong>Build it anyway</strong> and it will pick sensible defaults. Two minutes of questions is cheaper than ten minutes spent building the wrong widget.
+              </p>
+              <p className="text-gray-700 mt-2">
+                The agent can also <strong>look at your data</strong> before it writes anything. It runs read-only SQL on the app's warehouse and can ask Genie, both as you, so it sees only what you are allowed to see. Name the table you mean (<code>main.supply.shipments</code>) and it checks the real column names and values rather than guessing them; each query it ran appears under <strong>Thinking</strong>. It never changes data, and what it learns shapes the code rather than being pasted in as fixed numbers.
               </p>
             </div>
 

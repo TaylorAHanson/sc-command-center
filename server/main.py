@@ -264,6 +264,7 @@ from routes import taxonomy
 from routes import app_settings
 from routes import conversations
 from routes import chat_uploads
+from routes import data_migration
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widget_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
@@ -277,6 +278,7 @@ app.include_router(app_settings.router, prefix="/api/settings", tags=["app_setti
 # be read by a conversation.
 app.include_router(chat_uploads.router, prefix="/api/agent/uploads", tags=["chat_uploads"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
+app.include_router(data_migration.router, prefix="/api/migration", tags=["data_migration"])
 
 
 # Serve Frontend
