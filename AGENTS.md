@@ -202,4 +202,7 @@ codebase are used to explain *why* — particularly the non-obvious platform
 constraints (advisory locks, OBO vs SP, Genie's polling contract). That's a
 deliberate pattern worth continuing; skip comments that merely restate code.
 
-Gitflow: feature branch → PR into `develop`. External contributors fork and PR.
+Branching: one maintainer, so work lands on `main` directly — there is no
+`develop` branch. A change large enough to want review can still go through a
+short-lived branch and a PR into `main`. External contributors fork and PR
+into `main`.
