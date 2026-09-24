@@ -445,26 +445,60 @@ def _payload_of(structured: Optional[Dict[str, Any]], text: str) -> Dict[str, An
     return {}
 
 
-def _genie_deep_link(payload: Dict[str, Any]) -> Optional[str]:
+def _genie_deep_link(payload: Dict[str, Any], text: str = "") -> Optional[str]:
     for k in _GENIE_URL_FIELDS:
         v = payload.get(k)
         if isinstance(v, str) and v.startswith(("http://", "https://")) and "databricks" in v:
             return v
-    return None
+    m = _GENIE_TEXT_LINK.search(text or "")
+    return m.group(1) if m else None
 
 
-def _exec_genie(client, ask_tool: str, args: Dict[str, Any], timeout: Optional[float] = None) -> str:
-    """Run the full Genie ask->poll->answer cycle and return the answer text.
+# The poll reply's text is markdown written for a model ("**Status:** completed",
+# "Still running. 2 progress steps so far"), and the machine-readable status lives
+# only in `structuredContent`. A client or server that drops structuredContent
+# therefore used to leave the loop reading no status at all and waiting out the
+# full timeout on an answer Genie had already finished — so the text is read too.
+_GENIE_TEXT_STATUS = re.compile(r"\*\*Status:\*\*\s*([A-Za-z_]+)")
+_GENIE_TEXT_LINK = re.compile(r"\[Explore in Databricks\]\((https?://[^)\s]+)\)")
+_GENIE_DONE = ("COMPLETED", "SUCCESS", "DONE")
+_GENIE_FAILED = ("FAILED", "ERROR", "CANCELLED", "CANCELED")
 
-    `timeout` caps the poll loop below the chat setting, for callers that work to a
-    clock of their own (the studios' research tools, see services/research_tools).
+
+def _genie_status(payload: Dict[str, Any], text: str) -> str:
+    status = payload.get("status") or payload.get("state")
+    if not status and text:
+        # Only the reply's header: an answer about purchase orders can itself
+        # contain "**Status:** cancelled".
+        m = _GENIE_TEXT_STATUS.search(text[:600])
+        if m:
+            status = m.group(1)
+        elif text.lstrip().lower().startswith("still running"):
+            status = "IN_PROGRESS"
+    return str(status or "").upper()
+
+
+def _genie_answer_text(text: str) -> str:
+    """The answer in a poll reply's text, when there is no structured final_answer.
+
+    Drops Genie's note to the model, its status line and its reasoning trail, which
+    come first and can run long enough that a length cap would cut the answer.
     """
-    import time
+    text = re.sub(r"<!--.*?-->", "", text or "", flags=re.S)
+    text = re.sub(r"<details>.*?</details>", "", text, flags=re.S)
+    text = _GENIE_TEXT_STATUS.sub("", text, count=1)
+    return text.strip()
 
-    budget = _genie_timeout() if timeout is None else max(1.0, min(timeout, _genie_timeout()))
+
+def _genie_budget(timeout: Optional[float]) -> float:
+    return _genie_timeout() if timeout is None else max(1.0, min(timeout, _genie_timeout()))
+
+
+def _genie_start(client, ask_tool: str, args: Dict[str, Any]) -> Tuple[Optional[Tuple[str, str]], str]:
+    """Ask Genie. ((conversation_id, response_id), "") or (None, why it failed)."""
     structured, text, is_err = _parse_mcp_result(client.call_tool(ask_tool, args or {}))
     if is_err:
-        return f"Genie could not start the query: {text or 'unknown error'}"
+        return None, f"Genie could not start the query: {text or 'unknown error'}"
     handle = _payload_of(structured, text)
     conv = handle.get("conversation_id") or handle.get("conversationId") or handle.get("conversation")
     resp = (
@@ -473,38 +507,73 @@ def _exec_genie(client, ask_tool: str, args: Dict[str, Any], timeout: Optional[f
         or handle.get("query_id") or handle.get("id")
     )
     if not (conv and resp):
-        return "Genie did not return a query handle. Raw: " + (text or json.dumps(handle))[:1000]
+        return None, "Genie did not return a query handle. Raw: " + (text or json.dumps(handle))[:1000]
+    return (str(conv), str(resp)), ""
 
-    deadline = time.monotonic() + budget
+
+def _genie_wait(client, conv: str, resp: str, budget: float) -> Tuple[str, bool]:
+    """Poll one Genie response until it ends or `budget` runs out.
+
+    Returns (text, still_running). `still_running` means Genie had not finished at
+    the deadline — the question is still being answered, and polling the same
+    handle later picks the answer up without asking again.
+    """
+    import time
+
+    started = time.monotonic()
+    deadline = started + budget
     interval = _genie_poll_interval()
-    last_answer = ""
+    last_answer, last_status, link, polls, warned = "", "", None, 0, False
     while time.monotonic() < deadline:
         time.sleep(interval)
+        polls += 1
         pstruct, ptext, perr = _parse_mcp_result(
             client.call_tool("genie_poll_response", {"conversation_id": conv, "response_id": resp})
         )
         if perr:
-            return f"Genie poll error: {ptext or 'unknown error'}"
+            return f"Genie poll error: {ptext or 'unknown error'}", False
         payload = _payload_of(pstruct, ptext)
-        status = str(payload.get("status") or payload.get("state") or "").upper()
+        status = _genie_status(payload, ptext)
+        link = _genie_deep_link(payload, ptext) or link
+        if not status and not warned:
+            warned = True
+            logger.warning("Genie poll reply has no status we recognise (keys=%s): %.300r",
+                           sorted(payload), ptext)
+        last_status = status or last_status
         answer = _as_text(payload.get("final_answer"))
         if answer:
             last_answer = answer
-        if status in ("COMPLETED", "SUCCESS", "DONE"):
-            final = last_answer or ptext or "(Genie returned no answer text.)"
-            link = _genie_deep_link(payload)
-            return final + (f"\n\n[Open in Databricks Genie]({link})" if link else "")
-        if status in ("FAILED", "ERROR", "CANCELLED", "CANCELED"):
+        if status in _GENIE_DONE:
+            final = last_answer or _genie_answer_text(ptext) or "(Genie returned no answer text.)"
+            if link and link not in final:
+                final += f"\n\n[Open in Databricks Genie]({link})"
+            return final, False
+        if status in _GENIE_FAILED:
             return "Genie query failed: " + (
                 payload.get("error") or payload.get("error_message")
                 or payload.get("status_message") or ptext or "unknown error"
-            )
+            ), False
+    logger.info("Genie still %s after %.0fs and %d polls (conversation %s, response %s)",
+                last_status or "without a status", time.monotonic() - started, polls, conv, resp)
+    where = f" Open it in Databricks to see the answer when it lands: {link}" if link else ""
     if last_answer:
-        return last_answer + "\n\n(Genie was still finalizing when the time limit was reached.)"
+        return last_answer + "\n\n(Genie was still finalizing when the time limit was reached.)" + where, True
     return (
-        f"Genie did not finish within {int(budget)}s. Try a more specific "
-        "question, or pin a Genie space."
-    )
+        f"Genie did not finish within {int(budget)}s — it is still working on this "
+        f"question.{where} Try a more specific question, or pin a Genie space."
+    ), True
+
+
+def _exec_genie(client, ask_tool: str, args: Dict[str, Any], timeout: Optional[float] = None) -> str:
+    """Run the full Genie ask->poll->answer cycle and return the answer text.
+
+    `timeout` caps the poll loop below the chat setting, for callers that work to a
+    clock of their own (the studios' research tools, see services/research_tools).
+    """
+    handle, problem = _genie_start(client, ask_tool, args)
+    if handle is None:
+        return problem
+    return _genie_wait(client, *handle, _genie_budget(timeout))[0]
 
 
 def _exec_mcp(ws, server_url: str, real_name: str, args: Dict[str, Any]) -> str:

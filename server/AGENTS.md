@@ -193,6 +193,12 @@ Two behaviors that look odd but are intentional:
   answer. Handing the model a handle is useless, so `_exec_genie` drives the
   poll loop internally and `genie_poll_response` is hidden from the tool list
   the model sees (`AGENT_RUNTIME_GENIE_TIMEOUT`, `AGENT_RUNTIME_GENIE_POLL_MS`).
+  Status comes from `structuredContent`; the reply *text* is markdown for a model
+  (`**Status:** completed`, "Still running…"), and `_genie_status` reads that
+  header as a fallback — without it, a reply missing structuredContent never
+  reads as finished and the loop waits out the full timeout on a done answer.
+  `_genie_start` / `_genie_wait` are the two halves, so a caller that ran out of
+  time can wait on the same handle again rather than re-ask.
   SQL is deliberately *not* wrapped this way — `execute_sql` answers inline for
   normal queries and `poll_sql_result` stays model-facing by design, which is
   part of why the step cap is 8 rather than 6.
@@ -554,8 +560,10 @@ taxonomy entry or a global alias". Things that look odd but aren't:
 
 Widget Studio and Agent Studio's authoring agent both get `run_sql` (read-only,
 `SQL_WAREHOUSE_ID`, classified by `sql_safety` before anything is sent) and
-`ask_genie` (the Genie MCP server via `agent_runtime._exec_genie`, which now takes
-an optional `timeout`). Both run on the **caller's OBO client** — the studios sign
+`ask_genie` (the Genie MCP server via `agent_runtime._genie_start` /
+`_genie_wait`, capped to the caller's clock). A wait that runs out returns the
+handle, and `ask_genie(response_id=…)` resumes it without asking again — broad
+questions can outlast one research turn, and re-asking restarts Genie's search. Both run on the **caller's OBO client** — the studios sign
 inference with the SP, and that exception must not spread to data, which is why
 `/api/agent/widget/generate` now takes `get_db_client` as well as
 `get_db_client_sp`. The admin switches `enable_sql_tool` / `enable_genie_tool`
@@ -848,7 +856,7 @@ server/venv/bin/python tests/test_file_extract.py                           # 22
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server server/venv/bin/python tests/test_conversation_store.py   # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_db_pool.py              # 14 passed
-PYTHONPATH=server server/venv/bin/python tests/test_research_tools.py       # 20 passed
+PYTHONPATH=server server/venv/bin/python tests/test_research_tools.py       # 24 passed
 PYTHONPATH=server server/venv/bin/python tests/test_principals.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_data_migration.py       # 21 passed
 ```

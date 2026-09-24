@@ -243,22 +243,42 @@ def _genie_client(ws):
 
 
 def ask_genie(ws, question: str, conversation_id: str = "",
-              timeout: Optional[float] = None) -> str:
-    """Ask Genie a question as the caller and wait for its answer."""
-    from services.agent_runtime import _exec_genie
+              timeout: Optional[float] = None, response_id: str = "") -> str:
+    """Ask Genie a question as the caller and wait for its answer.
+
+    With `response_id` (and its `conversation_id`) it asks nothing: it goes back to
+    waiting on an answer an earlier call ran out of time for. A broad question can
+    take Genie longer than one research turn allows, and asking it again starts the
+    whole search over.
+    """
+    from services import agent_runtime as rt
 
     question = (question or "").strip()
-    if not question:
+    conversation_id = (conversation_id or "").strip()
+    response_id = (response_id or "").strip()
+    if not question and not response_id:
         return "ask_genie needs a question."
-    args: Dict[str, Any] = {"question": question}
-    if (conversation_id or "").strip():
-        args["conversation_id"] = conversation_id.strip()
+    if response_id and not conversation_id:
+        return "ask_genie needs the conversation_id that came with that response_id."
     try:
-        answer = _exec_genie(_genie_client(ws), "genie_ask", args, timeout=timeout)
+        client = _genie_client(ws)
+        if response_id and conversation_id:
+            handle = (conversation_id, response_id)
+        else:
+            args: Dict[str, Any] = {"question": question}
+            if conversation_id:
+                args["conversation_id"] = conversation_id
+            handle, problem = rt._genie_start(client, "genie_ask", args)
+            if handle is None:
+                return problem
+        answer, still_running = rt._genie_wait(client, *handle, rt._genie_budget(timeout))
     except Exception as exc:  # noqa: BLE001
         return f"Genie is unavailable: {str(exc).strip() or type(exc).__name__}"
     if len(answer) > MAX_RESULT_CHARS:
         answer = answer[:MAX_RESULT_CHARS] + "\n\n[... truncated]"
+    if still_running:
+        answer += (f'\n\nTo keep waiting for this answer without asking again, call ask_genie '
+                   f'with conversation_id="{handle[0]}" and response_id="{handle[1]}".')
     return answer
 
 
@@ -327,7 +347,7 @@ def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
 
     if allowed.get("ask_genie"):
         @tool("ask_genie")
-        def ask_genie_tool(question: str, conversation_id: str = "") -> str:
+        def ask_genie_tool(question: str = "", conversation_id: str = "", response_id: str = "") -> str:
             """Ask Databricks Genie a natural-language question about the data.
 
             Genie searches the Genie spaces the current user can reach and answers
@@ -335,16 +355,22 @@ def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
             term means in this organization, which table holds a metric, or to get a
             quick figure before deciding how to build something. Slower than
             run_sql (tens of seconds); prefer run_sql once you know the table.
-            Pass `conversation_id` from an earlier answer to ask a follow-up.
+            Pass `conversation_id` from an earlier answer to ask a follow-up. If a
+            call says Genie is still working, pass the `conversation_id` and
+            `response_id` it gives (no question) to keep waiting for that answer.
             """
             late = out_of_time()
             if late:
                 return late
-            say(f"asking Genie: {' '.join((question or '').split())[:160]}")
+            if (response_id or "").strip():
+                say("still waiting on Genie's answer")
+            else:
+                say(f"asking Genie: {' '.join((question or '').split())[:160]}")
             left = remaining()
             answer = ask_genie(ws, question, conversation_id,
-                               timeout=(left - MIN_SECONDS) if left is not None else None)
-            say(answer[:120] if answer.startswith(_GENIE_FAILURES) else "Genie answered")
+                               timeout=(left - MIN_SECONDS) if left is not None else None,
+                               response_id=response_id)
+            say(answer.split("\n", 1)[0][:160] if answer.startswith(_GENIE_FAILURES) else "Genie answered")
             return answer
 
         tools.append(ask_genie_tool)

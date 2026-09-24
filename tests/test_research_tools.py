@@ -5,6 +5,7 @@ the prompt, a clipped result says it was clipped, an admin switch removes the to
 rather than leaving it to fail, and Widget Studio's planned runs only pay for a
 research round when the request points at data.
 """
+import json
 import os
 import sys
 
@@ -125,6 +126,67 @@ def test_genie_gets_the_question_and_the_callers_clock():
         rt._genie_client = original
     assert seen["calls"][0] == ("genie_ask", {"question": "what counts as late?"})
     assert out.startswith("Genie is unavailable")
+
+
+class GenieScript:
+    """A Genie MCP client that replays poll replies, as text only when asked to."""
+
+    def __init__(self, polls, structured=True):
+        self.polls, self.structured, self.calls = list(polls), structured, []
+
+    def call_tool(self, name, args):
+        from types import SimpleNamespace as NS
+        self.calls.append(name)
+        if name == "genie_ask":
+            body = {"conversation_id": "c1", "response_id": "r1", "status": "in_progress"}
+            return NS(content=[NS(text=json.dumps(body))], structuredContent=body, isError=False)
+        status, text = self.polls.pop(0) if self.polls else ("in_progress", "Still running.")
+        body = {"status": status, "final_answer": "There are **9 suppliers**." if status == "completed" else ""}
+        return NS(content=[NS(text=text)], structuredContent=body if self.structured else None, isError=False)
+
+
+DONE_TEXT = ("<!-- agent: Genie has finished. -->\n\n**Status:** completed\n\n"
+             "<details><summary>Genie's reasoning</summary>\n\n" + "thinking " * 800 + "\n</details>\n\n"
+             "There are **9 suppliers**.\n\n[Explore in Databricks](https://x.cloud.databricks.com/one/chat/threads/c1)")
+
+
+def with_genie(client, fn):
+    from services import agent_runtime
+    original, interval = rt._genie_client, agent_runtime._genie_poll_interval
+    rt._genie_client = lambda ws: client
+    agent_runtime._genie_poll_interval = lambda: 0.0
+    try:
+        return fn()
+    finally:
+        rt._genie_client, agent_runtime._genie_poll_interval = original, interval
+
+
+def test_genie_finishing_is_seen_without_structured_content():
+    # The poll's text is markdown for a model; with no structuredContent the loop
+    # used to find no status and wait out the whole timeout on a finished answer.
+    client = GenieScript([("in_progress", "Still running. 1 progress step so far"),
+                          ("completed", DONE_TEXT)], structured=False)
+    out = with_genie(client, lambda: rt.ask_genie(object(), "how many suppliers?", timeout=5))
+    assert out.startswith("There are **9 suppliers**") and "keep waiting" not in out
+    assert client.calls == ["genie_ask", "genie_poll_response", "genie_poll_response"]
+
+
+def test_a_status_inside_the_answer_is_not_genies_status():
+    from services.agent_runtime import _genie_status
+    body = "Still running. 3 progress steps so far\n" + "x" * 700 + "\n**Status:** cancelled"
+    assert _genie_status({}, body) == "IN_PROGRESS"
+
+
+def test_genie_out_of_time_hands_back_a_way_to_keep_waiting():
+    client = GenieScript([], structured=False)
+    out = with_genie(client, lambda: rt.ask_genie(object(), "what procurement data is there?", timeout=1))
+    assert out.startswith("Genie did not finish") and 'response_id="r1"' in out
+
+
+def test_waiting_again_does_not_ask_again():
+    client = GenieScript([("completed", DONE_TEXT)])
+    out = with_genie(client, lambda: rt.ask_genie(object(), "", "c1", timeout=5, response_id="r1"))
+    assert "9 suppliers" in out and "genie_ask" not in client.calls
 
 
 def wants(prompt, **kw):

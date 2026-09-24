@@ -13,6 +13,17 @@
 
 # Release Notes
 
+## 1.11.1 — 2026-09-24
+
+### Fixed
+
+- **Genie answers no longer go missing in the studios.** When Widget Studio or
+  Agent Studio asked Genie a question, it could keep waiting after Genie had
+  already answered, then report that Genie "did not finish". It now recognises
+  the finished answer. When a broad question really does outlast the wait, the
+  studio picks up the same answer later instead of asking again, and you get a
+  link to open it in Databricks.
+
 ## 1.11.0 — 2026-09-24
 
 ### Added
