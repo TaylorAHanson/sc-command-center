@@ -36,7 +36,7 @@ Run the backend alone with `cd server && venv/bin/uvicorn main:app --reload
 Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
 `/api/sql`, `/api/jobs`, `/api/roles`, `/api/views`, `/api/promotion`,
 `/api/taxonomy`, `/api/databricks`, `/api/agent` (proxy), `/api/agent/widget`,
-`/api/agent/studio`, plus `/api` for n8n and Tableau. Interactive docs are at
+`/api/agent/studio`, `/api/migration`, plus `/api` for n8n and Tableau. Interactive docs are at
 `/api/docs`.
 
 `/api/health` is the one unauthenticated route, so it doubles as the SPA's source
@@ -530,6 +530,68 @@ want the model's narration on screen, the prompt has to ask for it as ordinary
 text. `tools/widget_repro.py` prints what a reply contained and how much of it
 survived the read, including how much prose arrived before the code.
 
+## Role-mapping validation (`services/principals.py`)
+
+A mapping's `external_role` is compared with the caller's SCIM group display names
+and username **exactly** (`roles._get_user_permissions`), so a typo or a
+capitalisation slip saves fine and grants nothing, silently. `GET
+/api/roles/principals` backs the form's typeahead and `/principals/check` gives a
+verdict; `_validate_mapping` repeats the check on POST/PUT, plus "the domain is a
+taxonomy entry or a global alias". Things that look odd but aren't:
+
+- **Groups are checked with `co`, not `eq`.** Databricks compares group `eq`
+  case-sensitively, which reports `Admins` as unknown when the useful answer is
+  "it's spelled `admins`"; `co` ignores case and `classify` does the exact match.
+- **A failed lookup allows the save** (`unverified`). Refusing would make access
+  control uneditable during a SCIM outage.
+- **An edit doesn't re-check a field it didn't change**, so a legacy mapping can
+  have its level changed without first being fixed.
+
+`taxonomy._near_duplicate` is the same idea for categories and domains:
+`UNIQUE (name)` is case-sensitive, so `Logistics` and `logistics` could coexist.
+
+## Studio research tools (`services/research_tools.py`)
+
+Widget Studio and Agent Studio's authoring agent both get `run_sql` (read-only,
+`SQL_WAREHOUSE_ID`, classified by `sql_safety` before anything is sent) and
+`ask_genie` (the Genie MCP server via `agent_runtime._exec_genie`, which now takes
+an optional `timeout`). Both run on the **caller's OBO client** — the studios sign
+inference with the SP, and that exception must not spread to data, which is why
+`/api/agent/widget/generate` now takes `get_db_client` as well as
+`get_db_client_sp`. The admin switches `enable_sql_tool` / `enable_genie_tool`
+remove them, as they do in chat.
+
+In Widget Studio the one-pass ReAct call has them directly. A planned run is plain
+model calls, so `_research` runs one ReAct round *before* planning, on its own
+`RESEARCH_SECONDS` clock inside the job's, and its findings are appended to the
+plan prompt and to every step's system prompt (`_run_stages(context=...)`). It
+costs a model call even when it finds nothing, so `_wants_research` only asks for
+it when the request names a `catalog.schema.table` (not `props.data.x`) or asks to
+look at data. In Agent Studio they ride on `confirm_schema`, like the probes.
+
+## Moving data between apps (`services/data_migration.py`, `routes/data_migration.py`)
+
+Promotion copies within one instance; each bundle target now has its own, so
+moving users from the dev app to the test app needs the data moved *between
+databases*. It travels as a gzipped JSON snapshot the admin downloads from one app
+and uploads to the other — never a connection between apps, which would need one
+app's SP granted into the other's database, or an app-to-app hop with the user's
+token (the proxy's old 401/403 source).
+
+- **Preview is the import, rolled back**, so its counts are exact.
+- **Merge** matches on natural keys (`TableSpec.key`: `(id, version)`, name, the
+  three mapping fields, the content of activity rows) as a *multiset*, and never
+  carries serial ids — the two databases numbered rows independently. Repeating a
+  merge writes nothing. **Replace** deletes and inserts with ids, then `setval`s.
+- **One transaction per schema, committed only after every part succeeded.**
+  `app_settings` goes to `settings_env()`'s schema, which may be a different
+  connection; everything else to the chosen env.
+- **A replace that would drop the importer's own global-admin mapping is rolled
+  back** (`_still_admin`, read inside the uncommitted transaction).
+- Only columns both sides have are written, so snapshots survive a version skew.
+  `test_data_migration.py` fails if `init_db` gains a table `TABLES` doesn't list.
+- Exports and imports are written to `action_logs`. Conversations are opt-in.
+
 ## Agent Studio storage (`agent_studio_store.py`)
 
 Authored agents are DB rows in `agent_profiles`, versioned like widgets. This
@@ -786,6 +848,9 @@ server/venv/bin/python tests/test_file_extract.py                           # 22
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server server/venv/bin/python tests/test_conversation_store.py   # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_db_pool.py              # 14 passed
+PYTHONPATH=server server/venv/bin/python tests/test_research_tools.py       # 20 passed
+PYTHONPATH=server server/venv/bin/python tests/test_principals.py           # 10 passed
+PYTHONPATH=server server/venv/bin/python tests/test_data_migration.py       # 21 passed
 ```
 
 The last two need the venv interpreter, not a bare `python3`: they exercise

@@ -55,7 +55,10 @@ server/                 FastAPI gateway — see server/AGENTS.md
                         app), code_patch.py (widget edit splicing),
                         conversation_store.py + upload_store.py + upload_tools.py
                         + file_extract.py (saved chats and attached files),
-                        caller_identity.py (who is calling, cached)
+                        caller_identity.py (who is calling, cached),
+                        research_tools.py (studio SQL/Genie research),
+                        principals.py (role-mapping name checks),
+                        data_migration.py (app-to-app snapshots)
   middleware/auth.py    OBO token extraction and WorkspaceClient factories
   config/               Static config + settings.py (env var reads)
 src/                    React SPA — see src/AGENTS.md

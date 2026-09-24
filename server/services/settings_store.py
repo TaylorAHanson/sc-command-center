@@ -192,7 +192,7 @@ SETTING_SPECS: Dict[str, Spec] = {
         default="true",
         kind="bool",
         label="Allow the assistant to query Genie",
-        help="Off removes every Genie tool from the assistant. Turn it off where Genie spaces can reach data the assistant must not read — Unity Catalog policies that restrict other agents cannot restrict Genie.",
+        help="Off removes every Genie tool from the assistant, and Genie research from Widget Studio and Agent Studio. Turn it off where Genie spaces can reach data the assistant must not read — Unity Catalog policies that restrict other agents cannot restrict Genie.",
         group="tools",
     ),
     "enable_sql_tool": Spec(
@@ -200,7 +200,7 @@ SETTING_SPECS: Dict[str, Spec] = {
         default="true",
         kind="bool",
         label="Allow the assistant to run SQL",
-        help="Off removes the SQL and Unity Catalog tools from the assistant. Widgets are unaffected — this governs the chat agent only.",
+        help="Off removes the SQL and Unity Catalog tools from the assistant, and SQL research from Widget Studio and Agent Studio. Widgets themselves are unaffected, and so are Agent Studio's schema checks.",
         group="tools",
     ),
     "conversation_retention_days": Spec(

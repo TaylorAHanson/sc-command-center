@@ -49,12 +49,32 @@ def _list(table: str, env: str):
                 pass
 
 
+def _near_duplicate(c, table: str, name: str, item_id: int = None):
+    """An existing entry that differs from `name` only in case or spacing.
+
+    `UNIQUE (name)` is case-sensitive, so `Logistics` and `logistics` could both
+    be saved, and then widgets, views and role mappings split between two domains
+    that look like one in every dropdown. Exact matches are left to the caller: a
+    repeated create is idempotent on purpose.
+    """
+    c.execute(
+        f"SELECT id, name FROM {table} WHERE LOWER(TRIM(name)) = LOWER(%s) AND name <> %s"
+        + (" AND id <> %s" if item_id is not None else ""),
+        (name, name) + ((item_id,) if item_id is not None else ()),
+    )
+    return c.fetchone()
+
+
 def _create(table: str, name: str, env: str):
     name = (name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required")
     conn = get_db_connection(env)
     c = conn.cursor()
+    clash = _near_duplicate(c, table, name)
+    if clash:
+        conn.close()
+        raise HTTPException(status_code=409, detail=f"'{clash[1]}' already exists. Use that one, or rename it.")
     try:
         c.execute(f"INSERT INTO {table} (name) VALUES (%s) ON CONFLICT (name) DO NOTHING RETURNING id", (name,))
         row = c.fetchone()
@@ -77,6 +97,10 @@ def _update(table: str, item_id: int, name: str, env: str):
         raise HTTPException(status_code=400, detail="Name is required")
     conn = get_db_connection(env)
     c = conn.cursor()
+    clash = _near_duplicate(c, table, name, item_id)
+    if clash:
+        conn.close()
+        raise HTTPException(status_code=409, detail=f"'{clash[1]}' already exists. Use that one, or rename it.")
     try:
         c.execute(f"UPDATE {table} SET name = %s WHERE id = %s", (name, item_id))
         if c.rowcount == 0:

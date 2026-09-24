@@ -5,15 +5,16 @@ import { WidgetManager } from './admin/WidgetManager';
 import { ViewManager } from './admin/ViewManager';
 import { TaxonomyManager } from './admin/TaxonomyManager';
 import { SettingsManager } from './admin/SettingsManager';
+import { DataMigration } from './admin/DataMigration';
 import clsx from 'clsx';
-import { List, Shield, Layers, LayoutGrid, Sliders, Tag } from 'lucide-react';
+import { List, Shield, Layers, LayoutGrid, Sliders, Tag, ArrowRightLeft } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 
 interface AdminPageProps {
     onNavigate: (page: string | null) => void;
 }
 
-type AdminTab = 'logs' | 'roles' | 'widgets' | 'views' | 'taxonomy' | 'settings';
+type AdminTab = 'logs' | 'roles' | 'widgets' | 'views' | 'taxonomy' | 'settings' | 'migration';
 
 export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     const [activeTab, setActiveTab] = useState<AdminTab>('views');
@@ -81,6 +82,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                             Settings
                         </button>
                     )}
+                    {isAdmin && (
+                        <button
+                            onClick={() => setActiveTab('migration')}
+                            className={clsx(
+                                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
+                                activeTab === 'migration' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                            )}
+                        >
+                            <ArrowRightLeft size={16} />
+                            Data Migration
+                        </button>
+                    )}
                     <button
                         onClick={() => setActiveTab('logs')}
                         className={clsx(
@@ -101,6 +114,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 {activeTab === 'taxonomy' && <TaxonomyManager />}
                 {activeTab === 'roles' && <RoleMappings />}
                 {activeTab === 'settings' && isAdmin && <SettingsManager />}
+                {activeTab === 'migration' && isAdmin && <DataMigration />}
                 {activeTab === 'logs' && <div className="bg-white border text-gray-900 border-gray-200 rounded-lg h-full overflow-hidden"><ActionLogs onNavigate={onNavigate} /></div>}
             </div>
         </div>

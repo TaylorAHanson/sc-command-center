@@ -62,7 +62,7 @@ from routes.roles import (
     require_domain_editor,
     require_global_admin,
 )
-from services import llm_params
+from services import llm_params, research_tools
 from services.llm_client import reply_text
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
 
@@ -500,6 +500,17 @@ Hard rules:
   Reflect the confirmed columns in the prompt/skills and record each check under
   `review.schema_checks`. If a table/schema cannot be confirmed with these tools,
   record it under `review.ambiguities` rather than inventing names.
+- When they are available, RESEARCH the data the agent will answer about, so the
+  prompt and skills describe it accurately rather than generically:
+  - `run_sql(query)` runs a read-only query as the author (up to 200 rows): the
+    distinct values of a status column, date coverage, typical volumes, how two
+    tables join. Put what you learn into the prompt (for example "status is one
+    of OPEN, HELD, SHIPPED") and record the query under `review.schema_checks`.
+  - `ask_genie(question)` asks Databricks Genie, which knows the business
+    definitions curated in the author's Genie spaces (what counts as "late", which
+    table is authoritative). Slow; use it for meaning, not for rows.
+  These are authoring-time research tools only. They are NOT tools the authored
+  agent gets — its `tools` list still comes only from `list_available_tools`.
 - Skills are SINGLE markdown files. Keep each focused; do not invent folders or
   multi-file skills.
 - Prefer reusing/clarifying the author's existing prompt and skills when editing.
@@ -727,7 +738,13 @@ def _make_tools(ws: WorkspaceClient, confirm_schema: bool):
             parts.append("stderr:\n" + result["stderr"])
         return "\n".join(parts)
 
-    return [list_available_tools, list_tables, describe_table, probe_sql_schema, execute_python]
+    # Research, not just confirmation: `probe_sql_schema` proves a query parses and
+    # shows five rows, which is not enough to write "statuses are OPEN, HELD and
+    # SHIPPED" into an agent's prompt. Gated by the same `confirm_schema` switch as
+    # the probes — both are the author saying whether this run may touch live data —
+    # and by the admin switches, inside `langchain_tools`.
+    research = research_tools.langchain_tools(ws) if confirm_schema else []
+    return [list_available_tools, list_tables, describe_table, probe_sql_schema, execute_python, *research]
 
 
 def _build_authoring_system_prompt(req: AuthorRequest) -> str:
@@ -840,6 +857,7 @@ _FRIENDLY_TOOL = {
     "describe_table": "Describing table",
     "probe_sql_schema": "Confirming schema",
     "execute_python": "Testing Python tool",
+    **research_tools.TOOL_LABELS,
 }
 
 

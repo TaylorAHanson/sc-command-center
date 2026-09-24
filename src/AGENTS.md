@@ -331,6 +331,21 @@ from which style you picked.
 The endpoint line under each option is `slate-400` in the dark variant: `slate-500`
 measures 3.75:1 there, under AA for text that small.
 
+## Group picker (`components/PrincipalSelect.tsx`)
+
+The role-mapping field. Unlike `ModelSelect`, free text is *not* accepted: a
+mapping matches groups exactly, so the component checks every value against SCIM
+and forms gate saving on `principalAllowsSave(verdict, value)` (`src/principals.ts`).
+That helper takes the value as well because the check is debounced — for a moment
+after each keystroke the latest verdict is about the previous text, and a stale
+"group" must not enable Save. The displayed verdict is derived the same way.
+
+## Data Migration (`pages/admin/DataMigration.tsx`)
+
+Import is offered only for the file and options that were just previewed
+(`previewedKey`); changing either means the preview's numbers describe a different
+import. See `server/AGENTS.md` for the mechanism.
+
 ## Deployment settings (`pages/admin/SettingsManager.tsx`)
 
 `draft` holds *effective* values, so the form shows what is in force and saving
@@ -502,7 +517,7 @@ App.tsx main.tsx        Router/providers and entry point
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
                         Help/About/UserGuide, AdminPage
 pages/admin/            WidgetManager, ViewManager, RoleMappings, TaxonomyManager,
-                        SettingsManager
+                        SettingsManager, DataMigration
 components/             BaseWidget, WidgetPreview, WidgetTray, Layout, modals,
                         AgentPanel/AgentConversation, ConversationHistory,
                         ThinkingDisclosure, AttachmentChip, ThumbnailCapture

@@ -102,6 +102,13 @@ description.
    planned, and anything it skipped — and that stays with the answer afterwards.
    On a large or vague request it may ask up to three questions first rather than
    guess; answer them, or press **Build it anyway** to have it choose defaults.
+   It can also **look at your data** before writing code: it runs read-only SQL on
+   the app's warehouse and can ask Genie, both as you, so it only sees what you
+   are allowed to see. Name the table (`main.supply.shipments`) and it checks the
+   real column names and values rather than guessing; what it looked up shows
+   under **Thinking**. It never writes data, and what it finds shapes the code
+   rather than being pasted in as fixed numbers. Admins can switch either tool off
+   in Admin Panel → Settings.
 3. **Attachments and screenshots** — the paperclip attaches spreadsheets,
    documents and images for the agent to read, and **Send screenshot to agent**
    under the preview attaches a picture of the widget as it currently looks.
@@ -163,15 +170,24 @@ Key rules:
 
 ## Managing access and requesting access
 
-Domain admins map roles in the UI, no database work required: **Admin Panel**
-(shield icon, under Resources) → **Access Management** → Create New Mapping.
-Supply the exact Databricks group or role name (`finance-team`), the domain
-(`Finance`), and the level, then Add Role Mapping. Admins can only manage
-mappings for domains where they are admins; global admins can manage all.
+Global admins map roles in the UI, no database work required: **Admin Panel**
+(shield icon, under Resources) → **Role Mappings**. Pick the Databricks group or
+user from the search box, the domain from the list, and the level, then **Add
+Mapping**. **Assign Global Administrator** at the top of the same page does the
+same for the `Global` domain.
 
-A user who is blocked should ask an admin of that domain to add a mapping for a
-Databricks group they belong to. Access to *data* (a catalog, schema, or table)
-is separate and is granted in Databricks itself, not here.
+The group field checks the name against Databricks as you type, because a mapping
+only applies to someone whose group (or username) matches it **exactly, capitals
+included**. A name that doesn't exist, or exists with different capitals, is
+refused with the reason — for a capitalisation slip it offers the right spelling.
+If Databricks can't be reached for the check, the name is saved as typed and the
+form says so. Domains come from **Categories & Domains**, so add a new domain
+there first; an existing mapping whose domain has since been renamed or deleted is
+flagged "not a domain" in the table.
+
+A user who is blocked should ask a global admin to add a mapping for a Databricks
+group they belong to. Access to *data* (a catalog, schema, or table) is separate
+and is granted in Databricks itself, not here.
 
 ## Environments and promoting work
 
@@ -188,6 +204,36 @@ work in progress cannot disrupt production users.
   uses *before* promoting the view, or it will render with missing widgets in the
   target environment.
 - Promotion, rollback, and certification require Admin on the asset's domain.
+
+Promotion moves single widgets and views between Dev, Test and Prod *inside one
+app*. Moving everything to a different app — which has a database of its own — is
+**Moving data to another app**, below.
+
+## Moving data to another app
+
+Each deployment of the Command Center (the dev app, the test app, production) has
+its own database, so widgets, views and agents made in one don't appear in
+another. **Admin Panel → Data Migration** (global admins) moves them:
+
+1. In the app that has the data, choose what to include and **Download
+   snapshot**. The file holds every version of every widget, view and agent, plus
+   — if ticked — the taxonomy and role mappings, deployment settings, activity
+   history (action logs and widget usage), and saved conversations with their
+   attached files. Conversations are off by default: the file would contain
+   everyone's chats.
+2. In the other app, open Data Migration, choose the file, and pick a mode.
+   **Merge** adds only what that app is missing and changes nothing already there;
+   running it twice adds nothing the second time. **Replace** makes the chosen
+   parts an exact copy of the snapshot, deleting that app's own rows in them.
+3. **Preview** runs the whole import and undoes it, showing per table what would
+   be added, skipped and deleted. **Import** is only offered after a preview of
+   the same file and options.
+
+An import is all-or-nothing: if anything fails, nothing is changed. A Replace
+that would remove your own global admin mapping is refused, so you can't lock
+yourself out. Exports and imports are recorded in Action Logs. The two apps never
+connect to each other; the file is the only thing that moves, so treat it like a
+database backup.
 
 ## Agent Studio and saved agents
 
@@ -209,6 +255,12 @@ admins should grant the editor rights that allow Python tool authoring only to
 people who have been through the organisation's secure-development training, and
 should treat a new Python tool as code to be read before the agent goes anywhere
 near a shared domain or global visibility.
+
+While drafting, the authoring assistant can **research your data** so the
+prompt describes it accurately: it confirms tables and columns, runs read-only
+SQL as you (to learn, say, which status values really exist), and can ask Genie
+what a business term means here. Those are tools for writing the agent, not tools
+the agent gets — its own tools are still the ones selected from the catalog.
 
 The **Try it** tab runs the draft agent exactly as the sidebar chat would.
 Saved agents have one of three visibilities: **personal** (only the author),

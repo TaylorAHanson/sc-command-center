@@ -453,10 +453,15 @@ def _genie_deep_link(payload: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _exec_genie(client, ask_tool: str, args: Dict[str, Any]) -> str:
-    """Run the full Genie ask->poll->answer cycle and return the answer text."""
+def _exec_genie(client, ask_tool: str, args: Dict[str, Any], timeout: Optional[float] = None) -> str:
+    """Run the full Genie ask->poll->answer cycle and return the answer text.
+
+    `timeout` caps the poll loop below the chat setting, for callers that work to a
+    clock of their own (the studios' research tools, see services/research_tools).
+    """
     import time
 
+    budget = _genie_timeout() if timeout is None else max(1.0, min(timeout, _genie_timeout()))
     structured, text, is_err = _parse_mcp_result(client.call_tool(ask_tool, args or {}))
     if is_err:
         return f"Genie could not start the query: {text or 'unknown error'}"
@@ -470,7 +475,7 @@ def _exec_genie(client, ask_tool: str, args: Dict[str, Any]) -> str:
     if not (conv and resp):
         return "Genie did not return a query handle. Raw: " + (text or json.dumps(handle))[:1000]
 
-    deadline = time.monotonic() + _genie_timeout()
+    deadline = time.monotonic() + budget
     interval = _genie_poll_interval()
     last_answer = ""
     while time.monotonic() < deadline:
@@ -497,7 +502,7 @@ def _exec_genie(client, ask_tool: str, args: Dict[str, Any]) -> str:
     if last_answer:
         return last_answer + "\n\n(Genie was still finalizing when the time limit was reached.)"
     return (
-        f"Genie did not finish within {int(_genie_timeout())}s. Try a more specific "
+        f"Genie did not finish within {int(budget)}s. Try a more specific "
         "question, or pin a Genie space."
     )
 

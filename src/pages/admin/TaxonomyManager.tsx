@@ -60,9 +60,20 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
 
     useEffect(() => { load(); }, []);
 
+    // The same test the server applies (`taxonomy._near_duplicate`), live: a name
+    // that differs from an existing one only by case would split widgets between
+    // two entries that read as one in every dropdown.
+    const clashWith = (name: string, exceptId?: number) => {
+        const wanted = name.trim().toLowerCase();
+        if (!wanted) return null;
+        return items.find(i => i.id !== exceptId && i.name.trim().toLowerCase() === wanted) || null;
+    };
+    const newClash = clashWith(newName);
+    const editClash = editingId !== null ? clashWith(editName, editingId) : null;
+
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newName.trim()) return;
+        if (!newName.trim() || newClash) return;
         setIsSaving(true);
         try {
             const res = await fetch(`/api/taxonomy/${kind}`, {
@@ -83,7 +94,7 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
     };
 
     const handleSaveEdit = async (id: number) => {
-        if (!editName.trim()) return;
+        if (!editName.trim() || editClash) return;
         try {
             const res = await fetch(`/api/taxonomy/${kind}/${id}`, {
                 method: 'PUT',
@@ -140,7 +151,7 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
                 </div>
 
                 <div className="p-6">
-                    <form onSubmit={handleCreate} className="flex gap-4 items-end bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
+                    <form onSubmit={handleCreate} className="flex gap-4 items-start bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
                         <div className="flex-1">
                             <label className="block text-sm font-medium text-gray-700 mb-1">{meta.singular} name</label>
                             <input
@@ -151,11 +162,14 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
                                 placeholder={`e.g. ${kind === 'categories' ? 'Forecasting' : 'Logistics'}`}
                                 required
                             />
+                            {newClash && (
+                                <p className="mt-1 text-[11px] text-red-600">'{newClash.name}' already exists.</p>
+                            )}
                         </div>
                         <button
                             type="submit"
-                            disabled={isSaving || !newName.trim()}
-                            className="px-4 py-2 bg-qualcomm-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
+                            disabled={isSaving || !newName.trim() || !!newClash}
+                            className="mt-6 px-4 py-2 bg-qualcomm-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
                         >
                             <Plus size={16} />
                             {isSaving ? 'Adding...' : `Add ${meta.singular}`}
@@ -196,11 +210,14 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
                                                             onChange={e => setEditName(e.target.value)}
                                                             className="w-full bg-white border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:border-qualcomm-blue"
                                                         />
+                                                        {editClash && (
+                                                            <p className="mt-1 text-[11px] text-red-600">'{editClash.name}' already exists.</p>
+                                                        )}
                                                     </td>
                                                     <td className="px-6 py-4 text-sm text-gray-500">{new Date(item.timestamp).toLocaleString()}</td>
                                                     <td className="px-6 py-4 text-right">
                                                         <div className="flex justify-end gap-2">
-                                                            <button onClick={() => handleSaveEdit(item.id)} className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"><Check size={16} /></button>
+                                                            <button onClick={() => handleSaveEdit(item.id)} disabled={!!editClash || !editName.trim()} className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50 disabled:opacity-40"><Check size={16} /></button>
                                                             <button onClick={() => setEditingId(null)} className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100"><X size={16} /></button>
                                                         </div>
                                                     </td>
