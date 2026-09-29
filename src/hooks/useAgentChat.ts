@@ -108,6 +108,9 @@ const CONVERSATION_KEY = 'sccc-agent-conversation';
 const newConversationId = (): string =>
     'conv-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-6);
 
+const newTurnId = (): string =>
+    'turn-' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+
 const rememberConversation = (id: string) => {
     try { localStorage.setItem(CONVERSATION_KEY, id); } catch { /* private browsing */ }
 };
@@ -195,6 +198,8 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
     const [selectedProfileId, setSelectedProfileId] = useState<string>('');
 
     const abortRef = useRef<AbortController | null>(null);
+    // The in-flight turn's id, which is what Stop names to the server.
+    const turnIdRef = useRef<string | null>(null);
 
     // Mirror the transcript in a ref so send() can build conversation_history
     // from the messages PRIOR to this turn without re-creating the callback.
@@ -475,6 +480,8 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
 
         const controller = new AbortController();
         abortRef.current = controller;
+        const turnId = newTurnId();
+        turnIdRef.current = turnId;
 
         // Mutate just the trailing assistant message (the in-flight turn).
         const updateLast = (mutate: (m: AgentMessage) => void) => setMessages(prev => {
@@ -597,6 +604,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
                     conversation_history: conversationHistory,
                     // Sending an id is what makes the turn durable; "Try it" omits it.
                     conversation_id: persists ? conversationIdRef.current : undefined,
+                    turn_id: turnId,
                     attachment_ids: readyAttachments.length ? readyAttachments.map(a => a.id) : undefined,
                 }),
             });
@@ -715,9 +723,21 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         }
     }, [isLoading, sessionId, selectedProfileId, persists, attachments, refreshConversations, adoptConversation, engage]);
 
+    // Aborting alone leaves a saved turn running: the server finishes and saves an
+    // answer after a disconnect on purpose, so a reload doesn't lose it. Telling it
+    // first is what makes Stop stop the work, not just the display.
     const stop = useCallback(() => {
-        abortRef.current?.abort();
-    }, []);
+        if (!abortRef.current) return;
+        if (persists && turnIdRef.current) {
+            fetch('/api/agent/chat/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ turn_id: turnIdRef.current }),
+                keepalive: true,
+            }).catch(() => { /* the abort below still ends the turn on screen */ });
+        }
+        abortRef.current.abort();
+    }, [persists]);
 
     // "New chat". The outgoing conversation is already saved, so this starts a
     // fresh one rather than throwing anything away — which is also why draft mode,

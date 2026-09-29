@@ -203,6 +203,10 @@ Two behaviors that look odd but are intentional:
   normal queries and `poll_sql_result` stays model-facing by design, which is
   part of why the step cap is 8 rather than 6.
 
+`RUNTIME_CONTRACT`'s *Charts* section tells the model to answer with a fenced
+`vega-lite` block of inline `data.values`, which the drawer renders (see
+src/AGENTS.md → Assistant panel). Keep it short: it is paid on every turn.
+
 ### Knowledge about the app itself (`services/app_help.py`)
 
 Users ask the assistant how the Command Center works, not only what their data
@@ -248,6 +252,18 @@ services. The load-bearing decisions:
   generator is deliberate — the answer is recorded even if the browser goes away
   mid-stream. Storage failures log and degrade to an unpersisted turn: losing the
   history of an answer beats losing the answer.
+- **A disconnect is not a Stop.** Reloading or switching conversation drops the
+  stream too, and that turn should still land. So each drawer turn carries a
+  client-issued `turn_id`, and Stop first calls `POST /api/agent/chat/stop` with
+  it, which inserts into `chat_turn_stops` (a table, because the request may
+  reach the other worker; keyed by turn, because Stop can beat the turn's own
+  message and even the conversation row into the database), then aborts. The
+  runtime's `should_stop` only turns true once the client has gone, and then
+  either immediately (unpersisted: nothing would ever show the rest) or when
+  `conversation_store.stop_requested` confirms it, polled at most once per
+  `STOP_POLL_SECS`, so a connected turn never touches the database for this. A
+  stopped turn closes the model stream, runs no further tools, and settles with
+  its partial text plus `_Stopped._`. A tool already running finishes first.
 - **The client's history shape was the bug, not just a wart.** The drawer labels
   assistant turns `type: "agent"`; read as a role, that failed the runtime's
   `user`/`assistant` filter and silently dropped every prior answer. `_normalize_role`
@@ -597,7 +613,8 @@ token (the proxy's old 401/403 source).
 - **A replace that would drop the importer's own global-admin mapping is rolled
   back** (`_still_admin`, read inside the uncommitted transaction).
 - Only columns both sides have are written, so snapshots survive a version skew.
-  `test_data_migration.py` fails if `init_db` gains a table `TABLES` doesn't list.
+  `test_data_migration.py` fails if `init_db` gains a table that neither `TABLES`
+  nor `NOT_COPIED` lists.
 - Exports and imports are written to `action_logs`. Conversations are opt-in.
 
 ## Agent Studio storage (`agent_studio_store.py`)
@@ -712,7 +729,10 @@ What makes this worth the extra round trips is where the failures land:
 - `result["code"]` is `None` when no step changed anything, so the studio keeps what
   the user has rather than recording a no-op snapshot.
 - `DELETE /api/agent/widget/generate/{job_id}` sets `cancelled`, which is checked
-  between steps. Stopping keeps the applied steps; it is not an undo.
+  between steps and before each optional follow-up round (`next_llm` returns
+  `None`). The studio's Stop button stops polling at once and ignores whatever
+  the job produces afterwards; "Stop after this step" keeps polling. Stopping
+  keeps the applied steps; it is not an undo.
 - Each step's line in the summary is the prose it wrote outside its code block —
   and a model that thinks privately writes none, which reduced a whole run to
   "Worked through 6 of 6 steps" with nothing underneath. Both ends are covered:
@@ -838,7 +858,7 @@ settles as *completed* with an apology: the user's code is already fine.
 
 ```bash
 PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py   # 7 passed
-PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 5 passed
+PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 9 passed
 PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 22 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
@@ -859,6 +879,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_db_pool.py              # 14
 PYTHONPATH=server server/venv/bin/python tests/test_research_tools.py       # 24 passed
 PYTHONPATH=server server/venv/bin/python tests/test_principals.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_data_migration.py       # 21 passed
+PYTHONPATH=server server/venv/bin/python tests/test_promotion.py            # 5 passed
 ```
 
 The last two need the venv interpreter, not a bare `python3`: they exercise

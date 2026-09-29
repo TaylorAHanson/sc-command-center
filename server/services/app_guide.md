@@ -132,8 +132,19 @@ description.
    would rather it always guessed.
 6. **Save / Publish** — saves to the Dev environment and increments the version,
    and leaves you in the studio to carry on working. The widget is immediately
-   available in the Widget Library to users with Dev access. **Done** (the X)
-   closes the studio.
+   available in the Widget Library to users with Dev access. The **X** closes the
+   studio.
+7. **Stop** — while the agent works, the send button becomes a red Stop button
+   and Enter does nothing. Stop ends the turn at once: steps that already
+   finished stay in the editor (each has a History entry) and nothing else is
+   applied. **Stop after this step**, on multi-step builds, lets the current step
+   finish first.
+
+Layout: only the agent settings sit above the chat. Everything about the widget
+is in the right-hand header — the tabs, then **History**, **Reload**,
+**Promote** (see *Environments and promoting work*), a **⋯** menu with *Import
+from file*, *Export to file* and *Reset studio*, then **Save / Publish** and the
+X.
 
 A widget can also be exported to a JSON file and imported elsewhere, which is
 how widgets move between disconnected environments.
@@ -152,8 +163,8 @@ Access is role-based, per domain, at three levels:
 | Level | Can do |
 | --- | --- |
 | Viewer | See and interact with that domain's global views and widgets |
-| Editor | Everything a Viewer can, plus create, edit, and reorganize the domain's widgets and global views |
-| Admin | Everything an Editor can, plus promote and certify across environments and manage that domain's role mappings |
+| Editor | Everything a Viewer can, plus create, edit, and reorganize the domain's widgets and global views, and promote, roll back and certify them in environments where they hold Editor |
+| Admin | Everything an Editor can, plus manage that domain's role mappings |
 
 Key rules:
 
@@ -195,15 +206,23 @@ There are three environments — **Dev**, **Test**, and **Prod** — so
 work in progress cannot disrupt production users.
 
 - Saving a widget in Dev increments its version, giving an immutable history.
-- **Widget Promotion** (in the Admin Panel) copies a chosen version into a
-  higher environment. Selecting an older version in the same dropdown is how a
-  rollback is done — it restores that exact historical definition.
-- **Certify**, in the production column, flags a widget as reviewed and
+- Promote a widget from **Widget Studio** — the **Promote** button in its header
+  opens a Dev → Test → Prod panel for that widget — or from **Admin Panel →
+  Widget Promotion**, which lists every widget. Both do the same thing.
+  **Promote to Test** copies Dev's latest *saved* version (save unsaved edits
+  first); **Promote to Prod** copies Test's. Each environment numbers its own
+  versions, so Dev v8 can arrive in Test as v3. A widget must be published before
+  it can be promoted.
+- **Roll back to** an older version in Test or Prod makes it current again,
+  restoring that exact historical definition.
+- **Certify**, in Prod, flags the current version as reviewed and
   enterprise-ready. It is a signal to end users, not a permission.
 - **View Promotion** does the same for global views. Promote every widget a view
   uses *before* promoting the view, or it will render with missing widgets in the
   target environment.
-- Promotion, rollback, and certification require Admin on the asset's domain.
+- Promotion, rollback, and certification require Editor or Admin on the asset's
+  domain in the environment being promoted into. Without it the studio panel
+  shows the status read-only.
 
 Promotion moves single widgets and views between Dev, Test and Prod *inside one
 app*. Moving everything to a different app — which has a database of its own — is
@@ -262,6 +281,14 @@ SQL as you (to learn, say, which status values really exist), and can ask Genie
 what a business term means here. Those are tools for writing the agent, not tools
 the agent gets — its own tools are still the ones selected from the catalog.
 
+Layout: above the chat, **New conversation** (speech-bubble icon) restarts the
+authoring chat and keeps the draft. On the right, beside the agent's name (with
+an *Unsaved changes* marker when there are any), sit **New agent**, **Open**, and
+**Save**. New agent and Open ask before discarding unsaved work. **Delete agent**
+is at the bottom of the **Settings** tab. While the authoring assistant writes,
+its send button becomes **Stop**; stopping keeps what it wrote and leaves the
+agent unchanged. Enter never stops it.
+
 The **Try it** tab runs the draft agent exactly as the sidebar chat would.
 Saved agents have one of three visibilities: **personal** (only the author),
 **domain** (anyone with access to that domain; domain editors can edit), or
@@ -296,6 +323,22 @@ view and widgets are currently on screen. Tools run **on behalf of the signed-in
 user**, so results reflect that user's own Databricks permissions and no
 passwords or tokens are ever needed. A permission error from a tool describes the
 user's access, not the assistant's.
+
+While an answer is being written, the send button becomes a red **Stop** button.
+Stop ends the turn: no further tools run, and what was already written is kept and
+marked *Stopped*. Enter never stops it, so the next question can be typed while it
+works. Reloading or switching conversations does not stop a turn; the answer is
+saved and there on return.
+
+The assistant, and agents built in Agent Studio, can draw **charts** in the chat
+from data they have just retrieved — ask for one ("chart that by month") if it
+isn't offered. The menu on a chart exports it as PNG or SVG. Charts only use data
+already in the answer; they cannot load anything from elsewhere.
+
+Images in chat answers (here, in Widget Studio and in Agent Studio) are only shown
+when they come from this app itself. An image from another site appears as a
+small "image from … not loaded" placeholder: loading it would let a manipulated
+answer send data to that site just by being displayed.
 
 ## Attaching files to the assistant
 

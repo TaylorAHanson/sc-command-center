@@ -190,6 +190,13 @@ RUNTIME_CONTRACT = """The following runtime rules apply regardless of your perso
 - Prefer `##` / `###` headings; avoid `#` (the chat bubble already provides emphasis).
 - Links use [text](url); never wrap a markdown link in backticks and never escape backticks. Do NOT output raw HTML.
 
+## Charts
+- When a chart would genuinely help (a trend, a comparison, a distribution), you may include ONE fenced code block tagged `vega-lite` holding a complete Vega-Lite v5/v6 JSON spec; the chat draws it. Chart only data a tool actually returned — never invent or estimate figures to plot.
+- Data goes inline in `data.values`, never `url` (external data, images and links are blocked), aggregated to what the chart needs (well under a few hundred rows), numbers as JSON numbers rather than strings.
+- Include a `title` and axis titles, and set `"width": "container"`.
+- The block is pure JSON: no comments and no other text inside the fence.
+- The chart is supplementary: still state the key figures in your text.
+
 ## Tools & authentication
 - Use ONLY the provided tools to take actions or fetch data; never fabricate data a tool is meant to provide. Prefer calling a tool over guessing.
 - Prefer SQL for read-only data discovery, metadata inspection, and tabular retrieval when the same result is available through SQL. For example, use `SHOW CATALOGS`, `SHOW SCHEMAS`, `SHOW TABLES`, `DESCRIBE`, or `SELECT` through the SQL tool instead of calling Unity Catalog REST APIs. SQL uses the configured warehouse and the user's existing SQL/Unity Catalog permissions and avoids requiring a separate REST OAuth scope.
@@ -871,6 +878,16 @@ def _history_messages(history: Optional[List[Dict[str, Any]]]) -> List[Dict[str,
 
 # ------------------------------------------------------------------- the loop
 
+#: Appended to a stopped answer. Matches what the drawer shows on abort, so a
+#: reloaded conversation reads the same as the live one did.
+STOPPED_MARKER = "_Stopped._"
+
+#: How often a disconnected, persisted turn asks the database whether Stop was
+#: pressed. Short enough that stopping feels immediate, long enough that a turn
+#: left running after a reload doesn't query per chunk.
+STOP_POLL_SECS = 1.0
+
+
 def _sse(payload: Dict[str, Any]) -> bytes:
     return f"data: {json.dumps(payload)}\n\n".encode("utf-8")
 
@@ -880,13 +897,18 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
               history: Optional[List[Dict[str, Any]]],
               attachments: Optional[List[Dict[str, Any]]] = None,
               env: str = "dev",
-              on_finish: Optional[Callable[[str, List[Dict[str, str]], Optional[str]], None]] = None) -> None:
+              on_finish: Optional[Callable[[str, List[Dict[str, str]], Optional[str]], None]] = None,
+              should_stop: Optional[Callable[[], bool]] = None) -> None:
     """Synchronous tool-calling loop. Pushes SSE frames via ``put``.
 
     ``on_finish`` is called exactly once with the settled answer, so the caller can
     persist the turn. It runs on this worker thread rather than in the streaming
     generator deliberately: the answer is then recorded even if the browser has
     already gone away mid-stream.
+
+    ``should_stop`` is polled between stream chunks, before each tool and before
+    each step. When it answers True the turn settles with whatever this step had
+    written plus a stopped marker, so no further model or tool calls are spent.
     """
     used_tools: List[Dict[str, str]] = []
     finished = False
@@ -900,6 +922,22 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
             on_finish(text, list(used_tools), error)
         except Exception:  # noqa: BLE001
             logger.exception("persisting the assistant turn failed")
+
+    def _stop_requested() -> bool:
+        if should_stop is None:
+            return False
+        try:
+            return bool(should_stop())
+        except Exception:  # noqa: BLE001
+            # A failed check must not end a turn the user never stopped.
+            logger.warning("stop check failed; carrying on", exc_info=True)
+            return False
+
+    def _halt(partial: str) -> None:
+        text = f"{partial.strip()}\n\n{STOPPED_MARKER}" if partial.strip() else STOPPED_MARKER
+        put(_sse({"type": "final", "content": text}))
+        _settle(text)
+        put(None)
 
     try:
         ws = _obo_ws(obo_token)
@@ -941,6 +979,9 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
         # every step and sending that as the answer meant the same prose arrived
         # twice — once as live progress, then verbatim again as the answer.
         for _ in range(_max_steps()):
+            if _stop_requested():
+                _halt("")
+                return
             kwargs: Dict[str, Any] = {
                 "model": model,
                 "messages": messages,
@@ -976,6 +1017,17 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
                         slot["args"] += _as_text(fn.arguments)
                 if choice.finish_reason:
                     finish = choice.finish_reason
+                if _stop_requested():
+                    # Closing the HTTP stream is what stops the endpoint generating
+                    # (and billing) the rest of the answer.
+                    close = getattr(stream, "close", None)
+                    if callable(close):
+                        try:
+                            close()
+                        except Exception:  # noqa: BLE001
+                            pass
+                    _halt(turn_text)
+                    return
 
             if not tool_acc:
                 # No tools requested this turn -> this is the final answer.
@@ -1004,6 +1056,10 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
             })
 
             for i, s in sorted(tool_acc.items()):
+                if _stop_requested():
+                    # This step's prose was already handed over as thinking.
+                    _halt("")
+                    return
                 fn = s["name"]
                 desc = dispatch.get(fn)
                 try:
@@ -1045,19 +1101,48 @@ async def stream_chat(*, obo_token: Optional[str], query: str, ui_context: str =
                       history: Optional[List[Dict[str, Any]]] = None,
                       attachments: Optional[List[Dict[str, Any]]] = None,
                       env: str = "dev",
-                      on_finish: Optional[Callable[[str, List[Dict[str, str]], Optional[str]], None]] = None):
+                      on_finish: Optional[Callable[[str, List[Dict[str, str]], Optional[str]], None]] = None,
+                      stop_requested: Optional[Callable[[], bool]] = None):
     """Async SSE generator wrapping the sync loop.
 
     The blocking loop (LLM stream + tool calls) runs on a worker thread and
     pushes frames onto an asyncio queue; the async side drains it and emits a
     ``: keepalive`` comment during idle gaps (e.g. a 30-60s Genie tool call) so
     no intermediary drops the connection.
+
+    A dropped connection alone does not mean "stop": a reload or a switch to
+    another conversation also drops it, and a persisted turn should still land.
+    So the loop stops once the client has gone AND either nothing will record
+    the answer (``stop_requested`` is None) or ``stop_requested()`` confirms the
+    user pressed Stop. The Stop request may be served by another worker, so that
+    check reads the database; it runs only after the client has gone, at most
+    once per ``STOP_POLL_SECS``.
     """
     loop = asyncio.get_running_loop()
     q: "asyncio.Queue[Optional[bytes]]" = asyncio.Queue()
+    gone = threading.Event()
+    last_check = [0.0]
 
     def _put(item: Optional[bytes]) -> None:
-        loop.call_soon_threadsafe(q.put_nowait, item)
+        # Nobody reads frames once the client has gone, and a raise here (the
+        # loop closing at shutdown) would end the worker before the answer is saved.
+        if gone.is_set():
+            return
+        try:
+            loop.call_soon_threadsafe(q.put_nowait, item)
+        except RuntimeError:
+            pass
+
+    def _should_stop() -> bool:
+        if not gone.is_set():
+            return False
+        if stop_requested is None:
+            return True
+        now = time.monotonic()
+        if now - last_check[0] < STOP_POLL_SECS:
+            return False
+        last_check[0] = now
+        return bool(stop_requested())
 
     def _worker() -> None:
         _run_loop(
@@ -1070,6 +1155,7 @@ async def stream_chat(*, obo_token: Optional[str], query: str, ui_context: str =
             attachments=attachments,
             env=env,
             on_finish=on_finish,
+            should_stop=_should_stop,
         )
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -1086,4 +1172,5 @@ async def stream_chat(*, obo_token: Optional[str], query: str, ui_context: str =
                 break
             yield item
     finally:
+        gone.set()
         yield b"data: [DONE]\n\n"

@@ -353,6 +353,49 @@ def append_message(env: str, conversation_id: str, role: str, content: str, *,
         conn.close()
 
 
+#: A stop only matters while its turn runs; older rows are dropped as new ones land.
+STOP_KEEP_HOURS = 24
+
+
+def request_stop(env: str, username: str, turn_id: str) -> None:
+    """Record that the user stopped the turn with this client-issued id.
+
+    Keyed by turn rather than by conversation because Stop can be pressed before
+    the server has written the turn's message, or on a first turn before the
+    conversation row exists; anything tied to those would miss the stop and the
+    turn would run to the end. Scoped to the caller, so knowing another user's
+    turn id stops nothing.
+    """
+    conn = _conn(env)
+    try:
+        c = conn.cursor()
+        c.execute(
+            "DELETE FROM chat_turn_stops WHERE created_at < NOW() - make_interval(hours => %s)",
+            (STOP_KEEP_HOURS,),
+        )
+        c.execute(
+            "INSERT INTO chat_turn_stops (turn_id, username) VALUES (%s, %s) ON CONFLICT (turn_id) DO NOTHING",
+            (turn_id, username),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def stop_requested(env: str, username: str, turn_id: str) -> bool:
+    """Whether this user pressed Stop on this turn."""
+    conn = _conn(env)
+    try:
+        c = conn.cursor()
+        c.execute(
+            "SELECT 1 FROM chat_turn_stops WHERE turn_id = %s AND username = %s",
+            (turn_id, username),
+        )
+        return c.fetchone() is not None
+    finally:
+        conn.close()
+
+
 def rename_conversation(env: str, username: str, conversation_id: str, title: str) -> bool:
     clean = re.sub(r"\s+", " ", (title or "").strip())[:MAX_TITLE_CHARS]
     if not clean:

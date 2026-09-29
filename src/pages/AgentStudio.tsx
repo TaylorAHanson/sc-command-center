@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-    Bot, Send, Save, RefreshCw, Trash2, Plus, Settings, FileText, Sparkles,
+    Bot, Save, RefreshCw, Trash2, Plus, Settings, FileText, Sparkles,
     ListChecks, AlertTriangle, Wrench, ChevronDown, FolderOpen, Play,
-    Code2, ShieldCheck, Search,
+    Code2, ShieldCheck, Search, MessageSquarePlus, FilePlus2, Check,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
+import { DarkChatImage } from '../components/ChatImage';
 import remarkGfm from 'remark-gfm';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { AgentConversation } from '../components/AgentConversation';
 import { CodeEditor } from '../components/CodeEditor';
 import { ModelSelect } from '../components/ModelSelect';
+import { SendStopButton } from '../components/SendStopButton';
+
+const DARK_CHAT_MARKDOWN: Components = { img: DarkChatImage };
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string };
 
@@ -65,13 +70,49 @@ type RightTab = 'prompt' | 'skills' | 'pytools' | 'review' | 'settings' | 'tryit
 
 const DEFAULT_PY_TOOL = 'def my_tool(value: str) -> str:\n    """Describe what this tool does and its arguments."""\n    return value';
 
+interface DraftFields {
+    name: string;
+    description: string;
+    model: string;
+    tools: string[];
+    prompt: string;
+    skills: SkillDraft[];
+    pythonTools: PythonToolDraft[];
+    visibility: Visibility;
+    domain: string;
+}
+
+// Domain only counts while the agent is domain-shared: the picker is hidden
+// otherwise, and refreshDomains can move it on mount when the user has no
+// 'General' role, which would flag an untouched new agent as unsaved.
+const draftSignature = (f: DraftFields) => JSON.stringify({
+    p: f.prompt,
+    t: f.tools,
+    s: f.skills.map(s => [s.name, s.description, s.content]),
+    y: f.pythonTools.map(t => [t.name, t.description, t.code]),
+    n: f.name, d: f.description, m: f.model,
+    v: f.visibility, dm: f.visibility === 'domain' ? f.domain : '',
+});
+
+const NEW_AGENT_SIGNATURE = draftSignature({
+    name: 'New Agent', description: '', model: '', tools: [], prompt: DEFAULT_PROMPT,
+    skills: [], pythonTools: [], visibility: 'personal', domain: '',
+});
+
 export const AgentStudio: React.FC = () => {
     const [messages, setMessages] = useState<ChatMessage[]>([
         { role: 'assistant', content: "Welcome to the Agent Studio. Describe the agent you want to build — what should it do, and what data should it reach?" },
     ]);
     const [prompt, setPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
+    // Set synchronously when a generation starts, so a second Enter before the
+    // re-render can't launch a concurrent one. Whoever supersedes a run (new
+    // agent, open, new conversation) nulls it before aborting; the run tells
+    // that apart from Stop by no longer owning the ref, and leaves the chat alone.
+    const generationRef = useRef<AbortController | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [savedFlash, setSavedFlash] = useState(false);
+    const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [rightTab, setRightTab] = useState<RightTab>('prompt');
 
@@ -124,6 +165,13 @@ export const AgentStudio: React.FC = () => {
     const [visibility, setVisibility] = useState<Visibility>('personal');
     const [domain, setDomain] = useState<string>('General');
 
+    const [savedSignature, setSavedSignature] = useState(NEW_AGENT_SIGNATURE);
+    const currentSignature = draftSignature({
+        name, description, model, tools: selectedTools, prompt: agentPrompt,
+        skills, pythonTools, visibility, domain,
+    });
+    const isDirty = currentSignature !== savedSignature;
+
     // Catalog data
     const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
     const [domains, setDomains] = useState<string[]>(['General']);
@@ -133,14 +181,36 @@ export const AgentStudio: React.FC = () => {
     const [toolFilter, setToolFilter] = useState('');
     const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
     const [showProfileMenu, setShowProfileMenu] = useState(false);
+    const profileMenuRef = useRef<HTMLDivElement>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const composerRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
         refreshProfiles();
         refreshDomains();
         refreshTools();
+        return () => {
+            const run = generationRef.current;
+            generationRef.current = null;
+            run?.abort();
+            if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
+        };
     }, []);
+
+    useEffect(() => {
+        if (!showProfileMenu) return;
+        const onDown = (e: MouseEvent) => {
+            if (!profileMenuRef.current?.contains(e.target as Node)) setShowProfileMenu(false);
+        };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowProfileMenu(false); };
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [showProfileMenu]);
 
     useEffect(() => {
         const t = setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -200,7 +270,19 @@ export const AgentStudio: React.FC = () => {
         }
     };
 
+    const supersedeGeneration = () => {
+        const run = generationRef.current;
+        if (!run) return;
+        generationRef.current = null;
+        run.abort();
+        setIsGenerating(false);
+    };
+
+    const stopGeneration = () => { generationRef.current?.abort(); };
+
     const resetToNew = () => {
+        supersedeGeneration();
+        setSavedSignature(NEW_AGENT_SIGNATURE);
         setProfileId(null);
         setLoadedUpdatedAt('');
         setName('New Agent');
@@ -220,23 +302,55 @@ export const AgentStudio: React.FC = () => {
         setRightTab('prompt');
     };
 
-    const loadProfile = async (id: string) => {
+    const handleNewAgent = () => {
+        if (isDirty && !confirm(`Discard unsaved changes to "${name || 'this agent'}" and start a new agent?`)) return;
+        resetToNew();
+    };
+
+    // The history is only context for the drafting model, so dropping it
+    // leaves the agent on the right exactly as it is.
+    const startNewConversation = () => {
+        supersedeGeneration();
+        setMessages([{ role: 'assistant', content: 'New conversation. The draft on the right is unchanged — tell me what to change next.' }]);
+    };
+
+    const openProfile = (id: string) => {
         setShowProfileMenu(false);
+        if (isDirty && !confirm(`Discard unsaved changes to "${name || 'this agent'}" and open another agent?`)) return;
+        loadProfile(id);
+    };
+
+    const loadProfile = async (id: string) => {
         try {
             const r = await fetch(`${API}/profiles/${encodeURIComponent(id)}`);
             const d = await r.json();
             if (!r.ok) { alert(d.detail || 'Failed to load profile'); return; }
+            // Only once the load has landed, so a failed open doesn't also throw
+            // away a generation that was still drafting the current agent.
+            supersedeGeneration();
+            const loaded: DraftFields = {
+                name: d.name || '',
+                description: d.description || '',
+                model: d.model || '',
+                tools: d.tools || [],
+                prompt: d.prompt || DEFAULT_PROMPT,
+                skills: (d.skills || []).map((s: any) => ({ slug: s.slug, name: s.name, description: s.description, content: s.content })),
+                pythonTools: (d.python_tools || []).map((t: any) => ({ slug: t.slug, name: t.name, description: t.description, code: t.code })),
+                visibility: (d.visibility as Visibility) || 'personal',
+                domain: d.domain || domain,
+            };
             setProfileId(d.id);
             setLoadedUpdatedAt(d.updated_at || '');
-            setName(d.name || '');
-            setDescription(d.description || '');
-            setModel(d.model || '');
-            setSelectedTools(d.tools || []);
-            setAgentPrompt(d.prompt || DEFAULT_PROMPT);
-            setSkills((d.skills || []).map((s: any) => ({ slug: s.slug, name: s.name, description: s.description, content: s.content })));
-            setPythonTools((d.python_tools || []).map((t: any) => ({ slug: t.slug, name: t.name, description: t.description, code: t.code })));
-            setVisibility((d.visibility as Visibility) || 'personal');
-            if (d.domain) setDomain(d.domain);
+            setName(loaded.name);
+            setDescription(loaded.description);
+            setModel(loaded.model);
+            setSelectedTools(loaded.tools);
+            setAgentPrompt(loaded.prompt);
+            setSkills(loaded.skills);
+            setPythonTools(loaded.pythonTools);
+            setVisibility(loaded.visibility);
+            setDomain(loaded.domain);
+            setSavedSignature(draftSignature(loaded));
             setActiveSkillIdx(null);
             setActivePyToolIdx(null);
             // Keep any prior review visible but mark it stale — it described a
@@ -272,21 +386,26 @@ export const AgentStudio: React.FC = () => {
     };
 
     const handleGenerate = async () => {
-        if (!prompt.trim()) return;
+        if (!prompt.trim() || generationRef.current) return;
+        const controller = new AbortController();
+        generationRef.current = controller;
         const history = messages.filter(m => m.role !== 'system');
         const baseMessages = [...messages, { role: 'user' as const, content: prompt }];
         setMessages(baseMessages);
         setPrompt('');
+        if (composerRef.current) composerRef.current.style.height = 'auto';
         setIsGenerating(true);
 
         // Stream the authoring run as SSE: prose arrives as `chunk` events and we
         // render it live; a single `final` event carries the parsed draft.
         let assistantText = '';
+        let gotFinal = false;
         const renderAssistant = () => setMessages([...baseMessages, { role: 'assistant' as const, content: assistantText }]);
         try {
             const resp = await fetch(`${API}/generate/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
                 body: JSON.stringify({
                     prompt,
                     history,
@@ -299,8 +418,8 @@ export const AgentStudio: React.FC = () => {
             if (!resp.ok || !resp.body) {
                 let detail = resp.statusText;
                 try { detail = (await resp.json()).detail || detail; } catch { /* non-JSON */ }
+                if (generationRef.current !== controller) return;
                 setMessages([...baseMessages, { role: 'system', content: `Server Error: ${detail}` }]);
-                setIsGenerating(false);
                 return;
             }
             const reader = resp.body.getReader();
@@ -308,6 +427,7 @@ export const AgentStudio: React.FC = () => {
             let buffer = '';
             for (;;) {
                 const { done, value } = await reader.read();
+                controller.signal.throwIfAborted();
                 if (done) break;
                 buffer += decoder.decode(value, { stream: true });
                 const frames = buffer.split('\n\n');
@@ -323,6 +443,7 @@ export const AgentStudio: React.FC = () => {
                         assistantText += evt.content || '';
                         renderAssistant();
                     } else if (evt.type === 'final') {
+                        gotFinal = true;
                         applyDraft(evt.draft);
                         if (evt.draft?.review) setRightTab('review');
                         assistantText = evt.explanation || assistantText || 'Draft updated.';
@@ -333,15 +454,32 @@ export const AgentStudio: React.FC = () => {
                 }
             }
         } catch (e) {
-            setMessages([...baseMessages, { role: 'system', content: `Network Error: ${e}` }]);
+            if (generationRef.current !== controller) return;
+            if (controller.signal.aborted) {
+                // No `final` means no draft to apply, so the editor stays as it
+                // was; a draft that did land before the Stop is kept as is.
+                if (!gotFinal) {
+                    const stopped = assistantText ? `${assistantText}\n\n_Stopped._` : '_Stopped._';
+                    setMessages([...baseMessages, { role: 'assistant', content: stopped }]);
+                }
+            } else {
+                setMessages([...baseMessages, { role: 'system', content: `Network Error: ${e}` }]);
+            }
         } finally {
-            setIsGenerating(false);
+            if (generationRef.current === controller) {
+                generationRef.current = null;
+                setIsGenerating(false);
+            }
         }
     };
 
     const handleSave = async () => {
         if (!name.trim()) { alert('Please provide an agent name.'); setRightTab('settings'); return; }
+        // What was sent, not what's on screen when the reply lands: edits made
+        // while the request is in flight are still unsaved.
+        const sentSignature = currentSignature;
         setIsSaving(true);
+        setSavedFlash(false);
         try {
             const r = await fetch(`${API}/profiles`, {
                 method: 'POST',
@@ -367,8 +505,11 @@ export const AgentStudio: React.FC = () => {
             if (!r.ok) { alert(`Save failed: ${d.detail || r.statusText}`); return; }
             setProfileId(d.id);
             setLoadedUpdatedAt(d.updated_at || '');
+            setSavedSignature(sentSignature);
+            setSavedFlash(true);
+            if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
+            savedFlashTimerRef.current = setTimeout(() => setSavedFlash(false), 2000);
             await refreshProfiles();
-            alert(`Saved "${d.name}".`);
         } catch (e) {
             alert(`Error: ${e}`);
         } finally {
@@ -435,7 +576,7 @@ export const AgentStudio: React.FC = () => {
 
     const tabBtn = (id: RightTab, label: string, Icon: any) => (
         <button
-            className={`px-4 py-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${rightTab === id ? 'border-indigo-500 text-indigo-400 bg-slate-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
+            className={`px-4 py-2 border-b-2 font-medium text-sm flex items-center gap-2 shrink-0 whitespace-nowrap transition-colors ${rightTab === id ? 'border-indigo-500 text-indigo-400 bg-slate-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
             onClick={() => setRightTab(id)}
         >
             <Icon size={14} /> {label}
@@ -452,9 +593,12 @@ export const AgentStudio: React.FC = () => {
                         <span>Agent Studio</span>
                     </div>
                     <button
-                        onClick={resetToNew}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-md transition-colors font-medium">
-                        <Plus size={14} /> New
+                        onClick={startNewConversation}
+                        disabled={isGenerating}
+                        title="New conversation — clears this chat and keeps the agent you're editing"
+                        aria-label="New conversation"
+                        className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-400">
+                        <MessageSquarePlus size={16} />
                     </button>
                 </div>
 
@@ -465,7 +609,7 @@ export const AgentStudio: React.FC = () => {
                                 m.role === 'system' ? 'bg-slate-700/50 text-slate-300 border border-slate-600/50 rounded-bl-none' :
                                     'bg-slate-700 text-slate-200 rounded-bl-none border border-slate-600'}`}>
                                 <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={DARK_CHAT_MARKDOWN}>{m.content}</ReactMarkdown>
                                 </div>
                             </div>
                         </div>
@@ -483,38 +627,58 @@ export const AgentStudio: React.FC = () => {
                 <div className="p-4 border-t border-slate-700 bg-slate-800/50">
                     <div className="flex border border-slate-600 rounded-md bg-slate-900 focus-within:border-indigo-500 ring-1 focus-within:ring-indigo-500 overflow-hidden transition-all shadow-inner items-end">
                         <textarea
+                            ref={composerRef}
                             className="flex-1 bg-transparent border-none px-4 py-3 text-sm focus:outline-none text-slate-200 placeholder-slate-500 resize-none min-h-[44px] max-h-32 overflow-hidden"
                             placeholder="Build an agent that answers supply-chain questions from the orders table..."
                             value={prompt}
                             onChange={e => { setPrompt(e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${e.target.scrollHeight}px`; }}
-                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); e.currentTarget.style.height = 'auto'; } }}
+                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) handleGenerate(); } }}
                             rows={1}
                         />
-                        <button
-                            onClick={handleGenerate}
-                            disabled={isGenerating || !prompt}
-                            className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 transition-colors flex items-center justify-center self-stretch">
-                            <Send size={16} />
-                        </button>
+                        <SendStopButton
+                            running={isGenerating}
+                            canSend={!!prompt.trim()}
+                            onSend={handleGenerate}
+                            onStop={stopGeneration}
+                            stopTitle="Stop the assistant"
+                            variant="dark"
+                            className="px-4 py-3 self-stretch"
+                        />
                     </div>
                 </div>
             </div>
 
             {/* RIGHT: workspace */}
             <div className="w-2/3 flex flex-col bg-slate-900">
-                <div className="flex border-b border-slate-800 bg-slate-900/50 px-4 pt-2 gap-2 h-14 items-end justify-between">
-                    <div className="flex gap-2 items-end">
-                        {tabBtn('prompt', 'Prompt', FileText)}
-                        {tabBtn('skills', `Skills${skills.length ? ` (${skills.length})` : ''}`, Sparkles)}
-                        {tabBtn('pytools', `Python tools${pythonTools.length ? ` (${pythonTools.length})` : ''}`, Code2)}
-                        {tabBtn('tryit', 'Try it', Play)}
-                        {tabBtn('review', `Review${review && reviewStale ? ' • stale' : ''}`, ListChecks)}
-                        {tabBtn('settings', 'Settings', Settings)}
-                    </div>
-                    <div className="flex items-center gap-2 pb-2">
-                        <div className="relative">
+                {/* The agent's own bar, level with the chat header. The tabs get a
+                    row of their own because at ~1280px (sidebar collapsed) the six
+                    of them already fill most of this pane's width. */}
+                <div className="flex items-center gap-3 px-4 h-14 border-b border-slate-800 bg-slate-900">
+                    <button
+                        onClick={() => setRightTab('settings')}
+                        title={`${name || 'Untitled agent'} — rename in Settings`}
+                        className="min-w-0 flex-1 flex items-center gap-2 text-left group">
+                        <span className="truncate text-sm font-semibold text-slate-100 group-hover:text-indigo-300">
+                            {name || 'Untitled agent'}
+                        </span>
+                        {isDirty && (
+                            <span className="shrink-0 flex items-center gap-1.5 text-xs text-amber-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden="true" />
+                                Unsaved changes
+                            </span>
+                        )}
+                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <button
+                            onClick={handleNewAgent}
+                            title="Start a new, empty agent"
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-md transition-colors font-medium">
+                            <FilePlus2 size={14} /> New agent
+                        </button>
+                        <div className="relative" ref={profileMenuRef}>
                             <button
                                 onClick={() => setShowProfileMenu(s => !s)}
+                                aria-expanded={showProfileMenu}
                                 className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-md transition-colors font-medium">
                                 <FolderOpen size={14} /> Open <ChevronDown size={14} />
                             </button>
@@ -523,7 +687,7 @@ export const AgentStudio: React.FC = () => {
                                     {profiles.length === 0 ? (
                                         <div className="px-3 py-2 text-sm text-slate-400 italic">No saved profiles yet.</div>
                                     ) : profiles.map(p => (
-                                        <button key={p.id} onClick={() => loadProfile(p.id)}
+                                        <button key={p.id} onClick={() => openProfile(p.id)}
                                             className="w-full text-left px-3 py-2 hover:bg-slate-700 border-b border-slate-700/50 last:border-0">
                                             <div className="text-sm text-slate-200 font-medium truncate flex items-center gap-1.5">
                                                 <span className="truncate">{p.name}</span>
@@ -544,20 +708,22 @@ export const AgentStudio: React.FC = () => {
                                 </div>
                             )}
                         </div>
-                        {profileId && (
-                            <button onClick={handleDelete}
-                                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-rose-600 rounded-md transition-colors font-medium">
-                                <Trash2 size={14} />
-                            </button>
-                        )}
                         <button
                             onClick={handleSave}
                             disabled={isSaving}
-                            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors font-medium ${isSaving ? 'bg-indigo-400 cursor-not-allowed text-indigo-100' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
-                            {isSaving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-                            {isSaving ? 'Saving...' : (profileId ? 'Update' : 'Save')}
+                            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors font-medium min-w-[5.5rem] justify-center ${isSaving ? 'bg-indigo-400 cursor-not-allowed text-indigo-100' : savedFlash ? 'bg-emerald-600 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
+                            {isSaving ? <RefreshCw size={14} className="animate-spin" /> : savedFlash ? <Check size={14} /> : <Save size={14} />}
+                            {isSaving ? 'Saving...' : savedFlash ? 'Saved' : 'Save'}
                         </button>
                     </div>
+                </div>
+                <div className="flex border-b border-slate-800 bg-slate-900/50 px-4 pt-1 gap-2 items-end overflow-x-auto shrink-0">
+                    {tabBtn('prompt', 'Prompt', FileText)}
+                    {tabBtn('skills', `Skills${skills.length ? ` (${skills.length})` : ''}`, Sparkles)}
+                    {tabBtn('pytools', `Python tools${pythonTools.length ? ` (${pythonTools.length})` : ''}`, Code2)}
+                    {tabBtn('tryit', 'Try it', Play)}
+                    {tabBtn('review', `Review${review && reviewStale ? ' • stale' : ''}`, ListChecks)}
+                    {tabBtn('settings', 'Settings', Settings)}
                 </div>
 
                 <div className="flex-1 relative overflow-hidden">
@@ -888,6 +1054,19 @@ export const AgentStudio: React.FC = () => {
                                         </p>
                                     )}
                                 </div>
+
+                                {profileId && (
+                                    <div className="border border-rose-500/30 bg-rose-500/5 rounded-lg p-4">
+                                        <div className="text-sm font-medium text-rose-300">Delete agent</div>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            Removes this agent, with its skills and Python tools, for you and everyone it is shared with.
+                                        </p>
+                                        <button onClick={handleDelete}
+                                            className="mt-3 flex items-center gap-2 px-3 py-1.5 text-sm rounded-md font-medium transition-colors bg-slate-800 text-rose-300 border border-rose-500/40 hover:bg-rose-600 hover:text-white hover:border-rose-600">
+                                            <Trash2 size={14} /> Delete agent
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

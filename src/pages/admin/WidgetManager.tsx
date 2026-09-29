@@ -5,6 +5,8 @@ import { ConfirmModal } from '../../components/ConfirmModal';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { captureWidgetThumbnail } from '../../components/ThumbnailCapture';
 import { widgetRegistry } from '../../widgetRegistry';
+import { ENVS, canPromote, certifyWidget, sourceEnvFor, transferWidget } from '../../promotion';
+import type { Env } from '../../promotion';
 
 interface Widget {
     id: string;
@@ -41,7 +43,7 @@ class WidgetErrorBoundary extends React.Component<
     { children: React.ReactNode },
     { hasError: boolean; error: string | null }
 > {
-    constructor(props: any) {
+    constructor(props: { children: React.ReactNode }) {
         super(props);
         this.state = { hasError: false, error: null };
     }
@@ -70,30 +72,30 @@ const LiveWidgetRenderer: React.FC<{ tsxCode: string }> = ({ tsxCode }) => {
         'https://unpkg.com/@babel/standalone@7.29.4/babel.min.js',
         'Babel'
     );
-    const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
-    const [compileError, setCompileError] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (!babelLoaded) return;
+    const { Component, compileError } = useMemo<{
+        Component: React.ComponentType<{ id: string; data: Record<string, unknown> }> | null;
+        compileError: string | null;
+    }>(() => {
+        if (!babelLoaded) return { Component: null, compileError: null };
         try {
-            setCompileError(null);
+            const runtime = window as unknown as {
+                Babel: { transform: (code: string, options: object) => { code: string } };
+                Highcharts?: unknown;
+            };
             // Two-pass Babel transform (mirrors widgetRegistry.ts). Pass 1 strips TS
             // types/type-only imports and compiles JSX; pass 2 converts remaining
             // runtime ES `import`/`export` to CommonJS so widgets authored with
             // `import` statements don't throw "Cannot use import statement outside a
             // module".
-            // @ts-ignore
-            const stripped = window.Babel.transform(tsxCode, {
+            const stripped = runtime.Babel.transform(tsxCode, {
                 filename: 'widget.tsx',
                 presets: ['react', 'typescript']
             }).code;
-            // @ts-ignore
-            const transpiled = window.Babel.transform(stripped, {
+            const transpiled = runtime.Babel.transform(stripped, {
                 filename: 'widget.js',
                 plugins: ['transform-modules-commonjs']
             }).code;
-            // @ts-ignore
-            const HC = typeof Highcharts !== 'undefined' ? Highcharts : (window as any).Highcharts;
+            const HC = runtime.Highcharts;
             // Minimal CommonJS sandbox: `require` resolves to injected React or
             // runtime globals (e.g. window.Highcharts via useScript), else throws.
             const executableCode = `
@@ -111,13 +113,10 @@ const LiveWidgetRenderer: React.FC<{ tsxCode: string }> = ({ tsxCode }) => {
                 ${transpiled}
                 return (module.exports && module.exports.default) ? module.exports.default : module.exports;
             `;
-            // eslint-disable-next-line no-new-func
             const createComp = new Function('React', 'useScript', 'Highcharts', executableCode);
-            const Comp = createComp(React, useScript, HC);
-            setComponent(() => Comp);
-        } catch (err: any) {
-            setCompileError(err.message || String(err));
-            setComponent(null);
+            return { Component: createComp(React, useScript, HC), compileError: null };
+        } catch (err) {
+            return { Component: null, compileError: (err instanceof Error && err.message) || String(err) };
         }
     }, [tsxCode, babelLoaded]);
 
@@ -143,6 +142,19 @@ const LiveWidgetRenderer: React.FC<{ tsxCode: string }> = ({ tsxCode }) => {
     );
 };
 
+const fetchWidgets = async (env: Env): Promise<Widget[]> => {
+    try {
+        const res = await fetch(`/api/widgets/custom?env=${env}`);
+        const data = await res.json();
+        return data.widgets || [];
+    } catch (e) {
+        console.error(`Error fetching ${env} widgets:`, e);
+        return [];
+    }
+};
+
+const fetchAllWidgets = () => Promise.all(ENVS.map(fetchWidgets));
+
 // ─── Version History Modal ─────────────────────────────────────────────────
 interface VersionEntry {
     version: number;
@@ -165,18 +177,17 @@ const VersionHistoryModal: React.FC<{
     useEffect(() => {
         const load = async () => {
             setLoading(true);
-            const envs: string[] = ['dev', 'test', 'prod'];
             const results = await Promise.all(
-                envs.map(async env => {
+                ENVS.map(async env => {
                     try {
                         const res = await fetch(historyUrl(env));
                         if (!res.ok) return [];
                         const data = await res.json();
-                        return (data.history || []).map((h: any) => ({
-                            version: h.version,
-                            name: h.name,
-                            author: h[authorField] || '—',
-                            timestamp: h.timestamp,
+                        return (data.history || []).map((h: Record<string, unknown>): VersionEntry => ({
+                            version: h.version as number,
+                            name: h.name as string,
+                            author: (h[authorField] as string) || '—',
+                            timestamp: h.timestamp as string,
                             env
                         }));
                     } catch { return []; }
@@ -191,6 +202,10 @@ const VersionHistoryModal: React.FC<{
             setLoading(false);
         };
         load();
+        // `historyUrl` is an inline closure, new on every parent render (the
+        // thumbnail backfill re-renders several times a second); the entity is
+        // what decides whether there is anything new to fetch.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [entityId]);
 
     const envColors: Record<string, string> = {
@@ -387,14 +402,12 @@ export const WidgetManager: React.FC = () => {
     // Pending confirmation state
     const [pendingTransfer, setPendingTransfer] = useState<{
         widgetId: string; widgetName: string; targetVersion: number;
-        targetEnv: 'dev' | 'test' | 'prod'; envsData: ConsolidatedWidget; action: string;
+        targetEnv: Env; envsData: ConsolidatedWidget; action: string;
     } | null>(null);
     const [pendingCertify, setPendingCertify] = useState<{ widgetId: string; version: number; name: string } | null>(null);
 
     const { isAdmin, domainPermissions } = useDashboardStore();
-    const checkIsPromoter = (domain: string) => {
-        return isAdmin || domainPermissions[domain] === 'admin' || domainPermissions[domain] === 'editor';
-    };
+    const checkIsPromoter = (domain: string) => canPromote(isAdmin, domainPermissions, domain);
 
     // Bulk thumbnail backfill state. We process widgets one at a time through
     // the global ThumbnailCapture queue to keep memory and CPU bounded.
@@ -409,7 +422,7 @@ export const WidgetManager: React.FC = () => {
     const consolidatedWidgets = useMemo<ConsolidatedWidget[]>(() => {
         const map = new Map<string, ConsolidatedWidget>();
 
-        const process = (widgets: Widget[], env: 'dev' | 'test' | 'prod') => {
+        const process = (widgets: Widget[], env: Env) => {
             widgets.forEach(w => {
                 if (!map.has(w.id)) {
                     map.set(w.id, {
@@ -425,7 +438,12 @@ export const WidgetManager: React.FC = () => {
                     });
                 }
                 const entry = map.get(w.id)!;
-                entry[env] = w;
+                // `/custom` returns every version, newest save first, so taking each
+                // row in turn left the oldest version as the env's "current" one —
+                // and only the head carries `tsx_code`, so Preview had nothing to
+                // show. What an env serves is its highest non-deprecated version.
+                const current = entry[env];
+                if (!current || w.version > current.version) entry[env] = w;
                 // The list no longer carries the image itself, only whether there
                 // is one — it's a page-load cost nobody outside the library needs.
                 if (w.has_snapshot ?? w.snapshot) entry.hasSnapshot = true;
@@ -434,18 +452,24 @@ export const WidgetManager: React.FC = () => {
                     entry.latestAuthor = w.created_by;
                     entry.latestTimestamp = w.timestamp;
                 }
-                if (env === 'prod' || (!entry.prod && env === 'test') || (!entry.prod && !entry.test && env === 'dev')) {
-                    entry.name = w.name;
-                    entry.domain = w.domain;
-                    entry.description = w.description;
-                    entry.is_certified = w.is_certified || entry.is_certified;
-                }
             });
         };
 
         process(devWidgets, 'dev');
         process(testWidgets, 'test');
         process(prodWidgets, 'prod');
+
+        // Described by the furthest-promoted head, which is what most users see.
+        // Certification belongs to a row, so an older certified prod version must
+        // not badge an uncertified head (or hide the button that would certify it).
+        map.forEach(entry => {
+            const head = entry.prod ?? entry.test ?? entry.dev;
+            if (!head) return;
+            entry.name = head.name;
+            entry.domain = head.domain;
+            entry.description = head.description;
+            entry.is_certified = !!head.is_certified;
+        });
 
         return Array.from(map.values());
     }, [devWidgets, testWidgets, prodWidgets]);
@@ -465,33 +489,22 @@ export const WidgetManager: React.FC = () => {
         });
     }, [consolidatedWidgets, searchQuery, selectedDomain]);
 
-    const fetchWidgets = async (env: string) => {
-        try {
-            const res = await fetch(`/api/widgets/custom?env=${env}`);
-            const data = await res.json();
-            return data.widgets || [];
-        } catch (e) {
-            console.error(`Error fetching ${env} widgets:`, e);
-            return [];
-        }
-    };
-
-    const loadAll = async () => {
-        setLoading(true);
-        const [dev, test, prod] = await Promise.all([
-            fetchWidgets('dev'),
-            fetchWidgets('test'),
-            fetchWidgets('prod')
-        ]);
+    const applyLists = React.useCallback(([dev, test, prod]: Widget[][]) => {
         setDevWidgets(dev);
         setTestWidgets(test);
         setProdWidgets(prod);
         setLoading(false);
+    }, []);
+
+    const loadAll = async () => {
+        setLoading(true);
+        applyLists(await fetchAllWidgets());
     };
 
-    useEffect(() => { loadAll(); }, []);
+    // `loading` starts true, so the first fetch needn't set it.
+    useEffect(() => { fetchAllWidgets().then(applyLists); }, [applyLists]);
 
-    const handleVersionChange = async (widgetId: string, widgetName: string, targetVersion: number, targetEnv: 'dev' | 'test' | 'prod', envsData: ConsolidatedWidget) => {
+    const handleVersionChange = async (widgetId: string, widgetName: string, targetVersion: number, targetEnv: Env, envsData: ConsolidatedWidget) => {
         const currentVersion = envsData[targetEnv] ? envsData[targetEnv]!.version : 0;
         if (targetVersion === currentVersion) return;
 
@@ -502,25 +515,18 @@ export const WidgetManager: React.FC = () => {
 
     const executeTransfer = async () => {
         if (!pendingTransfer) return;
-        const { widgetId, targetVersion, targetEnv, envsData } = pendingTransfer;
-        let sourceEnv: 'dev' | 'test' | 'prod' = 'dev';
-        if (envsData.dev && envsData.dev.version >= targetVersion) sourceEnv = 'dev';
-        else if (envsData.test && envsData.test.version >= targetVersion) sourceEnv = 'test';
-        else if (envsData.prod && envsData.prod.version >= targetVersion) sourceEnv = 'prod';
+        const { widgetId, targetVersion, targetEnv, envsData, action } = pendingTransfer;
+        const sourceEnv = sourceEnvFor(targetVersion, {
+            dev: envsData.dev?.version,
+            test: envsData.test?.version,
+            prod: envsData.prod?.version,
+        });
         setPendingTransfer(null);
-        try {
-            const res = await fetch('/api/promotion/transfer', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ widget_id: widgetId, version: targetVersion, source_env: sourceEnv, target_env: targetEnv, is_rollback: pendingTransfer?.action === 'rollback' })
-            });
-            if (res.ok) { loadAll(); }
-            else { const data = await res.json(); alert(`Error: ${data.detail || data.message}`); loadAll(); }
-        } catch (e) {
-            console.error('Transfer error:', e);
-            alert('An error occurred during transfer.');
-            loadAll();
-        }
+        const result = await transferWidget({
+            widgetId, version: targetVersion, sourceEnv, targetEnv, isRollback: action === 'rollback',
+        });
+        if (!result.ok) alert(`Error: ${result.message}`);
+        loadAll();
     };
 
     const handleCertify = async (widgetId: string, version: number, name: string) => {
@@ -531,18 +537,9 @@ export const WidgetManager: React.FC = () => {
         if (!pendingCertify) return;
         const { widgetId, version } = pendingCertify;
         setPendingCertify(null);
-        try {
-            const res = await fetch('/api/promotion/certify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ widget_id: widgetId, version })
-            });
-            if (res.ok) loadAll();
-            else { const data = await res.json(); alert(`Error: ${data.detail || data.message}`); }
-        } catch (e) {
-            console.error('Certify error:', e);
-            alert('An error occurred during certification.');
-        }
+        const result = await certifyWidget(widgetId, version);
+        if (result.ok) loadAll();
+        else alert(`Error: ${result.message}`);
     };
 
     const handleRequestPromotion = (widgetName: string, target: string) => {
@@ -630,7 +627,7 @@ export const WidgetManager: React.FC = () => {
         [consolidatedWidgets]
     );
 
-    const renderVersionCell = (w: ConsolidatedWidget, env: 'dev' | 'test' | 'prod') => {
+    const renderVersionCell = (w: ConsolidatedWidget, env: Env) => {
         const currentVersion = w[env]?.version ?? 0;
 
         if (!checkIsPromoter(w.domain)) {

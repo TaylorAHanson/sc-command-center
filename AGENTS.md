@@ -97,9 +97,10 @@ That file is bundled and rendered in the app under Resources → Release Notes, 
 it is the only changelog users ever see; a separate "docs pass" never happens.
 Newest release on top, `## <version> — <YYYY-MM-DD>`, bullets grouped under
 Added / Changed / Fixed, written in terms of what someone can now do rather than
-what you edited. Add to the existing top block if it is unreleased, otherwise
-start a new one. Skip it only for changes nobody using the app could notice —
-refactors, tests, comments.
+what you edited. Keep each bullet to a bold lead plus one short sentence; the
+full conventions live in the comment at the top of the file. Add to the existing
+top block if it is unreleased, otherwise start a new one. Skip it only for
+changes nobody using the app could notice — refactors, tests, comments.
 
 **Changing how the app behaves updates the agent's copy of the docs too.** Users
 ask the in-app assistant how things work, and it answers from
@@ -150,7 +151,12 @@ failures are caught and logged instead of raised.
 ## Configuration
 
 `databricks.yml` is authoritative for deployed configuration; `.env` covers
-local development (`dev.sh` sources it). Bundle variables let a target override
+local development (`dev.sh` sources it). The bundle root is set once, at the
+top of that file, under the deploying identity's home folder. Don't give a
+target a `root_path` under `/Workspace/Shared`: every workspace user can write
+there, and the root holds the code the app runs. Moving the root also leaves the
+bundle's deployment state behind, so the next deploy to an existing target
+needs `databricks bundle deployment bind` for the app and the database instance. Bundle variables let a target override
 warehouse, app name, permissions, and Lakebase wiring without duplicating the
 resource block.
 

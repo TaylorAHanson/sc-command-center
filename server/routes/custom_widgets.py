@@ -105,20 +105,33 @@ def get_widget_snapshots(w: WorkspaceClient = Depends(get_db_client), env: str =
     return {"snapshots": {r["id"]: r["snapshot"] for r in _visible(rows, perms)}}
 
 
+def _require_visible(w: WorkspaceClient, env: str, domain: Optional[str]) -> None:
+    """403 unless the caller may see widgets of ``domain`` in ``env``.
+
+    `/custom` filters by domain, but these per-widget reads take a bare id, so
+    without this anyone holding an id could read another domain's code and
+    promotion state in any env.
+    """
+    if not _visible([{"domain": domain}], _get_user_permissions(w, env)):
+        raise HTTPException(status_code=403, detail=f"You don't have access to this widget in {env}.")
+
+
 @router.get("/history")
-def get_widget_history(widget_id: str, env: str = "dev"):
+def get_widget_history(widget_id: str, env: str = "dev", w: WorkspaceClient = Depends(get_db_client)):
     """Return all versions of a widget in a given env, ordered newest first.
 
     Carries each version's size but not its code: the size is what tells a version
     apart at a glance (a 12-line entry under a 240-line one is the turn that ate
     the widget), while shipping every version's source would make the list heavy
     for no one's benefit. Widget Studio fetches the code for the one version it
-    restores from `/version`.
+    restores from `/version`. `is_certified` and `domain` are here for the studio's
+    promotion panel, which reads this for all three envs and would otherwise need
+    the full `/custom` library just to badge prod and check who may promote.
     """
     conn = get_db_connection(env)
     c = conn.cursor()
     c.execute(
-        "SELECT version, name, created_by, timestamp, tsx_code FROM widgets "
+        "SELECT version, name, created_by, timestamp, is_certified, domain, tsx_code FROM widgets "
         "WHERE id = %s AND is_deprecated = 0 ORDER BY version DESC",
         (widget_id,)
     )
@@ -131,11 +144,13 @@ def get_widget_history(widget_id: str, env: str = "dev"):
         entry["chars"] = len(code)
         rows.append(entry)
     conn.close()
+    if rows:
+        _require_visible(w, env, rows[0].get("domain"))
     return {"history": rows, "env": env}
 
 
 @router.get("/version")
-def get_widget_version(widget_id: str, version: int, env: str = "dev"):
+def get_widget_version(widget_id: str, version: int, env: str = "dev", w: WorkspaceClient = Depends(get_db_client)):
     """Return one published version in full, including its code.
 
     Backs Restore in Widget Studio: the studio loads this into the editor, where it
@@ -152,7 +167,9 @@ def get_widget_version(widget_id: str, version: int, env: str = "dev"):
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail=f"Version {version} of this widget was not found in {env}.")
-    return {"widget": dict(zip(columns, row)), "env": env}
+    widget = dict(zip(columns, row))
+    _require_visible(w, env, widget.get("domain"))
+    return {"widget": widget, "env": env}
 
 
 

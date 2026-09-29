@@ -100,10 +100,10 @@ From this interface, administrators can add new rules to link an external role (
 ### Promoting Work (Widgets & Views)
 The Command Center manages separate database environments (`dev`, `test`, `prod`). As you develop widgets and configure views, you will need to promote them through the environments. This ensures that experimental work doesn't impact production users.
 
-*   **Domain Access Limitations:** A user's ability to promote a widget or a view is strictly governed by the domains they have `admin` access to. You can only promote widgets and views that belong to your assigned domains. For example, a user who is an admin in the "Supply Chain" domain cannot promote widgets belonging to the "Finance" domain.
+*   **Domain Access Limitations:** A user's ability to promote a widget or a view is governed by the domains they have `editor` or `admin` access to in the target environment. You can only promote widgets and views that belong to your assigned domains. For example, a user who is an editor in the "Supply Chain" domain cannot promote widgets belonging to the "Finance" domain.
 
 #### Promoting Widgets
-Users with promotion access can manage widget lifecycles via the **Widget Promotion** screen in the admin UI. 
+Users with promotion access can promote a single widget from its **Promote** button in Widget Studio, or manage every widget's lifecycle via the **Widget Promotion** screen in the admin UI. 
 The interface displays a table of all widgets alongside their current versions in Dev, Test, and Prod. 
 *   **How to Promote/Rollback**: Under the target environment column, select the desired version number from the dropdown. 
     *   Selecting a version *higher* than the current environment's version will prompt a **Promote Widget** confirmation. 

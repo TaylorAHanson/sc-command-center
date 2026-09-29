@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Book, Shield, Layers, Code, PlayCircle, Settings, Users, LayoutGrid, MousePointerClick, Lock, Copy, PlusCircle, Bot, Paperclip, History, ArrowRightLeft } from 'lucide-react';
+import { Book, Shield, Layers, Code, PlayCircle, Settings, Users, LayoutGrid, MousePointerClick, Lock, Copy, PlusCircle, Bot, Paperclip, History, ArrowRightLeft, Square, BarChart3 } from 'lucide-react';
 import clsx from 'clsx';
 
 type Section = {
@@ -177,6 +177,26 @@ export const UserGuidePage: React.FC = () => {
 
           <div className="bg-white p-5 border rounded-lg shadow-sm">
             <div className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
+              <Square className="w-4 h-4 text-rose-500" />
+              Stopping an answer
+            </div>
+            <p className="text-sm text-gray-600">
+              While the assistant is working, the send button turns into a red <strong>Stop</strong> button. Clicking it ends the turn: the assistant stops calling tools, keeps what it had written so far and marks it <em>Stopped</em>. Pressing Enter never stops it, so you can keep typing your next question while it works. Reloading the page or switching conversations does not stop it; the answer is saved and waiting when you come back.
+            </p>
+          </div>
+
+          <div className="bg-white p-5 border rounded-lg shadow-sm">
+            <div className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
+              <BarChart3 className="w-4 h-4 text-emerald-500" />
+              Charts
+            </div>
+            <p className="text-sm text-gray-600">
+              When a picture explains the answer better — a trend, a comparison, a breakdown — the assistant draws a chart in the conversation, from the data it just retrieved. Ask for one ("chart that by month") if it doesn't offer. The menu on a chart saves it as PNG or SVG. Agents built in Agent Studio can chart the same way. Pictures in answers are only shown when they come from this app; one from another site appears as a small placeholder, so an answer can't pass your data to that site just by displaying an image.
+            </p>
+          </div>
+
+          <div className="bg-white p-5 border rounded-lg shadow-sm">
+            <div className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
               <Bot className="w-4 h-4 text-amber-500" />
               What to trust
             </div>
@@ -226,14 +246,14 @@ export const UserGuidePage: React.FC = () => {
                 <Code className="w-4 h-4 text-blue-500" />
                 Editor
               </div>
-              <p className="text-sm text-gray-600">Has all Viewer privileges. Can also create, edit, and reorganize widgets and global views within this domain.</p>
+              <p className="text-sm text-gray-600">Has all Viewer privileges. Can also create, edit, and reorganize widgets and global views within this domain, and promote, roll back and certify them in any environment where they hold this role.</p>
             </div>
             <div className="bg-white p-4 border rounded-lg shadow-sm">
               <div className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
                 <Settings className="w-4 h-4 text-purple-500" />
                 Admin
               </div>
-              <p className="text-sm text-gray-600">Has full control. Can promote widgets/views across environments, certify widgets in production, and assign domain permissions to users or groups.</p>
+              <p className="text-sm text-gray-600">Has full control. Everything an Editor can do, plus assigning domain permissions to users or groups.</p>
             </div>
           </div>
         </div>
@@ -295,12 +315,13 @@ export const UserGuidePage: React.FC = () => {
                 Every time a custom widget's code or configuration is modified and saved in the <strong>Dev</strong> environment, its version number increments automatically. This immutable version history acts as an audit trail and enables seamless environment transitions.
               </p>
               <ul className="list-disc pl-5 text-sm text-gray-700 space-y-2 mb-3">
-                <li><strong>Promotion:</strong> To push a tested widget to a higher environment (e.g., from Dev to Test, or Test to Prod), navigate to the <strong>Widget Promotion</strong> screen. Locate your widget, find the target environment column, and select the higher version from the dropdown. The system will copy that specific version's definition into the target environment.</li>
-                <li><strong>Rollbacks:</strong> If a newly promoted widget introduces a bug in Test or Prod, you can instantly revert to a previous stable state. In the same dropdown, simply select an older version number. The application immediately restores the widget to that exact historical configuration.</li>
-                <li><strong>Certification:</strong> In the Production column, clicking the <strong>Certify</strong> button formally flags a widget as enterprise-ready. This is a visual indicator for end-users that the widget has passed review and is reliable.</li>
+                <li><strong>Where:</strong> from inside <strong>Widget Studio</strong> — the <strong>Promote</strong> button in the header opens a Dev → Test → Prod panel for the widget you're editing — or for every widget at once on the Admin Panel's <strong>Widget Promotion</strong> screen. Both do the same thing.</li>
+                <li><strong>Promotion:</strong> <strong>Promote to Test</strong> copies Dev's latest saved version into Test; <strong>Promote to Prod</strong> copies Test's. Unsaved edits in the studio are not included, so save first. Each environment numbers its own versions, so Dev v8 may arrive in Test as v3.</li>
+                <li><strong>Rollbacks:</strong> If a promoted widget misbehaves in Test or Prod, pick an older version from that environment's <strong>Roll back to</strong> list. It becomes the current version again straight away.</li>
+                <li><strong>Certification:</strong> In Prod, <strong>Certify</strong> flags the current version as reviewed and enterprise-ready. It's a signal to end users, not a permission.</li>
               </ul>
               <p className="text-sm text-gray-500 italic">
-                Only users with <strong>Admin</strong> rights for a widget's domain can perform promotions, rollbacks, and certifications.
+                Promoting, rolling back and certifying need <strong>Editor</strong> or <strong>Admin</strong> rights on the widget's domain in the environment you're promoting into. Without them the panel shows where the widget stands but offers no buttons.
               </p>
             </div>
 
@@ -481,7 +502,17 @@ export const UserGuidePage: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-2">5. Save and Publish</h3>
               <p className="text-gray-700">
-                <strong>Save</strong> (or <strong>Publish</strong>, the first time) writes your code to the Dev environment database and increments the version, and it is immediately available in the Widget Library for users with Dev access to test. Saving leaves you in the studio, so you can keep working and save as often as you like. Use <strong>Done</strong> when you have finished with the widget.
+                <strong>Save</strong> (or <strong>Publish</strong>, the first time) writes your code to the Dev environment database and increments the version, and it is immediately available in the Widget Library for users with Dev access to test. Saving leaves you in the studio, so you can keep working and save as often as you like. The <strong>X</strong> closes the studio when you have finished with the widget.
+              </p>
+              <p className="text-gray-700 mt-2">
+                Controls for the widget sit on the right, above the preview: <strong>History</strong>, <strong>Reload</strong>, <strong>Promote</strong> (see <em>Promoting Work</em>), the <strong>⋯</strong> menu with Import, Export and Reset studio, then Save and close. Only the agent's own settings sit above the chat.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">6. Stopping the Agent</h3>
+              <p className="text-gray-700">
+                While the agent works, the send button turns into a red <strong>Stop</strong> button, and pressing Enter does nothing, so you can type your next request without interrupting it. Stop ends the turn at once: steps that already finished stay in the editor, each with an entry in History, and nothing else is applied. On a multi-step build, <strong>Stop after this step</strong> lets the step in progress finish first.
               </p>
             </div>
           </div>

@@ -798,6 +798,24 @@ def init_db(env: str = "dev"):
         conn.rollback()
         pass
 
+    # Turns the user pressed Stop on, keyed by the client's per-turn id. A table
+    # rather than process memory because the Stop request can land on a different
+    # worker from the one running the turn, and keyed by turn rather than hung off
+    # the conversation because Stop can arrive before the conversation row or the
+    # turn's message exists (see conversation_store.request_stop).
+    try:
+        c.execute(f'''
+            CREATE TABLE IF NOT EXISTS chat_turn_stops (
+                turn_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                created_at TIMESTAMP {default_ts}
+            )
+        ''')
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+
     # Seed default global admin if none exists yet
     try:
         c.execute(

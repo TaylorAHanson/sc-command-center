@@ -112,7 +112,9 @@ def test_every_table_the_schema_creates_is_covered():
     source = open(os.path.join(os.path.dirname(__file__), "..", "server", "database.py")).read()
     import re
     created = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", source))
-    assert created == set(dm.SPECS), created ^ set(dm.SPECS)
+    covered = set(dm.SPECS) | dm.NOT_COPIED
+    assert created == covered, created ^ covered
+    assert not (set(dm.SPECS) & dm.NOT_COPIED)
 
 
 def test_every_table_belongs_to_a_known_group():

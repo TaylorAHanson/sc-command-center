@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Terminal, Code, Eye, RefreshCw, Send, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X, Paperclip, Camera, Sliders, Loader2, Wrench, Lightbulb } from 'lucide-react';
+import { Terminal, Code, Eye, RefreshCw, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X, Paperclip, Camera, Sliders, Loader2, Wrench, Lightbulb, MoreHorizontal, Rocket, Eraser } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
@@ -9,10 +9,16 @@ import { BaseWidget } from '../components/BaseWidget';
 import { CodeEditor } from '../components/CodeEditor';
 import { AttachmentChip, SentAttachments } from '../components/AttachmentChip';
 import { ThinkingDisclosure } from '../components/ThinkingDisclosure';
+import { SendStopButton } from '../components/SendStopButton';
+import { WidgetPromotionPanel } from '../components/WidgetPromotionPanel';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
 import { useDashboardStore } from '../store/dashboardStore';
 import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
+import { DarkChatImage } from '../components/ChatImage';
 import remarkGfm from 'remark-gfm';
+
+const DARK_CHAT_MARKDOWN: Components = { img: DarkChatImage };
 
 interface WidgetStudioProps {
     editWidgetId?: string | null;
@@ -494,6 +500,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [code, setCode] = useState<string>(sessionState?.code || DEFAULT_WIDGET_CODE);
     const [checkpoints, setCheckpoints] = useState<CodeCheckpoint[]>(sessionState?.checkpoints || []);
     const [showHistory, setShowHistory] = useState(false);
+    const [showPromotion, setShowPromotion] = useState(false);
+    const [saveCount, setSaveCount] = useState(0);
+    const [showWidgetMenu, setShowWidgetMenu] = useState(false);
     const [viewMode, setViewMode] = useState<'preview' | 'code' | 'config'>(sessionState?.viewMode || 'preview');
     const [previewComponent, setPreviewComponent] = useState<React.ComponentType | null>(null);
     const [previewError, setPreviewError] = useState<string | null>(null);
@@ -534,6 +543,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const MAX_AUTO_RETRIES = 3;
     // The generation being polled, so Stop has something to address.
     const jobIdRef = useRef<string | null>(null);
+    // Ends the turn in flight immediately; set by runJob, since only it holds the
+    // poll interval and knows how much of the turn has already been applied.
+    const stopTurnRef = useRef<(() => void) | null>(null);
+    // The code a turn was stopped on. Stopping means "leave it as it is", so a
+    // compile or render failure in that code must not start an auto-fix — which
+    // it otherwise would, because the step that landed just before Stop is often
+    // still waiting on the compile debounce when the turn ends.
+    const stoppedCodeRef = useRef<string | null>(null);
     const [availableDomains, setAvailableDomains] = useState<string[]>(['General']);
     const [availableCategories, setAvailableCategories] = useState<string[]>([]);
     // Configuration fields the user has decided for themselves (typed into,
@@ -899,7 +916,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     // Trigger auto-retry after a small delay to let state settle,
                     // but cap consecutive attempts so a persistently-uncompilable
                     // widget can't loop the generation endpoint forever.
-                    if (!isGeneratingRef.current && autoRetryCountRef.current < MAX_AUTO_RETRIES) {
+                    if (!isGeneratingRef.current && code !== stoppedCodeRef.current
+                        && autoRetryCountRef.current < MAX_AUTO_RETRIES) {
                         autoRetryCountRef.current += 1;
                         setTimeout(() => generateRef.current(errorMsg), 1000);
                     }
@@ -919,6 +937,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         // A deliberate reload shouldn't consume either retry budget.
         autoRetryCountRef.current = 0;
         renderRetryCountRef.current = 0;
+        stoppedCodeRef.current = null;
         setPreviewNonce(n => n + 1);
     };
 
@@ -986,6 +1005,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     };
 
     /**
+     * Stop the turn now, rather than after the step in flight.
+     *
+     * The studio stops listening at once and the server is told to spend nothing
+     * more; whatever it finishes after this is never applied. Steps that already
+     * landed stay — they went through replaceCode, so History has them.
+     */
+    const handleStopNow = () => stopTurnRef.current?.();
+
+    /**
      * Everything the agent needs to know about the widget as it stands.
      *
      * Shared by generation and the review pass, which has to be looking at the
@@ -1024,11 +1052,48 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         onSettled?: (result: JobResult) => void;
     }) => {
         const { baseMessages, checkpointLabel, fallbackText, onSettled } = opts;
+        // Steps we have already put in the editor. A planned run publishes each
+        // step's code as it lands so the work shows up while the rest is still
+        // running, and so a step that fails later can't take the finished ones
+        // with it.
+        let stepsApplied = 0;
+        let thinking: string[] = [];
+        let jobId: string | null = null;
+        let pollInterval: ReturnType<typeof setInterval> | null = null;
+        // Once set, nothing that arrives for this turn is applied: every await
+        // below checks it, since Stop can land while any of them is pending.
+        let stopped = false;
+
         const finish = (extra: StudioMessage) => {
             setIsGenerating(false);
             jobIdRef.current = null;
+            stopTurnRef.current = null;
             setMessages([...baseMessages, extra]);
             setLiveThinking([]);
+        };
+        const cancelJob = (id: string) => {
+            fetch(`/api/agent/widget/generate/${id}`, { method: 'DELETE' }).catch(() => {
+                // The job runs out its own clock; there is nothing to recover here.
+            });
+        };
+
+        stopTurnRef.current = () => {
+            if (stopped) return;
+            stopped = true;
+            if (pollInterval) clearInterval(pollInterval);
+            // Before the POST has answered there is no id to cancel yet; the
+            // response handler below cancels it as soon as one arrives.
+            if (jobId) cancelJob(jobId);
+            stoppedCodeRef.current = codeRef.current;
+            finish({
+                role: 'system',
+                content: stepsApplied === 1
+                    ? 'Stopped. The step that finished stays in the editor — History has an entry for it.'
+                    : stepsApplied
+                        ? `Stopped. The ${stepsApplied} steps that finished stay in the editor — History has an entry for each.`
+                        : 'Stopped. Your code is unchanged.',
+                thinking: thinking.join('\n') || undefined,
+            });
         };
 
         setIsGenerating(true);
@@ -1045,6 +1110,11 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             });
             const data = await resp.json();
 
+            if (stopped) {
+                if (data?.job_id) cancelJob(data.job_id);
+                return;
+            }
+
             if (!resp.ok) {
                 finish({ role: 'system', content: `Server Error: ${data.detail || resp.statusText}` });
                 return;
@@ -1057,11 +1127,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     finish({ role: 'assistant', content: describeGeneration(data, fallbackText) });
                 } else {
                     setIsGenerating(false);
+                    stopTurnRef.current = null;
                 }
                 return;
             }
 
-            const jobId = data.job_id;
+            const activeJob: string = data.job_id;
+            jobId = activeJob;
             let pollCount = 0;
             // The server says how long it is prepared to work (Admin Panel →
             // Settings), and we wait that long plus a margin for the last poll.
@@ -1069,19 +1141,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             // server was still going, so raising the limit changed nothing.
             const serverBudget = Number(data.timeout_seconds) || 300;
             const maxPolls = Math.ceil((serverBudget + 20) / 2);
-            // Steps we have already put in the editor. A planned run publishes
-            // each step's code as it lands so the work shows up while the rest is
-            // still running, and so a step that fails later can't take the
-            // finished ones with it.
-            let stepsApplied = 0;
-            let thinking: string[] = [];
-            jobIdRef.current = jobId;
+            jobIdRef.current = activeJob;
 
-            const pollInterval = setInterval(async () => {
+            const interval = setInterval(async () => {
                 try {
                     pollCount++;
-                    const statusResp = await fetch(`/api/agent/widget/generate/${jobId}`);
+                    const statusResp = await fetch(`/api/agent/widget/generate/${activeJob}`);
                     const statusData = await statusResp.json();
+                    if (stopped) return;
 
                     if (Array.isArray(statusData.stages)) setStages(statusData.stages);
                     if (Array.isArray(statusData.trace)) {
@@ -1103,7 +1170,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     }
 
                     if (statusData.status === 'completed') {
-                        clearInterval(pollInterval);
+                        clearInterval(interval);
                         const result = statusData.result || {};
                         // A planned run has already applied its steps as they
                         // landed; writing the same code again would only add an
@@ -1122,14 +1189,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         });
                         onSettled?.(result);
                     } else if (statusData.status === 'failed') {
-                        clearInterval(pollInterval);
+                        clearInterval(interval);
                         finish({
                             role: 'system',
                             content: `Generation Error: ${statusData.error}`,
                             thinking: thinking.join('\n'),
                         });
                     } else if (pollCount > maxPolls) {
-                        clearInterval(pollInterval);
+                        clearInterval(interval);
                         finish({
                             role: 'system',
                             content: `The server stopped responding about this request after ${serverBudget}s. `
@@ -1139,11 +1206,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         });
                     }
                 } catch (pollErr) {
-                    clearInterval(pollInterval);
+                    clearInterval(interval);
+                    if (stopped) return;
                     finish({ role: 'system', content: `Polling Error: ${errorText(pollErr)}` });
                 }
             }, 2000);
+            pollInterval = interval;
         } catch (e) {
+            if (stopped) return;
             finish({ role: 'system', content: `Network Error: ${errorText(e)}` });
         }
     };
@@ -1195,6 +1265,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             // A manual generate restarts both auto-retry budgets.
             autoRetryCountRef.current = 0;
             renderRetryCountRef.current = 0;
+            stoppedCodeRef.current = null;
             // Files ride on the turn that sent them. The chips go now so the
             // composer is clear; the rows stay on the server, which is what the
             // agent reads them from.
@@ -1361,6 +1432,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             }
 
             if (res.ok) {
+                setSaveCount(n => n + 1);
                 await loadCustomWidgets();
                 // Saving no longer closes the studio, so this can't be an alert:
                 // people save every few minutes while they work, and a modal to
@@ -1490,6 +1562,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setRowEstimate(null);
         setAttachments([]);
         setSaveNotice(null);
+        setShowPromotion(false);
     };
 
     // Export the current widget definition (code + all settings) as a portable
@@ -1576,14 +1649,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         <Terminal size={18} />
                         <span>Widget Studio</span>
                     </div>
+                    {/* Only what's about the agent and this chat belongs up here; anything
+                        about the widget itself sits with the workspace on the right. */}
                     <div className="flex items-center gap-2">
-                        <input
-                            ref={importInputRef}
-                            type="file"
-                            accept="application/json,.json"
-                            className="hidden"
-                            onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ''; }}
-                        />
                         <div className="relative">
                             <button
                                 onClick={() => setShowAgentPrefs(v => !v)}
@@ -1596,7 +1664,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                     {/* Click-away, behind the panel: a popover this small is more
                                         annoying to dismiss with a second click on the gear. */}
                                     <div className="fixed inset-0 z-30" onClick={() => setShowAgentPrefs(false)} />
-                                    <div className="absolute left-0 top-full mt-2 z-40 w-72 rounded-lg border border-slate-600 bg-slate-800 p-3 shadow-xl">
+                                    <div className="absolute right-0 top-full mt-2 z-40 w-72 rounded-lg border border-slate-600 bg-slate-800 p-3 shadow-xl">
                                         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Agent settings</div>
                                         <label className="flex gap-2 cursor-pointer py-1.5">
                                             <input
@@ -1637,54 +1705,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                 </>
                             )}
                         </div>
-                        <button
-                            onClick={() => importInputRef.current?.click()}
-                            title="Import a widget from a .json file"
-                            className="flex items-center justify-center p-1.5 text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors">
-                            <Upload size={14} />
-                        </button>
-                        <button
-                            onClick={handleExport}
-                            title="Export this widget to a .json file"
-                            className="flex items-center justify-center p-1.5 text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors">
-                            <Download size={14} />
-                        </button>
-                        <button
-                            onClick={handleReset}
-                            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-md transition-colors font-medium">
-                            <RefreshCw size={14} />
-                            Reset
-                        </button>
-                        <button
-                            onClick={handlePublish}
-                            disabled={isPublishing}
-                            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors font-medium ${isPublishing ? 'bg-indigo-400 cursor-not-allowed text-indigo-100' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
-                            {isPublishing ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-                            {isPublishing ? (editingId ? 'Saving...' : 'Publishing...') : (editingId ? 'Save' : 'Publish')}
-                        </button>
-                        {/* Saving keeps you here, so leaving needs its own button —
-                            and it is the only exit that clears the widget the
-                            studio was opened on. */}
-                        <button
-                            onClick={onClose}
-                            title="Close the studio and go back to your dashboard"
-                            className="flex items-center justify-center p-1.5 text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors">
-                            <X size={14} />
-                        </button>
                     </div>
                 </div>
-
-                {saveNotice && (
-                    <div className={`px-4 py-2 text-xs flex items-start gap-2 border-b ${saveNotice.tone === 'ok'
-                        ? 'bg-emerald-950/40 border-emerald-900/50 text-emerald-300'
-                        : 'bg-rose-950/40 border-rose-900/50 text-rose-300'}`}>
-                        {saveNotice.tone === 'ok' ? <Check size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
-                        <span className="flex-1 break-words">{saveNotice.text}</span>
-                        <button onClick={() => setSaveNotice(null)} aria-label="Dismiss" className="shrink-0 opacity-70 hover:opacity-100">
-                            <X size={12} />
-                        </button>
-                    </div>
-                )}
 
                 {/* Chat History */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -1699,7 +1721,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                     <ThinkingDisclosure text={m.thinking} label="Thoughts" defaultOpen={false} variant="dark" />
                                 )}
                                 <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={DARK_CHAT_MARKDOWN}>
                                         {displayText(m.content)}
                                     </ReactMarkdown>
                                 </div>
@@ -1864,62 +1886,167 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
-                                    handleGenerate();
+                                    // Neither sends nor stops mid-turn: a second job
+                                    // would race this one for the editor.
+                                    if (!isGenerating) handleGenerate();
                                 }
                             }}
                             rows={1}
                         />
-                        <button
-                            onClick={() => {
-                                handleGenerate();
-                                // We can't easily reset height here without a ref, so we rely on prompt clearing (it might not resize until manual edit, but good enough for now - or we could use a ref).
-                            }}
-                            disabled={isGenerating || !prompt}
-                            className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 transition-colors flex items-center justify-center self-stretch"
-                        >
-                            <Send size={16} />
-                        </button>
+                        <SendStopButton
+                            variant="dark"
+                            running={isGenerating}
+                            canSend={!!prompt}
+                            onSend={() => handleGenerate()}
+                            onStop={handleStopNow}
+                            stopTitle="Stop now"
+                            className="px-4 py-3 self-stretch"
+                        />
                     </div>
                 </div>
             </div>
 
             {/* RIGHT PANE: Workspace (2/3 width) */}
             <div className="w-2/3 flex flex-col bg-slate-900">
+                {/* With the sidebar open at 1280px this pane is about 680px wide, which
+                    is why the tab icons and the Promote label wait for 2xl. */}
                 <div className="flex border-b border-slate-800 bg-slate-900/50 px-4 pt-2 gap-2 h-14 items-end">
                     <button
-                        className={`px-4 py-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${viewMode === 'preview' ? 'border-indigo-500 text-indigo-400 bg-slate-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
+                        className={`px-3 2xl:px-4 py-2 border-b-2 font-medium text-sm whitespace-nowrap flex items-center gap-2 transition-colors ${viewMode === 'preview' ? 'border-indigo-500 text-indigo-400 bg-slate-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
                         onClick={() => setViewMode('preview')}
                     >
-                        <Eye size={14} /> Live Preview
+                        <Eye size={14} className="hidden 2xl:block" /> Live Preview
                     </button>
                     <button
-                        className={`px-4 py-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${viewMode === 'code' ? 'border-indigo-500 text-indigo-400 bg-slate-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
+                        className={`px-3 2xl:px-4 py-2 border-b-2 font-medium text-sm whitespace-nowrap flex items-center gap-2 transition-colors ${viewMode === 'code' ? 'border-indigo-500 text-indigo-400 bg-slate-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
                         onClick={() => setViewMode('code')}
                     >
-                        <Code size={14} /> TSX Editor
+                        <Code size={14} className="hidden 2xl:block" /> TSX Editor
                     </button>
                     <button
-                        className={`px-4 py-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${viewMode === 'config' ? 'border-indigo-500 text-indigo-400 bg-slate-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
+                        className={`px-3 2xl:px-4 py-2 border-b-2 font-medium text-sm whitespace-nowrap flex items-center gap-2 transition-colors ${viewMode === 'config' ? 'border-indigo-500 text-indigo-400 bg-slate-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
                         onClick={() => setViewMode('config')}
                     >
-                        <Settings size={14} /> Configuration
+                        <Settings size={14} className="hidden 2xl:block" /> Configuration
                     </button>
-                    <button
-                        onClick={() => setShowHistory(v => !v)}
-                        className={`ml-auto mb-1 px-3 py-1.5 flex items-center gap-2 rounded-md text-sm border transition-colors ${showHistory ? 'bg-indigo-600 border-indigo-500 text-white' : 'text-slate-300 bg-slate-800 border-slate-700 hover:bg-slate-700 hover:text-white'}`}
-                        title="Restore an earlier version of this widget's code"
-                    >
-                        <History size={14} /> History{checkpoints.length ? ` (${checkpoints.length})` : ''}
-                    </button>
-                    <button
-                        onClick={handleReloadPreview}
-                        disabled={!code}
-                        className="mb-1 px-3 py-1.5 flex items-center gap-2 rounded-md text-sm text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        title="Re-run the widget: recompile and remount so mount-time data loads fire again"
-                    >
-                        <RefreshCw size={14} /> Reload
-                    </button>
+
+                    <div className="ml-auto mb-1 flex shrink-0 items-center gap-1">
+                        <button
+                            onClick={() => { setShowHistory(v => !v); setShowPromotion(false); }}
+                            className={`h-8 px-1.5 flex items-center gap-1 rounded-md text-xs border transition-colors ${showHistory ? 'bg-indigo-600 border-indigo-500 text-white' : 'text-slate-300 bg-slate-800 border-slate-700 hover:bg-slate-700 hover:text-white'}`}
+                            title="History: restore an earlier version of this widget's code"
+                            aria-label={checkpoints.length ? `History, ${checkpoints.length} snapshots` : 'History'}
+                        >
+                            <History size={14} />
+                            {checkpoints.length > 0 && <span>{checkpoints.length}</span>}
+                        </button>
+                        <button
+                            onClick={handleReloadPreview}
+                            disabled={!code}
+                            className="h-8 px-1.5 flex items-center rounded-md text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            title="Reload: recompile and remount the widget so mount-time data loads fire again"
+                            aria-label="Reload"
+                        >
+                            <RefreshCw size={14} />
+                        </button>
+
+                        <span className="mx-1 h-5 w-px bg-slate-700" aria-hidden="true" />
+
+                        <button
+                            onClick={() => { setShowPromotion(v => !v); setShowHistory(false); }}
+                            disabled={!editingId}
+                            className={`h-8 px-1.5 2xl:px-2.5 flex items-center gap-1.5 rounded-md text-sm font-medium border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${showPromotion ? 'bg-indigo-600 border-indigo-500 text-white' : 'text-slate-300 bg-slate-800 border-slate-700 hover:bg-slate-700 hover:text-white'}`}
+                            title={editingId
+                                ? 'Promote: move this widget on from Dev to Test or Prod'
+                                : 'Publish this widget first — only a published widget can be promoted'}
+                            aria-label="Promote"
+                        >
+                            <Rocket size={14} />
+                            <span className="hidden 2xl:inline">Promote</span>
+                        </button>
+
+                        <div className="relative">
+                            <input
+                                ref={importInputRef}
+                                type="file"
+                                accept="application/json,.json"
+                                className="hidden"
+                                onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ''; }}
+                            />
+                            <button
+                                onClick={() => setShowWidgetMenu(v => !v)}
+                                className={`h-8 px-1.5 flex items-center rounded-md border transition-colors ${showWidgetMenu ? 'bg-slate-700 border-slate-600 text-white' : 'text-slate-300 bg-slate-800 border-slate-700 hover:bg-slate-700 hover:text-white'}`}
+                                title="More widget actions"
+                                aria-label="More widget actions"
+                                aria-haspopup="menu"
+                                aria-expanded={showWidgetMenu}
+                            >
+                                <MoreHorizontal size={14} />
+                            </button>
+                            {showWidgetMenu && (
+                                <>
+                                    <div className="fixed inset-0 z-30" onClick={() => setShowWidgetMenu(false)} />
+                                    <div role="menu" className="absolute right-0 top-full mt-2 z-40 w-52 rounded-lg border border-slate-600 bg-slate-800 py-1 shadow-xl">
+                                        <button
+                                            role="menuitem"
+                                            onClick={() => { setShowWidgetMenu(false); importInputRef.current?.click(); }}
+                                            className="w-full px-3 py-2 flex items-center gap-2 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                                        >
+                                            <Upload size={14} className="text-slate-400" /> Import from file…
+                                        </button>
+                                        <button
+                                            role="menuitem"
+                                            onClick={() => { setShowWidgetMenu(false); handleExport(); }}
+                                            className="w-full px-3 py-2 flex items-center gap-2 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                                        >
+                                            <Download size={14} className="text-slate-400" /> Export to file
+                                        </button>
+                                        <div className="my-1 border-t border-slate-700" />
+                                        <button
+                                            role="menuitem"
+                                            onClick={() => { setShowWidgetMenu(false); handleReset(); }}
+                                            className="w-full px-3 py-2 flex items-center gap-2 text-left text-sm text-rose-300 hover:bg-rose-950/50 transition-colors"
+                                        >
+                                            <Eraser size={14} /> Reset studio
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        <button
+                            onClick={handlePublish}
+                            disabled={isPublishing}
+                            className={`h-8 flex items-center gap-1.5 px-3 text-sm whitespace-nowrap rounded-md transition-colors font-medium ${isPublishing ? 'bg-indigo-400 cursor-not-allowed text-indigo-100' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
+                            {isPublishing ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                            {isPublishing ? (editingId ? 'Saving...' : 'Publishing...') : (editingId ? 'Save' : 'Publish')}
+                        </button>
+                        {/* Saving keeps you here, so leaving needs its own button —
+                            and it is the only exit that clears the widget the
+                            studio was opened on. */}
+                        <button
+                            onClick={onClose}
+                            title="Close the studio and go back to your dashboard"
+                            aria-label="Close the studio"
+                            className="h-8 px-1.5 flex items-center text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white rounded-md transition-colors">
+                            <X size={14} />
+                        </button>
+                    </div>
                 </div>
+
+                {/* Feedback on Save, Publish or Promote sits next to the button that
+                    caused it, not over the chat. */}
+                {saveNotice && (
+                    <div className={`px-4 py-2 text-xs flex items-start gap-2 border-b ${saveNotice.tone === 'ok'
+                        ? 'bg-emerald-950/40 border-emerald-900/50 text-emerald-300'
+                        : 'bg-rose-950/40 border-rose-900/50 text-rose-300'}`}>
+                        {saveNotice.tone === 'ok' ? <Check size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+                        <span className="flex-1 break-words">{saveNotice.text}</span>
+                        <button onClick={() => setSaveNotice(null)} aria-label="Dismiss" className="shrink-0 opacity-70 hover:opacity-100">
+                            <X size={12} />
+                        </button>
+                    </div>
+                )}
 
                 <div className="flex-1 relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CjxjaXJjbGUgY3g9IjIiIGN5PSIyIiByPSIxIiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMDMpIi8+Cjwvc3ZnPg==')]">
                     {viewMode === 'preview' ? (
@@ -1976,7 +2103,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                         // sharing it would mean no limit at all, and a
                                                         // widget that throws every render would
                                                         // generate, crash and generate again forever.
-                                                        if (isGenerating || renderRetryCountRef.current >= MAX_AUTO_RETRIES) return;
+                                                        if (isGenerating || renderRetryCountRef.current >= MAX_AUTO_RETRIES
+                                                            || codeRef.current === stoppedCodeRef.current) return;
                                                         renderRetryCountRef.current += 1;
                                                         setTimeout(() => handleGenerate(
                                                             err.message || String(err),
@@ -2344,6 +2472,16 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             widgetId={editingId}
                             onRestore={restoreCode}
                             onClose={() => setShowHistory(false)}
+                        />
+                    )}
+                    {showPromotion && (
+                        <WidgetPromotionPanel
+                            // A save adds a Dev version the open panel would not otherwise show.
+                            key={saveCount}
+                            widgetId={editingId}
+                            domain={widgetDomain}
+                            onClose={() => setShowPromotion(false)}
+                            onNotice={setSaveNotice}
                         />
                     )}
                 </div>

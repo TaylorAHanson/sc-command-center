@@ -27,8 +27,10 @@ Cutover notes:
   ``conversation_history`` on each call, which we pass through to the stateless
   runtime so it has prior-turn context.
 """
+import asyncio
 import os
 import json
+import re
 import hashlib
 import logging
 import time
@@ -163,6 +165,12 @@ def _open_turn(*, env: str, conversation_id: str, username: str, profile_id: str
     except Exception as exc:  # noqa: BLE001
         logger.exception("could not open a persisted turn (%s); continuing unpersisted", exc)
         return None, [], None
+
+
+def _turn_id(raw: Any) -> str:
+    """The client's per-turn id, or "" when it isn't a plausible one."""
+    value = str(raw or "").strip()
+    return value if 0 < len(value) <= 64 and re.fullmatch(r"[A-Za-z0-9_-]+", value) else ""
 
 
 def _turn_recorder(env: str, conversation_id: str):
@@ -415,10 +423,12 @@ async def proxy_chat(request: Request):
         env = (incoming.get("env") or "dev").strip() or "dev"
         conversation_id = (incoming.get("conversation_id") or "").strip()
         attachment_ids = [str(i) for i in (incoming.get("attachment_ids") or []) if i]
+        username = _caller_username(request, caller_email)
+        turn_id = _turn_id(incoming.get("turn_id"))
         persisted, attachments, user_seq = _open_turn(
             env=env,
             conversation_id=conversation_id,
-            username=_caller_username(request, caller_email),
+            username=username,
             profile_id=(incoming.get("profile_ref") or ""),
             query=query,
             attachment_ids=attachment_ids,
@@ -440,6 +450,13 @@ async def proxy_chat(request: Request):
                 attachments=attachments,
                 env=env,
                 on_finish=_turn_recorder(env, persisted) if persisted else None,
+                # A persisted turn with no id (an older client) can't be stopped by
+                # request, and must not read a disconnect as a stop either.
+                stop_requested=(
+                    None if not persisted
+                    else (lambda: conversation_store.stop_requested(env, username, turn_id)) if turn_id
+                    else (lambda: False)
+                ),
             ),
             media_type="text/event-stream",
             headers={
@@ -622,6 +639,32 @@ async def proxy_genie_poll(request: Request):
         "final": partial.get("final_answer") if isinstance(partial, dict) else "",
         "attempt_after_ms": data.get("attempt_after_ms") or 3000,
     })
+
+
+@router.post("/chat/stop")
+async def proxy_chat_stop(request: Request):
+    """The user pressed Stop on the turn running in a conversation.
+
+    Aborting the fetch is not enough on its own: the runtime deliberately keeps a
+    persisted turn going after a disconnect so a reload still gets its answer.
+    This records the stop where whichever worker is running the turn can see it.
+    """
+    try:
+        incoming = await request.json()
+    except Exception:  # noqa: BLE001
+        incoming = {}
+    turn_id = _turn_id(incoming.get("turn_id"))
+    if not turn_id:
+        return JSONResponse({"stopped": False})
+    env = (incoming.get("env") or "dev").strip() or "dev"
+    caller_email = request.headers.get("x-forwarded-email") or request.headers.get("x-forwarded-user") or "unknown"
+    username = await asyncio.to_thread(_caller_username, request, caller_email)
+    try:
+        await asyncio.to_thread(conversation_store.request_stop, env, username, turn_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not record a stop for turn %s: %s", turn_id, exc)
+        return JSONResponse({"stopped": False})
+    return JSONResponse({"stopped": True})
 
 
 @router.post("/genie/resume")

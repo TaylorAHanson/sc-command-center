@@ -3,6 +3,16 @@ bundle:
   # Require minimum CLI version for Databricks Apps with app.config support
   databricks_cli_version: ">=0.283.0"
 
+# Every target deploys under the deploying identity's home folder, never
+# /Workspace/Shared. The root holds the synced source the app runs from plus
+# the bundle's deployment state, and /Workspace/Shared is writable by all
+# workspace users by default — anyone could edit server/*.py there and have it
+# executed as the app's service principal, with users' OBO tokens in flight.
+# Deploy stage/prod from a service principal so the root isn't tied to a person
+# (a service principal's home is /Workspace/Users/<application-id>).
+workspace:
+  root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+
 # Resources
 resources:
   
@@ -386,8 +396,6 @@ targets:
         deployed_via: "local"
         Environment: "local"
         Application: "sc-command-center"
-    workspace:
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
       app_name: "sc-command-center-local-${var.dev_user}"
       environment: "local"
@@ -414,8 +422,6 @@ targets:
         deployed_via: "CICD"
         Environment: "dev"
         Application: "sc-command-center"
-    workspace:
-      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
     variables:
       app_name: "sc-command-center-dev"
       environment: "dev"
@@ -442,8 +448,6 @@ targets:
         deployed_via: "CICD"
         Environment: "dev"
         Application: "sc-command-center"
-    workspace:
-      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
     variables:
       app_name: "sc-command-center-dev"
       environment: "dev"
@@ -471,8 +475,6 @@ targets:
         deployed_via: "CICD"
         Environment: "stage"
         Application: "sc-command-center"
-    workspace:
-      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
     variables:
       app_name: "sc-command-center-stage"
       environment: "stage"
@@ -491,8 +493,6 @@ targets:
         deployed_via: "CICD"
         Environment: "prod"
         Application: "sc-command-center"
-    workspace:
-      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
     variables:
       app_name: "sc-command-center-prod"
       environment: "prod"

@@ -8,6 +8,16 @@ from routes.roles import require_domain_editor
 
 router = APIRouter()
 
+#: Per-row bookkeeping that differs between copies of the same widget or view.
+_BOOKKEEPING = {"version", "timestamp", "is_deprecated", "is_certified", "created_by"}
+
+
+def same_content(a: dict, b: dict) -> bool:
+    """Whether two widget or view rows (possibly from different envs) hold the same thing."""
+    keys = (set(a) | set(b)) - _BOOKKEEPING
+    return all((a.get(k) or None) == (b.get(k) or None) for k in keys)
+
+
 class TransferRequest(BaseModel):
     widget_id: str
     source_env: str
@@ -57,21 +67,24 @@ def transfer_widget(request: TransferRequest, w: WorkspaceClient = Depends(get_d
         target_conn.close()
         return {"status": "success", "message": f"Rolled back widget {request.widget_id} to v{request.version} in {request.target_env}"}
 
-    c_target.execute("SELECT version, is_deprecated FROM widgets WHERE id = %s AND version = %s", (request.widget_id, widget['version']))
-    existing = c_target.fetchone()
-    if existing:
-        if existing[1]:  # is_deprecated=1 — just restore it
-            c_target.execute("UPDATE widgets SET is_deprecated = 0 WHERE id = %s AND version = %s", (request.widget_id, existing[0]))
-            target_conn.commit()
+    # Version numbers are per environment (every copy gets the target's next
+    # number), so Dev v5 and Test v5 are unrelated rows. "Up to date" therefore
+    # has to mean the target's current head carries the same widget.
+    c_target.execute(
+        "SELECT * FROM widgets WHERE id = %s AND is_deprecated = 0 ORDER BY version DESC LIMIT 1",
+        (request.widget_id,),
+    )
+    head_row = c_target.fetchone()
+    if head_row is not None:
+        head = dict(zip([d[0] for d in c_target.description], head_row))
+        if same_content(widget, head):
             target_conn.close()
-            return {"status": "success", "message": f"Restored widget {request.widget_id} v{existing[0]} in {request.target_env}"}
-        else:
-            target_conn.commit()
-            target_conn.close()
-            return {"status": "success", "message": "Already up to date"}
+            return {"status": "success", "message": f"Already up to date: {request.target_env} v{head['version']} is the same widget"}
 
-    c_target.execute("SELECT MAX(version) FROM widgets WHERE id = %s AND is_deprecated = 0", (request.widget_id,))
-        
+    # Deprecated rows count: a rollback leaves them in place, and reusing one of
+    # their numbers would collide on the (id, version) primary key.
+    c_target.execute("SELECT MAX(version) FROM widgets WHERE id = %s", (request.widget_id,))
+
     target_row = c_target.fetchone()
     max_version = target_row[0] if (target_row and target_row[0] is not None) else 0
     new_version = max_version + 1
@@ -163,14 +176,18 @@ def transfer_view(request: ViewTransferRequest, w: WorkspaceClient = Depends(get
         target_conn.close()
         return {"status": "success", "message": f"Rolled back view {request.view_id} to v{request.version} in {request.target_env}"}
 
-    # Check if the exact version already exists in target (possibly deprecated)
-    c_target.execute("SELECT version, is_locked FROM dashboard_views WHERE id = %s AND version = %s", (request.view_id, view['version']))
-    existing = c_target.fetchone()
-    if existing:
-        # Row exists — nothing to do (views are never deprecated, just versioned)
-        target_conn.commit()
-        target_conn.close()
-        return {"status": "success", "message": "Already up to date"}
+    # As with widgets, version numbers are per environment, so the target having
+    # a row with the source's number says nothing; compare against its head.
+    c_target.execute(
+        "SELECT * FROM dashboard_views WHERE id = %s ORDER BY version DESC LIMIT 1",
+        (request.view_id,),
+    )
+    head_row = c_target.fetchone()
+    if head_row is not None:
+        head = dict(zip([d[0] for d in c_target.description], head_row))
+        if same_content(view, head):
+            target_conn.close()
+            return {"status": "success", "message": f"Already up to date: {request.target_env} v{head['version']} is the same view"}
 
     c_target.execute("SELECT MAX(version) FROM dashboard_views WHERE id = %s", (request.view_id,))
         

@@ -1,10 +1,14 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, createContext, useContext } from 'react';
 import ReactMarkdown from 'react-markdown';
+import type { Components, ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, Square, AlertCircle, Paperclip, X, Loader2 } from 'lucide-react';
+import { AlertCircle, Paperclip, X, Loader2 } from 'lucide-react';
 import type { AgentChat, AgentMessage } from '../hooks/useAgentChat';
 import { AttachmentChip, SentAttachments } from './AttachmentChip';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
+import { SendStopButton } from './SendStopButton';
+import { VegaChart, CHART_FENCE_MODES } from './VegaChart';
+import { ChatImage } from './ChatImage';
 
 const TypingDots: React.FC = () => (
     <div className="flex items-center space-x-1.5 h-5 px-1">
@@ -24,6 +28,31 @@ const stripAgentMarkers = (text: string): string =>
         .replace(/<!--[\s\S]*?-->/g, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+
+// Whether the message is still streaming reaches the `pre` override through
+// context rather than a closure: the overrides must keep one identity across the
+// re-render every chunk causes, or each chunk would remount any chart already drawn.
+const StreamingContext = createContext(false);
+
+// Fenced blocks tagged as a chart are drawn; every other `pre` renders exactly as
+// react-markdown's default would. v10 no longer tells `code` whether it is inline,
+// so the fence is recognized from the parent `pre`, whose only child is the `code`.
+const MarkdownPre: React.FC<React.ComponentProps<'pre'> & ExtraProps> = ({ node, children, ...rest }) => {
+    const streaming = useContext(StreamingContext);
+    const block = <pre {...rest}>{children}</pre>;
+    const code = node?.children[0];
+    if (code?.type !== 'element' || code.tagName !== 'code') return block;
+    const classes = code.properties.className;
+    const lang = Array.isArray(classes)
+        ? classes.map(String).find(c => c.startsWith('language-'))?.slice('language-'.length)
+        : undefined;
+    const mode = lang ? CHART_FENCE_MODES.get(lang.toLowerCase()) : undefined;
+    if (!mode) return block;
+    const source = code.children.map(c => (c.type === 'text' ? c.value : '')).join('');
+    return <VegaChart source={source} mode={mode} streaming={streaming} fallback={block} />;
+};
+
+const MARKDOWN_COMPONENTS: Components = { pre: MarkdownPre, img: ChatImage };
 
 type ConversationChat = Pick<AgentChat, 'messages' | 'input' | 'setInput' | 'isLoading' | 'send' | 'stop'>
     & Partial<Pick<AgentChat, 'attachments' | 'attachFiles' | 'removeAttachment' | 'isUploading' | 'uploadError' | 'clearUploadError' | 'persists' | 'isRestoring'>>;
@@ -133,7 +162,9 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                                                 <span>{msg.content}</span>
                                             </div>
                                         ) : msg.content ? (
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{stripAgentMarkers(msg.content)}</ReactMarkdown>
+                                            <StreamingContext.Provider value={working}>
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>{stripAgentMarkers(msg.content)}</ReactMarkdown>
+                                            </StreamingContext.Provider>
                                         ) : (
                                             // Nothing said yet, or the agent just handed its prose
                                             // over to the thinking box and is running a tool.
@@ -218,25 +249,13 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                         placeholder={placeholder}
                         className="flex-1 resize-none rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-qualcomm-blue focus:border-qualcomm-blue max-h-32"
                     />
-                    {isLoading ? (
-                        <button
-                            type="button"
-                            onClick={stop}
-                            className="p-2 bg-rose-500 text-white rounded-md hover:bg-rose-600 transition-colors shrink-0"
-                            title="Stop generating"
-                        >
-                            <Square className="w-4 h-4" />
-                        </button>
-                    ) : (
-                        <button
-                            type="submit"
-                            disabled={!input.trim()}
-                            className="p-2 bg-qualcomm-blue text-white rounded-md hover:bg-qualcomm-navy transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-                            title="Send"
-                        >
-                            <Send className="w-4 h-4" />
-                        </button>
-                    )}
+                    <SendStopButton
+                        running={isLoading}
+                        canSend={!!input.trim()}
+                        onStop={stop}
+                        stopTitle="Stop the agent"
+                        className="p-2 rounded-md shrink-0 h-9 w-9"
+                    />
                 </div>
                 {/* Stated at the point of use rather than buried in the user guide:
                     the two things someone needs to know before typing are that the

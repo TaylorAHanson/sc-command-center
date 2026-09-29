@@ -1236,6 +1236,11 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
         # allowance is spent — so a generation that runs long returns the work it
         # managed rather than dying on a timeout with nothing to show.
         def next_llm() -> Optional[DatabricksChatOpenAI]:
+            # The studio has already stopped listening, so a follow-up now would
+            # be spent on an answer nobody reads.
+            if (generation_jobs.get(job_id) or {}).get("cancelled"):
+                _trace(job_id, "stopped; skipping the follow-up round")
+                return None
             if not budget.has(15):
                 _trace(job_id, f"out of time after {budget.spent}s; skipping the follow-up round")
                 return None
@@ -1678,11 +1683,16 @@ async def get_generate_status(job_id: str):
 
 @router.delete("/generate/{job_id}")
 async def stop_generate(job_id: str):
-    """Stop a staged run after its current step.
+    """Ask a generation to wind down without spending anything more.
 
-    Only meaningful for a planned run, which checks between steps; a single-pass
-    generation has nothing to stop between. The steps already applied are kept —
-    stopping is for "that's enough", not "undo it".
+    A model call already in flight can't be interrupted, so the job finishes it
+    and stops there: a planned run skips its remaining steps, and a single pass
+    skips its optional follow-up rounds (`next_llm` answers None). The studio uses
+    this two ways. "Stop after this step" keeps polling so the step in flight
+    still lands; the composer's Stop button stops listening at once and settles
+    the turn itself, so whatever the job finishes after that is never applied.
+    Either way the steps already applied are kept — stopping is for "that's
+    enough", not "undo it".
     """
     job = generation_jobs.get(job_id)
     if job is None:

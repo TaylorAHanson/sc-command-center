@@ -4,607 +4,231 @@
 
   Conventions:
     * Newest release first. Add a new `## <version> — <YYYY-MM-DD>` block on top.
-    * Write for the people using the app, not for reviewers. "Widget Studio has a
-      Reload button" — not "added previewNonce state".
     * Group bullets under Added / Changed / Fixed. Omit groups you don't need.
     * Ship the notes in the same commit as the change. Nobody backfills these.
+    * Write for the people using the app, not for reviewers. "Widget Studio has a
+      Reload button" — not "added previewNonce state".
+    * One bullet per user-visible change. Merge bullets about the same thing.
+    * Each bullet is a bold lead naming the change, then at most one short
+      sentence (~25 words in total). Say what someone can now do and where
+      (menu path, button name) — not why it changed or how it was built.
+    * No root causes, internal names, file or function names, or before/after
+      narratives. Add a second sentence only when the reader must act.
+    * Aim for a release that fits on one screen.
+    * Example: - **Stop the agent.** A Stop button replaces Send while the
+      assistant is working.
   This comment is an HTML comment, so it never renders in the app.
 -->
 
 # Release Notes
 
+## 1.12.0 — 2026-09-29
+
+### Added
+
+- **Promote from Widget Studio.** **Promote** in the studio header moves the widget Dev → Test → Prod, rolls back, and certifies, without visiting the Admin Panel.
+- **Stop the agent.** A red Stop button replaces Send while the assistant, Widget Studio or Agent Studio is working; pressing Enter never stops it.
+- **Charts in the assistant.** The assistant and Agent Studio agents can draw charts in the chat from the data they retrieved, and export them as PNG or SVG.
+
+### Changed
+
+- **Studio buttons are grouped by what they act on.** Only chat controls sit above the chat; Save, Import, Export, Promote and close are on the right with the widget or agent.
+- **Agent Studio shows unsaved changes.** New agent and Open ask before discarding them; **Save** confirms inline; **Delete agent** moved to the Settings tab.
+- **Agent Studio's New is two buttons.** **New conversation** above the chat keeps your draft; **New agent** on the right starts over.
+- **Chat only shows this app's own images.** An image from another site appears as a placeholder, so an answer can't send your data elsewhere by displaying one.
+- **Shorter release notes.** Earlier entries on this page were condensed.
+
+### Fixed
+
+- **Widget Promotion shows each environment's current version,** not its oldest, and Preview shows the code again.
+- **Promoting after a rollback no longer fails,** and a Test version with the same number as Dev's is no longer mistaken for the same widget.
+- **View Promotion no longer skips a view as "Already up to date"** just because the target has a version with the same number; it now copies whenever the layout differs.
+- **Widget version history respects domain access.** Reading a widget's past versions or code now needs access to its domain in that environment.
+
 ## 1.11.1 — 2026-09-24
 
 ### Fixed
 
-- **Genie answers no longer go missing in the studios.** When Widget Studio or
-  Agent Studio asked Genie a question, it could keep waiting after Genie had
-  already answered, then report that Genie "did not finish". It now recognises
-  the finished answer. When a broad question really does outlast the wait, the
-  studio picks up the same answer later instead of asking again, and you get a
-  link to open it in Databricks.
+- **Genie answers no longer go missing in the studios.** Widget Studio and Agent Studio pick up slow Genie answers instead of reporting "did not finish", with a link to open them in Databricks.
 
 ## 1.11.0 — 2026-09-24
 
 ### Added
 
-- **Move everything to another app.** Admin Panel → **Data Migration** (global
-  admins) downloads a snapshot of this app's widgets, views, agents, taxonomy,
-  role mappings, settings and activity history, and imports one taken from a
-  different app — which is how people move from the dev app to the test app
-  without rebuilding their widgets and agents. **Merge** adds only what's missing
-  and can be run again safely; **Replace** makes this app an exact copy.
-  **Preview** runs the whole import and undoes it, so you see exactly what would
-  change before anything does. Imports are all-or-nothing, can't remove your own
-  admin access, and are recorded in Action Logs. Saved conversations can be
-  included too, but aren't by default.
-- **Widget Studio can look at your data.** Before writing a widget, the agent can
-  run read-only SQL and ask Genie — as you, so it sees only what you're allowed to
-  — to check real table names, columns and values instead of guessing them. Name
-  the table in your request and it will. Each lookup shows under **Thinking**.
-- **Agent Studio researches while it drafts.** The authoring assistant can now run
-  read-only queries and ask Genie, so a drafted agent's prompt describes the real
-  data — the status values that actually exist, what "late" means here — rather
-  than five sample rows.
+- **Move everything to another app.** Admin Panel → **Data Migration** (global admins) exports widgets, views, agents and settings, and imports another app's snapshot. **Preview** first; **Merge** adds what's missing, **Replace** makes an exact copy.
+- **Widget Studio can look at your data.** Before writing a widget it can run read-only SQL and ask Genie, as you; lookups show under **Thinking**.
+- **Agent Studio researches while it drafts.** It can run read-only SQL and ask Genie, so drafted prompts describe your real data.
 
 ### Changed
 
-- **Role mappings pick real groups, and check them.** The group field in Admin
-  Panel → Role Mappings searches your Databricks groups and users as you type, and
-  refuses a name nobody holds — including one that exists with different capitals,
-  which used to save and then silently grant nothing. It offers the right spelling
-  when that's the problem. The domain is picked from Categories & Domains instead
-  of typed, and old mappings pointing at a domain that no longer exists are flagged.
-- **Create Global View lists your real domains.** The domain picker was a fixed
-  list that didn't match the taxonomy; it now shows the domains you can edit.
-- **Categories & Domains catch near-duplicates.** Adding `logistics` when
-  `Logistics` exists is refused, so widgets can't end up split between two entries
-  that look the same in every dropdown.
-- **Settings flags broken JSON as you type.** The model-parameter overrides box
-  shows a syntax error immediately instead of on save.
-- The Genie and SQL switches in Admin Panel → Settings now also govern the Widget
-  Studio and Agent Studio research tools.
+- **Role mappings pick real groups and domains.** Admin Panel → Role Mappings searches Databricks groups as you type, rejects names nobody holds (including wrong capitals), and flags deleted domains.
+- **Create Global View lists your real domains** — the ones you can edit.
+- **Categories & Domains catch near-duplicates.** Adding `logistics` when `Logistics` exists is refused.
+- **Settings flags broken JSON as you type** in the model-parameter overrides box.
+- **The Genie and SQL switches cover the studios.** In Admin Panel → Settings they also turn off Widget Studio and Agent Studio research.
 
 ## 1.10.1 — 2026-08-24
 
 ### Added
 
-- **Action Logs name who acted.** The telemetry table has a **User** column, and
-  the search box matches on it, so "who approved this sync and what did they say
-  the reason was" is one question instead of two. The name is taken from the
-  signed-in identity rather than anything the page sends, and actions recorded
-  before this release show a dash — there is no name to recover for them, and
-  guessing one would be worse than leaving it blank.
-- **Every approved action gets a request ID.** Expanding a row in Action Logs
-  shows it, and a widget that writes stamps the same id into the statement it
-  runs. That's the handle that connects "who approved this and why" in the app to
-  the statement Databricks recorded in its own query history — previously two
-  records with no field in common.
-- **Delete all my conversations.** At the bottom of the clock-icon history list.
-  It removes every conversation you own and the files attached to them, asks once,
-  and can't be undone.
-- **Admins can switch off what the assistant may reach.** New options in Admin
-  Panel → Settings turn off Genie queries, SQL, sending images and PDFs to the
-  model, and telling the assistant what's on your screen. A tool that's off isn't
-  offered to the assistant at all, so it doesn't try and fail — and an agent saved
-  in Agent Studio can't turn one back on by listing it.
-- **A retention period for conversations.** *Delete conversations after (days)* in
-  Admin Panel → Settings deletes chats untouched for that long, attachments
-  included. It defaults to 0, which keeps them indefinitely, because how long
-  chat history may be kept is a policy question rather than something to guess.
-- **The assistant says what it is.** A line under the message box notes that
-  answers are generated and can be wrong, and that conversations are saved. The
-  User Guide has a fuller version, and the assistant will tell you the same thing
-  if you ask it.
+- **Action Logs show who acted.** A searchable **User** column; actions from before this release show a dash.
+- **Every approved action gets a request ID.** It shows in the expanded Action Logs row, is searchable, and matches the statement in Databricks query history.
+- **Delete all my conversations.** At the bottom of the clock-icon history list; removes every conversation and attachment you own, permanently.
+- **Admins can limit what the assistant reaches.** Admin Panel → Settings can switch off Genie, SQL, sending images and PDFs to the model, and sharing what's on screen.
+- **Conversation retention.** *Delete conversations after (days)* in Admin Panel → Settings removes untouched chats; the default, 0, keeps them.
+- **The assistant says what it is.** A line under the message box notes that answers can be wrong and conversations are saved.
 
 ### Changed
 
-- **Widgets load charting libraries only from approved CDNs.** `useScript` now
-  accepts scripts from jsDelivr, code.highcharts.com, unpkg and cdnjs over HTTPS,
-  and refuses anything else before it is fetched. Nearly every widget already uses
-  jsDelivr, which the generator has always been told to prefer. If one of yours
-  pointed somewhere else it will show a load error, and repointing it at jsDelivr
-  fixes it.
-- **Saving a widget now checks what's in it.** A widget is refused if its code
-  uses `eval`, `new Function`, `document.write`, `innerHTML` or
-  `dangerouslySetInnerHTML`, or if it points at any address other than this app's
-  own `/api/...` paths and those four CDNs. The message names what tripped it.
-  Widget code is generated from a prompt, and until now the rules about what that
-  code may contain lived only in the prompt — advice the generator usually
-  followed and hand-edited code never saw at all.
-- **A widget whose SQL changes data must be marked Executable.** If your data
-  source contains INSERT, UPDATE, DELETE, MERGE or similar, saving is refused
-  until the Executable toggle is on. That's the toggle that puts the widget's
-  controls behind the confirmation prompt, so the change is recorded with who
-  approved it and why — which is the whole point of it being an action.
-- **The read-only query endpoint is now actually read-only.** `/api/sql/execute-raw`
-  refuses a statement that would change anything and says so; writes go to a new
-  `/api/sql/execute-write`. Your Databricks permissions decided this before and
-  still do — what's new is that a panel can't quietly mutate a table because its
-  query happened to start with MERGE. Existing read-only widgets are unaffected.
-- **The browser now enforces where widget code can send data.** A Content
-  Security Policy limits widgets to this app and the approved CDNs. Custom
-  widgets keep working — compiling them in the browser is explicitly allowed,
-  since that's how they run — but a widget can no longer post what it read
-  somewhere else. Admins have a report-only switch in Settings for diagnosing a
-  widget that stops rendering.
-- **Role and permission checks are on by default.** The demo kill-switch that
-  made every signed-in user a global admin now defaults to off. See the note
-  below if your deployment relies on it.
-- **The API documentation pages are no longer public.** `/api/docs`, `/api/redoc`
-  and `/api/openapi.json` are served in local and dev only.
+- **Widgets load scripts only from approved CDNs** (jsDelivr, code.highcharts.com, unpkg, cdnjs). A widget loading from anywhere else now shows an error; repoint it at jsDelivr.
+- **Saving a widget checks its code.** Unsafe calls such as `eval` or `innerHTML`, and addresses other than the app's `/api/` paths and approved CDNs, are refused with the reason.
+- **Widgets whose SQL changes data must be marked Executable.** Saving is refused until the toggle is on, so every change goes through the confirmation prompt.
+- **The read-only query endpoint is read-only.** `/api/sql/execute-raw` refuses statements that change data; writes go to `/api/sql/execute-write`, which Widget Studio now uses.
+- **The browser limits where widgets can send data** — only this app and the approved CDNs. If a widget stops rendering, admins can turn on report-only mode in Admin Panel → Settings.
+- **Role and permission checks are on by default.** The demo switch that made every signed-in user a global admin now defaults to off; see the notes below.
+- **The API documentation is no longer public.** `/api/docs`, `/api/redoc` and `/api/openapi.json` are served only in local and dev.
 
 ### Notes for administrators
 
-- **Check your role mappings before deploying.** With permission checks now on,
-  what you're mapped to is what you get. If a deployment has never had a mapping
-  created, it still carries the fallback that grants the `users` group global
-  admin — which is nearly everyone. Replace it in Admin Panel → Access Management
-  with your real admin group; until you do, checks are on but they aren't
-  restricting anything.
-- **Python tools in Agent Studio are a trusted activity.** The code runs on the
-  server, in a restricted subprocess with the app's credentials removed — enough
-  to prevent accidents, not a substitute for review. Grant the rights to author
-  them only to people who have completed your secure-development training, and
-  read a new tool before its agent gets domain or global visibility.
+- **Check your role mappings before deploying.** A deployment that never created a mapping still grants the `users` group global admin; replace it with your admin group in Admin Panel → Access Management.
+- **Agent Studio Python tools run on the server.** Grant authoring rights only to people with secure-development training, and review a tool before giving its agent domain or global visibility.
 
 ### Fixed
 
-- **Approved actions no longer run when audit logging fails.** If the log row
-  cannot be saved, the confirmation stays open and the widget callback is not
-  called — so a write is never executed without a matching audit record.
-- **Action log search matches request IDs.** Paste a correlation id from
-  Databricks query history or an expanded Action Logs row and the table filters
-  to it.
-- **Certified-only global views check the current widget version.** A widget
-  that was certified on an older version but not on its latest copy is blocked,
-  and a custom widget id with no database row is treated as uncertified.
-- **Widget generation instructions document write SQL.** The generator is told
-  to use `/api/sql/execute-write` for mutations, stamp `ctx.requestId`, and pass
-  the callback through `executeAction`.
+- **Approved actions never run without an audit record.** If the log can't be saved, the confirmation stays open and nothing executes.
+- **Certified-only global views check the latest widget version.** Widgets certified only on an older version, and unregistered custom widgets, are blocked.
 
 ## 1.10.0 — 2026-08-24
 
 ### Added
 
-- **Widget Studio shows you what it's thinking.** Expand **Thinking** while the
-  agent works and you can see how it read your request, the steps it planned, the
-  files it opened, and anything it gave up on because it ran short of time. It
-  stays with the answer afterwards, so a widget that came out wrong can be traced
-  back to the assumption that caused it instead of guessed at.
-- **Send the agent a screenshot of your widget.** Under the preview there's a
-  **Send screenshot to agent** button that attaches a picture of the widget
-  exactly as it looks — at the size you dragged it to — to your next message. It
-  doesn't send on its own, so "this column is too narrow and the total is in the
-  wrong place" arrives alongside the thing it's describing. Describing a layout
-  problem in words was the slowest part of getting one fixed.
-- **Attach files in Widget Studio.** The paperclip beside the message box takes
-  spreadsheets, documents and images — a sample export, a design someone sent
-  you, a screenshot of the report you're replacing — and the agent reads them the
-  same way the assistant does.
-- **Agent settings, on the sliders icon above the chat.** Two options, remembered
-  in your browser rather than set for everyone. *Conduct review after change* is
-  off unless you ask for it: once new code compiles, the agent reads it back —
-  does it do everything you asked, does it handle loading, empty and error states,
-  does it hold up squashed narrow and stretched wide, is every text colour dark
-  enough to read — and fixes what it finds. It costs an extra turn, which is why
-  it isn't on by default. *Ask before large builds* is the questions behaviour
-  below, and is on; turn it off if you would rather it always guessed.
-- **The review says what would make the widget better, not just what's broken.**
-  It now finishes with **Worth considering**: up to three changes judged the way
-  the person living with the widget would judge it rather than against the words
-  of your request — the sort order a table of unranked rows is missing, the
-  comparison a number without a reference point can't support, the click that
-  should follow what it just drew your attention to. A widget can pass every
-  correctness check and still stop one step short of being useful, and that gap
-  is invisible to a review that only asks "did it do what was asked". These are
-  suggestions and nothing else: the agent is not allowed to build them, so the
-  setting can stay on without your widget quietly growing features you didn't ask
-  for. The other half of the review got shorter at the same time — it lists what
-  it would change and stops, instead of walking you through each thing it checked
-  and found to be fine, which read as work done rather than anything you could
-  act on.
-- **Everything the review suggests is a button.** Under the findings there's a
-  **Do next** row: one chip per suggestion, plus an amber one for anything it
-  spotted but didn't fix. Clicking a chip writes the instruction into the message
-  box — it doesn't send, so you can add "…and default to spend descending" before
-  you commit a minute of generation to it. A review that ends in three good ideas
-  you then have to retype is a review that mostly gets skimmed.
-- **The agent asks before it spends ten minutes building the wrong thing.** On a
-  large or vague request it can come back with up to three questions instead of
-  code — which measure, which grouping, what a click should do — and you answer
-  the ones that matter or press **Build it anyway** to have it choose sensible
-  defaults. Small requests are never interrupted: a one-line change is quicker to
-  make and correct than to ask about.
-- **A helper model for the studio's small jobs.** Global admins can set a **Widget
-  helper model** in Admin Panel → Settings, and a small fast model is the right
-  choice. It tightens up a vague request before the expensive call sees it,
-  summarises a long conversation so it stays affordable, and decides whether a
-  question is worth asking. Leave it blank and the widget generation model does
-  those too, as before.
+- **See Widget Studio's thinking.** Expand **Thinking** for how the agent read your request, its plan, the files it opened and anything it skipped.
+- **Send a screenshot of your widget.** **Send screenshot to agent**, under the preview, attaches the widget as it looks to your next message.
+- **Attach files in Widget Studio.** The paperclip beside the message box takes spreadsheets, documents and images.
+- **Agent settings, on the sliders icon above the chat.** *Conduct review after change* (off) has the agent check and fix new code; *Ask before large builds* (on) lets it ask first.
+- **Reviews suggest improvements, briefly.** A review lists only what it would change, then up to three **Worth considering** ideas the agent won't build unless asked.
+- **Review suggestions are buttons.** Each chip in the **Do next** row writes its suggestion into the message box without sending.
+- **The agent asks before large, vague builds.** It may ask up to three questions; answer them or press **Build it anyway**.
+- **A helper model for small jobs.** Global admins can set a **Widget helper model** in Admin Panel → Settings; blank uses the widget generation model.
 
 ### Changed
 
-- **Save keeps you in the studio.** The **Update** button is now **Save**, and it
-  no longer closes the studio and drops you back on your dashboard — people save
-  every few minutes while they work, and every save meant navigating back and
-  finding your place again. A line at the top of the chat confirms the save and
-  clears itself. Use **Done** when you've actually finished with the widget.
-- **The agent knows how much data it's dealing with.** Testing a SQL data source
-  now counts the rows it returns, and that number changes what gets built. A few
-  thousand rows are fetched once and sorted, filtered and paged in the browser. A
-  large table gets all of that pushed into SQL, so the widget holds one page at a
-  time and asks the warehouse for totals rather than adding up what it happens to
-  have. Widgets that fetched a 40,000-row table a page at a time and then worked
-  on it in the browser were slow to load, slow to use, and wrong whenever they
-  summed a page and called it a total. An untested source is treated as large.
-- **Long Widget Studio conversations stay usable.** A conversation that went on
-  for a while was replaying its recent turns in full on every request, which is a
-  lot of text once the agent has been explaining itself for twenty minutes. Older
-  turns are now summarised down to what still constrains the widget, so the
-  request that matters gets the room.
+- **Update is now Save, and keeps you in the studio.** Press **Done** when you've finished.
+- **Widgets are built for the size of their data.** Testing a SQL source counts its rows; large tables are paged and totalled in SQL, not the browser.
+- **Long Widget Studio conversations stay usable.** Older turns are summarised.
 
 ### Fixed
 
-- **A bad edit can no longer wreck your widget with `=======` lines.** If the
-  agent slipped while writing an edit — it would say so, something like "I
-  accidentally left a duplicate marker" — the stray marker was written into your
-  code, which then couldn't compile. Each automatic fix-up attempt was editing a
-  file that was itself part marker, so a small change could spiral into a widget
-  full of `=======` and duplicated lines. Those edits are now refused before
-  anything is written, your code is left as it was, and the agent is told exactly
-  what to send instead. A widget already damaged this way repairs itself the next
-  time you ask the agent for anything: it recognises the leftover markers and
-  rewrites the file cleanly.
-- **Edits land where they were meant to.** When the text the agent searched for
-  appeared in several places — a lone `);`, a repeated `}, []);` — the change was
-  applied to the first one, which was usually not the one it had in mind, so you
-  got a widget that was subtly wrong rather than an error you could see. An
-  ambiguous edit is now refused and re-requested with enough context to place it.
-- **The message box is the right size for what's in it.** It grew as you typed
-  but nowhere else, so text that arrived any other way — clicking a suggestion,
-  reopening a studio session you'd left mid-sentence — sat in a one-line box with
-  the rest of it clipped out of sight, and sending a long prompt with the Send
-  button left an empty box still several lines tall. It now sizes itself whenever
-  its contents change, and scrolls once it reaches full height rather than hiding
-  the overflow.
-- **A fixed widget actually shows up as fixed.** When a widget crashed while
-  rendering, the red "Build Succeeded, Render Failed" panel stayed on screen even
-  after the agent repaired the code and the repair compiled — so a fix that worked
-  was indistinguishable from a request the agent had ignored, and the only way out
-  was Reload. The panel now clears itself the moment new code is ready, and its
-  **Try Again** button re-runs the widget properly instead of leaving the preview
-  stuck on "Evaluating Component…" forever.
-- **Maps and other Highcharts modules work.** Anything that plugs into a library
-  rather than being one — Highcharts Maps, exporting, treemap, heatmap — silently
-  failed to load, and the widget died on `Highcharts.mapChart is not a function`
-  however clearly you asked for a map. The library loader decided whether to fetch
-  a file by looking for the library's name on the page rather than at the file
-  itself, and since Highcharts is always present, a module was reported as loaded
-  without ever being downloaded. It now goes by the file, and files load in the
-  order a widget asks for them, so a module always runs after the library it
-  extends.
-- **A crash that repeats no longer re-generates forever.** Auto-fixing a render
-  error had no attempt limit — each fix compiled, which reset the counter meant to
-  stop it — so a widget that threw on every render could keep calling the model.
-  It now gets the same three attempts a compile error gets.
-- **Widget Studio stops showing you a stray `<!-- widget-clarify -->`.** An
-  internal marker on the agent's clarifying questions was being printed at the end
-  of the message instead of staying invisible.
-- **A render error is described as one.** Auto-fix messages called every failure a
-  "compilation error", including crashes in code that compiled perfectly well —
-  misleading to read, and it sent the agent looking at syntax rather than at what
-  runs on mount.
+- **Bad edits no longer fill widgets with `=======` lines.** A widget already damaged this way repairs itself on your next request.
+- **Edits land where they were meant to**, not on the first of several matching lines.
+- **The message box resizes to fit its text**, including clicked suggestions and restored drafts, and scrolls at full height.
+- **A fixed widget shows as fixed.** The "Render Failed" panel clears once repaired code is ready, and **Try Again** works.
+- **Highcharts Maps and other modules load**, including exporting, treemap and heatmap.
+- **Repeating render crashes stop after three auto-fix attempts.**
+- **No stray widget-clarify marker** after the agent's clarifying questions.
+- **Render errors are no longer called compilation errors** in auto-fix messages.
 
 ## 1.9.0 — 2026-08-11
 
 ### Added
 
-- **A view can open with the agent that suits it.** Pick an agent in the assistant
-  panel and press the pin beside it, and that view will open with that agent from
-  then on — your own views, and the shared ones if you can edit them, so a team
-  board can ship with the agent that knows it. It's a starting point rather than a
-  restriction: you can still switch agents while you're there, and the pin comes
-  back the next time you open the view. Press the pin again to remove it.
-  Reloading the page keeps you in the conversation you were reading rather than
-  replacing it. If a view is pinned to an agent you can't open, the panel says so
-  instead of leaving you wondering which agent is answering.
-- **You can claim a widget you built.** Widgets made before the app could tell who
-  was signed in have nobody's name on them, and there's no record anywhere of who
-  wrote them. Where the creator's name would be, those cards now ask "Did you build
-  this? Claim it" — say yes and the credit is yours, on the card and on the Top
-  creators board. Only widgets with no creator can be claimed, and only by someone
-  who could publish to that domain, so nobody can take your work off you.
+- **Pin an agent to a view.** Press the pin beside an agent in the assistant panel and the view opens with it; shared views too, if you can edit them.
+- **Claim a widget you built.** Widgets with no recorded creator offer "Did you build this? Claim it", crediting you on the card and Top creators board.
 
 ### Changed
 
-- **You can edit any widget in a domain you're an editor of.** Saving a widget has
-  always only asked whether you can edit its domain, but the library was hiding the
-  Edit button on anything you hadn't written yourself, which sent you the long way
-  round for a colleague's typo. The button now matches what the save allows.
-  Deleting still belongs to whoever built it.
+- **Edit any widget in a domain you edit.** The Edit button now shows on colleagues' widgets; deleting is still the creator's.
 
 ### Fixed
 
-- **Widget Studio explains itself again.** On the newest models it had gone quiet:
-  a request came back as code with nothing said about it, and a large request that
-  was broken into steps ticked every step off under the heading "Worked through 6
-  of 6 steps" without saying what any of them did. These models do their thinking
-  privately, and the app never sees it, so the running commentary that used to
-  come with an answer simply stopped arriving. The studio now asks for it as part
-  of the answer, and a step that still says nothing is listed with what it was
-  asked to do rather than a blank line. The checklist ticking along is how you can
-  tell it's working rather than stuck.
-- **Big requests are broken into fewer, larger steps, so they finish sooner.** The
-  plan was counting the work it had to do rather than the things you'd asked for:
-  "add a search box and a row count" became four steps, and one dashboard turned
-  into six with "polish and responsiveness" tacked on the end. Each step is its own
-  round trip, and on the current models that's another half a minute of waiting for
-  something you never asked for. A request is now planned around what you actually
-  asked for: the same dashboard builds in three or four steps and finishes in under
-  a minute rather than the two to three it was taking, and small requests that used
-  to be split up are simply done.
-- **A widget the agent was editing could fail with a message about a "list".**
-  Only when its first attempt at an edit didn't fit the file, which is why it came
-  and went: the retry that would have fixed it crashed instead, and the turn was
-  lost. The same cause could put stray punctuation into a widget mid-generation.
-- **Widgets show why a query failed instead of a page of Python.** A query that
-  the warehouse never got to run — a warehouse still starting up, an expired
-  login, a table you don't have access to — filled the panel with an error report
-  meant for developers, under a message implying the app itself had fallen over.
-  You now get the reason in a sentence, and a widget can tell the difference
-  between "try again in a moment" and "this query is wrong".
-- **Agent Studio works on Claude Opus 5.** Every prompt came back as "Generation
-  Error: INVALID_PARAMETER_VALUE ... Content in ChatMessage", whatever you asked
-  for. Opus 5 replies in a different shape to the models before it, and the app
-  was handing part of that reply back to the model in a form it wouldn't accept —
-  it failed the moment the assistant used one of its tools, which is nearly
-  always. Both studios now tidy up any model's reply before continuing the
-  conversation, so this won't come back the next time a new model lands.
-- **The app doesn't freeze while it starts, and it starts a lot faster.** Every
-  page load used to download every version of every widget ever published —
-  including all their code and preview images, tens of megabytes on a mature
-  library — and then compile the lot before it would show you anything. That got
-  slower every time anyone saved a widget, and had reached the point where the
-  browser offered to close the tab for you. Now your dashboard downloads what it
-  needs to draw itself, and a widget is prepared when it appears rather than all
-  of them up front: on a test library of 30 widgets the page went from unusable
-  for 17 seconds to ready in 1.5. Preview images arrive when you open the Widget
-  Library, and screens like the Studios and the Admin panel are fetched quietly
-  in the background instead of holding up the dashboard. Pinning a widget to an
-  older version still works exactly as before; it fetches that version when it
-  draws it.
-- **A slow network no longer empties the Widget Library.** If the widget compiler
-  hadn't finished downloading by the time the page was ready, every widget was
-  quietly dropped and you were left with an empty library and no explanation. The
-  page now waits for it, and says so if it never arrives.
-- **Widgets built before authorship worked can be edited again.** Correcting who gets
-  credited for a widget had a side effect: widgets created earlier were recorded
-  against a placeholder rather than a person, and the library treated them as
-  somebody else's — hiding them behind the Certified filter and taking away their
-  Edit and Delete buttons for everyone. A widget with no real author now belongs to
-  nobody, so anyone can pick it up, which is how deleting one already worked.
+- **Widget Studio explains itself again** on the newest models, and each plan step says what it did.
+- **Big requests finish sooner**, planned in fewer, larger steps around what you asked for.
+- **Edits no longer fail with a message about a "list".**
+- **Failed queries give a one-line reason** instead of a developer error report.
+- **Agent Studio works on Claude Opus 5** — no more "INVALID_PARAMETER_VALUE ... Content in ChatMessage".
+- **The app starts much faster and no longer freezes.** A 30-widget test library went from 17 seconds to 1.5.
+- **A slow network no longer empties the Widget Library.** The page waits, and says so if widgets can't load.
+- **Older widgets can be edited again.** Widgets from before authorship worked belong to nobody, so anyone can edit or delete them.
 
 ## 1.8.0 — 2026-08-11
 
 ### Added
 
-- **The Widget Library says who built each widget.** Every card and list row credits
-  its creator, and clicking a name shows you everything else that person has built.
-- **A Top creators board.** The button in the Widget Library header opens a short
-  ranking of the people whose widgets get used, scored on what they've published,
-  how many people use it, and where it's placed. Using your own widget doesn't count
-  towards your own score.
+- **See who built each widget.** Widget Library cards credit their creator; click a name to see everything they've built.
+- **A Top creators board.** A Widget Library header button ranks creators by published widgets, usage and placement; using your own doesn't count.
 
 ### Fixed
 
-- **Your name is recorded properly on what you create.** Widgets were being filed
-  under "dev" or "unknown" instead of the person who made them, which is also what
-  showed up when a widget wrote your name into a table. The app now resolves your
-  real identity — and where it genuinely can't, it says "unknown" rather than
-  inventing something that looks like a person. Widgets published before this keep
-  whatever they were stamped with; the Top creators board lists how many those are.
-- **Widgets stamped with a placeholder name can be deleted again.** A widget filed
-  under "dev" by the bug above had an owner nobody could match, so nobody could
-  remove it. Anything without a real author is now anyone's to tidy up, and your own
-  widgets stay yours whichever way your address happens to be capitalised.
-- **A long Widget Studio request keeps to the time you gave it.** The limit was being
-  applied per attempt rather than to the request, so a slow build could quietly run
-  about three times over. Planning the work is also capped separately now — a slow
-  plan used to be able to spend the entire allowance and leave nothing to build with,
-  which is how a big request could take the full timeout and come back empty.
-- **A SQL query that fails says why, in the widget.** A rejected query — a renamed
-  table, a column that needs backticks, a permission you don't have — reported itself
-  as "no data", so a fixable mistake looked like an empty result. The error now
-  reaches the widget and Widget Studio's auto-fix, which can act on it. Widgets built
-  before this change show the same empty state they always did rather than breaking.
-- **A model setting can't be pointed somewhere it shouldn't go.** The per-model
-  parameter overrides in Admin Panel → Settings now accept tuning parameters only,
-  and say which name they refused.
+- **Your name is recorded on what you create**, instead of "dev" or "unknown". Widgets published earlier keep their old stamp.
+- **Widgets with placeholder owners can be deleted again**, by anyone; your own stay yours whatever your email's capitalisation.
+- **Long Widget Studio requests keep to their time limit**, and planning can no longer use up the whole allowance.
+- **A failed SQL query says why in the widget**, so you and Widget Studio's auto-fix can act on it.
+- **Model parameter overrides accept tuning parameters only**, and name any they refuse.
 
 ## 1.7.0 — 2026-08-10
 
 ### Added
 
-- **Widget Studio builds big requests in steps.** Ask for several things at once —
-  a table, a filter bar, and a CSV export — and the agent plans the work, then does
-  one step at a time. You see the plan tick over as it goes, each step lands in the
-  editor the moment it's ready, and History gets an entry per step so you can go
-  back to any point. If a step fails, the earlier ones stay; there's a **Stop after
-  this step** link when you've seen enough. This is the fix for a large request
-  spending minutes and then returning nothing.
-- **Timeouts and limits are settings now.** Admin Panel → Settings has cards for the
-  chat agent's limits and the studios', including how long a Widget Studio request may
-  take before it gives up. Widget Studio waits as long as that allows — it used to
-  stop at five minutes whatever the setting said — and the spinner counts the seconds
-  so a long build reads as work rather than as a hang. If a request does run out of
-  time, whatever the agent already applied is kept and the reply tells you which knob
-  to turn.
+- **Widget Studio builds big requests in steps.** Each step lands in the editor and History as it finishes; **Stop after this step** ends early.
+- **Timeouts and limits are settings.** Admin Panel → Settings controls chat and studio limits, including Widget Studio's timeout; work already applied is kept if time runs out.
 
 ### Fixed
 
-- **Changing the model no longer breaks Widget Studio.** Some models refuse settings
-  others require — a temperature that newer Claude models won't accept, a reasoning
-  flag some models insist on — and Widget Studio always sent the same ones, so
-  choosing certain models failed every generation while chat carried on working. The
-  app now sends each model only what it accepts, learns from anything an endpoint
-  refuses, and if a model needs something unusual you can name it under **Model
-  parameter overrides** in Settings without a redeploy.
-- **Queries against columns with spaces in their names work.** Databricks needs names
-  like `Ship Date` wrapped in backticks, and the agents were writing them bare —
-  which failed. Both the chat agent and Widget Studio now quote them properly, and are
-  reminded of the rule if a query still fails on a name.
-- **A failed query says so instead of showing an empty widget.** A query the warehouse
-  rejected — a typo, a missing table, no permission — came back as a widget with no
-  data and no explanation. The error is now reported, which also lets Widget Studio
-  fix its own query on the retry.
+- **Changing the model no longer breaks Widget Studio.** Name any extra parameters a model needs under **Model parameter overrides** in Settings.
+- **Queries on columns with spaces work.** The agents now quote names like `Ship Date` in backticks.
+- **A failed query says so** instead of showing an empty widget, and Widget Studio fixes it on retry.
 
 ## 1.6.0 — 2026-08-04
 
 ### Added
 
-- **History in Widget Studio.** A **History** button next to Reload lists versions
-  of your widget you can go back to, and **Restore** puts one back in the editor.
-  Every change the studio makes for you is saved there first — each agent turn, each
-  import, each Reset — along with a snapshot of your own editing as you go, so a turn
-  that goes wrong is one click from undone. For a widget you've already published,
-  the panel also lists its published versions with who saved each one and how large
-  it was, so you can pull an older one back without leaving the studio. Restoring
-  only loads code: your Configuration settings are untouched, nothing is published
-  until you press Publish, and the version you restored over is itself kept in
-  History in case you want it back.
+- **History in Widget Studio.** **History**, next to Reload, lists every agent turn, import, Reset, your edits and published versions; **Restore** loads one without publishing.
 
 ### Fixed
 
-- **The agent no longer erases your widget when you ask it to change one.** Asked
-  for a small change, it would sometimes reply with just the part it had rewritten —
-  or with a placeholder like "the rest of the component is unchanged" — and that
-  reply replaced the whole file, taking everything else with it. Those replies are
-  now recognised and refused: your code is left exactly as it was while the agent is
-  asked to make the change in place instead, which is what it does on the retry. If a
-  turn does legitimately replace most of your widget, the reply says so and points at
-  History. You no longer need to ask it to "merge" the changes.
+- **Asking for a change no longer erases the rest of your widget.** You no longer need to ask the agent to "merge" changes.
 
 ## 1.5.0 — 2026-07-30
 
 ### Added
 
-- **Attach files to the assistant.** Use the paperclip in the assistant panel, or
-  drag a file onto it, and ask questions about it. Spreadsheets and CSVs (up to
-  25 MB), PDFs, Word documents, JSON, text and images are all supported, five
-  files per conversation.
-  Large files stay fast because the assistant is not given the whole file: it sees
-  a summary — sheets, columns, row counts, a few sample rows — and queries the rest
-  on demand, so a 5,000-row export answers as quickly as a small one and the
-  numbers come from every row rather than a sample. For per-row maths like revenue
-  from units and unit price, it computes the column first and then totals it.
-  Documents are searched rather than skimmed, and answers cite the page. Images
-  and short PDFs are read directly by the model, so charts, screenshots and
-  scanned pages work too.
-- **Conversations are saved.** The assistant panel keeps your conversations, so
-  reloading the browser or coming back later picks up where you left off. The
-  clock icon in the panel header lists your recent conversations — click one to
-  reopen it, rename it with the pencil, or delete it with the trash. The
-  speech-bubble icon starts a new conversation; the previous one is kept, not
-  discarded. Your 50 most recent are retained, and they are private to you.
-  While the last conversation is being reopened the panel says so, and if you
-  start typing before it lands, what you started wins.
+- **Attach files to the assistant.** Use the paperclip or drag a file in: spreadsheets up to 25 MB, PDFs, Word, JSON, text and images, five per conversation.
+- **Conversations are saved.** The clock icon lists your 50 most recent to reopen, rename or delete; the speech-bubble icon starts a new one.
 
 ### Fixed
 
-- **The assistant remembers its own answers.** Follow-up questions like "and what
-  about last month?" now work: previous replies were being dropped from the
-  conversation before the assistant saw them, so it only had your side of the
-  discussion to work from. Asked about a figure it gave earlier, it no longer
-  second-guesses whether it really looked it up.
-- **Admin Panel → Settings keeps what you type.** Editing a field just as the page
-  finished loading could silently snap it back to the stored value. The Reload
-  button still discards edits, since that is what it is for.
-- **"Thinking" is thinking again.** The assistant's answer used to arrive greyed
-  out under "Thinking…" and then repeat itself as the answer, so you read it twice.
-  Answers now stream where they belong, and the collapsible box keeps only genuine
-  thinking: reasoning, and the notes it abandons mid-sentence when it decides to go
-  look something up. Turns that never pause to think no longer show the box at all.
-- **Attaching a file the moment the assistant panel opens now works.** While your
-  last conversation was still being reopened, a file attached in that first second
-  went to the conversation being left behind — and the chip that appeared belonged
-  to the conversation being opened, so it looked as though the wrong file had been
-  read. Starting a new chat in that same moment could also be undone. Whatever you
-  do in that window now wins, and reloading returns you to the conversation you were
-  actually working in.
+- **The assistant remembers its own answers**, so follow-up questions work.
+- **Admin Panel → Settings keeps what you type** while the page finishes loading.
+- **"Thinking" holds only thinking.** Answers no longer appear twice.
+- **Attaching a file or starting a chat as the panel opens** lands in the right conversation.
 
 ### Changed
 
-- **Pages load several times faster.** The app was reconnecting to its database,
-  re-checking who you are, and rebuilding its Databricks connection on every single
-  request, which cost far more than the work being done. All three are now reused,
-  and requests that used to wait their turn run at the same time. Measured locally,
-  a screen that fires nine of these calls went from 8.4 seconds to 0.3; opening a
-  saved conversation, loading a dashboard's views, and the Admin Panel's tabs all
-  benefit, and nothing about how the app behaves has changed. Permission and group
-  changes can take up to five minutes to take effect, which is the one trade-off.
-- **Switching agents starts a new conversation** instead of swapping transcripts
-  in place. The one you were in is saved, and one click away in the history list.
+- **Pages load several times faster.** Permission and group changes can take up to five minutes to apply.
+- **Switching agents starts a new conversation.** The previous one stays in the history list.
 
 ## 1.4.0 — 2026-07-29
 
 ### Added
 
-- **Model settings in the Admin Panel.** A new **Settings** tab lets global admins
-  choose which model powers the assistant, which one writes widget code in Widget
-  Studio, and which one drafts agents in Agent Studio — picked from a searchable
-  list of the models your workspace actually offers, rather than typed by hand or
-  set at deployment time. The chat agent's tool-call and response-length limits
-  live there too. Changes take effect on new conversations, no redeploy needed.
-- **Reload button in Widget Studio.** Re-runs the widget you're editing —
-  recompiles and remounts it — so anything that only happens when a widget first
-  loads (data fetches, initial render) can be repeated without changing the code.
-- **Release notes in the app.** This page, under Resources in the sidebar.
-  Newest release at the top.
-- **Syntax highlighting and line numbers in the code editors.** The Widget Studio
-  TSX editor, the SQL query box on the Configuration tab, and the Python tool
-  editor in Agent Studio now colour code and number every line. Tab indents
-  instead of jumping out of the box, and pressing Enter keeps your indentation.
-- **The assistant can answer questions about the Command Center itself.** Ask it
-  what a widget is, why you cannot see a domain's global views, how to get a
-  widget into production, or how to share a view, and it answers from the app's
-  own documentation instead of guessing. This applies to every agent, including
-  ones authored in Agent Studio.
-- **The Widget Studio agent now fills in the Configuration tab for you.** After
-  it generates a widget it proposes a name, description, category, domain, and
-  default size. Anything you have already typed or picked is left alone.
+- **Model settings in the Admin Panel.** Global admins pick the assistant, Widget Studio and Agent Studio models, and chat limits, under **Settings** — no redeploy.
+- **Reload button in Widget Studio.** Re-runs the widget without changing its code.
+- **Release notes in the app**, under Resources in the sidebar.
+- **Syntax highlighting and line numbers** in the Widget Studio, SQL and Agent Studio Python editors; Tab indents.
+- **Ask the assistant about the Command Center.** Every agent answers questions about the app from its documentation.
+- **Widget Studio fills in the Configuration tab**, proposing name, description, category, domain and size without overwriting yours.
 
 ### Changed
 
-- **The browser tab now says "Command Center".** It used to say "client".
-  Non-production deployments are labelled with their environment — "Command
-  Center - Dev" — so you can tell several open windows apart.
-- **The assistant can give longer answers.** The response ceiling went from 4,000
-  to 16,000 tokens, so detailed answers no longer stop mid-sentence. It is only a
-  ceiling — short answers stay short — and models that allow less are adjusted to
-  their own limit automatically. Admins can change it in Admin → Settings.
-- **Picking a model for a saved agent is now a searchable list.** Agent Studio's
-  Model field used to be free text where a typo surfaced later as a failed chat.
-  It now suggests the models available in your workspace, and leaving it blank
-  follows the deployment default set in Admin → Settings. Type to filter, then
-  click a suggestion or press Enter to take the highlighted one; an endpoint the
-  list doesn't know is still accepted as typed, with a warning under the field.
-- **The Widget Studio agent now edits code in place instead of rewriting it.**
-  When you ask for a change to an existing widget, it sends just the lines it
-  wants to replace rather than re-emitting the whole component. Complicated
-  widgets no longer fail part-way through with truncated code. Long widgets
-  generated from scratch are continued automatically if they don't fit in one
-  response.
+- **The browser tab says "Command Center"**, plus the environment outside prod, e.g. "Command Center - Dev".
+- **Longer assistant answers.** The ceiling rose from 4,000 to 16,000 tokens; admins can change it in Admin → Settings.
+- **Agent Studio's Model field is a searchable list** of your workspace's models; blank uses the deployment default.
+- **Widget Studio edits code in place**, so complex widgets no longer fail with truncated code.
 
 ### Fixed
 
-- **Categories and domains no longer come up empty.** The pickers in Widget
-  Studio and the taxonomy admin screens used to show nothing at all when the
-  database read failed, which was indistinguishable from someone having deleted
-  them. Failures now say so and offer a retry.
-- **Faster, more reliable page loads.** Database credentials are reused for a
-  short window instead of being re-minted on every single API call, which
-  removes several Databricks control-plane round trips per request.
+- **Categories and domains no longer come up empty** when loading fails; you get an error and a retry.
+- **Faster, more reliable page loads.**
 
 ---
 
