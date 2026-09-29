@@ -68,9 +68,10 @@ generated from a prompt, and these two rules are what keep "generated" from
 meaning "can reach anywhere".
 
 A widget whose SQL data source **changes** data (INSERT, UPDATE, DELETE, MERGE and
-so on) can only be saved if the widget is marked **Executable**. That is what puts
-its controls behind the confirmation prompt, so every change is recorded with who
-approved it and why.
+so on) can only be saved if the widget is marked **Executable**. That is what
+records every change its controls make in **Action Logs**, with who made it. There
+is no confirmation prompt: the action runs as soon as it is recorded, and does not
+run at all if it cannot be recorded.
 
 ## Widget Library
 

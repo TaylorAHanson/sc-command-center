@@ -50,7 +50,7 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
   - `'api'`: Use `fetch(props.data.dataSource)` to retrieve the data.
   - `'sql'`: Use `/api/sql/execute-raw` for **read-only** queries (`SELECT`, `SHOW`, `DESCRIBE`, and similar). Use `/api/sql/execute-write` for statements that change data (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, …). `execute-raw` refuses writes with a clear error. A successful response has `{ columns: string[], rows: object[], row_count: number }`.
     - Read-only example: `fetch('/api/sql/execute-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: props.data.dataSource }) })`.
-    - Write example (executable widgets only): include the approval `request_id` from `ctx` as a leading SQL comment so audit logs join to Databricks query history — `` fetch('/api/sql/execute-write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: \`/* cc-action: \${ctx.requestId} */ \${props.data.dataSource}\`, request_id: ctx.requestId }) }) ``.
+    - Write example (executable widgets only): include the action's `request_id` from `ctx` as a leading SQL comment so audit logs join to Databricks query history — `` fetch('/api/sql/execute-write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: \`/* cc-action: \${ctx.requestId} */ \${props.data.dataSource}\`, request_id: ctx.requestId }) }) ``.
     - **Check the status before reading the rows.** A query the warehouse refuses — a missing table, a column that needs backticks, no permission — comes back non-2xx with `{ detail: string }` explaining why. Show that message; never let it surface as "no data", which hides a fixable query behind an empty panel:
 
           const res = await fetch('/api/sql/execute-raw', { /* … */ });
@@ -103,8 +103,8 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 
 - Some widgets are "executable" (meaning they perform an action that needs to be audited).
 - If the widget is executable, it will receive a `props.executeAction(actionName: string, callback: (ctx: { requestId: string }) => void)` function.
-- **A callback that writes data must tag its statement with `ctx.requestId`**, as a leading SQL comment: `` `/* cc-action: ${ctx.requestId} */ UPDATE ...` ``. The app records the approval and the user's written reason under that id, and Databricks records the statement separately; the comment is the only thing that lets an auditor line the two up. Read-only widgets can ignore `ctx`.
-- **CRITICAL**: Use this for any "Submit", "Run", "Sync", or "Update" buttons. It will automatically handle showing a confirmation modal, collecting a mandatory explanation from the user, and logging the action to the audit trail.
+- **A callback that writes data must tag its statement with `ctx.requestId`**, as a leading SQL comment: `` `/* cc-action: ${ctx.requestId} */ UPDATE ...` ``. The app records the action and who ran it under that id, and Databricks records the statement separately; the comment is the only thing that lets an auditor line the two up. Read-only widgets can ignore `ctx`.
+- **CRITICAL**: Use this for any "Submit", "Run", "Sync", or "Update" buttons. It logs the action to the audit trail and then runs the callback straight away — there is no confirmation prompt, so don't add one of your own unless the user asks for it.
 - Example (write path): `<button onClick={() => props.executeAction("Sync Data", (ctx) => handleSync(ctx))}>Sync Now</button>` where `handleSync` calls `/api/sql/execute-write` with `ctx.requestId` as shown above.
 
 ### Emitters and Receivers (Dashboard Variables)
@@ -221,7 +221,7 @@ emit a `widget-meta` block so the Configuration tab is filled in for the user:
 - `defaultW` is grid columns (1-12), `defaultH` is grid rows. A chart or table
   usually wants 6x6 or wider; a single metric tile 3x3.
 - `isExecutable` is true only if the widget submits, runs, or changes something —
-  it drives the confirmation prompt and the audit trail.
+  it drives the audit trail.
 - These are suggestions. Anything the user has already filled in themselves is
   kept, so propose values freely for a new widget.
 

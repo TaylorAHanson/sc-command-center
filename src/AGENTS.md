@@ -406,10 +406,12 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
 - `contexts/ActionContext.tsx` — `useActionContext` plus
   `ExecuteActionPropInjector`, which clones children to inject an
   `executeAction(name, callback)` prop into executable widgets.
-  `components/BaseWidget.tsx` hosts `ActionConfirmationModal`, which collects a
-  mandatory explanation before the callback runs. Every "Submit / Run / Sync"
-  control must go through `executeAction`: that confirmation *is* the audit
-  trail, and the audit trail is the product.
+  `components/BaseWidget.tsx` supplies it from `useActionLogger().runAction`,
+  which writes the `action_logs` row and only then runs the callback — no
+  confirmation dialog, by the product owner's call (it used to demand a written
+  explanation). Every "Submit / Run / Sync" control must still go through
+  `executeAction`: that log row *is* the audit trail, and the audit trail is the
+  product. A failed log write means the action does not run.
 - `hooks/useActionLogger.ts` — the `logAction` telemetry path.
 - Emitter/receiver pattern: emitters call `props.data.setVariable(key, value)`,
   receivers read `props.data.variables?.key`. Emitters must seed their variable

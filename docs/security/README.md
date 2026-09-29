@@ -37,7 +37,7 @@ architectural rather than a feature with a settings page.
 | Every data operation runs as the signed-in user via their forwarded OBO token; Unity Catalog governs per user | `server/middleware/auth.py` (`get_db_client`) |
 | LLM *inference* is the one deliberate service-principal exception; it touches no user data, and every tool call is still OBO | `server/services/agent_runtime.py` (`AGENT_RUNTIME_LLM_AUTH`) |
 | Publishing a widget requires domain-editor rights; promotion Dev → Test → Prod and certification are separate rights | `server/routes/custom_widgets.py`, `server/routes/promotion.py` |
-| Mutating widget controls route through `executeAction`, which forces a confirmation with a mandatory written explanation, now recorded with the acting user | `src/contexts/ActionContext.tsx`, `server/routes/actions.py` |
+| Mutating widget controls route through `executeAction`, which records the action and the acting user before the callback runs, and refuses to run it if the record fails | `src/contexts/ActionContext.tsx`, `server/routes/actions.py` |
 | Chat uploads are extension/MIME allowlisted, size-capped (25 MB, 5 per conversation), and parsed by library — never executed | `server/services/file_extract.py`, `server/routes/chat_uploads.py` |
 | Attached file *contents* never enter the prompt; the agent gets a constant-size profile and must pull data through structured tools | `server/services/upload_tools.py` |
 | `query_file` takes a structured spec, not a pandas or SQL string — no model-authored code is evaluated in the web process, which holds the caller's credentials | `server/services/upload_tools.py` |

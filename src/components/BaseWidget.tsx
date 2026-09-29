@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { X, GripHorizontal, Maximize2, Minimize2, Settings, HelpCircle } from 'lucide-react';
 import { useActionLogger } from '../hooks/useActionLogger';
-import { ActionConfirmationModal } from './ActionConfirmationModal';
 import { ActionProvider } from '../contexts/ActionContext';
 
 interface BaseWidgetProps {
@@ -52,7 +51,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
   onTouchEnd,
   ...props
 }, ref) => {
-  const { isConfirming, actionName, initiateAction, confirmAction, cancelAction } = useActionLogger({
+  const { runAction } = useActionLogger({
     widgetId: id,
     widgetName: title
   });
@@ -167,18 +166,10 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
           }
         }}
       >
-        <ActionProvider value={initiateAction}>
+        <ActionProvider value={runAction}>
           {children}
         </ActionProvider>
       </div>
-
-      <ActionConfirmationModal
-        isOpen={isConfirming}
-        onClose={cancelAction}
-        onConfirm={confirmAction}
-        actionName={actionName}
-        widgetName={title}
-      />
 
       {isHelpOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setIsHelpOpen(false); }}>
