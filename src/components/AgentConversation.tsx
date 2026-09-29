@@ -107,8 +107,8 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
             onDrop={handleDrop}
         >
             {isDragging && canAttach && (
-                <div className="absolute inset-2 z-20 pointer-events-none rounded-lg border-2 border-dashed border-qualcomm-blue bg-qualcomm-blue/5 flex items-center justify-center">
-                    <span className="text-sm font-medium text-qualcomm-navy">Drop files to attach</span>
+                <div className="absolute inset-2 z-20 pointer-events-none rounded-lg border-2 border-dashed border-brand-blue bg-brand-blue/5 flex items-center justify-center">
+                    <span className="text-sm font-medium text-brand-navy">Drop files to attach</span>
                 </div>
             )}
             {/* Messages */}
@@ -126,7 +126,7 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                         <div
                             className={`max-w-[90%] min-w-0 break-words [overflow-wrap:anywhere] rounded-lg px-3 py-2 text-sm ${
                                 msg.role === 'user'
-                                    ? 'bg-qualcomm-blue text-white'
+                                    ? 'bg-brand-blue text-white'
                                     : msg.isError
                                         ? 'bg-rose-50 border border-rose-200 text-rose-700'
                                         : 'bg-gray-50 border border-gray-200 text-gray-800'
@@ -229,7 +229,7 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                                 type="button"
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={isUploading}
-                                className="p-2 text-gray-400 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors shrink-0 disabled:opacity-40"
+                                className="p-2 text-gray-400 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors shrink-0 disabled:opacity-40"
                                 title="Attach a spreadsheet, document, or image"
                             >
                                 {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
@@ -247,7 +247,7 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                         }}
                         rows={1}
                         placeholder={placeholder}
-                        className="flex-1 resize-none rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-qualcomm-blue focus:border-qualcomm-blue max-h-32"
+                        className="flex-1 resize-none rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue max-h-32"
                     />
                     <SendStopButton
                         running={isLoading}

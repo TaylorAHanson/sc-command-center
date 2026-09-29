@@ -2,8 +2,8 @@
 
 Read `../AGENTS.md` first. This file covers conventions inside `src/`.
 
-React 19 + TypeScript + Vite, styled with Tailwind (Qualcomm palette:
-`qualcomm-navy` `#001E3C`, `qualcomm-blue` `#007BFF`). Dashboard grid is
+React 19 + TypeScript + Vite, styled with Tailwind (brand palette:
+`brand-navy` `#001E3C`, `brand-blue` `#007BFF`). Dashboard grid is
 `react-grid-layout`; charts use Highcharts.
 
 ## Talking to the backend
@@ -85,6 +85,14 @@ Practical consequences for widget code:
   `style={{ ... }}` for exact measurements or colors.
 - Widgets render on white and are user-resizable, so they need dark text
   (`text-slate-800`, `text-gray-900`) and fluid layout (`w-full`, `h-full`).
+- **Brand colours are `brand-navy` / `brand-blue` / `brand-light`, and older
+  widgets don't say so.** Before the palette was renamed, widgets were generated
+  with the customer's name in those classes, and that code is still in the
+  database. Every compile path (`widgetRegistry.ts`, Widget Studio's preview, the
+  admin preview) passes the source through `withBrandColors` from `brand.ts`,
+  which maps `<APP_BRAND>-*` to `brand-*`. A new compile path must do the same, or
+  those widgets lose their colours there. The name comes from `/api/health` and is
+  set per deployment (`var.brand`), so no customer name belongs in this repo.
 
 The authoritative, more detailed contract is
 `server/routes/agent_instructions.md` — it's the prompt sent to the widget

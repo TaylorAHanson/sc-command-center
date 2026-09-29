@@ -40,7 +40,7 @@ export const AttachmentChip: React.FC<{
     const shell = failed
         ? (dark ? 'border-rose-900/60 bg-rose-950/40 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700')
         : (dark ? 'border-slate-600 bg-slate-800 text-slate-300' : 'border-gray-200 bg-gray-50 text-gray-600');
-    const accent = dark ? 'text-indigo-400' : 'text-qualcomm-blue';
+    const accent = dark ? 'text-indigo-400' : 'text-brand-blue';
     return (
         <div
             className={`group flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] max-w-full ${shell}`}

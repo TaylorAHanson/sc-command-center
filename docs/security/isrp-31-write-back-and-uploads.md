@@ -96,7 +96,7 @@ substitute for the platform record.
 
 ## Platform-level
 
-- **Malware scanning at ingest**, if required, is a Databricks Apps or Qualcomm
+- **Malware scanning at ingest**, if required, is a Databricks Apps or corporate
   IT control.
 - **Grants, Delta history, time travel retention, lineage, and the system audit
   and query-history tables** are all Databricks. The app's job is to not

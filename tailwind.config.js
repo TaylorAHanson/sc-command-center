@@ -15,7 +15,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        qualcomm: {
+        brand: {
           navy: '#001E3C',
           blue: '#007BFF',
           light: '#F8F9FA',

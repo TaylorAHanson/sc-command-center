@@ -84,7 +84,7 @@ State these; do not promise them as application controls.
 - **Browser-side execution of widget code is inherent** to the dynamic-widget
   architecture. Databricks Apps does not offer a server-side JavaScript sandbox.
 - **CDN reachability is a network decision.** We already prefer jsDelivr because
-  some corporate environments return 403 for other CDNs. If Qualcomm requires an
+  some corporate environments return 403 for other CDNs. If the company requires an
   internal mirror, 30.2's allowlist is one constant to change
   (`ALLOWED_SCRIPT_HOSTS` in `src/hooks/useScript.ts`), plus the corresponding
   line in `server/routes/agent_instructions.md`.

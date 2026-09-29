@@ -288,7 +288,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
         {/* Tray Header */}
         <div className="h-16 border-b border-gray-200 flex items-center justify-between px-6 bg-gray-50 relative z-20">
           <div className="flex items-center gap-4">
-            <h2 className="text-lg font-semibold text-qualcomm-navy">Widget Library</h2>
+            <h2 className="text-lg font-semibold text-brand-navy">Widget Library</h2>
 
             {/* Search Bar */}
             <div className="relative w-64">
@@ -297,7 +297,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 placeholder="Search widgets..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-1.5 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-qualcomm-blue"
+                className="w-full pl-9 pr-4 py-1.5 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue"
               />
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             </div>
@@ -308,7 +308,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 onClick={() => setViewMode('grid')}
                 className={clsx(
                   "p-1.5 rounded-md transition-all",
-                  viewMode === 'grid' ? "bg-white text-qualcomm-blue shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  viewMode === 'grid' ? "bg-white text-brand-blue shadow-sm" : "text-gray-500 hover:text-gray-700"
                 )}
                 title="Grid View"
               >
@@ -318,7 +318,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 onClick={() => setViewMode('list')}
                 className={clsx(
                   "p-1.5 rounded-md transition-all",
-                  viewMode === 'list' ? "bg-white text-qualcomm-blue shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  viewMode === 'list' ? "bg-white text-brand-blue shadow-sm" : "text-gray-500 hover:text-gray-700"
                 )}
                 title="List View"
               >
@@ -348,7 +348,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                   className={clsx(
                     "px-3 py-1 rounded-md text-xs font-medium transition-all",
                     accessFilter === 'all'
-                      ? "bg-white text-qualcomm-blue shadow-sm"
+                      ? "bg-white text-brand-blue shadow-sm"
                       : "text-gray-500 hover:text-gray-700"
                   )}
                 >
@@ -359,7 +359,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                   className={clsx(
                     "px-3 py-1 rounded-md text-xs font-medium transition-all",
                     accessFilter === 'accessible'
-                      ? "bg-white text-qualcomm-blue shadow-sm"
+                      ? "bg-white text-brand-blue shadow-sm"
                       : "text-gray-500 hover:text-gray-700"
                   )}
                 >
@@ -370,7 +370,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                   className={clsx(
                     "px-3 py-1 rounded-md text-xs font-medium transition-all",
                     accessFilter === 'restricted'
-                      ? "bg-white text-qualcomm-blue shadow-sm"
+                      ? "bg-white text-brand-blue shadow-sm"
                       : "text-gray-500 hover:text-gray-700"
                   )}
                 >
@@ -382,7 +382,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 <button
                   onClick={() => setCreatorFilter(null)}
                   title={`Showing widgets by ${creatorFilter} — click to clear`}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border bg-blue-50 text-qualcomm-blue border-blue-200 hover:bg-blue-100"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border bg-blue-50 text-brand-blue border-blue-200 hover:bg-blue-100"
                 >
                   by {displayName(creatorFilter)}
                   <X className="w-3 h-3" />
@@ -456,7 +456,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                   onClick={() => setGrouping('category')}
                   className={clsx(
                     "flex-1 text-xs font-medium py-1 rounded transition-all",
-                    grouping === 'category' ? "bg-white shadow text-qualcomm-navy" : "text-gray-500 hover:text-gray-700"
+                    grouping === 'category' ? "bg-white shadow text-brand-navy" : "text-gray-500 hover:text-gray-700"
                   )}
                 >
                   Categories
@@ -465,7 +465,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                   onClick={() => setGrouping('domain')}
                   className={clsx(
                     "flex-1 text-xs font-medium py-1 rounded transition-all",
-                    grouping === 'domain' ? "bg-white shadow text-qualcomm-navy" : "text-gray-500 hover:text-gray-700"
+                    grouping === 'domain' ? "bg-white shadow text-brand-navy" : "text-gray-500 hover:text-gray-700"
                   )}
                 >
                   Domains
@@ -479,7 +479,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 className={clsx(
                   "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
                   !selectedGroup && !searchQuery
-                    ? "bg-qualcomm-navy/10 text-qualcomm-navy font-semibold"
+                    ? "bg-brand-navy/10 text-brand-navy font-semibold"
                     : "text-gray-700 hover:bg-gray-200"
                 )}
               >
@@ -498,7 +498,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                     className={clsx(
                       "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
                       selectedGroup === group
-                        ? "bg-qualcomm-blue text-white"
+                        ? "bg-brand-blue text-white"
                         : "text-gray-700 hover:bg-gray-200"
                     )}
                   >
@@ -519,7 +519,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
           <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
             {filteredWidgets.length > 0 ? (
               <div>
-                <h3 className="text-lg font-semibold text-qualcomm-navy mb-4 flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-brand-navy mb-4 flex items-center gap-2">
                   {searchQuery ? `Search Results for "${searchQuery}"` : (selectedGroup || `All ${grouping === 'domain' ? 'Domains' : 'Categories'}`)}
                   <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
                     {filteredWidgets.length}
@@ -544,7 +544,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                             isLocked
                               ? "opacity-50 cursor-not-allowed border-gray-200"
                               : hasAccess
-                                ? "hover:border-qualcomm-blue hover:shadow-lg cursor-move border-gray-200"
+                                ? "hover:border-brand-blue hover:shadow-lg cursor-move border-gray-200"
                                 : "cursor-not-allowed border-gray-200 bg-gray-50"
                           )}
                         >
@@ -561,7 +561,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                             <div className="absolute inset-0 bg-white/60 z-20 flex flex-col items-center justify-center backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition-opacity">
                               <Lock className="w-8 h-8 text-gray-400 mb-2" />
                               <span className="text-xs font-semibold text-gray-600 mb-3">Access Restricted</span>
-                              <button className="px-3 py-1.5 bg-qualcomm-blue text-white text-xs rounded hover:bg-blue-600 shadow-sm transition-colors">
+                              <button className="px-3 py-1.5 bg-brand-blue text-white text-xs rounded hover:bg-blue-600 shadow-sm transition-colors">
                                 Request Access
                               </button>
                             </div>
@@ -631,7 +631,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                           {/* Info */}
                           <div className="p-3 flex-1 flex flex-col">
                             <div className="flex items-start justify-between gap-2 mb-1">
-                              <h4 className="font-semibold text-sm text-qualcomm-navy leading-tight">
+                              <h4 className="font-semibold text-sm text-brand-navy leading-tight">
                                 {widget.name}
                               </h4>
                               {/* Always show popularity */}
@@ -649,7 +649,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                               <button
                                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); setCreatorFilter(creator); }}
                                 title={`${creator} — show their widgets`}
-                                className="text-[10px] text-gray-400 hover:text-qualcomm-blue truncate text-left mb-2 self-start"
+                                className="text-[10px] text-gray-400 hover:text-brand-blue truncate text-left mb-2 self-start"
                               >
                                 by {displayName(creator)}
                                 {isSamePerson(creator, currentUser) && ' (you)'}
@@ -659,7 +659,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                                 onClick={(e) => handleClaim(e, widget)}
                                 disabled={claiming === widget.id}
                                 title="Nobody is credited with this widget. Claim it if you built it."
-                                className="text-[10px] text-gray-400 hover:text-qualcomm-blue truncate text-left mb-2 self-start disabled:text-gray-300"
+                                className="text-[10px] text-gray-400 hover:text-brand-blue truncate text-left mb-2 self-start disabled:text-gray-300"
                               >
                                 {claiming === widget.id ? 'Claiming…' : 'Did you build this? Claim it'}
                               </button>
@@ -715,7 +715,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                           >
                             {/* Name & Desc */}
                             <div className="min-w-0">
-                              <h4 className={clsx("font-semibold text-sm truncate", hasAccess ? "text-qualcomm-navy" : "text-gray-500")}>
+                              <h4 className={clsx("font-semibold text-sm truncate", hasAccess ? "text-brand-navy" : "text-gray-500")}>
                                 {widget.name}
                               </h4>
                               <p className="text-xs text-gray-500 truncate">
@@ -734,7 +734,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                                 <button
                                   onClick={(e) => { e.stopPropagation(); e.preventDefault(); setCreatorFilter(creator); }}
                                   title={`${creator} — show their widgets`}
-                                  className="text-gray-500 hover:text-qualcomm-blue truncate max-w-full"
+                                  className="text-gray-500 hover:text-brand-blue truncate max-w-full"
                                 >
                                   {displayName(creator)}
                                 </button>
@@ -743,7 +743,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                                   onClick={(e) => handleClaim(e, widget)}
                                   disabled={claiming === widget.id}
                                   title="Nobody is credited with this widget. Claim it if you built it."
-                                  className="text-gray-400 hover:text-qualcomm-blue disabled:text-gray-300"
+                                  className="text-gray-400 hover:text-brand-blue disabled:text-gray-300"
                                 >
                                   {claiming === widget.id ? 'Claiming…' : 'Claim'}
                                 </button>
@@ -790,7 +790,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                             <div className="flex justify-center">
                               <div className={clsx(
                                 "p-1 rounded hover:bg-gray-200 transition-colors",
-                                hasAccess ? "text-gray-400 cursor-move group-hover:text-qualcomm-blue" : "text-gray-200 cursor-not-allowed"
+                                hasAccess ? "text-gray-400 cursor-move group-hover:text-brand-blue" : "text-gray-200 cursor-not-allowed"
                               )}>
                                 <GripVertical className="w-4 h-4" />
                               </div>

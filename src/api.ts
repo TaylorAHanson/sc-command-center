@@ -13,20 +13,30 @@ export const logWidgetRun = async (widgetId: string) => {
     }
 };
 
+let healthRequest: Promise<Record<string, unknown>> | null = null;
+
+/** `/api/health`, read once per page load. */
+const getHealth = (): Promise<Record<string, unknown>> => {
+    healthRequest ??= fetch(`${API_BASE}/health`)
+        .then(response => (response.ok ? response.json() : {}))
+        .catch(() => ({}));
+    return healthRequest;
+};
+
 /**
  * Which deployment served this bundle: 'local' | 'dev' | 'stage' | 'prod'.
  * Comes from the backend (not a build-time constant) because the same built
  * assets get promoted across environments. Empty string when unknown.
  */
 export const getAppEnvironment = async (): Promise<string> => {
-    try {
-        const response = await fetch(`${API_BASE}/health`);
-        if (!response.ok) return '';
-        const data = await response.json();
-        return typeof data?.environment === 'string' ? data.environment.trim().toLowerCase() : '';
-    } catch {
-        return '';
-    }
+    const { environment } = await getHealth();
+    return typeof environment === 'string' ? environment.trim().toLowerCase() : '';
+};
+
+/** The deployment's brand name (`APP_BRAND`), or '' when none is set. */
+export const getAppBrand = async (): Promise<string> => {
+    const { brand } = await getHealth();
+    return typeof brand === 'string' && /^[a-z][a-z0-9]*$/.test(brand) ? brand : '';
 };
 
 export const getPopularityScores = async (): Promise<Record<string, number>> => {

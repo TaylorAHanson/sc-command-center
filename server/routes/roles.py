@@ -115,7 +115,7 @@ def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"
         username = _get_current_username(w)
         user_entitlements = get_user_entitlements(w)
         
-        # Include username as a role for exact-user mappings (e.g. mapping specifically taylhans@qualcomm.com to a domain)
+        # Include username as a role for exact-user mappings (e.g. mapping specifically jane.doe@example.com to a domain)
         user_entitlements.append(username)
         
         conn = get_db_connection(env)

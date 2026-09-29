@@ -136,14 +136,14 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
                 <div className="p-6 border-b border-gray-200 flex justify-between items-center">
                     <div>
                         <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                            <Icon className="text-qualcomm-blue" size={20} />
+                            <Icon className="text-brand-blue" size={20} />
                             {meta.label}
                         </h2>
                         <p className="text-sm text-gray-500 mt-1">{meta.description}</p>
                     </div>
                     <button
                         onClick={load}
-                        className="p-2 text-gray-400 hover:text-qualcomm-blue transition-colors rounded-lg hover:bg-gray-50 bg-gray-50/50"
+                        className="p-2 text-gray-400 hover:text-brand-blue transition-colors rounded-lg hover:bg-gray-50 bg-gray-50/50"
                         title="Refresh"
                     >
                         <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
@@ -158,7 +158,7 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
                                 type="text"
                                 value={newName}
                                 onChange={(e) => setNewName(e.target.value)}
-                                className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
+                                className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue"
                                 placeholder={`e.g. ${kind === 'categories' ? 'Forecasting' : 'Logistics'}`}
                                 required
                             />
@@ -169,7 +169,7 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
                         <button
                             type="submit"
                             disabled={isSaving || !newName.trim() || !!newClash}
-                            className="mt-6 px-4 py-2 bg-qualcomm-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
+                            className="mt-6 px-4 py-2 bg-brand-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
                         >
                             <Plus size={16} />
                             {isSaving ? 'Adding...' : `Add ${meta.singular}`}
@@ -208,7 +208,7 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
                                                             type="text"
                                                             value={editName}
                                                             onChange={e => setEditName(e.target.value)}
-                                                            className="w-full bg-white border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:border-qualcomm-blue"
+                                                            className="w-full bg-white border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:border-brand-blue"
                                                         />
                                                         {editClash && (
                                                             <p className="mt-1 text-[11px] text-red-600">'{editClash.name}' already exists.</p>
@@ -228,7 +228,7 @@ const TaxonomySection: React.FC<{ kind: Kind }> = ({ kind }) => {
                                                     <td className="px-6 py-4 text-sm text-gray-500">{new Date(item.timestamp).toLocaleString()}</td>
                                                     <td className="px-6 py-4 text-right">
                                                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => { setEditingId(item.id); setEditName(item.name); }} className="text-gray-400 hover:text-qualcomm-blue p-1 rounded hover:bg-blue-50"><Pencil size={16} /></button>
+                                                            <button onClick={() => { setEditingId(item.id); setEditName(item.name); }} className="text-gray-400 hover:text-brand-blue p-1 rounded hover:bg-blue-50"><Pencil size={16} /></button>
                                                             <button onClick={() => setPendingDelete(item)} className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50"><Trash2 size={16} /></button>
                                                         </div>
                                                     </td>

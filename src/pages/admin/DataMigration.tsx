@@ -176,7 +176,7 @@ export const DataMigration: React.FC = () => {
         <div className="space-y-6">
             <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
                 <h2 className="flex items-center gap-2 text-lg font-bold text-gray-900">
-                    <ArrowRightLeft className="text-qualcomm-blue" size={20} /> Data Migration
+                    <ArrowRightLeft className="text-brand-blue" size={20} /> Data Migration
                 </h2>
                 <p className="mt-1 text-sm text-gray-500">
                     Move this app's widgets, views, agents and settings to another Command Center app — for example from the
@@ -199,7 +199,7 @@ export const DataMigration: React.FC = () => {
                         <h3 className="flex items-center gap-2 text-md font-semibold text-gray-900"><Download size={16} /> 1. Export a snapshot</h3>
                         <p className="mt-1 text-sm text-gray-500">A compressed file holding every row of what you pick. Treat it like a database backup.</p>
                     </div>
-                    <button onClick={() => loadSummary(exportEnv)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-50 hover:text-qualcomm-blue" title="Refresh counts">
+                    <button onClick={() => loadSummary(exportEnv)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-50 hover:text-brand-blue" title="Refresh counts">
                         <RefreshCw size={18} className={summaryLoading ? 'animate-spin' : ''} />
                     </button>
                 </div>
@@ -229,7 +229,7 @@ export const DataMigration: React.FC = () => {
                     <button
                         onClick={handleExport}
                         disabled={exporting || exportGroups.length === 0}
-                        className="flex items-center gap-2 rounded-md bg-qualcomm-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                        className="flex items-center gap-2 rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                     >
                         {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                         {exporting ? 'Preparing…' : 'Download snapshot'}
@@ -260,7 +260,7 @@ export const DataMigration: React.FC = () => {
                                 ['merge', 'Merge', "Add what this app is missing. Nothing here is changed or deleted, and running it twice adds nothing the second time."],
                                 ['replace', 'Replace', "Make the chosen parts of this app an exact copy of the snapshot. This app's own rows in them are deleted."],
                             ] as [Mode, string, string][]).map(([key, label, help]) => (
-                                <label key={key} className={clsx('flex items-start gap-2 rounded-md border p-3', mode === key ? (key === 'replace' ? 'border-red-300 bg-red-50' : 'border-qualcomm-blue bg-blue-50') : 'border-gray-200')}>
+                                <label key={key} className={clsx('flex items-start gap-2 rounded-md border p-3', mode === key ? (key === 'replace' ? 'border-red-300 bg-red-50' : 'border-brand-blue bg-blue-50') : 'border-gray-200')}>
                                     <input type="radio" name="mode" className="mt-1" checked={mode === key} onChange={() => setMode(key)} />
                                     <span><span className="text-sm font-medium text-gray-900">{label}</span><span className="block text-xs text-gray-600">{help}</span></span>
                                 </label>
@@ -297,7 +297,7 @@ export const DataMigration: React.FC = () => {
                             disabled={!previewCurrent || busy !== null}
                             title={previewCurrent ? undefined : 'Preview this file and these options first'}
                             className={clsx('flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50',
-                                mode === 'replace' ? 'bg-red-600 hover:bg-red-700' : 'bg-qualcomm-blue hover:bg-blue-700')}
+                                mode === 'replace' ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-blue hover:bg-blue-700')}
                         >
                             {busy === 'import' && <Loader2 size={16} className="animate-spin" />} Import
                         </button>

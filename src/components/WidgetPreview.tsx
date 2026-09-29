@@ -97,7 +97,7 @@ export const WidgetPreview: React.FC<WidgetPreviewProps> = ({
           type="button"
           onClick={handleCapture}
           disabled={isCapturing}
-          className="absolute bottom-1 right-1 bg-white/95 border border-gray-200 rounded p-1 text-gray-500 hover:text-qualcomm-blue opacity-0 group-hover/preview:opacity-100 transition-opacity shadow-sm disabled:opacity-100 disabled:text-qualcomm-blue"
+          className="absolute bottom-1 right-1 bg-white/95 border border-gray-200 rounded p-1 text-gray-500 hover:text-brand-blue opacity-0 group-hover/preview:opacity-100 transition-opacity shadow-sm disabled:opacity-100 disabled:text-brand-blue"
           title={snapshot ? 'Refresh thumbnail' : 'Generate thumbnail'}
         >
           {isCapturing ? (

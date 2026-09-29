@@ -67,10 +67,10 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
             <div className="px-4 py-2.5 border-b border-gray-200 shrink-0">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0">
-                        <div className="p-1.5 bg-qualcomm-navy/10 rounded-md shrink-0">
-                            <Bot className="w-4 h-4 text-qualcomm-navy" />
+                        <div className="p-1.5 bg-brand-navy/10 rounded-md shrink-0">
+                            <Bot className="w-4 h-4 text-brand-navy" />
                         </div>
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-qualcomm-blue">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-blue">
                             Active Agent:
                         </span>
                     </div>
@@ -101,7 +101,7 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                             onMouseDown={loadProfilesOnce}
                             disabled={isLoading}
                             title="Run the drawer as a saved Agent Studio profile"
-                            className="w-full truncate appearance-none rounded-md border border-qualcomm-blue/40 bg-qualcomm-blue/5 hover:bg-qualcomm-blue/10 pl-2.5 pr-8 py-1.5 text-sm font-semibold text-qualcomm-navy cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-qualcomm-blue/40 disabled:opacity-50"
+                            className="w-full truncate appearance-none rounded-md border border-brand-blue/40 bg-brand-blue/5 hover:bg-brand-blue/10 pl-2.5 pr-8 py-1.5 text-sm font-semibold text-brand-navy cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-brand-blue/40 disabled:opacity-50"
                         >
                             <option value="">{DEFAULT_AGENT_NAME} (default)</option>
                             {availableProfiles.map(p => {
@@ -118,7 +118,7 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                                 <option value={selectedProfileId}>Agent unavailable</option>
                             )}
                         </select>
-                        <ChevronDown className="w-4 h-4 text-qualcomm-blue absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <ChevronDown className="w-4 h-4 text-brand-blue absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     </div>
                     {canPin && (
                         <button
@@ -131,8 +131,8 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                                 ? `Pinned to "${activeTab?.name}" — click to unpin`
                                 : `Open "${activeTab?.name}" with ${nameOf(wouldPin)}`}
                             className={`shrink-0 p-1.5 rounded-md border transition-colors ${isPinnedHere
-                                ? 'border-qualcomm-blue/40 bg-qualcomm-blue text-white hover:bg-qualcomm-blue/90'
-                                : 'border-gray-200 text-gray-400 hover:text-qualcomm-blue hover:border-qualcomm-blue/40 hover:bg-qualcomm-blue/5'}`}
+                                ? 'border-brand-blue/40 bg-brand-blue text-white hover:bg-brand-blue/90'
+                                : 'border-gray-200 text-gray-400 hover:text-brand-blue hover:border-brand-blue/40 hover:bg-brand-blue/5'}`}
                         >
                             <Pin className={`w-4 h-4 ${isPinnedHere ? 'fill-current' : ''}`} />
                         </button>

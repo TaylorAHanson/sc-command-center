@@ -92,6 +92,11 @@ resources:
           # so the UI can label the browser tab; anything but "prod" is badged.
           - name: APP_ENVIRONMENT
             value: "${var.environment}"
+          # Brand name that older widget code uses in its colour classes
+          # (text-<brand>-blue); those are drawn as the app's brand-* colours.
+          # See var.brand for how to set it without committing a name here.
+          - name: APP_BRAND
+            value: "${var.brand}"
           - name: SQL_WAREHOUSE_ID
             value: "${var.sql_warehouse_id}"
           - name: USE_SP_FOR_JOBS
@@ -332,6 +337,9 @@ variables:
   environment:
     description: "Environment name (local, dev, stage, prod)"
     default: "local"
+  brand:
+    description: "Brand name used in saved widgets' colour classes (text-<brand>-blue, bg-<brand>-navy), which are then shown in the app's brand-* colours. Lowercase letters and digits. Set it at deploy time so the name stays out of the repo: `databricks bundle deploy -t prod --var brand=<name>`, or export BUNDLE_VAR_brand. It must be passed on every deploy, or it reverts to the default. The default, 'brand', means no alias."
+    default: "brand"
   source_code_path:
     description: "Path to source code in workspace"
     default: "."

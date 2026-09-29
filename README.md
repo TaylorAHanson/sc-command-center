@@ -31,7 +31,7 @@ The Enterprise Command Center is an enterprise application composed of a modern 
 
 ### Frontend
 - **Framework**: React Single Page Application (SPA) using TypeScript and Vite.
-- **Styling**: Tailwind CSS utilizing the Qualcomm brand color scheme.
+- **Styling**: Tailwind CSS utilizing the app's brand color scheme (`brand-navy`, `brand-blue`).
 - **Ecosystem**: A flexible widget-based architecture where individual widgets are isolated React components rendered within a responsive grid layout.
 
 ### Backend

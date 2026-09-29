@@ -70,7 +70,7 @@ export const CreatorLeaderboard: React.FC<{
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50">
         <div className="flex items-center gap-2">
           <Trophy className="w-4 h-4 text-amber-500" />
-          <h3 className="text-sm font-semibold text-qualcomm-navy">Top creators</h3>
+          <h3 className="text-sm font-semibold text-brand-navy">Top creators</h3>
         </div>
         <button onClick={onClose} className="p-1 rounded hover:bg-gray-200 text-gray-500" aria-label="Close leaderboard">
           <X className="w-4 h-4" />
@@ -116,11 +116,11 @@ export const CreatorLeaderboard: React.FC<{
 
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium text-qualcomm-navy truncate">
+                        <span className="text-sm font-medium text-brand-navy truncate">
                           {displayName(creator.username)}
                         </span>
                         {isMe && (
-                          <span className="text-[9px] uppercase font-bold tracking-wider text-qualcomm-blue bg-blue-50 border border-blue-100 px-1 rounded">
+                          <span className="text-[9px] uppercase font-bold tracking-wider text-brand-blue bg-blue-50 border border-blue-100 px-1 rounded">
                             you
                           </span>
                         )}

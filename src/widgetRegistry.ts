@@ -1,5 +1,6 @@
 import React from 'react';
 import { useScript } from './hooks/useScript';
+import { brandReady, withBrandColors } from './brand';
 
 // Define types broadly since we only need component matching
 export interface WidgetProps {
@@ -178,10 +179,10 @@ const lazyWidget = (key: string, source: () => Promise<string>): React.Component
       let alive = true;
       (async () => {
         try {
-          const Babel = await babelReady();
+          const [Babel] = await Promise.all([babelReady(), brandReady()]);
           const tsx = await source();
           if (!tsx) throw new Error('This version has no code stored.');
-          const built = compiled.get(key) || build(key, tsx, Babel);
+          const built = compiled.get(key) || build(key, withBrandColors(tsx), Babel);
           compiled.set(key, built);
           if (alive) setComponent(() => built);
         } catch (err) {

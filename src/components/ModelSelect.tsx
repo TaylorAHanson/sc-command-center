@@ -201,7 +201,7 @@ export const ModelSelect: React.FC<ModelSelectProps> = ({
                         'w-full rounded-md border pl-3 pr-9 py-2 text-sm font-mono focus:outline-none',
                         dark
                             ? 'bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500 focus:border-blue-500'
-                            : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-qualcomm-blue',
+                            : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-brand-blue',
                     )}
                 />
                 <button
@@ -263,7 +263,7 @@ export const ModelSelect: React.FC<ModelSelectProps> = ({
                                     dark ? 'text-slate-100' : 'text-gray-900',
                                 )}
                             >
-                                <Check size={13} className={clsx(selected ? 'opacity-100' : 'opacity-0', dark ? 'text-blue-400' : 'text-qualcomm-blue')} />
+                                <Check size={13} className={clsx(selected ? 'opacity-100' : 'opacity-0', dark ? 'text-blue-400' : 'text-brand-blue')} />
                                 {row ? (
                                     <span className="min-w-0 flex-1">
                                         <span className="block truncate font-mono text-[13px]">{row.name}</span>

@@ -24,13 +24,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     onCancel,
 }) => {
     const btnCls = {
-        primary: 'bg-qualcomm-blue hover:bg-blue-700 text-white',
+        primary: 'bg-brand-blue hover:bg-blue-700 text-white',
         warning: 'bg-amber-500 hover:bg-amber-600 text-white',
         danger: 'bg-red-600 hover:bg-red-700 text-white',
     }[variant];
 
     const iconCls = {
-        primary: 'text-qualcomm-blue bg-blue-50',
+        primary: 'text-brand-blue bg-blue-50',
         warning: 'text-amber-500 bg-amber-50',
         danger: 'text-red-500 bg-red-50',
     }[variant];

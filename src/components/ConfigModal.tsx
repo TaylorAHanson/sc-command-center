@@ -88,8 +88,8 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
                 <div className="flex items-center justify-between p-4 border-b border-gray-200">
                     <div className="flex items-center gap-2">
-                        <div className="p-1.5 bg-qualcomm-blue/10 rounded-md">
-                            <Settings className="w-5 h-5 text-qualcomm-blue" />
+                        <div className="p-1.5 bg-brand-blue/10 rounded-md">
+                            <Settings className="w-5 h-5 text-brand-blue" />
                         </div>
                         <h2 className="text-lg font-semibold text-gray-900">Configure Widget</h2>
                     </div>
@@ -115,7 +115,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
                                         <select
                                             value={formData[field.key] || ''}
                                             onChange={(e) => handleFormChange(field.key, e.target.value)}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-qualcomm-blue focus:border-qualcomm-blue text-sm"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-blue focus:border-brand-blue text-sm"
                                         >
                                             <option value="">-- Select --</option>
                                             {field.options?.map(opt => (
@@ -129,7 +129,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
                                             value={formData[field.key] || ''}
                                             onChange={(e) => handleFormChange(field.key, e.target.value)}
                                             placeholder={field.placeholder}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-qualcomm-blue focus:border-qualcomm-blue text-sm"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-blue focus:border-brand-blue text-sm"
                                             rows={3}
                                         />
                                     ) : (
@@ -138,7 +138,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
                                             value={formData[field.key] || ''}
                                             onChange={(e) => handleFormChange(field.key, e.target.value)}
                                             placeholder={field.placeholder}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-qualcomm-blue focus:border-qualcomm-blue text-sm"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-blue focus:border-brand-blue text-sm"
                                         />
                                     )}
 
@@ -157,7 +157,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
                                 <textarea
                                     value={jsonConfig}
                                     onChange={(e) => setJsonConfig(e.target.value)}
-                                    className="w-full h-32 px-3 py-2 border border-gray-300 rounded-md focus:ring-qualcomm-blue focus:border-qualcomm-blue text-sm font-mono"
+                                    className="w-full h-32 px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-blue focus:border-brand-blue text-sm font-mono"
                                     placeholder='{"key": "value"}'
                                 />
                                 <p className="text-xs text-gray-500 mt-1">
@@ -177,7 +177,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
                     </button>
                     <button
                         onClick={handleSave}
-                        className="px-4 py-2 text-sm font-medium text-white bg-qualcomm-blue rounded-md hover:bg-blue-600"
+                        className="px-4 py-2 text-sm font-medium text-white bg-brand-blue rounded-md hover:bg-blue-600"
                     >
                         Add Widget
                     </button>

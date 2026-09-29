@@ -219,7 +219,7 @@ export const RoleMappings: React.FC = () => {
                 <div className="p-6 border-b border-gray-200 flex justify-between items-center">
                     <div>
                         <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                            <Shield className="text-qualcomm-blue" size={20} />
+                            <Shield className="text-brand-blue" size={20} />
                             Role to Domain Mappings
                         </h2>
                         <p className="text-sm text-gray-500 mt-1">
@@ -228,7 +228,7 @@ export const RoleMappings: React.FC = () => {
                     </div>
                     <button
                         onClick={fetchMappings}
-                        className="p-2 text-gray-400 hover:text-qualcomm-blue transition-colors rounded-lg hover:bg-gray-50 bg-gray-50/50"
+                        className="p-2 text-gray-400 hover:text-brand-blue transition-colors rounded-lg hover:bg-gray-50 bg-gray-50/50"
                         title="Refresh mappings"
                     >
                         <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
@@ -256,7 +256,7 @@ export const RoleMappings: React.FC = () => {
                             <button
                                 type="submit"
                                 disabled={isSavingGlobal || !newGlobalAdminRole.trim() || !principalAllowsSave(globalVerdict, newGlobalAdminRole)}
-                                className="mt-6 px-4 py-2 bg-qualcomm-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
+                                className="mt-6 px-4 py-2 bg-brand-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
                             >
                                 <Shield size={16} />
                                 {isSavingGlobal ? 'Adding...' : 'Grant Global Admin'}
@@ -292,7 +292,7 @@ export const RoleMappings: React.FC = () => {
                                 <select
                                     value={newPermission}
                                     onChange={(e) => setNewPermission(e.target.value as 'viewer' | 'editor' | 'admin')}
-                                    className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
+                                    className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue"
                                 >
                                     <option value="viewer">Viewer</option>
                                     <option value="editor">Editor</option>
@@ -302,7 +302,7 @@ export const RoleMappings: React.FC = () => {
                             <button
                                 type="submit"
                                 disabled={isSaving || !newRole.trim() || !newDomain.trim() || !principalAllowsSave(newVerdict, newRole)}
-                                className="mt-6 px-4 py-2 bg-qualcomm-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
+                                className="mt-6 px-4 py-2 bg-brand-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
                             >
                                 <Plus size={16} />
                                 {isSaving ? 'Adding...' : 'Add Mapping'}
@@ -341,7 +341,7 @@ export const RoleMappings: React.FC = () => {
                                         <tr key={mapping.id} className="hover:bg-gray-50 group">
                                             {editingId === mapping.id ? (
                                                 <>
-                                                    <td className="px-6 py-4 whitespace-nowrap border-l-[3px] border-qualcomm-blue">
+                                                    <td className="px-6 py-4 whitespace-nowrap border-l-[3px] border-brand-blue">
                                                         <DomainSelect
                                                             value={editDomain}
                                                             onChange={setEditDomain}
@@ -365,7 +365,7 @@ export const RoleMappings: React.FC = () => {
                                                         <select
                                                             value={editPermission}
                                                             onChange={(e) => setEditPermission(e.target.value as 'viewer' | 'editor' | 'admin')}
-                                                            className="w-full bg-white border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:border-qualcomm-blue"
+                                                            className="w-full bg-white border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:border-brand-blue"
                                                         >
                                                             <option value="viewer">Viewer</option>
                                                             <option value="editor">Editor</option>
@@ -397,7 +397,7 @@ export const RoleMappings: React.FC = () => {
                                                 </>
                                             ) : (
                                                 <>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border-l-[3px] border-transparent group-hover:border-qualcomm-blue transition-colors">
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border-l-[3px] border-transparent group-hover:border-brand-blue transition-colors">
                                                         {mapping.domain}
                                                         {domains && !knownDomain(mapping.domain) && (
                                                             <span className="ml-2 inline-flex items-center gap-1 text-[11px] font-normal text-amber-700" title="Not in Categories & Domains, so no widget or view can be filed under it.">
@@ -420,7 +420,7 @@ export const RoleMappings: React.FC = () => {
                                                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                             <button
                                                                 onClick={() => startEditing(mapping)}
-                                                                className="text-gray-400 hover:text-qualcomm-blue transition-colors p-1 rounded-md hover:bg-blue-50"
+                                                                className="text-gray-400 hover:text-brand-blue transition-colors p-1 rounded-md hover:bg-blue-50"
                                                                 title="Edit mapping"
                                                             >
                                                                 <Pencil size={16} />
@@ -481,7 +481,7 @@ const DomainSelect: React.FC<{
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 aria-label="Mapped domain"
-                className={`w-full bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-qualcomm-blue focus:border-qualcomm-blue ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}
+                className={`w-full bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}
             >
                 <option value="" disabled>{domains === null ? 'Loading domains…' : 'Choose a domain'}</option>
                 {stale && <option value={stale}>{stale} (not a domain)</option>}

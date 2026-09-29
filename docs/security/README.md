@@ -25,7 +25,7 @@ cosmetic.
 
 Status values used in every table: **In place** (shipped, has a code path),
 **Committed** (agreed, not yet built), **Proposed** (offered, awaiting a
-decision), **Platform** (belongs to Databricks or Qualcomm IT, not this repo).
+decision), **Platform** (belongs to Databricks or corporate IT, not this repo).
 
 ## Primary controls already in the product
 

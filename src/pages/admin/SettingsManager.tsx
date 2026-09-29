@@ -196,7 +196,7 @@ export const SettingsManager: React.FC = () => {
                     onChange={e => edit(setting.key, e.target.value)}
                     aria-label={setting.label}
                     placeholder='{"model-name": {"reasoning_effort": "medium"}}'
-                    className={`w-full rounded-md border px-3 py-2 font-mono text-xs text-gray-900 focus:outline-none ${jsonProblem(draft[setting.key]) ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-qualcomm-blue'}`}
+                    className={`w-full rounded-md border px-3 py-2 font-mono text-xs text-gray-900 focus:outline-none ${jsonProblem(draft[setting.key]) ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-brand-blue'}`}
                 />
             ) : setting.kind === 'bool' ? (
                 // Written as an explicit "true"/"false" rather than cleared when
@@ -208,7 +208,7 @@ export const SettingsManager: React.FC = () => {
                         checked={(draft[setting.key] ?? '').trim().toLowerCase() !== 'false'}
                         onChange={e => edit(setting.key, e.target.checked ? 'true' : 'false')}
                         aria-label={setting.label}
-                        className="h-4 w-4 rounded border-gray-300 text-qualcomm-blue focus:ring-qualcomm-blue"
+                        className="h-4 w-4 rounded border-gray-300 text-brand-blue focus:ring-brand-blue"
                     />
                     {(draft[setting.key] ?? '').trim().toLowerCase() !== 'false' ? 'Allowed' : 'Blocked'}
                 </label>
@@ -220,7 +220,7 @@ export const SettingsManager: React.FC = () => {
                     value={draft[setting.key] ?? ''}
                     onChange={e => edit(setting.key, e.target.value)}
                     aria-label={setting.label}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-qualcomm-blue focus:outline-none"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-brand-blue focus:outline-none"
                 />
             )}
             {setting.kind === 'json' && jsonProblem(draft[setting.key]) && !fieldErrors[setting.key] && (
@@ -252,7 +252,7 @@ export const SettingsManager: React.FC = () => {
                     <div key={card.group.key} className="rounded-lg border border-gray-200 bg-white">
                         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
                             <div className="flex items-center gap-2">
-                                {index === 0 && <Sliders size={16} className="text-qualcomm-blue" />}
+                                {index === 0 && <Sliders size={16} className="text-brand-blue" />}
                                 <h2 className="text-base font-semibold text-gray-900">{card.group.label}</h2>
                             </div>
                             {index === 0 && (
@@ -289,7 +289,7 @@ export const SettingsManager: React.FC = () => {
                     className={clsx(
                         'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors',
                         changed.length && !saving
-                            ? 'bg-qualcomm-blue text-white hover:opacity-90'
+                            ? 'bg-brand-blue text-white hover:opacity-90'
                             : 'cursor-not-allowed bg-gray-200 text-gray-500',
                     )}
                 >

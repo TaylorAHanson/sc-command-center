@@ -34,7 +34,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         onClick={() => setActiveTab('views')}
                         className={clsx(
                             "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
-                            activeTab === 'views' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                            activeTab === 'views' ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-100"
                         )}
                     >
                         <LayoutGrid size={16} />
@@ -44,7 +44,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         onClick={() => setActiveTab('widgets')}
                         className={clsx(
                             "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
-                            activeTab === 'widgets' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                            activeTab === 'widgets' ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-100"
                         )}
                     >
                         <Layers size={16} />
@@ -54,7 +54,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         onClick={() => setActiveTab('taxonomy')}
                         className={clsx(
                             "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
-                            activeTab === 'taxonomy' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                            activeTab === 'taxonomy' ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-100"
                         )}
                     >
                         <Tag size={16} />
@@ -64,7 +64,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         onClick={() => setActiveTab('roles')}
                         className={clsx(
                             "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
-                            activeTab === 'roles' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                            activeTab === 'roles' ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-100"
                         )}
                     >
                         <Shield size={16} />
@@ -75,7 +75,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                             onClick={() => setActiveTab('settings')}
                             className={clsx(
                                 "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
-                                activeTab === 'settings' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                                activeTab === 'settings' ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-100"
                             )}
                         >
                             <Sliders size={16} />
@@ -87,7 +87,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                             onClick={() => setActiveTab('migration')}
                             className={clsx(
                                 "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
-                                activeTab === 'migration' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                                activeTab === 'migration' ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-100"
                             )}
                         >
                             <ArrowRightLeft size={16} />
@@ -98,7 +98,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         onClick={() => setActiveTab('logs')}
                         className={clsx(
                             "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
-                            activeTab === 'logs' ? "bg-qualcomm-blue text-white" : "text-gray-600 hover:bg-gray-100"
+                            activeTab === 'logs' ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-100"
                         )}
                     >
                         <List size={16} />

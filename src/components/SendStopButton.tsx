@@ -30,7 +30,7 @@ export const SendStopButton: React.FC<{
     const keepFocus = (e: React.MouseEvent) => e.preventDefault();
     const tone = variant === 'dark'
         ? { send: 'bg-indigo-600 hover:bg-indigo-500 text-white', stop: 'bg-rose-600 hover:bg-rose-500 text-white' }
-        : { send: 'bg-qualcomm-blue hover:bg-qualcomm-navy text-white', stop: 'bg-rose-500 hover:bg-rose-600 text-white' };
+        : { send: 'bg-brand-blue hover:bg-brand-navy text-white', stop: 'bg-rose-500 hover:bg-rose-600 text-white' };
 
     if (running) {
         return (

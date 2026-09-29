@@ -529,8 +529,8 @@ export const UserGuidePage: React.FC = () => {
       {/* Left Sidebar Menu */}
       <div className="w-64 border-r border-gray-200 bg-gray-50 flex flex-col">
         <div className="p-4 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-qualcomm-navy flex items-center gap-2">
-            <Book className="w-5 h-5 text-qualcomm-blue" />
+          <h1 className="text-lg font-bold text-brand-navy flex items-center gap-2">
+            <Book className="w-5 h-5 text-brand-blue" />
             Documentation
           </h1>
         </div>
@@ -551,7 +551,7 @@ export const UserGuidePage: React.FC = () => {
                     className={clsx(
                       "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors text-left",
                       activeSection === section.id
-                        ? "bg-qualcomm-blue text-white"
+                        ? "bg-brand-blue text-white"
                         : "text-gray-600 hover:bg-gray-200 hover:text-gray-900"
                     )}
                   >

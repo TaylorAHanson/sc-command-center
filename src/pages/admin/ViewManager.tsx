@@ -366,7 +366,7 @@ export const ViewManager: React.FC = () => {
                     {env !== 'dev' && viewEntry.dev && currentVersion < viewEntry.maxVersion && (
                         <button
                             onClick={() => handleRequestPromotion(viewEntry.name, env)}
-                            className="text-xs p-1 text-gray-500 hover:text-qualcomm-blue"
+                            className="text-xs p-1 text-gray-500 hover:text-brand-blue"
                             title="Request Promotion"
                         >
                             <MailPlus size={14} />
@@ -381,7 +381,7 @@ export const ViewManager: React.FC = () => {
                 <select
                     value={currentVersion}
                     onChange={(e) => handleVersionChange(viewEntry.id, viewEntry.name, parseInt(e.target.value), env, viewEntry)}
-                    className="appearance-none w-32 py-1.5 pl-3 pr-8 text-sm font-mono border border-gray-300 bg-white rounded-md focus:outline-none focus:ring-2 focus:ring-qualcomm-blue focus:border-qualcomm-blue"
+                    className="appearance-none w-32 py-1.5 pl-3 pr-8 text-sm font-mono border border-gray-300 bg-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue"
                 >
                     <option value={0}>None</option>
                     {options.map(v => (
@@ -406,7 +406,7 @@ export const ViewManager: React.FC = () => {
                     {canCreateGlobalView && (
                         <button
                             onClick={() => setIsCreateModalOpen(true)}
-                            className="px-4 py-2 bg-qualcomm-blue text-white rounded-md hover:bg-blue-700 transition text-sm font-medium flex items-center gap-2"
+                            className="px-4 py-2 bg-brand-blue text-white rounded-md hover:bg-blue-700 transition text-sm font-medium flex items-center gap-2"
                         >
                             <Plus size={16} />
                             Create Global View
@@ -414,7 +414,7 @@ export const ViewManager: React.FC = () => {
                     )}
                     <button
                         onClick={loadAll}
-                        className="p-2 text-gray-500 hover:text-qualcomm-blue hover:bg-blue-50 rounded-md transition"
+                        className="p-2 text-gray-500 hover:text-brand-blue hover:bg-blue-50 rounded-md transition"
                         title="Refresh View Environments"
                     >
                         <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
@@ -430,7 +430,7 @@ export const ViewManager: React.FC = () => {
                         placeholder="Search views by name..."
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-4 py-1.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-qualcomm-blue focus:border-qualcomm-blue text-sm"
+                        className="w-full pl-9 pr-4 py-1.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-brand-blue focus:border-brand-blue text-sm"
                     />
                 </div>
                 <div className="flex items-center gap-2">
@@ -439,7 +439,7 @@ export const ViewManager: React.FC = () => {
                         <select
                             value={selectedDomain}
                             onChange={e => setSelectedDomain(e.target.value)}
-                            className="appearance-none py-1.5 pl-3 pr-8 border border-gray-300 rounded-md focus:ring-2 focus:ring-qualcomm-blue focus:border-qualcomm-blue text-sm"
+                            className="appearance-none py-1.5 pl-3 pr-8 border border-gray-300 rounded-md focus:ring-2 focus:ring-brand-blue focus:border-brand-blue text-sm"
                         >
                             {allDomains.map((d: string) => (
                                 <option key={d} value={d}>{d}</option>
@@ -499,7 +499,7 @@ export const ViewManager: React.FC = () => {
                                             <td className="px-4 py-4">
                                                 <button
                                                     onClick={() => setHistoryView(v)}
-                                                    className="text-xs text-qualcomm-blue hover:underline whitespace-nowrap"
+                                                    className="text-xs text-brand-blue hover:underline whitespace-nowrap"
                                                 >
                                                     Version History
                                                 </button>
@@ -539,7 +539,7 @@ export const ViewManager: React.FC = () => {
                                         value={newViewName}
                                         onChange={(e) => setNewViewName(e.target.value)}
                                         placeholder="e.g., Executive Summary"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:border-qualcomm-blue focus:ring-1 focus:ring-qualcomm-blue"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:border-brand-blue focus:ring-1 focus:ring-brand-blue"
                                         autoFocus
                                     />
                                 </div>
@@ -552,7 +552,7 @@ export const ViewManager: React.FC = () => {
                                             id="viewDomain"
                                             value={newViewDomain}
                                             onChange={(e) => setNewViewDomain(e.target.value)}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:border-qualcomm-blue focus:ring-1 focus:ring-qualcomm-blue appearance-none"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:border-brand-blue focus:ring-1 focus:ring-brand-blue appearance-none"
                                         >
                                             {taxonomyDomains === null && <option value={newViewDomain}>Loading domains…</option>}
                                             {creatableDomains.map(d => <option key={d} value={d}>{d}</option>)}
@@ -578,14 +578,14 @@ export const ViewManager: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => setIsCreateModalOpen(false)}
-                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-qualcomm-blue"
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={isCreating || !newViewName.trim() || !creatableDomains.includes(newViewDomain)}
-                                    className="px-4 py-2 text-sm font-medium text-white bg-qualcomm-blue border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-qualcomm-blue disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                    className="px-4 py-2 text-sm font-medium text-white bg-brand-blue border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
                                     {isCreating && <RefreshCw size={14} className="animate-spin" />}
                                     Create View

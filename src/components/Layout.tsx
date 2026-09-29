@@ -34,7 +34,7 @@ const ReleaseNotesPage = React.lazy(() => pageImports['release-notes']().then(m 
 
 const PageLoading: React.FC = () => (
   <div className="flex items-center justify-center h-full w-full text-gray-400">
-    <div className="w-6 h-6 border-2 border-qualcomm-blue border-t-transparent rounded-full animate-spin" />
+    <div className="w-6 h-6 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
   </div>
 );
 
@@ -209,7 +209,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     <div className="flex h-screen bg-gray-100 overflow-hidden">
       {/* Sidebar */}
       <div className={clsx(
-        "bg-qualcomm-navy text-white transition-all duration-300 flex flex-col border-r border-gray-800",
+        "bg-brand-navy text-white transition-all duration-300 flex flex-col border-r border-gray-800",
         isSidebarOpen ? "w-64" : "w-16"
       )}>
         <div className="h-14 flex items-center px-4 border-b border-gray-700 bg-opacity-50">
@@ -243,7 +243,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         className={clsx(
                           "group relative",
                           isDragging && "opacity-50",
-                          isDragOver && draggedTabIndex !== null && draggedTabIndex !== index && "border-t-2 border-qualcomm-blue"
+                          isDragOver && draggedTabIndex !== null && draggedTabIndex !== index && "border-t-2 border-brand-blue"
                         )}
                         draggable={!isEditing}
                         onDragStart={(e) => {
@@ -300,7 +300,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                                 setEditName('');
                               }}
                               autoFocus
-                              className="flex-1 bg-gray-700 text-white px-2 py-1 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-qualcomm-blue"
+                              className="flex-1 bg-gray-700 text-white px-2 py-1 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-blue"
                               onClick={(e) => e.stopPropagation()}
                             />
                           </div>
@@ -313,7 +313,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                             className={clsx(
                               "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between cursor-pointer",
                               activeTabId === tab.id && currentPage === null
-                                ? "bg-qualcomm-blue text-white"
+                                ? "bg-brand-blue text-white"
                                 : "text-gray-300 hover:bg-gray-800 hover:text-white"
                             )}
                           >
@@ -334,7 +334,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                                   setEditingTabId(tab.id);
                                   setEditName(tab.name);
                                 }}
-                                className="hover:bg-qualcomm-blue/20 rounded p-0.5 transition-colors"
+                                className="hover:bg-brand-blue/20 rounded p-0.5 transition-colors"
                                 title="Rename View"
                                 type="button"
                               >
@@ -389,7 +389,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                             className={clsx(
                               "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
                               isViewing && currentPage === null
-                                ? "bg-qualcomm-blue text-white"
+                                ? "bg-brand-blue text-white"
                                 : "text-gray-300 hover:bg-gray-800 hover:text-white"
                             )}
                           >
@@ -431,7 +431,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                           className={clsx(
                             "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
                             isViewing && currentPage === null
-                              ? "bg-qualcomm-blue text-white"
+                              ? "bg-brand-blue text-white"
                               : "text-gray-300 hover:bg-gray-800 hover:text-white"
                           )}
                         >
@@ -442,7 +442,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                             e.stopPropagation();
                             duplicateView(template.id);
                           }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-qualcomm-blue/20 rounded transition-all text-gray-400 hover:text-qualcomm-blue"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-brand-blue/20 rounded transition-all text-gray-400 hover:text-brand-blue"
                           title="Copy this template to My Views"
                         >
                           <Copy className="w-3.5 h-3.5" />
@@ -460,26 +460,26 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <div className="p-3">
                 <button
                   onClick={() => setTrayOpen(true)}
-                  className="w-full px-3 py-2 border border-gray-600 hover:border-qualcomm-blue hover:text-qualcomm-blue rounded-md text-sm text-gray-400 transition-colors flex items-center justify-center gap-2 group"
+                  className="w-full px-3 py-2 border border-gray-600 hover:border-brand-blue hover:text-brand-blue rounded-md text-sm text-gray-400 transition-colors flex items-center justify-center gap-2 group"
                 >
-                  <LayoutGrid className="w-4 h-4 group-hover:text-qualcomm-blue" />
+                  <LayoutGrid className="w-4 h-4 group-hover:text-brand-blue" />
                   Widget Library (w)
                 </button>
                 {canCreateWidgets && (
                   <button
                     onClick={() => setCurrentPage('studio')}
-                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'studio' ? "bg-qualcomm-blue border-transparent text-white" : "border-gray-600 hover:border-qualcomm-blue hover:text-qualcomm-blue text-gray-400")}
+                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400")}
                   >
-                    <Code className="w-4 h-4 group-hover:text-qualcomm-blue" />
+                    <Code className="w-4 h-4 group-hover:text-brand-blue" />
                     Widget Studio
                   </button>
                 )}
                 {canCreateWidgets && (
                   <button
                     onClick={() => setCurrentPage('agent-studio')}
-                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'agent-studio' ? "bg-qualcomm-blue border-transparent text-white" : "border-gray-600 hover:border-qualcomm-blue hover:text-qualcomm-blue text-gray-400")}
+                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'agent-studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400")}
                   >
-                    <Bot className="w-4 h-4 group-hover:text-qualcomm-blue" />
+                    <Bot className="w-4 h-4 group-hover:text-brand-blue" />
                     Agent Studio
                   </button>
                 )}
@@ -491,16 +491,16 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   Resources
                 </div>
                 <div className="space-y-1">
-                  <button onClick={() => setCurrentPage('user-guide')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'user-guide' ? "bg-qualcomm-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
+                  <button onClick={() => setCurrentPage('user-guide')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'user-guide' ? "bg-brand-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
                     <BookOpen className="w-4 h-4" />
                     <span>User Guide</span>
                   </button>
-                  <button onClick={() => setCurrentPage('release-notes')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'release-notes' ? "bg-qualcomm-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
+                  <button onClick={() => setCurrentPage('release-notes')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'release-notes' ? "bg-brand-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
                     <ScrollText className="w-4 h-4" />
                     <span>Release Notes</span>
                   </button>
                   {canAccessAdmin && (
-                    <button onClick={() => setCurrentPage('admin')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'admin' ? "bg-qualcomm-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
+                    <button onClick={() => setCurrentPage('admin')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'admin' ? "bg-brand-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
                       <Shield className="w-4 h-4" />
                       <span>Admin Panel</span>
                     </button>
@@ -518,7 +518,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         {!isFullScreenStudio && (
           <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
             <div className="flex items-center gap-4">
-              <h1 className="text-lg font-semibold text-qualcomm-navy">
+              <h1 className="text-lg font-semibold text-brand-navy">
                 {currentPage === 'admin' ? 'Admin Panel' : (
                   activeTab?.is_global && !isAdmin
                     ? `${activeTab.name} (Read-Only)`
@@ -537,7 +537,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         toggleLock(activeTabId);
                       }
                     }}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
                     title={tabs.find(t => t.id === activeTabId)?.locked ? "Unlock View" : "Lock View"}
                   >
                     {tabs.find(t => t.id === activeTabId)?.locked ? (
@@ -573,7 +573,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         }
                       }
                     }}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-qualcomm-blue hover:bg-gray-100 rounded-md transition-colors"
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
                     title="Share View"
                   >
                     {shareLinkCopied ? (
@@ -645,12 +645,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             onMouseDown={(e) => { e.preventDefault(); setIsResizingAgent(true); }}
             className={clsx(
               'absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-10 group',
-              'hover:bg-qualcomm-blue/30 transition-colors',
-              isResizingAgent && 'bg-qualcomm-blue/40'
+              'hover:bg-brand-blue/30 transition-colors',
+              isResizingAgent && 'bg-brand-blue/40'
             )}
             title="Drag to resize"
           >
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-10 w-1 rounded-full bg-gray-300 group-hover:bg-qualcomm-blue transition-colors" />
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-10 w-1 rounded-full bg-gray-300 group-hover:bg-brand-blue transition-colors" />
           </div>
           <AgentPanel chat={agentChat} onCollapse={() => setAgentOpen(false)} />
         </div>
@@ -660,7 +660,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       {!isFullScreenStudio && !isAgentOpen && (
         <button
           onClick={() => setAgentOpen(true)}
-          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-4 pr-5 py-3 bg-qualcomm-navy text-white rounded-full shadow-lg shadow-qualcomm-navy/40 hover:bg-qualcomm-blue hover:shadow-xl transition-all group"
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-4 pr-5 py-3 bg-brand-navy text-white rounded-full shadow-lg shadow-brand-navy/40 hover:bg-brand-blue hover:shadow-xl transition-all group"
           title="Open EDH Agent"
         >
           {agentChat.isLoading && (

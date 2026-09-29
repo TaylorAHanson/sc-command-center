@@ -69,7 +69,7 @@ const ShareWidgetButton: React.FC<{ onShare: () => Promise<boolean> }> = ({ onSh
           window.setTimeout(() => setCopied(false), 1800);
         }
       }}
-      className={`transition-colors ${copied ? 'text-green-600' : 'text-gray-400 hover:text-qualcomm-blue'}`}
+      className={`transition-colors ${copied ? 'text-green-600' : 'text-gray-400 hover:text-brand-blue'}`}
       title={copied ? 'Link copied!' : 'Copy direct link to this widget'}
     >
       {copied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
@@ -499,7 +499,7 @@ const DashboardGrid: React.FC = () => {
                     e.stopPropagation();
                     window.open(url, '_blank');
                   }}
-                  className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+                  className="text-gray-400 hover:text-brand-blue transition-colors"
                   title="Open in New Tab"
                 >
                   <ExternalLink className="w-4 h-4" />
@@ -567,7 +567,7 @@ const DashboardGrid: React.FC = () => {
                 <React.Suspense fallback={
                   <div className="flex items-center justify-center h-full w-full text-gray-400">
                     <div className="animate-pulse flex flex-col items-center">
-                      <div className="w-6 h-6 border-2 border-qualcomm-blue border-t-transparent rounded-full animate-spin mb-2"></div>
+                      <div className="w-6 h-6 border-2 border-brand-blue border-t-transparent rounded-full animate-spin mb-2"></div>
                       <span className="text-xs">Loading Widget...</span>
                     </div>
                   </div>
@@ -592,10 +592,14 @@ const DashboardGrid: React.FC = () => {
 
 import { loadCustomWidgets } from './widgetRegistry';
 import { getAppEnvironment } from './api';
+import { brandReady } from './brand';
 
 function App() {
   useEffect(() => {
     loadCustomWidgets();
+    // Widget Studio and the admin preview compile synchronously, so the brand has
+    // to be known before either opens rather than fetched when they do.
+    brandReady();
   }, []);
 
   // The tab title is the only cue that tells someone with dev, stage and prod

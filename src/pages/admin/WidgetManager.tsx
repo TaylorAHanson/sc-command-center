@@ -5,6 +5,7 @@ import { ConfirmModal } from '../../components/ConfirmModal';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { captureWidgetThumbnail } from '../../components/ThumbnailCapture';
 import { widgetRegistry } from '../../widgetRegistry';
+import { withBrandColors } from '../../brand';
 import { ENVS, canPromote, certifyWidget, sourceEnvFor, transferWidget } from '../../promotion';
 import type { Env } from '../../promotion';
 
@@ -87,7 +88,7 @@ const LiveWidgetRenderer: React.FC<{ tsxCode: string }> = ({ tsxCode }) => {
             // runtime ES `import`/`export` to CommonJS so widgets authored with
             // `import` statements don't throw "Cannot use import statement outside a
             // module".
-            const stripped = runtime.Babel.transform(tsxCode, {
+            const stripped = runtime.Babel.transform(withBrandColors(tsxCode), {
                 filename: 'widget.tsx',
                 presets: ['react', 'typescript']
             }).code;
@@ -290,7 +291,7 @@ const EnvVersionSelect: React.FC<{
                 value={currentVersion}
                 disabled={disabled}
                 onChange={(e) => onChange(parseInt(e.target.value))}
-                className="appearance-none w-32 py-1.5 pl-3 pr-8 text-sm font-mono border border-gray-300 bg-white rounded-md focus:outline-none focus:ring-2 focus:ring-qualcomm-blue focus:border-qualcomm-blue disabled:opacity-50 disabled:cursor-not-allowed"
+                className="appearance-none w-32 py-1.5 pl-3 pr-8 text-sm font-mono border border-gray-300 bg-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50 disabled:cursor-not-allowed"
             >
                 <option value={0}>None</option>
                 {options.map(v => (
@@ -342,7 +343,7 @@ const PreviewModal: React.FC<{
                         <select
                             value={previewVersion}
                             onChange={e => setPreviewVersion(parseInt(e.target.value))}
-                            className="appearance-none w-32 py-1.5 pl-3 pr-8 text-sm font-mono border border-gray-300 bg-white rounded-md focus:outline-none focus:ring-2 focus:ring-qualcomm-blue"
+                            className="appearance-none w-32 py-1.5 pl-3 pr-8 text-sm font-mono border border-gray-300 bg-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue"
                         >
                             {options.map(v => (
                                 <option key={v} value={v}>v{v}</option>
@@ -637,7 +638,7 @@ export const WidgetManager: React.FC = () => {
                         {currentVersion > 0 ? `v${currentVersion}` : 'None'}
                     </span>
                     {env !== 'dev' && w.dev && currentVersion < w.maxVersion && (
-                        <button onClick={() => handleRequestPromotion(w.name, env)} className="text-xs p-1 text-gray-500 hover:text-qualcomm-blue" title="Request Promotion">
+                        <button onClick={() => handleRequestPromotion(w.name, env)} className="text-xs p-1 text-gray-500 hover:text-brand-blue" title="Request Promotion">
                             <MailPlus size={14} />
                         </button>
                     )}
@@ -680,7 +681,7 @@ export const WidgetManager: React.FC = () => {
                 <div className="flex items-center gap-3">
                     {backfillState.running ? (
                         <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-md px-3 py-1.5">
-                            <RefreshCw size={14} className="animate-spin text-qualcomm-blue" />
+                            <RefreshCw size={14} className="animate-spin text-brand-blue" />
                             <div className="text-xs text-gray-700">
                                 <div className="font-medium">Backfilling thumbnails…</div>
                                 <div className="text-gray-500">
@@ -701,7 +702,7 @@ export const WidgetManager: React.FC = () => {
                             <button
                                 onClick={() => startBackfill('missing')}
                                 disabled={widgetsMissingThumbnails === 0}
-                                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 border border-gray-200 text-gray-700 rounded-l-md hover:border-qualcomm-blue hover:text-qualcomm-blue transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 border border-gray-200 text-gray-700 rounded-l-md hover:border-brand-blue hover:text-brand-blue transition disabled:opacity-50 disabled:cursor-not-allowed"
                                 title={widgetsMissingThumbnails === 0 ? 'All widgets have thumbnails' : `Generate thumbnails for ${widgetsMissingThumbnails} widget${widgetsMissingThumbnails === 1 ? '' : 's'} missing one`}
                             >
                                 <Camera size={14} />
@@ -712,7 +713,7 @@ export const WidgetManager: React.FC = () => {
                             </button>
                             <button
                                 onClick={() => startBackfill('all')}
-                                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 border border-l-0 border-gray-200 text-gray-700 rounded-r-md hover:border-qualcomm-blue hover:text-qualcomm-blue transition"
+                                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 border border-l-0 border-gray-200 text-gray-700 rounded-r-md hover:border-brand-blue hover:text-brand-blue transition"
                                 title="Re-render and capture thumbnails for every widget. Useful after a partial backfill or large widget code changes."
                             >
                                 <RefreshCw size={14} />
@@ -720,7 +721,7 @@ export const WidgetManager: React.FC = () => {
                             </button>
                         </div>
                     )}
-                    <button onClick={loadAll} className="p-2 text-gray-500 hover:text-qualcomm-blue hover:bg-blue-50 rounded-md transition" title="Refresh">
+                    <button onClick={loadAll} className="p-2 text-gray-500 hover:text-brand-blue hover:bg-blue-50 rounded-md transition" title="Refresh">
                         <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
                     </button>
                 </div>
@@ -734,7 +735,7 @@ export const WidgetManager: React.FC = () => {
                         placeholder="Search widgets..."
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-4 py-1.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-qualcomm-blue focus:border-qualcomm-blue text-sm"
+                        className="w-full pl-9 pr-4 py-1.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-brand-blue focus:border-brand-blue text-sm"
                     />
                 </div>
                 <div className="flex items-center gap-2">
@@ -743,7 +744,7 @@ export const WidgetManager: React.FC = () => {
                         <select
                             value={selectedDomain}
                             onChange={e => setSelectedDomain(e.target.value)}
-                            className="appearance-none py-1.5 pl-3 pr-8 border border-gray-300 rounded-md focus:ring-2 focus:ring-qualcomm-blue focus:border-qualcomm-blue text-sm"
+                            className="appearance-none py-1.5 pl-3 pr-8 border border-gray-300 rounded-md focus:ring-2 focus:ring-brand-blue focus:border-brand-blue text-sm"
                         >
                             {allDomains.map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
@@ -807,7 +808,7 @@ export const WidgetManager: React.FC = () => {
                                             <td className="px-4 py-4">
                                                 <button
                                                     onClick={() => setHistoryWidget(w)}
-                                                    className="text-xs text-qualcomm-blue hover:underline whitespace-nowrap"
+                                                    className="text-xs text-brand-blue hover:underline whitespace-nowrap"
                                                 >
                                                     Version History
                                                 </button>

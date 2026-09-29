@@ -61,7 +61,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
     <div
       ref={ref}
       style={style}
-      className={`${className} ${className_rgl} bg-white text-qualcomm-navy shadow-sm rounded-lg border border-gray-200 flex flex-col overflow-hidden`}
+      className={`${className} ${className_rgl} bg-white text-brand-navy shadow-sm rounded-lg border border-gray-200 flex flex-col overflow-hidden`}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
       onTouchEnd={onTouchEnd}
@@ -93,8 +93,8 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
               </select>
               {latestVersion && latestVersion > version && (
                 <span className="absolute top-1 right-1 flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-qualcomm-blue opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-qualcomm-blue"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-blue opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-brand-blue"></span>
                 </span>
               )}
             </div>
@@ -110,7 +110,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
                 e.stopPropagation();
                 setIsHelpOpen(true);
               }}
-              className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+              className="text-gray-400 hover:text-brand-blue transition-colors"
               title="Help"
             >
               <HelpCircle className="w-4 h-4" />
@@ -122,7 +122,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
                 e.stopPropagation(); // prevent drag start
                 onConfigure();
               }}
-              className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+              className="text-gray-400 hover:text-brand-blue transition-colors"
               title="Configure Widget"
             >
               <Settings className="w-4 h-4" />
@@ -134,7 +134,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
                 e.stopPropagation(); // prevent drag start
                 onFullscreen();
               }}
-              className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+              className="text-gray-400 hover:text-brand-blue transition-colors"
               title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             >
               {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -179,8 +179,8 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-qualcomm-blue/10 rounded-lg">
-                  <HelpCircle className="w-5 h-5 text-qualcomm-blue" />
+                <div className="p-2 bg-brand-blue/10 rounded-lg">
+                  <HelpCircle className="w-5 h-5 text-brand-blue" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 tracking-tight">{title} - Help</h3>
               </div>

@@ -72,7 +72,7 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
                             <ArrowLeft className="w-5 h-5 text-gray-600" />
                         </button>
                     )}
-                    <h1 className="text-2xl font-bold text-qualcomm-navy">Action Logs (Telemetry)</h1>
+                    <h1 className="text-2xl font-bold text-brand-navy">Action Logs (Telemetry)</h1>
                 </div>
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -81,14 +81,14 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
                         placeholder="Search logs..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-qualcomm-blue focus:border-qualcomm-blue text-sm"
+                        className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-brand-blue focus:border-brand-blue text-sm"
                     />
                 </div>
             </div>
 
             {loading ? (
                 <div className="flex-1 flex items-center justify-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-qualcomm-blue" />
+                    <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
                 </div>
             ) : (
                 <div className="flex-1 overflow-auto bg-white rounded-lg shadow border border-gray-200">

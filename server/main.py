@@ -217,12 +217,14 @@ async def health_check():
     # `environment` rides along here rather than on its own route because the SPA
     # needs it before auth resolves (it labels the browser tab) and this is the
     # one endpoint that answers unauthenticated.
-    from config.settings import get_app_environment
+    from config.settings import get_app_brand, get_app_environment
     import db_pool
     return {
         "status": "healthy",
         "service": "Enterprise Command Center",
         "environment": get_app_environment(),
+        # Needed before any widget compiles; see config.settings.get_app_brand.
+        "brand": get_app_brand(),
         # Per worker, so a deployment's totals are these times the worker count.
         # `reused` far exceeding `opened` is the pool doing its job; a climbing
         # `overflow` means requests are outrunning LAKEBASE_POOL_MAX_SIZE.

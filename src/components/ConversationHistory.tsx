@@ -91,7 +91,7 @@ export const ConversationHistory: React.FC<{ chat: HistoryChat; disabled?: boole
                                             if (e.key === 'Enter') { e.preventDefault(); commitRename(conversation.id); }
                                             if (e.key === 'Escape') { e.preventDefault(); setEditing(null); }
                                         }}
-                                        className="flex-1 min-w-0 rounded border border-qualcomm-blue px-1.5 py-1 text-xs focus:outline-none"
+                                        className="flex-1 min-w-0 rounded border border-brand-blue px-1.5 py-1 text-xs focus:outline-none"
                                     />
                                     <button type="button" onClick={() => commitRename(conversation.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded" title="Save">
                                         <Check className="w-3.5 h-3.5" />
@@ -105,14 +105,14 @@ export const ConversationHistory: React.FC<{ chat: HistoryChat; disabled?: boole
                         return (
                             <div
                                 key={conversation.id}
-                                className={`group flex items-center gap-1 px-2 py-1.5 text-left ${isCurrent ? 'bg-qualcomm-blue/5' : 'hover:bg-gray-50'}`}
+                                className={`group flex items-center gap-1 px-2 py-1.5 text-left ${isCurrent ? 'bg-brand-blue/5' : 'hover:bg-gray-50'}`}
                             >
                                 <button
                                     type="button"
                                     onClick={async () => { setOpen(false); await openConversation(conversation.id); }}
                                     className="flex-1 min-w-0 text-left"
                                 >
-                                    <span className={`block truncate text-xs ${isCurrent ? 'font-semibold text-qualcomm-navy' : 'text-gray-700'}`}>
+                                    <span className={`block truncate text-xs ${isCurrent ? 'font-semibold text-brand-navy' : 'text-gray-700'}`}>
                                         {conversation.title}
                                     </span>
                                     <span className="block text-[10px] text-gray-400">

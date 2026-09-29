@@ -27,6 +27,7 @@
 ### Changed
 
 - **No more confirmation popup on widget actions.** Submit, Run and Sync buttons act immediately; each action is still recorded in **Action Logs**.
+- **Simpler About page.** Company details and the copyright line were removed.
 
 ## 1.12.0 — 2026-09-29
 

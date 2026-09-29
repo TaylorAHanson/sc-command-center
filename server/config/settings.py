@@ -1,4 +1,5 @@
 import os
+import re
 
 
 def get_app_environment() -> str:
@@ -10,6 +11,19 @@ def get_app_environment() -> str:
     unconfigured, which callers should treat as unknown rather than production.
     """
     return os.environ.get("APP_ENVIRONMENT", "").strip().lower()
+
+
+def get_app_brand() -> str:
+    """The deployment's brand name, from `APP_BRAND` (the bundle's `brand` var).
+
+    Widget code saved before the colour palette became `brand-*` names its
+    colours after the brand (`text-<brand>-blue`); the SPA maps those onto
+    `brand-*` before compiling. Kept out of the repo on purpose, so it is
+    configured per deployment. Anything that isn't a plain lowercase word is
+    ignored, since the browser builds a regular expression from it.
+    """
+    brand = os.environ.get("APP_BRAND", "").strip().lower()
+    return brand if re.fullmatch(r"[a-z][a-z0-9]*", brand) else ""
 
 
 def get_lakebase_config():

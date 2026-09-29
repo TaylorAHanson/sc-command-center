@@ -16,6 +16,7 @@ import { useDashboardStore } from '../store/dashboardStore';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import { DarkChatImage } from '../components/ChatImage';
+import { withBrandColors } from '../brand';
 import remarkGfm from 'remark-gfm';
 
 const DARK_CHAT_MARKDOWN: Components = { img: DarkChatImage };
@@ -860,7 +861,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 // `export` to CommonJS so widgets authored with `import` statements don't
                 // throw "Cannot use import statement outside a module".
                 // @ts-ignore
-                const stripped = window.Babel.transform(code, {
+                const stripped = window.Babel.transform(withBrandColors(code), {
                     filename: 'widget.tsx',
                     presets: ['react', 'typescript']
                 }).code;
@@ -2085,7 +2086,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                             e.stopPropagation();
                                                             window.open(openInNewTabLink, '_blank');
                                                         }}
-                                                        className="text-gray-400 hover:text-qualcomm-blue transition-colors"
+                                                        className="text-gray-400 hover:text-brand-blue transition-colors"
                                                         title="Open in New Tab"
                                                     >
                                                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>

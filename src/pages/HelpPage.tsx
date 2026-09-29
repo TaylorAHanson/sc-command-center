@@ -66,8 +66,8 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onNavigate }) => {
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
         <div className="flex items-center gap-3">
-          <HelpCircle className="w-5 h-5 text-qualcomm-blue" />
-          <h1 className="text-lg font-semibold text-qualcomm-navy">Help & Support</h1>
+          <HelpCircle className="w-5 h-5 text-brand-blue" />
+          <h1 className="text-lg font-semibold text-brand-navy">Help & Support</h1>
         </div>
       </div>
 
@@ -76,8 +76,8 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onNavigate }) => {
         <div className="max-w-6xl mx-auto">
           {/* Welcome Section */}
           <div className="bg-white border border-gray-200 rounded-lg p-8 mb-6 text-center">
-            <HelpCircle className="w-16 h-16 text-qualcomm-blue mx-auto mb-4" />
-            <h2 className="text-2xl font-semibold text-qualcomm-navy mb-2">How can we help you?</h2>
+            <HelpCircle className="w-16 h-16 text-brand-blue mx-auto mb-4" />
+            <h2 className="text-2xl font-semibold text-brand-navy mb-2">How can we help you?</h2>
             <p className="text-gray-600 max-w-2xl mx-auto">
               Find answers to common questions, learn how to use features, and get support when you need it.
             </p>
@@ -90,16 +90,16 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onNavigate }) => {
               return (
                 <div key={index} className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
                   <div className="flex items-start gap-4">
-                    <div className="p-3 bg-qualcomm-blue/10 rounded-lg">
-                      <Icon className="w-6 h-6 text-qualcomm-blue" />
+                    <div className="p-3 bg-brand-blue/10 rounded-lg">
+                      <Icon className="w-6 h-6 text-brand-blue" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-qualcomm-navy mb-2">{section.title}</h3>
+                      <h3 className="text-lg font-semibold text-brand-navy mb-2">{section.title}</h3>
                       <p className="text-sm text-gray-600 mb-4">{section.description}</p>
                       <ul className="space-y-2">
                         {section.items.map((item, itemIndex) => (
                           <li key={itemIndex} className="text-sm text-gray-700 flex items-start gap-2">
-                            <span className="text-qualcomm-blue mt-1">•</span>
+                            <span className="text-brand-blue mt-1">•</span>
                             <span>{item}</span>
                           </li>
                         ))}
@@ -113,18 +113,18 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onNavigate }) => {
 
           {/* Quick Links */}
           <div className="mt-6 bg-white border border-gray-200 rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-qualcomm-navy mb-4">Quick Links</h3>
+            <h3 className="text-lg font-semibold text-brand-navy mb-4">Quick Links</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <button className="text-left p-4 border border-gray-200 rounded-md hover:border-qualcomm-blue hover:bg-qualcomm-blue/5 transition-colors">
-                <div className="font-medium text-qualcomm-navy mb-1">Keyboard Shortcuts</div>
+              <button className="text-left p-4 border border-gray-200 rounded-md hover:border-brand-blue hover:bg-brand-blue/5 transition-colors">
+                <div className="font-medium text-brand-navy mb-1">Keyboard Shortcuts</div>
                 <div className="text-sm text-gray-600">View all available shortcuts</div>
               </button>
-              <button className="text-left p-4 border border-gray-200 rounded-md hover:border-qualcomm-blue hover:bg-qualcomm-blue/5 transition-colors">
-                <div className="font-medium text-qualcomm-navy mb-1">Report a Bug</div>
+              <button className="text-left p-4 border border-gray-200 rounded-md hover:border-brand-blue hover:bg-brand-blue/5 transition-colors">
+                <div className="font-medium text-brand-navy mb-1">Report a Bug</div>
                 <div className="text-sm text-gray-600">Let us know about issues</div>
               </button>
-              <button className="text-left p-4 border border-gray-200 rounded-md hover:border-qualcomm-blue hover:bg-qualcomm-blue/5 transition-colors">
-                <div className="font-medium text-qualcomm-navy mb-1">Feature Request</div>
+              <button className="text-left p-4 border border-gray-200 rounded-md hover:border-brand-blue hover:bg-brand-blue/5 transition-colors">
+                <div className="font-medium text-brand-navy mb-1">Feature Request</div>
                 <div className="text-sm text-gray-600">Suggest new features</div>
               </button>
             </div>

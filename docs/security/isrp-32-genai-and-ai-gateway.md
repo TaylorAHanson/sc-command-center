@@ -7,7 +7,7 @@ status legend, and the list of primary controls already in the product.
 
 The app uses Databricks-hosted foundation models and MCP tools such as `dbsql`
 and `genie_ask`, and may operate against Red CCI datasets accessible to the
-user. Although the app states that Qualcomm data does not leave Databricks and
+user. Although the app states that company data does not leave Databricks and
 relies on Databricks compliance commitments, no application-specific controls
 were identified governing what data may be submitted to AI services, how prompts
 and responses are monitored, or how sensitive information disclosure through
@@ -15,7 +15,7 @@ AI-assisted workflows is prevented.
 
 ISRP asks for: an approved GenAI usage pattern, data classification
 restrictions, approved AI use cases, prompt and response logging, monitoring for
-sensitive data exposure, and alignment with Qualcomm-approved GenAI controls.
+sensitive data exposure, and alignment with company-approved GenAI controls.
 
 ## Our position
 
@@ -69,7 +69,7 @@ Beta question — lead with the GA column.
 | Prompt and response logging | **Payload logging to Unity Catalog inference tables**, enabled per serving endpoint | Unity AI Gateway inference tables, covering model calls **and MCP interactions** |
 | Monitoring for exposure / usage | **Usage tracking** to `system.serving.endpoint_usage` | `system.ai_gateway.usage`, plus token-level cost attribution and per-user budget alerts |
 | Restrictions on what may be submitted | **Guardrails: PII detection (Presidio) and safety filtering (Llama Guard)** on inputs and outputs | LLM-judge service policies: PII redaction or blocking, unsafe content, jailbreak/prompt-injection, hallucination |
-| Qualcomm-specific rules (CCI markers, codenames) | Not available as a gateway policy — use the ABAC design below | **Custom service policies**: SQL UDFs evaluated `ON CALL` and `ON RESULT`, versioned in Unity Catalog |
+| Company-specific rules (CCI markers, codenames) | Not available as a gateway policy — use the ABAC design below | **Custom service policies**: SQL UDFs evaluated `ON CALL` and `ON RESULT`, versioned in Unity Catalog |
 | Limiting which tools an agent may invoke | App-side per-agent tool lists, and the `AGENT_STUDIO_MCP_SERVERS` list | **Service policies for MCP**, keyed on identity and request context, not editable by an app admin |
 | Runaway or anomalous usage | **Rate limits** (QPM/TPM per user, group, or service principal) and fallbacks | Same, plus enforced budget thresholds |
 
@@ -207,7 +207,7 @@ model.
 ## Platform-level
 
 - **Whether Red CCI may reach Databricks foundation models, the AI Gateway, or
-  Genie at all is Qualcomm GenAI policy**, not something Command Center can
+  Genie at all is company GenAI policy**, not something Command Center can
   certify. Our commitment is that the app can be configured to comply either
   way.
 - **Unity Catalog governed tags, ABAC policies, classification, column masking,
