@@ -724,7 +724,7 @@ def _helper_model() -> str:
     Also falls back while the configured helper is known not to exist here: the
     default names a `system.ai` model that not every workspace serves, and without
     this every side-call on such a workspace would fail, be skipped, and take the
-    request tightening and history summary with it.
+    history summary and the question gate with it.
     """
     configured = get_setting("widget_helper_model")
     if configured and time.monotonic() < _helper_missing.get(configured, 0.0):
@@ -1989,6 +1989,17 @@ def _column_types(manifest) -> Dict[str, str]:
     return out
 
 
+def _column_names(manifest) -> List[str]:
+    """Every column name in result order, repeats included.
+
+    Not `list(_column_types(...))`: a join can return two `id` columns, the dict
+    keeps one, and indexing rows by the shorter list puts each later value under
+    the previous column's name.
+    """
+    columns = getattr(getattr(manifest, "schema", None), "columns", None) or []
+    return [col.name for col in columns]
+
+
 def _sample_rows(columns: List[str], data_array) -> List[Dict[str, Any]]:
     """The first few rows as dicts, long values cut."""
     rows: List[Dict[str, Any]] = []
@@ -2096,13 +2107,20 @@ def test_datasource(req: DataSourceTestRequest, db_client: WorkspaceClient = Dep
             )
             state = getattr(getattr(statement, "status", None), "state", None)
             state_name = getattr(state, "value", state)
+            if state_name in ("PENDING", "RUNNING"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="SQL Query failed: still running after 50 seconds. Test a narrower "
+                           "query, or check the warehouse is running.",
+                )
             if state_name and state_name != "SUCCEEDED":
                 error = getattr(getattr(statement, "status", None), "error", None)
                 message = getattr(error, "message", None) or f"the statement ended {state_name}"
                 raise HTTPException(status_code=400, detail=f"SQL Query failed: {message}")
 
             schema = _column_types(statement.manifest)
-            rows = _sample_rows(list(schema), statement.result.data_array if statement.result else None)
+            rows = _sample_rows(_column_names(statement.manifest),
+                                statement.result.data_array if statement.result else None)
             return {
                 "schema": schema,
                 "sample": rows,

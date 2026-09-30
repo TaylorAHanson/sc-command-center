@@ -1168,16 +1168,26 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
      */
     const handleSettled = async (entries: RuntimeEntry[], ran: boolean) => {
         const settledCode = codeRef.current;
-        lastSettledRef.current = { code: settledCode, entries, ran };
-        if (isGeneratingRef.current || renderCrashedRef.current) return;
-        if (settledCode === stoppedCodeRef.current) return;
+        // Leaving Live Preview settles as "not run", and must not erase what this
+        // same code did when it did run — that record is what a question asked
+        // from the Code tab ("why is it empty?") is answered from.
+        const previous = lastSettledRef.current;
+        if (ran || !previous || previous.code !== settledCode || !previous.ran) {
+            lastSettledRef.current = { code: settledCode, entries, ran };
+        }
+        // Checked again after each capture below: taking a screenshot takes a
+        // moment, and a turn the user started meanwhile must not be joined by one.
+        const unwanted = () => isGeneratingRef.current || renderCrashedRef.current
+            || codeRef.current !== settledCode || settledCode === stoppedCodeRef.current;
+        if (unwanted()) return;
 
         const failures = entries.filter(e => e.fixable);
         const broken = lintWidget(settledCode, { dataSourceType }).filter(f => f.severity === 'error');
         if (agentCodeRef.current === settledCode && (failures.length || broken.length)
             && runtimeRetryCountRef.current < MAX_RUNTIME_RETRIES) {
-            runtimeRetryCountRef.current += 1;
             const screenshot = ran ? await capturePreview() : undefined;
+            if (unwanted()) return;
+            runtimeRetryCountRef.current += 1;
             generateRef.current([
                 ...failures.map(e => `when it ran: ${formatRuntimeEntry(e)}`),
                 ...broken.map(formatLintFinding),
@@ -1187,8 +1197,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
         const pending = reviewPendingRef.current;
         if (pending) {
-            reviewPendingRef.current = null;
             const screenshot = ran ? await capturePreview() : undefined;
+            if (unwanted() || reviewPendingRef.current !== pending) return;
+            reviewPendingRef.current = null;
             reviewRef.current(pending.request, screenshot);
         }
     };

@@ -67,7 +67,8 @@ export function lintWidget(code: string, options: LintOptions = {}): LintFinding
 
     // --- errors: will not work, or break a platform rule -----------------------
 
-    if (!/\bexport\s+default\b/.test(code) && !/\bmodule\.exports\s*=/.test(code)) {
+    if (!/\bexport\s+default\b/.test(code) && !/\bmodule\.exports\s*=/.test(code)
+        && !/\bexport\s*\{[^}]*\bas\s+default\b/.test(code)) {
         add('no-default-export', 'error', 0,
             'No `export default`. The studio renders the default export, so without one nothing renders.');
     }

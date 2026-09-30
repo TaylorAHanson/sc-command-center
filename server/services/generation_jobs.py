@@ -141,7 +141,9 @@ class JobStore:
         """The job as a poll should see it: this worker's copy, else the table's."""
         local = self._local.get(job_id)
         if local is not None:
-            return local
+            # A copy, because the response is encoded on a request thread while the
+            # job's own thread is still adding keys (`stages`, `stage_code`) to it.
+            return dict(local)
         return self._load(job_id)
 
     def is_cancelled(self, job_id: str) -> bool:
@@ -177,8 +179,14 @@ class JobStore:
         job = self._local.get(job_id)
         if job is None:
             return
+        # `dict(job)` first: a Stop adds `cancelled` to this dict from a request
+        # thread, and iterating it while that happens raises RuntimeError — which
+        # nothing here would catch, so the generation itself would fail. The copy
+        # is one C call under the GIL, so it can't see a change half-made.
+        state = dict(job)
+        state.pop("cancelled", None)
         try:
-            payload = json.dumps({k: v for k, v in job.items() if k != "cancelled"}, default=str)
+            payload = json.dumps(state, default=str)
         except (TypeError, ValueError) as exc:
             logger.warning("Could not serialise generation job %s: %s", job_id, exc)
             return

@@ -71,11 +71,13 @@ const describe = (value: unknown): string => {
 // not a code bug; a TypeError they caught and logged is.
 const CODE_BUG = /\b(TypeError|ReferenceError|SyntaxError|RangeError)\b|is not a function|is not defined|Cannot read propert|undefined is not/;
 
-// Evaluated code shows up in stacks as `eval at …` / `<anonymous>` in Chromium
-// and `… > Function:12:5` in Firefox. The studio's own errors show neither.
+// Evaluated code shows up in stacks as `eval at …` / `<anonymous>:12:5` in
+// Chromium and `… > Function:12:5` in Firefox. A bare `<anonymous>` is not
+// enough: Chromium writes it for every built-in frame (`at Array.map
+// (<anonymous>)`), so the studio's own errors carry it too.
 const fromWidget = (error: unknown): boolean => {
     const stack = error instanceof Error ? error.stack || '' : '';
-    return /\beval\b|<anonymous>|> Function:\d/.test(stack);
+    return /\beval at\b|<anonymous>:\d+:\d+|> Function:\d/.test(stack);
 };
 
 const normalizeSql = (sql: string) => sql.replace(/\s+/g, ' ').trim().replace(/;$/, '').toLowerCase();
@@ -183,8 +185,10 @@ export class RuntimeRecorder {
         const last = this.entries[this.entries.length - 1];
         if (last && last.text === entry.text) {
             last.count += 1;
-        } else if (this.entries.length < MAX_ENTRIES) {
-            this.entries = [...this.entries, { ...entry, count: 1 }];
+        } else {
+            // The oldest go first: a widget that polls fills the log with routine
+            // results, and the entry that matters is the one that just happened.
+            this.entries = [...this.entries, { ...entry, count: 1 }].slice(-MAX_ENTRIES);
         }
         this.emit();
     }

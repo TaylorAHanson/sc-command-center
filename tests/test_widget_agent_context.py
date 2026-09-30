@@ -22,6 +22,7 @@ try:
         GenerateRequest,
         MAX_RUNTIME_LINES,
         _build_system_prompt,
+        _column_names,
         _column_types,
         _endpoint_missing,
         _helper_params,
@@ -147,6 +148,30 @@ def test_sample_rows_are_few_and_cut():
     assert _sample_rows(["a"], None) == []
 
 
+def test_a_repeated_column_name_does_not_shift_the_values_after_it():
+    # SELECT o.id, c.id, o.qty ... — the type map has two keys, the row has three values.
+    manifest = SimpleNamespace(schema=SimpleNamespace(columns=[
+        SimpleNamespace(name="id", type_text="int", type_name=None),
+        SimpleNamespace(name="id", type_text="int", type_name=None),
+        SimpleNamespace(name="qty", type_text="int", type_name=None),
+    ]))
+    assert _column_names(manifest) == ["id", "id", "qty"]
+    rows = _sample_rows(_column_names(manifest), [["1", "77", "5"]])
+    assert rows[0]["qty"] == "5"
+
+
+def test_a_poll_gets_a_copy_it_can_encode_while_the_job_keeps_changing():
+    from services.generation_jobs import JobStore
+
+    store = JobStore()
+    store.persist = False
+    store.create("j", {"status": "running", "trace": []})
+    seen = store.snapshot("j")
+    store.update("j", stages=[{"title": "a"}])
+    assert "stages" not in seen
+    assert store.snapshot("j")["stages"] == [{"title": "a"}]
+
+
 def test_the_probe_bounds_a_query_and_survives_a_trailing_comment():
     probe = _probe_statement("SELECT * FROM t -- newest first")
     assert probe.startswith("SELECT * FROM (\n") and probe.endswith(") AS _schema_probe LIMIT 5")
@@ -253,6 +278,8 @@ if __name__ == "__main__":
         test_the_turn_message_carries_the_screenshot,
         test_column_types_come_from_the_manifest_not_the_values,
         test_sample_rows_are_few_and_cut,
+        test_a_repeated_column_name_does_not_shift_the_values_after_it,
+        test_a_poll_gets_a_copy_it_can_encode_while_the_job_keeps_changing,
         test_the_probe_bounds_a_query_and_survives_a_trailing_comment,
         test_a_write_is_never_run_to_test_it,
         test_an_empty_statement_is_refused,
