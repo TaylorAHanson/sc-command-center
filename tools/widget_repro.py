@@ -124,6 +124,7 @@ def main() -> None:
 
         studio._publish = spy
         job = "repro"
+        studio.generation_jobs.persist = False
         studio.generation_jobs[job] = {"status": "running"}
         try:
             studio._run_stages(job, studio.GenerateRequest(prompt=prompt), stages, ask, next_llm, budget)

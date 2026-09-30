@@ -11,6 +11,12 @@ import { AttachmentChip, SentAttachments } from '../components/AttachmentChip';
 import { ThinkingDisclosure } from '../components/ThinkingDisclosure';
 import { SendStopButton } from '../components/SendStopButton';
 import { WidgetPromotionPanel } from '../components/WidgetPromotionPanel';
+import { WidgetDiagnostics } from '../components/WidgetDiagnostics';
+import type { RuntimeStatus } from '../components/WidgetDiagnostics';
+import { RuntimeRecorder, formatRuntimeEntry } from '../widgetRuntime';
+import type { RuntimeEntry } from '../widgetRuntime';
+import { lintWidget, formatLintFinding } from '../widgetLint';
+import { schemaFromJson, sampleRows } from '../widgetDataSource';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
 import { useDashboardStore } from '../store/dashboardStore';
 import ReactMarkdown from 'react-markdown';
@@ -216,6 +222,26 @@ type JobResult = {
     suggestions?: StudioSuggestion[];
     settings?: Record<string, unknown>;
 };
+
+type GenerateOptions = {
+    allowClarify?: boolean;
+    overridePrompt?: string;
+    /** Which kind of failure we're asking it to fix. Compiling, rendering and
+     *  running fail for different reasons, and telling the model "compile error"
+     *  about a crash sends it looking at the syntax of code that parsed fine. */
+    errorKind?: 'compile' | 'render' | 'runtime';
+    /** The preview as it rendered, for a fix of something the user can see. */
+    screenshot?: string;
+};
+
+// How many times the studio will ask the agent to fix what went wrong when its
+// own code ran. Lower than the compile budget: a runtime failure is often the
+// data rather than the code, and each attempt is a full generation.
+const MAX_RUNTIME_RETRIES = 2;
+
+// A PNG of a large widget can run to megabytes, and it is sent with every
+// review; past this it is left off rather than slowing the request.
+const MAX_SCREENSHOT_CHARS = 3_000_000;
 
 // Studio preferences, per person and per browser rather than per deployment:
 // whether to review after a change is a working style, not something an admin
@@ -523,8 +549,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // the agent has no way to know whether to page in SQL or in the browser, and
     // guessing wrong is how a 40,000-row table ends up being fetched in batches.
     const [rowEstimate, setRowEstimate] = useState<number | null>(sessionState?.rowEstimate ?? null);
+    // A few rows the test returned. A schema says a column is a DATE; only a row
+    // shows it arrives as "2026-09-30", or that the status column says "Late".
+    const [dataSourceSample, setDataSourceSample] = useState<Record<string, unknown>[] | null>(sessionState?.dataSourceSample ?? null);
     const [isTestingDataSource, setIsTestingDataSource] = useState(false);
     const [dataSourceTestError, setDataSourceTestError] = useState<string | null>(null);
+    // Why a test ran nothing without failing — a write statement is never run to test it.
+    const [dataSourceTestNote, setDataSourceTestNote] = useState<string | null>(null);
     const [defaultW, setDefaultW] = useState(sessionState?.defaultW || 6);
     const [defaultH, setDefaultH] = useState(sessionState?.defaultH || 6);
     const [configMode, setConfigMode] = useState<'none' | 'config_allowed' | 'config_required'>(sessionState?.configMode || 'none');
@@ -542,6 +573,21 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // (a typed request, Reload, a restore) resets this one.
     const renderRetryCountRef = useRef(0);
     const MAX_AUTO_RETRIES = 3;
+    // And a third, for what went wrong when the widget ran. Reset by the same
+    // deliberate acts as the render budget.
+    const runtimeRetryCountRef = useRef(0);
+    // The code the agent last put in the editor. Only that code is auto-fixed
+    // after a bad run: a person's own edit that 400s is theirs to decide about.
+    const agentCodeRef = useRef<string | null>(null);
+    // Records what the compiled preview does; replaced on every compile.
+    const recorderRef = useRef<RuntimeRecorder | null>(null);
+    const [runtimeLog, setRuntimeLog] = useState<RuntimeEntry[]>([]);
+    const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>('idle');
+    // Set by the error boundary; a crashed render has its own auto-fix path.
+    const renderCrashedRef = useRef(false);
+    // The last settled run, so a turn that ends without changing the code can
+    // still act on it — no compile follows, so no new run will.
+    const lastSettledRef = useRef<{ code: string; entries: RuntimeEntry[]; ran: boolean } | null>(null);
     // The generation being polled, so Stop has something to address.
     const jobIdRef = useRef<string | null>(null);
     // Ends the turn in flight immediately; set by runJob, since only it holds the
@@ -605,13 +651,20 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const codeRef = useRef(code);
     useEffect(() => { codeRef.current = code; }, [code]);
 
+    // Pattern checks only — a few regexes over the file, cheap enough to run on
+    // every change rather than waiting for the compile.
+    const lintFindings = React.useMemo(() => lintWidget(code, { dataSourceType }), [code, dataSourceType]);
+
     // Latest values for the compile effect further down. That effect must run when
     // the code changes and at no other time, but the auto-fix inside it still needs
     // the current generate function and flags when it does run. Naming them as
     // dependencies would recompile the preview on every render instead, and reading
     // `handleGenerate` directly would reach for a function declared below it.
-    const generateRef = useRef<(error?: string) => void | Promise<void>>(() => { });
-    const reviewRef = useRef<(request: string) => void | Promise<void>>(() => { });
+    const generateRef = useRef<(error?: string, options?: GenerateOptions) => void | Promise<void>>(() => { });
+    const reviewRef = useRef<(request: string, screenshot?: string) => void | Promise<void>>(() => { });
+    const settledRef = useRef<(entries: RuntimeEntry[], ran: boolean) => void | Promise<void>>(() => { });
+    const dataSourceRef = useRef(dataSource);
+    useEffect(() => { dataSourceRef.current = dataSource; }, [dataSource]);
     const isGeneratingRef = useRef(isGenerating);
     const previewErrorRef = useRef(previewError);
     // Set when a generation produced code and the review pass is switched on;
@@ -643,6 +696,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         if (next === before) return false;
         pushCheckpoint(before, label);
         setCode(next);
+        // Now rather than after the render, so code that runs next in the same
+        // tick — the end of an agent turn — compares against what it just set.
+        codeRef.current = next;
         return true;
     }, [pushCheckpoint]);
 
@@ -669,6 +725,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         // inheriting the count from whatever error prompted it.
         autoRetryCountRef.current = 0;
         renderRetryCountRef.current = 0;
+        runtimeRetryCountRef.current = 0;
         setViewMode('code');
         setMessages(prev => [...prev, {
             role: 'system',
@@ -726,7 +783,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         if (!editWidgetId && !cloneWidgetId) { // We only automatically sync to session storage if we aren't loading an externally provided edit ID over it. Let the edit load effect take priority.
             const currentState = {
                 messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
-                isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, rowEstimate, defaultW, defaultH, configMode, configSchema, editingId,
+                isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, rowEstimate, dataSourceSample, defaultW, defaultH, configMode, configSchema, editingId,
                 checkpoints, uploadConversationId: uploadConversationId.current
             };
             try {
@@ -743,7 +800,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             }
         }
     }, [messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
-        isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, rowEstimate, defaultW, defaultH, configMode, configSchema, editingId,
+        isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, rowEstimate, dataSourceSample, defaultW, defaultH, configMode, configSchema, editingId,
         checkpoints, editWidgetId, cloneWidgetId]);
 
     // Load existing widget data when editWidgetId or cloneWidgetId is provided
@@ -785,6 +842,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 setCode(w.tsx_code);
                 setDataSourceType((w.data_source_type as any) || 'none');
                 setDataSource(w.data_source || '');
+                setDataSourceSample(null);
                 setOpenInNewTabLink(w.open_in_new_tab_link || '');
                 setIsExecutable(w.is_executable === 1);
                 setDefaultW(w.default_w || 6);
@@ -875,6 +933,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 // @ts-ignore
                 const HC = typeof Highcharts !== 'undefined' ? Highcharts : window.Highcharts;
 
+                // A fresh recorder per compile, so a run is only ever this code's.
+                recorderRef.current?.dispose();
+                const recorder = new RuntimeRecorder(() => dataSourceRef.current);
+                recorderRef.current = recorder;
+                renderCrashedRef.current = false;
+                setRuntimeLog([]);
+                setRuntimeStatus('idle');
+
                 // Minimal CommonJS sandbox: `require` resolves to injected React or
                 // runtime globals (e.g. window.Highcharts via useScript), else throws.
                 const executableCode = `
@@ -893,21 +959,16 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     return (module.exports && module.exports.default) ? module.exports.default : module.exports;
                 `;
 
+                // `fetch` and `console` are the recorder's, so the widget's own
+                // requests and logging are what gets recorded, not the studio's.
                 // eslint-disable-next-line no-new-func
-                const createComponent = new Function('React', 'useScript', 'Highcharts', executableCode);
-                const Component = createComponent(React, useScript, HC);
+                const createComponent = new Function('React', 'useScript', 'Highcharts', 'fetch', 'console', executableCode);
+                const Component = createComponent(React, useScript, HC, recorder.fetch, recorder.console);
                 setPreviewComponent(() => Component);
                 // Clean compile: clear the auto-retry budget for the next error.
                 autoRetryCountRef.current = 0;
-
-                // The code builds, so the review pass has something worth reading.
-                // This is the only place that can know that — the compiler is the
-                // browser's, so the server cannot wait for it.
-                const pending = reviewPendingRef.current;
-                if (pending && !isGeneratingRef.current) {
-                    reviewPendingRef.current = null;
-                    setTimeout(() => reviewRef.current(pending.request), 400);
-                }
+                // The review pass, if one is waiting, now follows the run rather
+                // than the compile — see the settle effect below.
             } catch (err) {
                 const errorMsg = errorText(err);
                 if (previewErrorRef.current !== errorMsg) {
@@ -931,13 +992,47 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         return () => clearTimeout(timeoutid);
     }, [code, previewNonce]);
 
+    // Follow the compiled widget's run to the point it has settled — its data calls
+    // answered and quiet for a moment — then act on what happened. Keyed on the
+    // component and on the view, because the widget only mounts in Live Preview;
+    // in the other tabs nothing runs, and that is reported as such.
+    useEffect(() => {
+        const recorder = recorderRef.current;
+        if (!previewComponent || previewError || !recorder) return;
+        if (viewMode !== 'preview') {
+            settledRef.current([], false);
+            return;
+        }
+        recorder.start();
+        const unsubscribe = recorder.subscribe(() => setRuntimeLog([...recorder.entries]));
+        const cancel = recorder.onSettled(() => {
+            setRuntimeStatus('settled');
+            setRuntimeLog([...recorder.entries]);
+            settledRef.current(recorder.entries, true);
+        });
+        return () => {
+            cancel();
+            // Leaving the preview unmounts the widget; coming back is a new run.
+            recorder.reset();
+            unsubscribe();
+            setRuntimeStatus('idle');
+        };
+    }, [previewComponent, previewError, viewMode]);
+
+    // 'idle' in state means "no run has settled"; what that looks like depends on
+    // whether a widget is mounted to be running.
+    const shownRuntimeStatus: RuntimeStatus = viewMode !== 'preview' ? 'not-run'
+        : !previewComponent || previewError ? 'idle'
+            : runtimeStatus === 'settled' ? 'settled' : 'running';
+
     const handleReloadPreview = () => {
         setViewMode('preview');
         setPreviewError(null);
         setPreviewComponent(null);
-        // A deliberate reload shouldn't consume either retry budget.
+        // A deliberate reload shouldn't consume any retry budget.
         autoRetryCountRef.current = 0;
         renderRetryCountRef.current = 0;
+        runtimeRetryCountRef.current = 0;
         stoppedCodeRef.current = null;
         setPreviewNonce(n => n + 1);
     };
@@ -1034,7 +1129,69 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         available_categories: availableCategories,
         available_domains: availableDomains,
         locked_settings: SETTING_KEYS.filter(k => touchedSettingsRef.current.has(k)),
+        data_source_sample: dataSourceType !== 'none' ? dataSourceSample : null,
+        runtime_log: currentRuntime().slice(-15).map(formatRuntimeEntry),
+        lint_findings: lintWidget(codeRef.current, { dataSourceType }).map(formatLintFinding),
     });
+
+    /**
+     * What the open code did when it ran. The live recording while the preview is
+     * up — which includes what happened when the user clicked around in it, the
+     * usual prelude to "the button doesn't work" — else the last settled run of
+     * this same code.
+     */
+    const currentRuntime = (): RuntimeEntry[] => {
+        const live = recorderRef.current?.entries ?? [];
+        if (live.length) return live;
+        const run = lastSettledRef.current;
+        return run && run.code === codeRef.current ? run.entries : [];
+    };
+
+    const capturePreview = async (): Promise<string | undefined> => {
+        const area = document.getElementById('widget-preview-capture-area');
+        if (!area) return undefined;
+        try {
+            const url = await toPng(area, { cacheBust: true, pixelRatio: 1 });
+            return url.length <= MAX_SCREENSHOT_CHARS ? url : undefined;
+        } catch {
+            // A cross-origin image or canvas can't be captured; the text still goes.
+            return undefined;
+        }
+    };
+
+    /**
+     * The widget's run has settled (or, outside Live Preview, there was nothing to
+     * run). The one place that knows the code both builds and has been seen to
+     * work — or not — so it decides what follows an agent turn: a fix, when the
+     * agent's own code failed when it ran or broke a hard rule, or else the review
+     * pass if one is waiting, now with a picture of what rendered.
+     */
+    const handleSettled = async (entries: RuntimeEntry[], ran: boolean) => {
+        const settledCode = codeRef.current;
+        lastSettledRef.current = { code: settledCode, entries, ran };
+        if (isGeneratingRef.current || renderCrashedRef.current) return;
+        if (settledCode === stoppedCodeRef.current) return;
+
+        const failures = entries.filter(e => e.fixable);
+        const broken = lintWidget(settledCode, { dataSourceType }).filter(f => f.severity === 'error');
+        if (agentCodeRef.current === settledCode && (failures.length || broken.length)
+            && runtimeRetryCountRef.current < MAX_RUNTIME_RETRIES) {
+            runtimeRetryCountRef.current += 1;
+            const screenshot = ran ? await capturePreview() : undefined;
+            generateRef.current([
+                ...failures.map(e => `when it ran: ${formatRuntimeEntry(e)}`),
+                ...broken.map(formatLintFinding),
+            ].join('\n'), { errorKind: 'runtime', screenshot });
+            return;
+        }
+
+        const pending = reviewPendingRef.current;
+        if (pending) {
+            reviewPendingRef.current = null;
+            const screenshot = ran ? await capturePreview() : undefined;
+            reviewRef.current(pending.request, screenshot);
+        }
+    };
 
     /**
      * Start a job on the widget agent and follow it to the end.
@@ -1067,6 +1224,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
         const finish = (extra: StudioMessage) => {
             setIsGenerating(false);
+            // Also now, not after the render: the follow-up at the end of a turn
+            // checks it in the same tick.
+            isGeneratingRef.current = false;
             jobIdRef.current = null;
             stopTurnRef.current = null;
             setMessages([...baseMessages, extra]);
@@ -1124,7 +1284,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             if (!data.job_id) {
                 // Fallback if the backend returns the code directly.
                 if (data.code) {
-                    replaceCode(data.code, checkpointLabel);
+                    if (replaceCode(data.code, checkpointLabel)) agentCodeRef.current = data.code;
                     finish({ role: 'assistant', content: describeGeneration(data, fallbackText) });
                 } else {
                     setIsGenerating(false);
@@ -1166,7 +1326,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
                     const landed = Number(statusData.stage_index) || 0;
                     if (statusData.stage_code && landed > stepsApplied) {
-                        replaceCode(statusData.stage_code, stepLabel(landed));
+                        if (replaceCode(statusData.stage_code, stepLabel(landed))) agentCodeRef.current = statusData.stage_code;
                         stepsApplied = landed;
                     }
 
@@ -1177,7 +1337,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         // landed; writing the same code again would only add an
                         // identical history entry.
                         if (result.code && result.code !== codeRef.current) {
-                            replaceCode(result.code, stepLabel(stepsApplied + 1));
+                            if (replaceCode(result.code, stepLabel(stepsApplied + 1))) agentCodeRef.current = result.code;
                         }
                         finish({
                             role: 'assistant',
@@ -1189,6 +1349,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                 : undefined,
                         });
                         onSettled?.(result);
+                        // A planned run's last step usually landed while the job was
+                        // still going, so its run settled while the studio was busy
+                        // and was not acted on — and with no new code, no new run is
+                        // coming. Act on that one now.
+                        const lastRun = lastSettledRef.current;
+                        if ((stepsApplied > 0 || result.code) && lastRun && lastRun.code === codeRef.current) {
+                            setTimeout(() => settledRef.current(lastRun.entries, lastRun.ran), 0);
+                        }
                     } else if (statusData.status === 'failed') {
                         clearInterval(interval);
                         finish({
@@ -1219,25 +1387,19 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         }
     };
 
-    const handleGenerate = async (autoRetryError?: string, options?: {
-        allowClarify?: boolean;
-        overridePrompt?: string;
-        /** Which kind of failure we're asking it to fix. Compiling and rendering
-         *  fail for different reasons, and telling the model "compile error" about
-         *  a crash sends it looking at the syntax of code that parsed fine. */
-        errorKind?: 'compile' | 'render';
-    }) => {
+    const handleGenerate = async (autoRetryError?: string, options?: GenerateOptions) => {
         const asking = options?.overridePrompt ?? prompt;
         if (!asking && !autoRetryError) return;
 
-        const rendering = options?.errorKind === 'render';
+        const errorKind = options?.errorKind ?? 'compile';
+        const failureName = errorKind === 'runtime' ? 'runtime' : errorKind === 'render' ? 'render' : 'compile';
 
         // Captured before the box is cleared, to label the snapshot this turn leaves
         // behind with the request that caused it.
         const asked = asking.trim().replace(/\s+/g, ' ');
         if (!autoRetryError && !options?.overridePrompt) lastRequestRef.current = asked;
         const checkpointLabel = autoRetryError
-            ? `Before an automatic ${rendering ? 'render' : 'compile'} fix`
+            ? `Before an automatic ${failureName} fix`
             : `Before "${asked.length > 60 ? `${asked.slice(0, 57)}…` : asked}"`;
 
         // This turn answers a question the agent asked, so it must not be met with
@@ -1250,7 +1412,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         if (autoRetryError) {
             newMessages.push({
                 role: 'system',
-                content: `Auto-retrying to fix a ${rendering ? 'render' : 'compile'} error: ${autoRetryError}`,
+                content: errorKind === 'runtime'
+                    ? `Fixing what went wrong when the widget ran:\n\n${autoRetryError.split('\n').map(line => `- ${line}`).join('\n')}`
+                    : `Auto-retrying to fix a ${failureName} error: ${autoRetryError}`,
             });
             setMessages(newMessages);
         } else {
@@ -1263,9 +1427,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             if (!options?.overridePrompt) setPrompt("");
             // Clear any old preview errors on a fresh prompt
             setPreviewError(null);
-            // A manual generate restarts both auto-retry budgets.
+            // A manual generate restarts every auto-retry budget.
             autoRetryCountRef.current = 0;
             renderRetryCountRef.current = 0;
+            runtimeRetryCountRef.current = 0;
             stoppedCodeRef.current = null;
             // Files ride on the turn that sent them. The chips go now so the
             // composer is clear; the rows stay on the server, which is what the
@@ -1280,19 +1445,26 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
         await runJob('generate', {
             ...requestContext(),
-            prompt: asking || (rendering
-                ? "The widget compiled but threw while React was rendering it. Fix the cause of "
-                  + "that error. The syntax is fine — look at what runs on mount and on first paint."
-                : "Please fix the compilation error in the code."),
+            prompt: asking || (errorKind === 'runtime'
+                ? "The widget compiled and rendered, but it went wrong when it ran in the preview, "
+                  + "or broke a rule the studio checks for — see the error above and what it did "
+                  + "when it last ran. Fix the cause in the code. If a failing statement is the "
+                  + "configured data source run as written, don't work around it: say it needs "
+                  + "fixing on the Configuration tab."
+                : errorKind === 'render'
+                    ? "The widget compiled but threw while React was rendering it. Fix the cause of "
+                      + "that error. The syntax is fine — look at what runs on mount and on first paint."
+                    : "Please fix the compilation error in the code."),
             history: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
             error_log: autoRetryError || previewError,
             attachment_ids: autoRetryError ? [] : sending.map(a => a.id),
+            preview_screenshot: options?.screenshot,
             allow_clarify: (options?.allowClarify ?? agentPrefs.askQuestions)
                 && !autoRetryError && !answeringQuestions,
         }, {
             baseMessages: newMessages,
             checkpointLabel,
-            fallbackText: autoRetryError ? "I've attempted to fix the compilation error." : "Widget code generated.",
+            fallbackText: autoRetryError ? `I've attempted to fix the ${failureName} error.` : "Widget code generated.",
             onSettled: result => {
                 // Nothing changed, or the agent asked a question instead of
                 // building — either way there is nothing to review.
@@ -1309,11 +1481,11 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
      * Nothing here re-triggers a review: a review is a change like any other, so
      * without that the two would take turns indefinitely.
      */
-    const handleReview = async (request: string) => {
+    const handleReview = async (request: string, screenshot?: string) => {
         const opening: StudioMessage = { role: 'system', content: 'Reviewing the change…' };
         const baseMessages = [...messages, opening];
         setMessages(baseMessages);
-        await runJob('review', { ...requestContext(), prompt: request }, {
+        await runJob('review', { ...requestContext(), prompt: request, preview_screenshot: screenshot }, {
             baseMessages,
             checkpointLabel: 'Before the review pass',
             fallbackText: 'Reviewed the widget; nothing needed changing.',
@@ -1364,6 +1536,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     useEffect(() => {
         generateRef.current = handleGenerate;
         reviewRef.current = handleReview;
+        settledRef.current = handleSettled;
         isGeneratingRef.current = isGenerating;
         previewErrorRef.current = previewError;
     });
@@ -1466,9 +1639,25 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         if (dataSourceType === "none" || !dataSource) return;
         setIsTestingDataSource(true);
         setDataSourceTestError(null);
+        setDataSourceTestNote(null);
         setDataSourceSchema(null);
+        setDataSourceSample(null);
         setRowEstimate(null);
         try {
+            if (dataSourceType === 'api') {
+                // From the browser, as the widget will call it — see widgetDataSource.
+                let res: Response;
+                try {
+                    res = await fetch(dataSource);
+                } catch (e) {
+                    throw new Error(`Couldn't reach it from your browser (${errorText(e)}). If the API doesn't allow requests from this app (CORS), the widget can't call it either.`);
+                }
+                if (!res.ok) throw new Error(`The API answered HTTP ${res.status} ${res.statusText}`.trim());
+                const payload = await res.json();
+                setDataSourceSchema(schemaFromJson(payload));
+                setDataSourceSample(sampleRows(payload));
+                return;
+            }
             const res = await fetch('/api/agent/widget/datasource/test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1480,6 +1669,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             const data = await res.json();
             if (res.ok) {
                 setDataSourceSchema(data.schema);
+                const sample = data.sample;
+                setDataSourceSample(sample && (!Array.isArray(sample) || sample.length) ? sampleRows(sample) : null);
+                setDataSourceTestNote(typeof data.note === 'string' ? data.note : null);
                 // Absent for API sources, and for a query the warehouse wouldn't
                 // count. The agent is told "size unknown" in that case rather than
                 // being left to assume it is small.
@@ -1548,6 +1740,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setDataSourceType("none");
         setDataSource("");
         setDataSourceSchema(null);
+        setDataSourceSample(null);
+        setDataSourceTestNote(null);
         setDefaultW(6);
         setDefaultH(6);
         setConfigMode('none');
@@ -2098,6 +2292,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                     resetKey={previewComponent}
                                                     onReset={handleReloadPreview}
                                                     onError={(err) => {
+                                                        renderCrashedRef.current = true;
                                                         // Its own budget, not the compile one: a render
                                                         // crash only happens *after* a successful
                                                         // compile, which resets that counter — so
@@ -2272,7 +2467,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                             setDataSourceType(type as any);
                                                             setDataSource("");
                                                             setDataSourceSchema(null);
+                                                            setDataSourceSample(null);
                                                             setDataSourceTestError(null);
+                                                            setDataSourceTestNote(null);
                                                         }}
                                                         className="text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-600"
                                                     />
@@ -2318,6 +2515,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                     </div>
                                                 )}
 
+                                                {dataSourceTestNote && (
+                                                    <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-lg text-amber-200 text-xs">
+                                                        {dataSourceTestNote}
+                                                    </div>
+                                                )}
+
                                                 {dataSourceSchema && (
                                                     <div className="space-y-2">
                                                         <div className="text-xs font-semibold text-emerald-400 flex items-center gap-1">
@@ -2326,6 +2529,16 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                         <pre className="p-3 bg-slate-900 border border-slate-700 rounded-lg text-slate-300 text-xs overflow-x-auto">
                                                             {JSON.stringify(dataSourceSchema, null, 2)}
                                                         </pre>
+                                                        {dataSourceSample && dataSourceSample.length > 0 && (
+                                                            <details className="text-xs text-slate-400">
+                                                                <summary className="cursor-pointer hover:text-slate-300">
+                                                                    {dataSourceSample.length} sample row{dataSourceSample.length === 1 ? '' : 's'} — the agent sees these too
+                                                                </summary>
+                                                                <pre className="mt-2 p-3 bg-slate-900 border border-slate-700 rounded-lg text-slate-300 overflow-x-auto">
+                                                                    {JSON.stringify(dataSourceSample, null, 2)}
+                                                                </pre>
+                                                            </details>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -2486,6 +2699,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         />
                     )}
                 </div>
+                {viewMode !== 'config' && (
+                    <WidgetDiagnostics
+                        findings={lintFindings}
+                        runtime={runtimeLog}
+                        runtimeStatus={shownRuntimeStatus}
+                        busy={isGenerating}
+                        onFix={fixPrompt => handleGenerate(undefined, { overridePrompt: fixPrompt })}
+                    />
+                )}
             </div>
         </div>
     );

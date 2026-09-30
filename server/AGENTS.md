@@ -426,7 +426,8 @@ a failing request doesn't poison a connection, and no lease is lost.
 ## Deployment settings (`services/settings_store.py`)
 
 Which model each LLM caller uses — chat, widget generation, the studio's cheap
-side-calls (`widget_helper_model`, blank means reuse `widget_model`), and agent
+side-calls (`widget_helper_model`, default `system.ai.gpt-6-luna`, falling back to
+`widget_model` where that isn't served), and agent
 authoring — plus the chat agent's step and
 token caps, are rows in `app_settings` edited from Admin Panel → Settings
 (`routes/app_settings.py`, global admin only). Resolution is
@@ -475,7 +476,10 @@ working. Policy per model, in three layers:
 The last layer does the work: a rejection names its cause ("unsupported parameter:
 'temperature'", "max_tokens: 32000 > 8192", "reasoning: Field required"), so `adapt`
 reads it, changes the policy and the call is retried — `with_adaptation` is that
-loop, and every LLM call site goes through it. The lesson is remembered per process.
+loop, and every LLM call site goes through it. The exception is Agent Studio's
+streamed draft, which can't be rerun from the top once text has reached the
+browser: it runs the same `adapt` loop itself, and only until the first frame is
+sent (`tests/test_agent_studio_stream.py`). The lesson is remembered per process.
 Two rules worth knowing before you change it:
 
 - **A parameter is only dropped if it's in `_DROPPABLE`.** An error naming
@@ -585,13 +589,17 @@ inference with the SP, and that exception must not spread to data, which is why
 `get_db_client_sp`. The admin switches `enable_sql_tool` / `enable_genie_tool`
 remove them, as they do in chat.
 
-In Widget Studio the one-pass ReAct call has them directly. A planned run is plain
-model calls, so `_research` runs one ReAct round *before* planning, on its own
+In Widget Studio the one-pass ReAct call has them directly, and so does each step
+of a planned run (`ask_step`, a ReAct agent capped at `STEP_RECURSION_LIMIT`
+that falls back to a plain call if it never converges). The plan itself is a plain
+call, so `_research` runs one ReAct round *before* planning, on its own
 `RESEARCH_SECONDS` clock inside the job's, and its findings are appended to the
 plan prompt and to every step's system prompt (`_run_stages(context=...)`). It
 costs a model call even when it finds nothing, so `_wants_research` only asks for
 it when the request names a `catalog.schema.table` (not `props.data.x`) or asks to
-look at data. In Agent Studio they ride on `confirm_schema`, like the probes.
+look at data. With `run_sql` bound, `_sql_check_hint` tells both paths to run any
+statement they wrote once before handing code back. In Agent Studio they ride on
+`confirm_schema`, like the probes.
 
 ## Moving data between apps (`services/data_migration.py`, `routes/data_migration.py`)
 
@@ -644,6 +652,22 @@ A background job (`generation_jobs`, polled by the studio) that drives a LangGra
 ReAct agent. The contract for what it may emit is
 `routes/agent_instructions.md` — edit that file, not the Python, when you want to
 change the model's output shape.
+
+**Jobs are shared between workers (`services/generation_jobs.py`).** The deploy
+runs two uvicorn workers, so a poll or a Stop can land on the one that isn't
+running the job. `generation_jobs` is a `JobStore`: the running worker keeps the
+job in memory and writes each change through to `widget_generation_jobs` (settings
+schema), and `GET` / `DELETE /generate/{id}` read and write that row. It was a
+module-level dict, which 404'd half the polls (masked, because the studio keeps
+polling) and silently dropped half the Stops. Two rules: the table is a copy, never
+a dependency — a failed write is logged and the job carries on, intermediate writes
+back off, and `_settle` always forces the final one — and `cancelled` is its own
+column, which saves never write, so progress can't undo a Stop. Read cancellation
+with `generation_jobs.is_cancelled(job_id)`, never `job.get("cancelled")`: the
+flag may have been set on the other worker. Standalone tests set
+`generation_jobs.persist = False`. Agent Studio avoids the question by streaming
+each run over the request that started it (`/generate/stream`); its old polled
+job pair, held in one worker's memory, was unused and has been removed.
 
 It responds in one of two shapes, and the difference is the fix for large widgets
 failing:
@@ -728,9 +752,9 @@ What makes this worth the extra round trips is where the failures land:
   to raise `widget_timeout` or ask for the rest.
 - `result["code"]` is `None` when no step changed anything, so the studio keeps what
   the user has rather than recording a no-op snapshot.
-- `DELETE /api/agent/widget/generate/{job_id}` sets `cancelled`, which is checked
-  between steps and before each optional follow-up round (`next_llm` returns
-  `None`). The studio's Stop button stops polling at once and ignores whatever
+- `DELETE /api/agent/widget/generate/{job_id}` sets `cancelled` on the job's row,
+  which `is_cancelled` checks between steps and before each optional follow-up
+  round (`next_llm` returns `None`). The studio's Stop button stops polling at once and ignores whatever
   the job produces afterwards; "Stop after this step" keeps polling. Stopping
   keeps the applied steps; it is not an undo.
 - Each step's line in the summary is the prose it wrote outside its code block —
@@ -766,10 +790,9 @@ Anything unexpected in the plan means no plan and the request is answered in one
 pass, which is the pre-existing behavior — a plan that won't parse must never cost
 someone their turn.
 
-Steps are plain model calls, not the ReAct agent, so they can't reach the
-`search_widgets` tool. That's a deliberate trade — a step is a described change to
-code the model already has — but it's the thing to revisit if planned builds start
-ignoring existing widgets the way one-pass builds don't.
+Steps run as ReAct agents with the same tools as the one-pass path
+(`search_widgets` and the research tools; see *Studio research tools*), so a step
+that adds a query can look up the column and run the statement it just wrote.
 
 **SQL quoting.** Databricks needs backtick-quoted identifiers for names that aren't
 plain (column mapping, on by default in Unity Catalog, allows spaces and punctuation
@@ -810,13 +833,32 @@ sanitizes: categories/domains must be one of the values the request supplied,
 dimensions are range-checked, and keys listed in `locked_settings` are dropped.
 The frontend applies what's left only to fields the user hasn't touched.
 
-**The cheap side-calls (`ask_helper`).** Refining the prompt, compacting history
-and deciding whether to ask a question all run on `widget_helper_model` with their
-own small `HELPER_SECONDS` / `HELPER_MAX_TOKENS` slice of the same `_Budget`. Every
+**The cheap side-calls (`ask_helper`).** Compacting history and deciding whether
+to ask a question run on `widget_helper_model` (default
+`system.ai.gpt-6-luna`) with their own small `HELPER_SECONDS` /
+`HELPER_MAX_TOKENS` slice of the same `_Budget`. `_helper_params` adds
+`reasoning_effort="none"` for OpenAI-flavoured models unless an admin override, a
+learned drop or the built-in policy already decides the effort; a model that
+refuses the *value* (which `llm_params.adapt` can't read) goes into
+`_helper_no_effort` and is retried without it. An endpoint that isn't served is
+remembered in `_helper_missing` for `HELPER_MISSING_SECONDS` and the job switches
+to `widget_model` for its quick checks, so the default is safe on a workspace
+without that model. Every
 one of them is skippable by construction: `ask_helper` returns `""` when there is
 no time or the call fails, and each caller reads that as "do what you did before".
 Nothing here may become load-bearing — a helper outage must cost quality, never a
-turn. They also share `_json_reply`, which digs the object out of a fenced or
+turn.
+
+There used to be a third, `_refine_prompt`, which had the helper restate the
+request before generation, and it was removed rather than tuned. It saw nothing
+the generation model doesn't (the same request, the same code), so at best it
+agreed with the stronger model and at worst overruled it — and it replaced the
+user's words, so the generation model couldn't tell. The case that removed it:
+"the time keeps changing width due to kerning" arrived as "keep the span's width
+fixed", the user's guess at a cause promoted to a requirement and the likely fix
+(tabular digits) ruled out. It cost two seconds on every turn and was never
+measured. A helper job earns its place by *deciding* something or *shrinking*
+what the big model reads, as compaction and the question gate do. They also share `_json_reply`, which digs the object out of a fenced or
 chatty reply and returns `{}` rather than raising.
 
 `_base_url` is per model, not per job, and this is the trap: a `system.ai.…` name
@@ -830,6 +872,27 @@ because that is exactly where a wrong guess costs minutes. A question set settle
 the job with `code: None` and a `questions` list; nothing is generated. Two guards
 stop a loop: the client sends `allow_clarify: false` on the answering turn, and
 `CLARIFY_MARKER` in the history means one has already been asked.
+
+**The data-source test runs as the user (`get_db_client`).** It ran as the SP,
+with no statement check, which let anyone with studio access run any SQL with the
+app's grants — writes included — and made the server GET any URL it was handed.
+Now: SQL goes through `sql_safety.classify_statement` and a write is answered 200
+with a `note` and never run; a read runs as `_probe_statement` (bounded to
+`SAMPLE_ROWS`; a newline before the closing parenthesis so a trailing `--` comment
+can't swallow it); column types come from the manifest (`_column_types`), since
+every Statement Execution value is a string; and a plain `api` source is refused
+with 400, because the studio tests it from the browser (`src/widgetDataSource.ts`).
+The sample comes back on generate as `data_source_sample` (`_sample_section`).
+
+**What the studio saw when the widget ran.** The browser is the only place widget
+code runs, so the studio sends it back: `runtime_log` (requests, row counts,
+errors — `src/widgetRuntime.ts`), `lint_findings` (`src/widgetLint.ts`) and, on
+review and runtime-fix turns, `preview_screenshot`, a PNG data URL turned into an
+image part by `native_files.image_part` (image data URLs only, size-limited, and
+gated like any native file). `_runtime_section` / `_lint_section` are appended only
+when there is current code for them to describe, and bounded here as well as in
+the browser. `_review_evidence` points the reviewer at whichever of the three it
+has.
 
 **Row estimate.** `POST /datasource/test` on a SQL source returns `row_estimate`
 from a wrapped `COUNT(*)`, the studio keeps it, and it comes back on generate as
@@ -847,8 +910,8 @@ private and the app never sees it. `_settle` exists because a plain
 
 **`POST /review`** is the QA pass, and it is deliberately a second request rather
 than a tail on the generation job: the only compiler here is the browser's, so the
-studio is the one that knows whether the code it was handed builds, and reviewing
-before that means auditing code that may not run. It shares the job shape, so the
+studio is the one that knows whether the code it was handed builds — and, now, how
+it behaved once it ran, which is when the studio sends it (with a screenshot). It shares the job shape, so the
 studio polls it with the same code, and findings come back through `_apply_reply`
 like any other reply — a review is not allowed to eat the widget it was checking.
 It gets `REVIEW_SECONDS`, a fraction of the generation allowance, and a failure
@@ -857,13 +920,16 @@ settles as *completed* with an apology: the user's code is already fine.
 ## Tests
 
 ```bash
-PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py   # 7 passed
+PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py   # 6 passed
+PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_stream.py  # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 9 passed
 PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 22 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_helper.py  # 23 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_helper.py  # 20 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_context.py # 18 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
 PYTHONPATH=server server/venv/bin/python tests/test_native_files.py         # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server server/venv/bin/python tests/test_caller_identity.py      # 11 passed

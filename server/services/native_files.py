@@ -54,6 +54,34 @@ def limits() -> Tuple[int, int]:
     return max(1, mb) * 1024 * 1024, max(1, pages)
 
 
+_DATA_URL_PREFIXES = tuple(f"data:{mime};base64," for mime in sorted(set(_IMAGE_MIMES.values())))
+
+
+def image_part(model: str, data_url: Optional[str]) -> Optional[Dict[str, Any]]:
+    """A content part for an image the browser sent inline, or None.
+
+    For Widget Studio's capture of its own preview, which never becomes an upload.
+    Held to the same rules as an uploaded image — a model that reads images, the
+    admin switch, the size limit — and to image data URLs only, since the value
+    comes straight from a request body and is forwarded to the model as-is.
+    """
+    url = (data_url or "").strip()
+    if not url or not flavor(model) or not url.startswith(_DATA_URL_PREFIXES):
+        return None
+    max_bytes, _ = limits()
+    # base64 is four characters per three bytes.
+    if (len(url) - url.index(",") - 1) * 3 // 4 > max_bytes:
+        return None
+    try:
+        from services.settings_store import get_bool_setting
+
+        if not get_bool_setting("enable_native_file_passthrough"):
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+    return {"type": "image_url", "image_url": {"url": url}}
+
+
 def parts(model: str, env: str, attachments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Content parts for files the model should read itself rather than via tools.
 

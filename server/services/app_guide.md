@@ -89,8 +89,13 @@ description.
 1. **Configuration tab** — name, description, help text, category, domain,
    default size, whether the widget performs an executable action, and its
    configuration mode (whether end users can pass runtime inputs). The Data
-   Source (None, API, or SQL) can be tested here, and the extracted schema is
-   handed to the generating agent. Testing a SQL source also counts the rows it
+   Source (None, API, Databricks API, or SQL) can be tested here with **Test &
+   Extract Schema**; the schema — real column types for SQL — and a few sample
+   rows are shown and handed to the generating agent. Tests run as you, with your
+   own permissions. A SQL statement that changes data (INSERT, UPDATE, MERGE…) is
+   never run to test it; the studio says so instead. An external API is called
+   from your browser, exactly as the widget will call it, so a CORS block shows up
+   here. Testing a SQL source also counts the rows it
    returns, which decides how the agent builds: a few thousand rows are fetched
    and worked with in the browser, while a large table gets paging, sorting,
    searching and totals pushed into SQL so the widget only ever holds one page.
@@ -108,8 +113,9 @@ description.
    are allowed to see. Name the table (`main.supply.shipments`) and it checks the
    real column names and values rather than guessing; what it looked up shows
    under **Thinking**. It never writes data, and what it finds shapes the code
-   rather than being pasted in as fixed numbers. Admins can switch either tool off
-   in Admin Panel → Settings.
+   rather than being pasted in as fixed numbers. Each step of a multi-step build
+   can do this too, and it runs any SQL it writes once before handing the code
+   back. Admins can switch either tool off in Admin Panel → Settings.
 3. **Attachments and screenshots** — the paperclip attaches spreadsheets,
    documents and images for the agent to read, and **Send screenshot to agent**
    under the preview attaches a picture of the widget as it currently looks.
@@ -117,11 +123,27 @@ description.
    is too narrow" arrives with the thing it describes.
 4. **TSX Editor / Live Preview** — the code and its live rendering. **Reload**
    re-runs the widget so anything that only happens on first load can be
-   repeated without editing code.
+   repeated without editing code. The studio watches the preview run: each
+   request the widget makes (and how many rows came back), anything it logs as an
+   error, and errors it throws. If code the agent just wrote fails when it runs —
+   a query rejected as invalid, a crash in its data handling — the agent is sent
+   what happened and fixes it on its own, up to twice. It does not try to fix
+   failures code can't fix: a permission error (403), a server error, or the
+   configured data source itself failing, which needs fixing on the
+   Configuration tab.
+   **Problems**, the bar under the preview and the code, lists two things: rule
+   checks on the code (an import widgets can't use, a script from a CDN that
+   isn't allowed, a write without the audit trail, text too light to read, and
+   similar) and what happened in the last run. The agent is given both with every
+   request. **Fix with agent** asks it to fix everything listed. Rule errors in
+   code the agent wrote are fixed automatically, like a failed run; warnings are
+   left to you.
 5. **Agent settings** (the sliders icon above the chat) — two options, remembered
    in that browser rather than set for everyone. *Conduct review after change*
-   (off by default) has the agent re-read its own code once it compiles, as a QA
-   pass over behaviour, states, layout and legibility, and fix what it finds. It
+   (off by default) has the agent re-read its own code once it has compiled and
+   run in the preview, as a QA pass over behaviour, states, layout and
+   legibility, and fix what it finds. It is shown a screenshot of the rendered
+   widget and what happened when it ran, when the model can read images. It
    then adds a *Worth considering* note — up to three changes that would make the
    widget better at its job, judged as a product owner would rather than against
    the request. Those are only ever suggestions; the review never implements them,
@@ -302,10 +324,12 @@ agent is used when none is chosen.
 Global admins choose the model in **Admin Panel → Settings**, from a searchable
 list of the workspace's chat-capable models. Four are set separately: the model
 behind this chat, the one that writes widget code in Widget Studio, a small
-helper model for the studio's quick jobs (tightening up a request, summarising a
-long conversation, deciding whether to ask a question), and the one that drafts
-agents in Agent Studio. Leaving the helper blank uses the widget generation model
-for those too. The same page holds the chat agent's limits — how many tool calls
+helper model for the studio's quick jobs (summarising a long conversation,
+deciding whether to ask a question before a big build), and the one that drafts
+agents in Agent Studio. The helper defaults to `system.ai.gpt-6-luna`, asked to
+answer without reasoning so the quick jobs stay quick; on a workspace that doesn't
+serve that model, the widget generation model is used instead. To use the
+generation model deliberately, enter its name as the helper. The same page holds the chat agent's limits — how many tool calls
 it may make in one turn, and how long a single answer may be.
 
 The response length limit is a ceiling, not a target — raising it costs nothing

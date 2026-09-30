@@ -91,8 +91,9 @@ TABLES: List[TableSpec] = [
 SPECS: Dict[str, TableSpec] = {t.name: t for t in TABLES}
 
 #: Tables deliberately left out of snapshots. A stop record only matters while
-#: its turn is still streaming on the app that recorded it.
-NOT_COPIED = frozenset({"chat_turn_stops"})
+#: its turn is still streaming on the app that recorded it, and a generation job
+#: only while the studio that started it is polling.
+NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs"})
 
 GROUPS: List[Dict[str, Any]] = [
     {"key": "content", "label": "Widgets, views and agents",

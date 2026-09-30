@@ -190,6 +190,15 @@ def _admin_overrides(model: str) -> Dict[str, Any]:
     return merged
 
 
+def configured(model: str) -> Dict[str, Any]:
+    """What an admin set for `model` in `model_params`, `None` values included.
+
+    For a caller with its own default for a parameter, which must yield to an admin
+    who named that parameter — including one who asked for it never to be sent.
+    """
+    return _admin_overrides(model)
+
+
 def request_params(model: str, max_tokens: Optional[int] = None) -> Dict[str, Any]:
     """The optional parameters to send `model`, ready to merge into a request.
 
@@ -242,7 +251,7 @@ def langchain_params(model: str, max_tokens: Optional[int] = None) -> Dict[str, 
     return params
 
 
-def _requested_tokens(params: Dict[str, Any]) -> int:
+def requested_tokens(params: Dict[str, Any]) -> int:
     """The output budget in `params`, whichever name it went out under."""
     values = [int(params[key]) for key in _TOKEN_KEYS if str(params.get(key) or "").isdigit()]
     return max(values) if values else 0
@@ -340,7 +349,7 @@ def with_adaptation(
         try:
             return attempt(params)
         except Exception as exc:  # noqa: BLE001
-            note = adapt(model, str(exc), _requested_tokens(params))
+            note = adapt(model, str(exc), requested_tokens(params))
             if not note or not remaining:
                 raise
             if note == last_note:

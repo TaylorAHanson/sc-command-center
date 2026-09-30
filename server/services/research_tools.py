@@ -340,7 +340,7 @@ def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
                 return late
             say(f"querying: {' '.join((query or '').split())[:160]}")
             answer = run_sql(ws, query, max_rows)
-            say("query returned " + answer.split("\n", 1)[0][:120])
+            say("query returned " + answer.split("\n", 1)[0][:120].rstrip(":"))
             return answer
 
         tools.append(run_sql_tool)
@@ -401,6 +401,8 @@ def prompt_section(tools: List[Any]) -> str:
                      "for meaning (what counts as 'late'?), not for rows.")
     lines.append("Research when the request names data you have not been shown, or when "
                  "a wrong guess about a column or value would break the result. Skip it "
-                 "when the schema you were given already answers the question. Findings "
-                 "inform what you write; they are never pasted in as hardcoded data.")
+                 "when the schema you were given already answers the question, and when "
+                 "the request doesn't depend on the data at all — layout, styling and "
+                 "wording changes need no tool calls. Findings inform what you write; "
+                 "they are never pasted in as hardcoded data.")
     return "\n".join(lines)

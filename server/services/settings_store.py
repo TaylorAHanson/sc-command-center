@@ -75,14 +75,14 @@ SETTING_SPECS: Dict[str, Spec] = {
     ),
     "widget_helper_model": Spec(
         env="WIDGET_AGENT_HELPER_MODEL",
-        # Blank on purpose. The small jobs fall back to `widget_model`, so an
-        # untouched deployment behaves exactly as it did; pointing this at a
-        # small fast endpoint is what makes them cheap enough to be worth doing
-        # before every request rather than only before large ones.
-        default="",
+        # A small fast model is what makes these jobs cheap enough to run on a
+        # request's critical path. They are asked not to reason (widget_studio._helper_params),
+        # and a workspace that doesn't serve this model falls back to
+        # `widget_model` on its own, so the default is safe to ship everywhere.
+        default="system.ai.gpt-6-luna",
         kind="endpoint",
         label="Widget helper model",
-        help="Small model for Widget Studio's quick jobs: tightening a request, summarising the conversation so far, and deciding whether to ask a clarifying question. Leave blank to use the widget generation model for these too.",
+        help="Small model for Widget Studio's quick jobs: summarising a long conversation so far, and deciding whether to ask a clarifying question before a big build. Asked to answer without reasoning. If this workspace doesn't serve it, the widget generation model is used instead; enter that model's name here to use it deliberately.",
         group="models",
     ),
     "authoring_model": Spec(

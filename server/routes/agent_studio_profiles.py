@@ -11,8 +11,8 @@ Two surfaces:
 
   * **CRUD** (``/profiles*``, ``/locations``) — list/read/save/delete profiles,
     delegated to :class:`AgentStudioStore`, scoped by OBO.
-  * **Authoring** (``/tools``, ``/generate``, ``/generate/{job_id}``) — an
-    AI-assisted draft loop. A Claude (sonnet) agent proposes an ``AGENT.md`` +
+  * **Authoring** (``/tools``, ``/generate/stream``) — an AI-assisted draft
+    loop. A Claude (sonnet) agent proposes an ``AGENT.md`` +
     skills, *grounded* in (a) the tools actually exposed by the Unity Catalog AI
     Gateway MCP and (b) live schema probes against SQL/Genie. It returns a draft
     plus a structured **Review** so the author can see suggested tools, missing
@@ -30,9 +30,6 @@ import json
 import logging
 import os
 import re
-import threading
-import time
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -40,7 +37,7 @@ from typing import Any, Dict, List, Optional
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -69,68 +66,6 @@ from services.settings_store import base_path_for_model, get_int_setting, get_se
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _job_ttl_s() -> int:
-    try:
-        return int(os.environ.get("AGENT_STUDIO_JOB_TTL_S", "1800"))
-    except ValueError:
-        return 1800
-
-
-def _job_max() -> int:
-    try:
-        return int(os.environ.get("AGENT_STUDIO_JOB_MAX", "200"))
-    except ValueError:
-        return 200
-
-
-class _JobStore:
-    """Bounded, TTL-evicting, thread-safe store for authoring jobs.
-
-    Drop-in dict-like (``store[id] = {...}``, ``id in store``, ``store[id]``).
-    Replaces a plain dict that grew unbounded and never expired. Still
-    process-local: with multiple app replicas a poll may hit a replica that did
-    not run the job, so callers treat a missing job as "not found". For
-    cross-replica durability move this to a shared backend (e.g. Lakebase).
-    """
-
-    def __init__(self, ttl_s: int, max_jobs: int) -> None:
-        self._ttl = ttl_s
-        self._max = max_jobs
-        self._jobs: Dict[str, Dict[str, Any]] = {}
-        self._lock = threading.Lock()
-
-    def _evict_locked(self) -> None:
-        now = time.monotonic()
-        expired = [k for k, v in self._jobs.items() if now - v.get("_ts", now) > self._ttl]
-        for k in expired:
-            self._jobs.pop(k, None)
-        if len(self._jobs) > self._max:
-            overflow = sorted(self._jobs.items(), key=lambda kv: kv[1].get("_ts", 0))
-            for k, _ in overflow[: len(self._jobs) - self._max]:
-                self._jobs.pop(k, None)
-
-    def __setitem__(self, job_id: str, value: Dict[str, Any]) -> None:
-        with self._lock:
-            stamped = dict(value)
-            stamped["_ts"] = time.monotonic()
-            self._jobs[job_id] = stamped
-            self._evict_locked()
-
-    def __contains__(self, job_id: str) -> bool:
-        with self._lock:
-            self._evict_locked()
-            return job_id in self._jobs
-
-    def __getitem__(self, job_id: str) -> Dict[str, Any]:
-        with self._lock:
-            v = self._jobs[job_id]
-            return {k: val for k, val in v.items() if k != "_ts"}
-
-
-# Authoring jobs (in-memory, bounded + TTL-evicted).
-authoring_jobs = _JobStore(ttl_s=_job_ttl_s(), max_jobs=_job_max())
 
 
 # --------------------------------------------------------------------- models
@@ -946,58 +881,6 @@ def _extract_json_block(content: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def run_authoring_task(
-    job_id: str,
-    req: AuthorRequest,
-    api_key: str,
-    base_url: str,
-    obo_token: Optional[str],
-) -> None:
-    try:
-        from langchain_core.messages import AIMessage, HumanMessage
-        from langgraph.prebuilt import create_react_agent
-
-        store = get_agent_studio_store()
-        ws = store._client(obo_token)  # OBO client for tool discovery + probes
-
-        history = req.history[-6:] if len(req.history) > 6 else req.history
-        lc_history: List[Any] = []
-        for m in history:
-            if m.role == "user":
-                lc_history.append(HumanMessage(content=m.content))
-            else:
-                lc_history.append(AIMessage(content=m.content))
-
-        # A parameter the endpoint refuses fails on this first call, so it runs
-        # under `with_adaptation`: the parameter is dropped and the call retried
-        # rather than the draft being lost because the model changed.
-        def draft_agent(params: Dict[str, Any]):
-            agent = create_react_agent(
-                model=_build_authoring_llm(api_key, base_url, params),
-                tools=_make_tools(ws, req.confirm_schema),
-                prompt=_build_authoring_system_prompt(req),
-            )
-            return agent.invoke({"messages": lc_history + [HumanMessage(content=req.prompt)]})
-
-        response = llm_params.with_adaptation(
-            get_setting("authoring_model"), draft_agent,
-            max_tokens=_agent_studio_max_tokens(),
-            params_fn=llm_params.langchain_params,
-        )
-        content = reply_text(response["messages"][-1])
-        draft = _extract_json_block(content)
-
-        explanation = _split_explanation(content) if draft is not None else content
-
-        authoring_jobs[job_id] = {
-            "status": "completed",
-            "result": {"draft": draft, "explanation": explanation, "raw": content},
-        }
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Authoring job %s failed", job_id)
-        authoring_jobs[job_id] = {"status": "failed", "error": str(exc)}
-
-
 # --------------------------------------------------------------------- routes
 
 @router.get("/tools")
@@ -1138,30 +1021,6 @@ def delete_profile(
     return {"status": "deleted"}
 
 
-@router.post("/generate")
-async def start_authoring(
-    req: AuthorRequest,
-    background_tasks: BackgroundTasks,
-    obo_token: Optional[str] = Depends(get_user_token),
-    sp_client: WorkspaceClient = Depends(get_db_client_sp),
-):
-    """Kick off the AI-assisted authoring job (LLM via SP, tools via OBO).
-
-    Legacy background-job + polling path. Prefer ``/generate/stream`` (SSE),
-    which avoids the in-memory job store entirely — polling could miss jobs
-    across replicas or a ``--reload`` restart. This is kept as a fallback.
-    """
-    try:
-        api_key, base_url = _llm_credentials(sp_client)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"LLM client init failed: {exc}")
-
-    job_id = str(uuid.uuid4())
-    authoring_jobs[job_id] = {"status": "pending", "result": None, "error": None}
-    background_tasks.add_task(run_authoring_task, job_id, req, api_key, base_url, obo_token)
-    return {"job_id": job_id}
-
-
 @router.post("/generate/stream")
 async def stream_authoring(
     req: AuthorRequest,
@@ -1175,6 +1034,11 @@ async def stream_authoring(
     event carrying the parsed ``draft`` + cleaned ``explanation``. The request
     stays open for the whole run, so there is no job store and no cross-replica
     polling gap. LLM uses the SP credential; tools/probes use the caller's OBO.
+
+    This is the only authoring endpoint. A background-job + polling pair used to
+    sit beside it, holding jobs in one worker's memory, so with two workers half
+    its polls 404'd. Nothing called it; don't bring back a polled job here without
+    the shared store in ``services/generation_jobs.py``.
     """
     try:
         api_key, base_url = _llm_credentials(sp_client)
@@ -1194,12 +1058,6 @@ async def stream_authoring(
 
             store = get_agent_studio_store()
             ws = store._client(obo_token)
-            llm = _build_authoring_llm(api_key, base_url)
-            agent = create_react_agent(
-                model=llm,
-                tools=_make_tools(ws, req.confirm_schema),
-                prompt=_build_authoring_system_prompt(req),
-            )
 
             history = req.history[-6:] if len(req.history) > 6 else req.history
             lc_history: List[Any] = []
@@ -1209,63 +1067,92 @@ async def stream_authoring(
                 else:
                     lc_history.append(AIMessage(content=m.content))
 
-            full = ""
-            emitted = 0
-            tool_calls: List[Dict[str, str]] = []
-            tool_seen: set[str] = set()
-            # Track which message produced the last prose so we can insert a
-            # paragraph break between separate AI messages (the ReAct loop emits
-            # one per step); otherwise their text runs together with no space.
-            last_content_id: Optional[str] = None
+            sent = False
 
-            async for msg, _meta in agent.astream(
-                {"messages": lc_history + [HumanMessage(content=req.prompt)]},
-                stream_mode="messages",
-            ):
-                # A tool finished -> flip its pill to done.
-                if getattr(msg, "type", None) == "tool":
-                    name = getattr(msg, "name", None)
-                    if name:
-                        label = _FRIENDLY_TOOL.get(name, name)
-                        for tc in tool_calls:
-                            if tc["tool_name"] == label:
-                                tc["status"] = "done"
-                        await queue.put(_sse({"type": "tool_calls", "content": tool_calls}))
-                    continue
+            async def emit(frame: bytes) -> None:
+                nonlocal sent
+                sent = True
+                await queue.put(frame)
 
-                # New tool call requested by the model.
-                for tcc in getattr(msg, "tool_call_chunks", None) or []:
-                    nm = tcc.get("name")
-                    if nm and nm not in tool_seen:
-                        tool_seen.add(nm)
-                        tool_calls.append({"tool_name": _FRIENDLY_TOOL.get(nm, nm), "status": "running"})
-                        await queue.put(_sse({"type": "tool_calls", "content": tool_calls}))
+            # A parameter the endpoint refuses fails the first request, before
+            # anything streams, so that failure is learned from (`llm_params.adapt`)
+            # and the run started again — the same recovery `with_adaptation` gives
+            # the non-streaming callers. Once anything has reached the browser a
+            # retry would show it twice, so from then on a failure is reported.
+            model_name = get_setting("authoring_model")
+            last_note = ""
+            for remaining in range(2, -1, -1):
+                params = llm_params.langchain_params(model_name, _agent_studio_max_tokens())
+                agent = create_react_agent(
+                    model=_build_authoring_llm(api_key, base_url, params),
+                    tools=_make_tools(ws, req.confirm_schema),
+                    prompt=_build_authoring_system_prompt(req),
+                )
+                full = ""
+                emitted = 0
+                tool_calls: List[Dict[str, str]] = []
+                tool_seen: set[str] = set()
+                # Track which message produced the last prose so we can insert a
+                # paragraph break between separate AI messages (the ReAct loop emits
+                # one per step); otherwise their text runs together with no space.
+                last_content_id: Optional[str] = None
+                try:
+                    async for msg, _meta in agent.astream(
+                        {"messages": lc_history + [HumanMessage(content=req.prompt)]},
+                        stream_mode="messages",
+                    ):
+                        # A tool finished -> flip its pill to done.
+                        if getattr(msg, "type", None) == "tool":
+                            name = getattr(msg, "name", None)
+                            if name:
+                                label = _FRIENDLY_TOOL.get(name, name)
+                                for tc in tool_calls:
+                                    if tc["tool_name"] == label:
+                                        tc["status"] = "done"
+                                await emit(_sse({"type": "tool_calls", "content": tool_calls}))
+                            continue
 
-                content = reply_text(msg)
-                if not content:
-                    continue
-                msg_id = getattr(msg, "id", None)
-                if last_content_id is not None and msg_id != last_content_id:
-                    full += "\n\n"
-                last_content_id = msg_id
-                full += content
-                # Stream only the prose before the JSON payload. The boundary
-                # (`{` or a ``` fence) is detected by _prose_cut and never
-                # emitted. The only thing that could leak across chunks is the
-                # START of a fence, so hold back ONLY a trailing run of 1-2
-                # backticks (a partial ```); everything else is emitted verbatim.
-                # (The old `prose[:-2]` dropped the last 2 chars of every chunk,
-                # which surfaced as the final 1-2 letters going missing.)
-                cut = _prose_cut(full)
-                if cut != -1:
-                    emittable = full[:cut]
-                else:
-                    stripped = full.rstrip("`")
-                    trailing_ticks = len(full) - len(stripped)
-                    emittable = stripped if 0 < trailing_ticks < 3 else full
-                if len(emittable) > emitted:
-                    await queue.put(_sse({"type": "chunk", "content": emittable[emitted:]}))
-                    emitted = len(emittable)
+                        # New tool call requested by the model.
+                        for tcc in getattr(msg, "tool_call_chunks", None) or []:
+                            nm = tcc.get("name")
+                            if nm and nm not in tool_seen:
+                                tool_seen.add(nm)
+                                tool_calls.append({"tool_name": _FRIENDLY_TOOL.get(nm, nm), "status": "running"})
+                                await emit(_sse({"type": "tool_calls", "content": tool_calls}))
+
+                        content = reply_text(msg)
+                        if not content:
+                            continue
+                        msg_id = getattr(msg, "id", None)
+                        if last_content_id is not None and msg_id != last_content_id:
+                            full += "\n\n"
+                        last_content_id = msg_id
+                        full += content
+                        # Stream only the prose before the JSON payload. The boundary
+                        # (`{` or a ``` fence) is detected by _prose_cut and never
+                        # emitted. The only thing that could leak across chunks is the
+                        # START of a fence, so hold back ONLY a trailing run of 1-2
+                        # backticks (a partial ```); everything else is emitted verbatim.
+                        # (The old `prose[:-2]` dropped the last 2 chars of every chunk,
+                        # which surfaced as the final 1-2 letters going missing.)
+                        cut = _prose_cut(full)
+                        if cut != -1:
+                            emittable = full[:cut]
+                        else:
+                            stripped = full.rstrip("`")
+                            trailing_ticks = len(full) - len(stripped)
+                            emittable = stripped if 0 < trailing_ticks < 3 else full
+                        if len(emittable) > emitted:
+                            await emit(_sse({"type": "chunk", "content": emittable[emitted:]}))
+                            emitted = len(emittable)
+                    break
+                except Exception as exc:  # noqa: BLE001 — re-raised unless it taught us something
+                    note = None if sent else llm_params.adapt(
+                        model_name, str(exc), llm_params.requested_tokens(params))
+                    if not note or not remaining or note == last_note:
+                        raise
+                    last_note = note
+                    logger.info("Agent Studio authoring retrying: %s.", note)
 
             draft = _extract_json_block(full)
             explanation = _split_explanation(full) or "Draft updated."
@@ -1307,13 +1194,6 @@ async def stream_authoring(
             "X-Accel-Buffering": "no",
         },
     )
-
-
-@router.get("/generate/{job_id}")
-async def get_authoring_status(job_id: str):
-    if job_id not in authoring_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return authoring_jobs[job_id]
 
 
 # --------------------------------------------------------------------- helper

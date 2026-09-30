@@ -91,8 +91,9 @@ Practical consequences for widget code:
   database. Every compile path (`widgetRegistry.ts`, Widget Studio's preview, the
   admin preview) passes the source through `withBrandColors` from `brand.ts`,
   which maps `<APP_BRAND>-*` to `brand-*`. A new compile path must do the same, or
-  those widgets lose their colours there. The name comes from `/api/health` and is
-  set per deployment (`var.brand`), so no customer name belongs in this repo.
+  those widgets lose their colours there. The name comes from `/api/health`, which
+  reads `var.brand` in `databricks.yml`. It is `brand` (no alias) in this repo, and
+  a customer's copy sets its own, so no customer name belongs here.
 
 The authoritative, more detailed contract is
 `server/routes/agent_instructions.md` — it's the prompt sent to the widget
@@ -213,14 +214,39 @@ Two behaviors there are easy to break by accident:
   the same job shape, so the loop that applies stages, mirrors `trace` into the
   Thinking disclosure, and settles the turn is parameterized by endpoint rather
   than duplicated. A new studio turn type should go through it too.
-- **The review pass is chained off the compile, not off the turn.** The only
-  compiler here is the browser's, so nothing else can know whether the code the
-  agent produced builds. A generation that produced code sets `reviewPendingRef`
-  and the compile effect fires the review on a clean compile — which is why it is a
-  ref: naming it as a dependency would recompile the widget every time it changed.
-  Reviewing code that doesn't build is a wasted turn, and a review is itself a
-  change, so nothing about a review may set that ref again or the two take turns
-  indefinitely.
+- **The preview's run is recorded (`src/widgetRuntime.ts`).** Each compile makes a
+  `RuntimeRecorder` and passes its `fetch` and `console` into the `new Function`
+  in place of the globals, so what it sees is the widget's own traffic, not the
+  studio's. `/api/*` responses are read from a clone (the widget's own read is
+  untouched) for status, `detail`, the SQL sent and `row_count`; uncaught errors
+  count only when their stack runs through evaluated code. Each entry says whether
+  code can fix it: a 4xx from a statement the widget composed can; a 401/403/429,
+  a 5xx, a network/CORS failure, or the configured data source failing verbatim
+  can't. A run *settles* when requests have been quiet for a second (at least
+  1.5s after mount, at most 10s); outside Live Preview nothing mounts, so it
+  settles at once as "not run".
+- **What follows an agent turn is decided at settle (`handleSettled`), not at
+  compile.** The only compiler here is the browser's, and now the only runtime too,
+  so this is the one place that knows the code builds *and* how it behaved. If the
+  code is the agent's own (`agentCodeRef`) and the run had fixable failures or the
+  lint found errors, it asks for a `runtime` fix with a screenshot
+  (`runtimeRetryCountRef`, max 2, reset like the render budget). Otherwise a
+  pending review (`reviewPendingRef`, set in the generation's `onSettled`) runs with
+  a screenshot. Both are refs so the compile effect doesn't re-run when they change.
+  A planned run's last step settles while the job is still going, and the final
+  result is the same code, so no new run comes: `runJob` re-offers the last
+  settled run (`lastSettledRef`) when a turn that produced code completes.
+  A review is itself a change, so nothing about a review may set `reviewPendingRef`
+  again or the two take turns indefinitely.
+- **Pattern checks (`src/widgetLint.ts`) mirror the contract.** Errors are code
+  that won't work or breaks a platform rule (no default export, an import the
+  sandbox can't satisfy, a `useScript` host `isAllowedScriptUrl` refuses, a write
+  without `executeAction`); warnings are usually-wrong patterns (unchecked SQL
+  response, light text, arbitrary Tailwind). Only errors trigger an auto-fix, and
+  only in agent code. A rule that disagrees with `server/routes/agent_instructions.md`
+  sends the agent in circles, so change both together. Findings and the runtime
+  log go to the agent on every request (`requestContext`) and are shown in
+  `components/WidgetDiagnostics.tsx`.
 - **Saving stays on the page.** `handlePublish` reports through the inline
   `saveNotice` and does not call `onClose`; people save every few minutes and a
   modal or a navigation for each one is what this replaced. That makes `onClose`
@@ -559,6 +585,9 @@ agent-switch effect above: the pin does exactly what a click on the picker does.
 ```
 api.ts                  Typed fetch helpers against /api
 widgetRegistry.ts       Runtime widget loading + shared type contracts
+widgetRuntime.ts        Widget Studio: records what the preview does when it runs
+widgetLint.ts           Widget Studio: pattern checks on widget code
+widgetDataSource.ts     Widget Studio: schema and sample rows from a JSON response
 App.tsx main.tsx        Router/providers and entry point
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
                         Help/About/UserGuide, AdminPage
@@ -566,7 +595,8 @@ pages/admin/            WidgetManager, ViewManager, RoleMappings, TaxonomyManage
                         SettingsManager, DataMigration
 components/             BaseWidget, WidgetPreview, WidgetTray, Layout, modals,
                         AgentPanel/AgentConversation, ConversationHistory,
-                        ThinkingDisclosure, AttachmentChip, ThumbnailCapture
+                        ThinkingDisclosure, AttachmentChip, ThumbnailCapture,
+                        WidgetDiagnostics
 hooks/                  useAgentChat, useChatUploads, useActionLogger,
                         useDashboardContext, useScript
 contexts/ store/        ActionContext, dashboardStore

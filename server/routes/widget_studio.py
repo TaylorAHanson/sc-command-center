@@ -34,13 +34,15 @@ from services.code_patch import (
     sloc,
     strip_edit_blocks,
 )
-from services import llm_params, native_files, research_tools
+from services import llm_params, native_files, research_tools, sql_safety
+from services.generation_jobs import JobStore
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
 from services.llm_client import DatabricksChatOpenAI, chat_client, reply_text
 from services.upload_tools import attachments_prompt
 
 # LangChain imports
 from langchain_core.tools import tool
+from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
@@ -72,8 +74,9 @@ def search_widgets(query: str) -> str:
 
 router = APIRouter()
 
-# Store for generation jobs. In a real app, use Redis or DB, but in-memory is fine for this tool.
-generation_jobs: Dict[str, Any] = {}
+# Held in memory by the worker running the job and mirrored to Lakebase, because
+# the studio's polls and its Stop can reach either worker. See services/generation_jobs.
+generation_jobs = JobStore()
 
 class Message(BaseModel):
     role: str
@@ -106,6 +109,18 @@ class GenerateRequest(BaseModel):
     # False on the turn that answers a clarifying question, so answering one can
     # never be met with another. See `_clarify`.
     allow_clarify: bool = True
+    # A few rows the data source returned when it was tested. A schema says a
+    # column is a DATE; only a row says it looks like "2026-09-30" and that the
+    # status column holds "Late" rather than "LATE".
+    data_source_sample: Optional[List[Dict[str, Any]]] = None
+    # What the widget did when it last ran in the preview: failed requests, what
+    # its data calls returned, errors it logged or threw. The browser is the only
+    # place the widget runs, so this is the agent's only view of its behaviour.
+    runtime_log: List[str] = []
+    # The studio's deterministic checks on the current code (src/widgetLint.ts).
+    lint_findings: List[str] = []
+    # A PNG data URL of the rendered widget, sent with review and runtime-fix turns.
+    preview_screenshot: Optional[str] = None
     env: str = "dev"
 
 class DataSourceTestRequest(BaseModel):
@@ -349,6 +364,7 @@ def _build_system_prompt(req: GenerateRequest) -> str:
     if req.data_source_schema:
         schema_str = json.dumps(req.data_source_schema, indent=2)
         system_prompt += f"\n\nThe data source returns the following schema (use these exact field names in your component):\n```json\n{schema_str}\n```"
+    system_prompt += _sample_section(req)
 
     if req.configuration_mode != "none" and req.config_schema:
         config_schema_str = json.dumps(req.config_schema, indent=2)
@@ -366,7 +382,99 @@ def _build_system_prompt(req: GenerateRequest) -> str:
             "Leave those keys out of the widget-meta block entirely."
         )
 
+    if (req.current_code or "").strip():
+        system_prompt += _runtime_section(req) + _lint_section(req)
+
     return system_prompt
+
+
+# What rides along about the running widget. All of it is paid for on every call of
+# a turn — each step of a plan included — so it is bounded here as well as in the
+# browser, which is a client and can send anything.
+MAX_SAMPLE_ROWS = 5
+MAX_SAMPLE_CELL_CHARS = 120
+MAX_RUNTIME_LINES = 20
+MAX_RUNTIME_LINE_CHARS = 600
+MAX_LINT_LINES = 25
+
+
+def _clip(text: str, limit: int) -> str:
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _sample_section(req: GenerateRequest) -> str:
+    """A few real rows from the tested data source, or ""."""
+    rows = [r for r in (req.data_source_sample or []) if isinstance(r, dict)][:MAX_SAMPLE_ROWS]
+    if not rows:
+        return ""
+
+    def cell(value: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            return _clip(json.dumps(value, default=str), MAX_SAMPLE_CELL_CHARS)
+        if isinstance(value, str):
+            return _clip(value, MAX_SAMPLE_CELL_CHARS)
+        return value
+
+    trimmed = [{str(k)[:80]: cell(v) for k, v in list(row.items())[:40]} for row in rows]
+    return (
+        "\n\nThese rows came back when the data source was tested (long values are cut). "
+        "Use them to judge formats and real values — date shapes, casing of categories, "
+        "which columns are empty — never as data to hardcode:\n"
+        f"```json\n{json.dumps(trimmed, indent=1, default=str)}\n```"
+    )
+
+
+def _runtime_section(req: GenerateRequest) -> str:
+    """What the widget did when it last ran in the preview, or ""."""
+    lines = [_clip(line, MAX_RUNTIME_LINE_CHARS) for line in req.runtime_log if str(line).strip()]
+    lines = lines[-MAX_RUNTIME_LINES:]
+    if not lines:
+        return ""
+    return (
+        "\n\nWhat the current code did the last time it ran in the studio's preview, oldest "
+        "first. These are observations of the running widget, not guesses: when the request "
+        "is about something not working or not showing, start from these.\n"
+        + "\n".join(f"- {line}" for line in lines)
+    )
+
+
+def _sql_check_hint(tools: List[Any]) -> str:
+    """Tell an agent holding `run_sql` to run the SQL it writes, or "".
+
+    A statement composed from a schema is a guess about names, quoting and types
+    until a warehouse has seen it, and the preview is a slow and indirect way to
+    find out: the widget renders, the query 400s, and the fix costs a whole turn.
+    """
+    if "run_sql" not in [getattr(t, "name", "") for t in tools]:
+        return ""
+    # "Code containing a SQL statement" alone was read as "any reply to a widget
+    # that queries", and a styling fix came back having run `SELECT 1` to satisfy
+    # the rule: the condition has to be the change, and the default has to be no.
+    return (
+        "\n\nIf — and only if — this change adds a SQL statement or edits the text of "
+        "one, run that statement once with `run_sql` (with a small LIMIT) before you hand "
+        "the code back, and fix it until it succeeds and returns the columns your code "
+        "reads. A change that leaves every statement as it was (layout, styling, wording, "
+        "behaviour) needs no query at all, not even a connectivity check. Check read "
+        "statements only — never run an INSERT, UPDATE, MERGE or DELETE to test it. The "
+        "configured data source was already run when it was tested, so it needs no check "
+        "of its own."
+    )
+
+
+def _lint_section(req: GenerateRequest) -> str:
+    """The studio's mechanical checks on the current code, or ""."""
+    lines = [_clip(line, 300) for line in req.lint_findings if str(line).strip()][:MAX_LINT_LINES]
+    if not lines:
+        return ""
+    return (
+        "\n\nThe studio's automated checks flag these in the current code:\n"
+        + "\n".join(f"- {line}" for line in lines)
+        + "\nDo not introduce more of these, and fix any on lines you are already changing. "
+        "They are pattern checks, so an occasional one is a false positive — if so, leave "
+        "it and say why in one sentence."
+    )
 
 
 def _finish_reason(message: Any) -> str:
@@ -585,6 +693,11 @@ _STAGE_HINTS = ("\n-", "\n*", "\n1.", "\n2.", " and ", " also ", " then ", ";", 
 # one-pass path — so it is the right place to be impatient.
 PLAN_SECONDS = 45
 
+# How many graph steps a planned step's agent may take: a model call and a tool
+# call are one each, so this is room for a handful of lookups and a query check.
+# The clock bounds a step too; this bounds an agent that keeps looking.
+STEP_RECURSION_LIMIT = 14
+
 # Below this there is no point starting a one-pass generation; say so instead of
 # spending what's left to arrive at the same timeout with nothing to show.
 MIN_ONE_PASS_SECONDS = 30
@@ -606,8 +719,58 @@ HISTORY_VERBATIM = 2
 
 
 def _helper_model() -> str:
-    """The endpoint for the cheap side-calls, falling back to the main one."""
-    return get_setting("widget_helper_model") or get_setting("widget_model")
+    """The endpoint for the cheap side-calls, falling back to the main one.
+
+    Also falls back while the configured helper is known not to exist here: the
+    default names a `system.ai` model that not every workspace serves, and without
+    this every side-call on such a workspace would fail, be skipped, and take the
+    request tightening and history summary with it.
+    """
+    configured = get_setting("widget_helper_model")
+    if configured and time.monotonic() < _helper_missing.get(configured, 0.0):
+        configured = ""
+    return configured or get_setting("widget_model")
+
+
+# Helpers whose endpoint answered "not found", until when. Retried after a while so
+# serving the model later, or fixing a typo in Settings, takes effect unprompted.
+_helper_missing: Dict[str, float] = {}
+HELPER_MISSING_SECONDS = 600
+
+# The side-calls are short, well-specified text tasks where thinking only costs
+# latency, so the helper is asked not to reason. "none" is OpenAI's vocabulary,
+# hence only sent to those models; one that refuses the value is remembered here
+# and asked without it, for the rest of the process.
+HELPER_REASONING_EFFORT = "none"
+_helper_no_effort: set = set()
+
+
+def _helper_params(model: str, max_tokens: Optional[int] = None) -> Dict[str, Any]:
+    """`llm_params.langchain_params`, plus the helper's reasoning effort.
+
+    Anything that already has a say about the effort wins over this default: an
+    admin override in `model_params` (including "never send it"), a rejection the
+    endpoint already gave, or the built-in policy supplying a value of its own.
+    """
+    params = llm_params.langchain_params(model, max_tokens)
+    if model in _helper_no_effort or native_files.flavor(model) != "openai":
+        return params
+    if "reasoning_effort" in params or "reasoning_effort" in llm_params.describe(model)["omitted"]:
+        return params
+    if {"reasoning_effort", "reasoning"} & set(llm_params.configured(model)):
+        return params
+    params["reasoning_effort"] = HELPER_REASONING_EFFORT
+    return params
+
+
+def _endpoint_missing(exc: Exception) -> bool:
+    """Whether a call failed because the model isn't served here at all."""
+    if exc.__class__.__name__ == "NotFoundError" or getattr(exc, "status_code", None) == 404:
+        return True
+    lowered = str(exc).lower()
+    return any(marker in lowered for marker in (
+        "endpoint_not_found", "resource_does_not_exist", "does not exist", "no such endpoint",
+    ))
 
 
 def _base_url(host: str, model: str) -> str:
@@ -648,14 +811,20 @@ def _attachments(req: GenerateRequest) -> List[Dict[str, Any]]:
     return out
 
 
-def _turn_message(model: str, env: str, prompt: str, attachments: List[Dict[str, Any]]) -> HumanMessage:
+def _turn_message(model: str, env: str, prompt: str, attachments: List[Dict[str, Any]],
+                  screenshot: Optional[str] = None) -> HumanMessage:
     """This turn's message, carrying any files the model can read for itself.
 
     A screenshot is the case that matters: there is no text in it to extract, so
     "the header is misaligned" only means something if the picture travels with
-    it. `native_files` decides the content-part shape per provider.
+    it. `native_files` decides the content-part shape per provider. `screenshot`
+    is the studio's own capture of the preview, which it sends with review and
+    runtime-fix turns so the model sees what the user sees.
     """
     parts = native_files.parts(model, env, attachments)
+    shot = native_files.image_part(model, screenshot)
+    if shot:
+        parts = parts + [shot]
     if not parts:
         return HumanMessage(content=prompt)
     return HumanMessage(content=[{"type": "text", "text": prompt}] + parts)
@@ -692,42 +861,6 @@ def _compact_history(ask_helper, history: List[Message]) -> List[Any]:
     if not summary.strip():
         return replay(history[-6:] if len(history) > 6 else history)
     return [AIMessage(content=f"Earlier in this conversation:\n{summary.strip()}")] + replay(recent)
-
-
-def _refine_prompt(ask_helper, req: GenerateRequest) -> str:
-    """The request, restated concretely. Returns `""` to use it as written.
-
-    Widget requests arrive as asides — "make it better", "the table is slow, also
-    the colours" — and the generation model spends its first and most expensive
-    call working out what was meant. A small model can do that for a fraction of
-    the time, against the code that is actually open. Anything unexpected in the
-    reply means the original prompt is used, which is what happened before.
-    """
-    prompt = (req.prompt or "").strip()
-    if not prompt or req.error_log:
-        return ""  # a compile error is already precise; rewriting it loses detail
-
-    code = req.current_code or ""
-    reply = ask_helper([HumanMessage(content=(
-        "Restate this Widget Studio request as an instruction to a developer. Keep "
-        "every thing it asks for and add nothing it does not: you are removing "
-        "ambiguity, not designing. Name the parts of the code involved where the "
-        "request is vague about them. If it is already clear and specific, reply "
-        "with it unchanged.\n\n"
-        f"Request:\n{prompt}\n\n"
-        + (f"The widget being changed:\n```tsx\n{code[:6000]}\n```\n\n" if code.strip() else "")
-        + 'Reply with nothing but JSON: {"request": "..."}'
-    ))])
-
-    refined = str(_json_reply(reply, "refined request").get("request") or "").strip()
-    # A refinement that dropped most of the request, or ballooned into a design
-    # document, has stopped being a restatement. Both have been seen; neither is
-    # worth handing to the generation model in place of what the user wrote.
-    if not refined or refined == prompt:
-        return ""
-    if len(refined) < len(prompt) // 2 or len(refined) > max(1200, len(prompt) * 6):
-        return ""
-    return refined
 
 
 # Marks an assistant turn as a question set, so the history alone is enough to
@@ -784,12 +917,13 @@ def _wants_stages(req: GenerateRequest) -> bool:
     return sum(1 for hint in _STAGE_HINTS if hint in prompt.lower()) >= 2
 
 
-# A planned run is plain model calls, which can't reach a tool, so its research is
-# done up front in one short ReAct round whose findings ride along with the plan and
-# every step. That round costs a model call even when it decides nothing needs
-# looking up — 20 to 30 seconds on a thinking model — so it only runs when the
-# request points at data: a catalog.schema.table name, or words that ask for the
-# data to be looked at. A one-pass request needs none of this; it has the tools.
+# The plan itself is a plain model call, which can't reach a tool, so research the
+# plan depends on is done up front in one short ReAct round whose findings ride along
+# with the plan and every step. (Each step has the tools too — see `ask_step` — for
+# what only turns up while writing it.) That round costs a model call even when it
+# decides nothing needs looking up — 20 to 30 seconds on a thinking model — so it
+# only runs when the request points at data: a catalog.schema.table name, or words
+# that ask for the data to be looked at. A one-pass request needs none of this.
 RESEARCH_SECONDS = 90
 _TABLE_NAME_RE = re.compile(r"`?\b[A-Za-z_][\w-]*`?\.`?[A-Za-z_][\w-]*`?\.`?[A-Za-z_][\w-]*\b`?")
 _RESEARCH_HINTS = (
@@ -861,8 +995,8 @@ def _research(model: str, make_llm, tools: List[Any], prompt: str, schema_hint: 
 def _json_reply(reply: str, what: str) -> Dict[str, Any]:
     """The JSON object in a reply, or `{}` if there isn't a readable one.
 
-    Every cheap side-call in this module — planning, refining, deciding whether to
-    ask a question, reviewing — asks for JSON and must tolerate not getting it: a
+    Every cheap side-call in this module — planning, compacting history, deciding
+    whether to ask a question, reviewing — asks for JSON and must tolerate not getting it: a
     model that answers in prose, wraps the object in a fence, or adds a sentence
     after it has still done nothing worth failing a turn over. Callers treat `{}`
     as "skip this step", which is always a path they already have.
@@ -948,14 +1082,12 @@ def _stage_instruction(stages: List[Dict[str, str]], index: int, first: bool) ->
 
 def _publish(job_id: str, **fields) -> None:
     """Update the job the studio is polling, if it is still there."""
-    job = generation_jobs.get(job_id)
-    if job is not None:
-        job.update(fields)
+    generation_jobs.update(job_id, **fields)
 
 
 # How much narration one job may accumulate. A run cannot produce many of these —
 # there is one per decision, not one per token — but a bound keeps a wedged job
-# from growing without limit in a dict that lives for the process.
+# from growing without limit, in memory or in the row every poll reads.
 MAX_TRACE_LINES = 60
 
 
@@ -980,6 +1112,7 @@ def _trace(job_id: Optional[str], line: str) -> None:
     trace = job.setdefault("trace", [])
     if len(trace) < MAX_TRACE_LINES:
         trace.append(line)
+        generation_jobs.save(job_id)
 
 
 def _settle(job_id: str, **fields) -> None:
@@ -991,7 +1124,12 @@ def _settle(job_id: str, **fields) -> None:
     reason — it is the one field whose value is the whole history.
     """
     previous = generation_jobs.get(job_id) or {}
-    generation_jobs[job_id] = {"trace": previous.get("trace", []), **fields}
+    settled = {"trace": previous.get("trace", []), **fields}
+    # A Stop the running worker already saw must survive into the final state, or
+    # a later poll could not tell a stopped turn from a finished one.
+    if previous.get("cancelled"):
+        settled["cancelled"] = True
+    generation_jobs.replace(job_id, settled, final=True)
 
 
 def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
@@ -1012,8 +1150,7 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
     _publish(job_id, status="running", stages=stages, stage_index=0)
 
     for index, stage in enumerate(stages):
-        job = generation_jobs.get(job_id) or {}
-        if job.get("cancelled"):
+        if generation_jobs.is_cancelled(job_id):
             for pending in stages[index:]:
                 pending["status"] = "skipped"
             summary.append(f"Stopped after {applied} of {len(stages)} steps, at your request.")
@@ -1157,22 +1294,41 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             is never the reason a turn fails: it either saves the generation model
             some work or it gets out of the way.
             """
-            if not budget.has(HELPER_SECONDS + 10):
-                return ""
-            try:
-                def attempt(params: Dict[str, Any]) -> str:
-                    llm = _widget_llm(api_key, helper_base_url, helper_name, budget,
-                                      params, HELPER_SECONDS)
-                    return reply_text(llm.invoke(messages))
+            nonlocal helper_name, helper_base_url
+            # One retry for each of the two recoveries below, at most.
+            for _ in range(3):
+                if not budget.has(HELPER_SECONDS + 10):
+                    return ""
+                sent_effort = False
+                try:
+                    def attempt(params: Dict[str, Any]) -> str:
+                        nonlocal sent_effort
+                        sent_effort = "reasoning_effort" in params
+                        llm = _widget_llm(api_key, helper_base_url, helper_name, budget,
+                                          params, HELPER_SECONDS)
+                        return reply_text(llm.invoke(messages))
 
-                return llm_params.with_adaptation(
-                    helper_name, attempt,
-                    max_tokens=HELPER_MAX_TOKENS,
-                    params_fn=llm_params.langchain_params,
-                )
-            except Exception as exc:  # noqa: BLE001 — an optional step, by design
-                _trace(job_id, f"skipped a quick check ({helper_name} said: {exc})")
-                return ""
+                    return llm_params.with_adaptation(
+                        helper_name, attempt,
+                        max_tokens=HELPER_MAX_TOKENS,
+                        params_fn=_helper_params,
+                    )
+                except Exception as exc:  # noqa: BLE001 — an optional step, by design
+                    # `llm_params` learns a parameter the endpoint won't take, but not a
+                    # value it won't take ("'none' is not one of low, medium, high").
+                    if sent_effort and "reasoning" in str(exc).lower() and helper_name not in _helper_no_effort:
+                        _helper_no_effort.add(helper_name)
+                        _trace(job_id, f"{helper_name} won't skip reasoning; asking it normally")
+                        continue
+                    if _endpoint_missing(exc) and helper_name != model_name:
+                        _helper_missing[helper_name] = time.monotonic() + HELPER_MISSING_SECONDS
+                        _trace(job_id, f"the helper model {helper_name} isn't served here; "
+                                       f"using {model_name} for quick checks instead")
+                        helper_name, helper_base_url = model_name, base_url
+                        continue
+                    _trace(job_id, f"skipped a quick check ({helper_name} said: {exc})")
+                    return ""
+            return ""
 
         # Asked before anything is built, and only for requests big enough that a
         # wrong guess costs real time. Nothing is generated and no code is
@@ -1195,18 +1351,13 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             })
             return
 
-        refined = _refine_prompt(ask_helper, req)
-        if refined:
-            _trace(job_id, f"read the request as: {refined}")
-        prompt = refined or req.prompt
-        working = req.model_copy(update={"prompt": prompt})
-
-        system_prompt = _build_system_prompt(working)
+        prompt = req.prompt
+        system_prompt = _build_system_prompt(req)
         lc_history = _compact_history(ask_helper, req.history)
         # Files the user attached ride on this turn's message only, so re-sending
         # never compounds them across a conversation.
         attachments = _attachments(req)
-        turn = _turn_message(model_name, req.env, prompt, attachments)
+        turn = _turn_message(model_name, req.env, prompt, attachments, req.preview_screenshot)
         if attachments:
             _trace(job_id, "reading " + ", ".join(a.get("filename") or "a file" for a in attachments))
             system_prompt += "\n\n" + attachments_prompt(attachments)
@@ -1219,6 +1370,8 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             seconds_left=lambda: budget.left,
         )
         research_prompt = research_tools.prompt_section(research)
+        tool_prompt = ("\n\n" + research_prompt if research_prompt else "") + _sql_check_hint(research)
+        agent_tools = [search_widgets, *research]
 
         # The first call is where a parameter the endpoint refuses shows up, so it
         # runs under `with_adaptation`: the offending parameter is dropped and the
@@ -1227,8 +1380,8 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             llm = _widget_llm(api_key, base_url, model_name, budget, params)
             agent = create_react_agent(
                 model=llm,
-                tools=[search_widgets, *research],
-                prompt=system_prompt + ("\n\n" + research_prompt if research_prompt else ""),
+                tools=agent_tools,
+                prompt=system_prompt + tool_prompt,
             )
             return agent.invoke({"messages": lc_history + [turn]})
 
@@ -1238,7 +1391,7 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
         def next_llm() -> Optional[DatabricksChatOpenAI]:
             # The studio has already stopped listening, so a follow-up now would
             # be spent on an answer nobody reads.
-            if (generation_jobs.get(job_id) or {}).get("cancelled"):
+            if generation_jobs.is_cancelled(job_id):
                 _trace(job_id, "stopped; skipping the follow-up round")
                 return None
             if not budget.has(15):
@@ -1263,12 +1416,43 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
                 params_fn=llm_params.langchain_params,
             )
 
+        def ask_step(messages: List[Any], limit: Optional[float] = None) -> str:
+            """One step of a plan, with the same tools the one-pass path has.
+
+            Steps are where most of a large widget gets written, and they used to be
+            plain calls: a step that added a query could not look up a column name or
+            run the statement it had just written. The first message is the step's
+            system prompt; the rest are the conversation.
+            """
+            if not agent_tools:
+                return ask(messages, limit)
+            system, conversation = messages[0], messages[1:]
+
+            def attempt(params: Dict[str, Any]) -> str:
+                llm = _widget_llm(api_key, base_url, model_name, budget, params, limit)
+                agent = create_react_agent(model=llm, tools=agent_tools,
+                                           prompt=system.content + tool_prompt)
+                out = agent.invoke({"messages": conversation},
+                                   config={"recursion_limit": STEP_RECURSION_LIMIT})
+                return reply_text(out["messages"][-1])
+
+            try:
+                return llm_params.with_adaptation(
+                    model_name, attempt,
+                    max_tokens=_widget_max_tokens(),
+                    params_fn=llm_params.langchain_params,
+                )
+            except GraphRecursionError:
+                # Research that never converges must not cost the step itself.
+                _trace(job_id, "stopped researching this step; writing it with what is known")
+                return ask(messages, limit)
+
         # A request asking for several things at once is planned and applied a step
         # at a time: each call is small enough to finish, progress is visible, and
         # what lands stays landed. One instruction still goes straight to the model.
-        if _wants_stages(working):
+        if _wants_stages(req):
             findings = ""
-            if research and _wants_research(working) and budget.has(RESEARCH_SECONDS + MIN_ONE_PASS_SECONDS):
+            if research and _wants_research(req) and budget.has(RESEARCH_SECONDS + MIN_ONE_PASS_SECONDS):
                 _trace(job_id, "looking at the data before planning")
                 # Its own clock, inside the job's: a slow Genie answer may cost the
                 # research, never the time the plan and its steps need.
@@ -1298,7 +1482,7 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             if stages:
                 _trace(job_id, "planned this in "
                        + ", ".join(f"{i + 1}) {s['title']}" for i, s in enumerate(stages)))
-                _run_stages(job_id, working, stages, ask, next_llm, budget, context)
+                _run_stages(job_id, req, stages, ask_step, next_llm, budget, context)
                 return
             # No plan, and planning took the allowance with it. Starting a one-pass
             # generation now would spend the rest arriving at the same timeout with
@@ -1323,7 +1507,7 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
                      or looks_truncated(reply_text(last_message)))
 
         code, explanation, content, meta = _apply_reply(
-            reply_text(last_message), truncated, req.current_code or "", working,
+            reply_text(last_message), truncated, req.current_code or "", req,
             next_llm, system_prompt, prompt, budget, job_id=job_id,
         )
 
@@ -1346,7 +1530,35 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
 REVIEW_SECONDS = 120
 
 
-def _review_instruction(req: GenerateRequest) -> str:
+def _review_evidence(req: GenerateRequest, screenshot: bool) -> str:
+    """What the studio saw when the widget ran, pointed out to the reviewer, or "".
+
+    Reading code finds what code reading can find. The studio has also run the
+    widget, and a query that 400'd or a panel that rendered empty is worth more
+    than any amount of inference about whether it might.
+    """
+    lines: List[str] = []
+    if screenshot:
+        lines.append(
+            "A screenshot of the widget as it rendered in the preview is attached. Look "
+            "at it before the code: text you can't read, a chart with no visible data, "
+            "an empty panel that should have rows, clipped or overlapping content."
+        )
+    if any(str(line).strip() for line in req.runtime_log):
+        lines.append(
+            "The system message lists what happened when it last ran in the preview. A "
+            "failed request, an error it threw or logged, or a query that returned no "
+            "rows is a finding — the first one to fix, not a guess to hedge."
+        )
+    if any(str(line).strip() for line in req.lint_findings):
+        lines.append(
+            "The system message also lists what the studio's automated checks flagged. "
+            "Treat each as a defect and fix it, unless it is plainly a false positive."
+        )
+    return ("\n\n".join(lines) + "\n\n") if lines else ""
+
+
+def _review_instruction(req: GenerateRequest, screenshot: bool = False) -> str:
     """What to look for. Names no rules — it points back at the ones already given.
 
     Restating the widget contract here would be a second copy of
@@ -1367,6 +1579,7 @@ def _review_instruction(req: GenerateRequest) -> str:
         "Review the widget above as a second pair of eyes. It compiles and renders "
         "— that has already been checked, so do not comment on syntax.\n\n"
         + (f"What the user asked for:\n{asked}\n\n" if asked else "")
+        + _review_evidence(req, screenshot)
         + "Answer in two parts, under those headings.\n\n"
         "## What's wrong\n\n"
         "Judge it against the instructions you were given:\n"
@@ -1465,8 +1678,14 @@ def run_review_task(job_id: str, req: GenerateRequest, api_key: str, host: str):
         model_name = get_setting("widget_model")
         base_url = _base_url(host, model_name)
         system_prompt = _build_system_prompt(req)
-        instruction = _review_instruction(req)
-        _trace(job_id, "reviewing the widget against what you asked for")
+        shot = native_files.image_part(model_name, req.preview_screenshot)
+        instruction = _review_instruction(req, screenshot=shot is not None)
+        review_message = (
+            HumanMessage(content=[{"type": "text", "text": instruction}, shot])
+            if shot else HumanMessage(content=instruction)
+        )
+        _trace(job_id, "reviewing the widget against what you asked for"
+                       + (", with a screenshot of how it rendered" if shot else ""))
 
         def next_llm() -> Optional[DatabricksChatOpenAI]:
             if not budget.has(15):
@@ -1475,10 +1694,7 @@ def run_review_task(job_id: str, req: GenerateRequest, api_key: str, host: str):
 
         def attempt(params: Dict[str, Any]) -> str:
             llm = _widget_llm(api_key, base_url, model_name, budget, params)
-            return reply_text(llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=instruction),
-            ]))
+            return reply_text(llm.invoke([SystemMessage(content=system_prompt), review_message]))
 
         reply = llm_params.with_adaptation(
             model_name, attempt,
@@ -1633,17 +1849,21 @@ def _llm_credentials(db_client: WorkspaceClient) -> tuple[str, str]:
         raise HTTPException(status_code=500, detail=f"OpenAI client init failed: {e}")
 
 
+# The handlers below are plain `def` because each one blocks — on the job table,
+# and on the SDK's token fetch — and FastAPI runs those on a thread pool. As
+# `async def` they would stall every other request on the worker while they wait.
+
 @router.post("/generate")
-async def start_generate_widget(req: GenerateRequest, background_tasks: BackgroundTasks,
-                                db_client: WorkspaceClient = Depends(get_db_client_sp),
-                                user_client: WorkspaceClient = Depends(get_db_client)):
+def start_generate_widget(req: GenerateRequest, background_tasks: BackgroundTasks,
+                          db_client: WorkspaceClient = Depends(get_db_client_sp),
+                          user_client: WorkspaceClient = Depends(get_db_client)):
     # Two identities on purpose: the service principal signs inference (see
     # `_llm_credentials`), and the user's own OBO client runs the research tools,
     # so what the studio can read is exactly what Unity Catalog grants this user.
     api_key, host = _llm_credentials(db_client)
 
     job_id = str(uuid.uuid4())
-    generation_jobs[job_id] = {"status": "pending", "result": None, "error": None, "trace": []}
+    generation_jobs.create(job_id, {"status": "pending", "result": None, "error": None, "trace": []})
 
     # The host, not a URL: this job may call two models on two different routes,
     # so each one derives its own base path. See `_base_url`.
@@ -1655,7 +1875,7 @@ async def start_generate_widget(req: GenerateRequest, background_tasks: Backgrou
     return {"job_id": job_id, "timeout_seconds": _widget_timeout()}
 
 @router.post("/review")
-async def start_review_widget(req: GenerateRequest, background_tasks: BackgroundTasks, db_client: WorkspaceClient = Depends(get_db_client_sp)):
+def start_review_widget(req: GenerateRequest, background_tasks: BackgroundTasks, db_client: WorkspaceClient = Depends(get_db_client_sp)):
     """Queue a QA pass over code that has just been generated and compiled.
 
     Deliberately a second request rather than a tail on the generation job: the
@@ -1669,20 +1889,23 @@ async def start_review_widget(req: GenerateRequest, background_tasks: Background
     """
     api_key, host = _llm_credentials(db_client)
     job_id = str(uuid.uuid4())
-    generation_jobs[job_id] = {"status": "pending", "result": None, "error": None, "trace": []}
+    generation_jobs.create(job_id, {"status": "pending", "result": None, "error": None, "trace": []})
     background_tasks.add_task(run_review_task, job_id, req, api_key, host)
     return {"job_id": job_id, "timeout_seconds": _widget_timeout()}
 
 
 @router.get("/generate/{job_id}")
-async def get_generate_status(job_id: str):
-    if job_id not in generation_jobs:
+def get_generate_status(job_id: str):
+    # Answered by whichever worker the poll reached; the one running the job
+    # writes it through to the table the other reads from.
+    job = generation_jobs.snapshot(job_id)
+    if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    return generation_jobs[job_id]
+    return job
 
 
 @router.delete("/generate/{job_id}")
-async def stop_generate(job_id: str):
+def stop_generate(job_id: str):
     """Ask a generation to wind down without spending anything more.
 
     A model call already in flight can't be interrupted, so the job finishes it
@@ -1693,11 +1916,13 @@ async def stop_generate(job_id: str):
     the turn itself, so whatever the job finishes after that is never applied.
     Either way the steps already applied are kept — stopping is for "that's
     enough", not "undo it".
+
+    The Stop is recorded on the job's row, so it reaches the job even when this
+    request lands on the other worker; the running one checks it between calls.
     """
-    job = generation_jobs.get(job_id)
+    job = generation_jobs.cancel(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    job["cancelled"] = True
     return {"status": job.get("status", "running"), "cancelled": True}
 
 def _row_estimate(sql_api, warehouse_id: str, query: str) -> Optional[int]:
@@ -1719,7 +1944,7 @@ def _row_estimate(sql_api, warehouse_id: str, query: str) -> Optional[int]:
     try:
         statement = sql_api.execute_statement(
             warehouse_id=warehouse_id,
-            statement=f"SELECT COUNT(*) AS n FROM ({counted}) AS _row_estimate",
+            statement=f"SELECT COUNT(*) AS n FROM (\n{counted}\n) AS _row_estimate",
             wait_timeout="30s",
             disposition=Disposition.INLINE,
         )
@@ -1741,19 +1966,76 @@ def extract_schema_from_json(data):
         return {k: type(v).__name__ if v is not None else "string" for k, v in data.items()}
     return {"data": type(data).__name__}
 
+# How much of a tested source's output is kept: enough rows to show formats and
+# typical values to the agent and the user, cut short so one wide JSON column
+# can't turn every later prompt into a payload.
+SAMPLE_ROWS = 5
+SAMPLE_CELL_CHARS = 200
+
+
+def _column_types(manifest) -> Dict[str, str]:
+    """Column name to its SQL type, from a statement's manifest.
+
+    Statement Execution returns every value as a string, so the types inferred
+    from the values themselves were "str" for everything — telling the agent
+    nothing, and suggesting it could compare dates and sum amounts as they came.
+    """
+    columns = getattr(getattr(manifest, "schema", None), "columns", None) or []
+    out: Dict[str, str] = {}
+    for col in columns:
+        type_name = getattr(col, "type_name", None)
+        type_name = getattr(type_name, "value", type_name)
+        out[col.name] = str(getattr(col, "type_text", None) or type_name or "STRING").upper()
+    return out
+
+
+def _sample_rows(columns: List[str], data_array) -> List[Dict[str, Any]]:
+    """The first few rows as dicts, long values cut."""
+    rows: List[Dict[str, Any]] = []
+    for row in (data_array or [])[:SAMPLE_ROWS]:
+        record: Dict[str, Any] = {}
+        for i, name in enumerate(columns):
+            value = row[i] if i < len(row) else None
+            if isinstance(value, str) and len(value) > SAMPLE_CELL_CHARS:
+                value = value[: SAMPLE_CELL_CHARS - 1] + "…"
+            record[name] = value
+        rows.append(record)
+    return rows
+
+
+def _probe_statement(query: str) -> str:
+    """The configured query, bounded to a few rows where it can be.
+
+    Only a query can be wrapped; SHOW and DESCRIBE run as written. The newline
+    before the closing parenthesis keeps a trailing `-- comment` from swallowing
+    it.
+    """
+    words = re.findall(r"[a-z]+", sql_safety.strip_noise(query).lower())
+    if words and words[0] in ("select", "with", "values", "table"):
+        return f"SELECT * FROM (\n{query}\n) AS _schema_probe LIMIT {SAMPLE_ROWS}"
+    return query
+
+
 @router.post("/datasource/test")
-async def test_datasource(req: DataSourceTestRequest, db_client: WorkspaceClient = Depends(get_db_client_sp)):
-    import httpx
+def test_datasource(req: DataSourceTestRequest, db_client: WorkspaceClient = Depends(get_db_client)):
+    """Run the configured data source once, as the signed-in user.
+
+    OBO like every other data path, so the test shows exactly what the widget
+    will see: a table this user can't read fails here rather than working in the
+    studio and 403ing in the view. SQL is classified first and only a read is
+    run — the test is a probe, and a MERGE typed into this box must not execute
+    just because someone pressed Test.
+
+    A plain `api` source is not fetched here. The widget will fetch it from the
+    browser, so the browser is the only place a test means anything (CORS,
+    the user's own session), and a server that fetches any URL it is handed is
+    a way into the network it runs on.
+    """
     if req.data_source_type == "api":
-        try:
-            async with httpx.AsyncClient() as client:
-                res = await client.get(req.data_source)
-                res.raise_for_status()
-                data = res.json()
-                schema = extract_schema_from_json(data)
-                return {"schema": schema, "sample": data[:2] if isinstance(data, list) else data}
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"API request failed: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail="External APIs are tested from your browser, the way the widget will call them.",
+        )
     elif req.data_source_type == "databricks_api":
         try:
             import requests
@@ -1775,51 +2057,56 @@ async def test_datasource(req: DataSourceTestRequest, db_client: WorkspaceClient
                 )
 
             schema = extract_schema_from_json(data)
-            return {"schema": schema, "sample": data[:2] if isinstance(data, list) else data}
+            return {"schema": schema, "sample": data[:SAMPLE_ROWS] if isinstance(data, list) else data}
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Databricks API request failed: {e}")
     elif req.data_source_type == "sql":
+        query = req.data_source.strip().rstrip(";").strip()
+        kind, verb = sql_safety.classify_statement(query)
+        if kind == "empty":
+            raise HTTPException(status_code=400, detail="Enter a SQL statement to test.")
+        if kind == "write":
+            # Not an error: an executable widget legitimately has a write as its
+            # source. There is simply nothing a test can safely learn from it.
+            return {
+                "schema": None,
+                "sample": [],
+                "row_estimate": None,
+                "note": (
+                    f"This statement changes data ({(verb or 'write').upper()}), so it was not run. "
+                    "Only read statements are tested; the widget's own action runs the write, "
+                    "with its confirmation prompt."
+                ),
+            }
         try:
             from databricks.sdk.service.sql import StatementExecutionAPI, Disposition
-            import os
 
             sql_api = StatementExecutionAPI(db_client.api_client)
             warehouse_id = os.environ.get("SQL_WAREHOUSE_ID", "")
             if not warehouse_id:
                 raise HTTPException(status_code=500, detail="No SQL Warehouse ID configured. Set SQL_WAREHOUSE_ID in environment.")
 
-            # For schema detection, apply LIMIT 1 if no LIMIT clause already present
-            schema_query = req.data_source.strip().rstrip(";")
-            if not re.search(r'\bLIMIT\b', schema_query, re.IGNORECASE):
-                schema_query = f"SELECT * FROM ({schema_query}) AS _schema_probe LIMIT 1"
-
             statement = sql_api.execute_statement(
                 warehouse_id=warehouse_id,
-                statement=schema_query,
+                statement=_probe_statement(query),
                 wait_timeout="50s",
                 disposition=Disposition.INLINE,
             )
+            state = getattr(getattr(statement, "status", None), "state", None)
+            state_name = getattr(state, "value", state)
+            if state_name and state_name != "SUCCEEDED":
+                error = getattr(getattr(statement, "status", None), "error", None)
+                message = getattr(error, "message", None) or f"the statement ended {state_name}"
+                raise HTTPException(status_code=400, detail=f"SQL Query failed: {message}")
 
-            columns = []
-            rows = []
-
-            if statement.manifest and statement.manifest.schema and statement.manifest.schema.columns:
-                columns = [col.name for col in statement.manifest.schema.columns]
-
-            if statement.result and statement.result.data_array:
-                for row_data in statement.result.data_array[:5]:
-                    row_dict = {}
-                    for i, col_name in enumerate(columns):
-                        row_dict[col_name] = row_data[i] if i < len(row_data) else None
-                    rows.append(row_dict)
-
-            schema = {col: type(rows[0].get(col)).__name__ if rows and rows[0].get(col) is not None else "string" for col in columns}
+            schema = _column_types(statement.manifest)
+            rows = _sample_rows(list(schema), statement.result.data_array if statement.result else None)
             return {
                 "schema": schema,
                 "sample": rows,
-                "row_estimate": _row_estimate(sql_api, warehouse_id, req.data_source),
+                "row_estimate": _row_estimate(sql_api, warehouse_id, query),
             }
         except HTTPException:
             raise

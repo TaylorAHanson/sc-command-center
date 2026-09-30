@@ -24,6 +24,9 @@ except Exception as e:  # pragma: no cover - needs the backend venv (langchain, 
     print(f"SKIP test_widget_agent_stages: {e}")
     sys.exit(0)
 
+# Jobs stay in memory here; there is no database to mirror them to.
+widget_studio.generation_jobs.persist = False
+
 WIDGET = ("export default function Widget(props) {\n"
           "  const rows = props.data.rows || [];\n"
           "  return <div className=\"p-4\">{rows.length}</div>;\n"

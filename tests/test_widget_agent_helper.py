@@ -1,7 +1,7 @@
 """Standalone tests for the studio's cheap side-calls and size guidance.
 
-Everything here is a step the agent is allowed to skip: refining a prompt,
-compacting history, asking a question first. So the cases that matter most are
+Everything here is a step the agent is allowed to skip: compacting history,
+asking a question first. So the cases that matter most are
 the ones where the helper model misbehaves — the turn has to carry on regardless.
 No credentials needed: the helper is a plain callable the tests supply.
 """
@@ -24,7 +24,6 @@ try:
         _clarify,
         _compact_history,
         _json_reply,
-        _refine_prompt,
         _review_instruction,
         _size_guidance,
         _turn_message,
@@ -66,34 +65,6 @@ def test_json_reply_reads_a_fenced_or_chatty_object():
     assert _json_reply("[1, 2]", "t") == {}
     assert _json_reply("{nope", "t") == {}
     assert _json_reply("", "t") == {}
-
-
-def test_refine_returns_empty_when_it_would_change_nothing():
-    assert _refine_prompt(_says({"request": "add a total row"}), _req()) == ""
-    assert _refine_prompt(_silent, _req()) == ""
-    assert _refine_prompt(_says("not json"), _req()) == ""
-
-
-def test_refine_rejects_a_restatement_that_stopped_being_one():
-    long_ask = "make the table better in the ways we discussed earlier today please"
-    # Dropped most of the request.
-    assert _refine_prompt(_says({"request": "fix it"}), _req(prompt=long_ask)) == ""
-    # Turned into a design document instead of a restatement.
-    assert _refine_prompt(_says({"request": "x" * 5000}), _req(prompt=long_ask)) == ""
-    good = "Add a footer row to the table totalling the quantity and value columns."
-    assert _refine_prompt(_says({"request": good}), _req(prompt=long_ask)) == good
-
-
-def test_a_compile_error_is_never_reworded():
-    """The traceback is already precise, and rewriting it loses the detail."""
-    called = []
-
-    def helper(messages):
-        called.append(messages)
-        return json.dumps({"request": "something else"})
-
-    assert _refine_prompt(helper, _req(error_log="Unexpected token (14:3)")) == ""
-    assert not called
 
 
 def test_clarify_holds_off_on_small_requests():
@@ -309,9 +280,6 @@ def test_the_review_separates_defects_it_fixes_from_ideas_it_only_offers():
 if __name__ == "__main__":
     tests = [
         test_json_reply_reads_a_fenced_or_chatty_object,
-        test_refine_returns_empty_when_it_would_change_nothing,
-        test_refine_rejects_a_restatement_that_stopped_being_one,
-        test_a_compile_error_is_never_reworded,
         test_clarify_holds_off_on_small_requests,
         test_clarify_cannot_ask_twice_in_a_conversation,
         test_clarify_survives_an_unusable_answer,

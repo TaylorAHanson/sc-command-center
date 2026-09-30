@@ -816,6 +816,24 @@ def init_db(env: str = "dev"):
         conn.rollback()
         pass
 
+    # Widget Studio generation jobs, so a poll or a Stop that reaches the other
+    # uvicorn worker can still find the job (see services/generation_jobs.py).
+    # `cancelled` is separate from `state` so a progress write can't undo a Stop.
+    try:
+        c.execute(f'''
+            CREATE TABLE IF NOT EXISTS widget_generation_jobs (
+                job_id TEXT PRIMARY KEY,
+                state TEXT NOT NULL,
+                cancelled BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP {default_ts},
+                updated_at TIMESTAMP {default_ts}
+            )
+        ''')
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+
     # Seed default global admin if none exists yet
     try:
         c.execute(

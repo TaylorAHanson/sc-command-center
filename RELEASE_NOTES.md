@@ -22,6 +22,27 @@
 
 # Release Notes
 
+## 1.13.0 — 2026-09-30
+
+### Added
+
+- **Widget Studio watches the widget run.** Failed queries and errors in agent-written code are fixed automatically, and the review sees a screenshot of the preview.
+- **Problems panel in Widget Studio.** Under the preview and code, it lists rule checks and what the widget did when it ran; **Fix with agent** sends them.
+- **The agent sees real rows.** **Test & Extract Schema** now shows a few sample rows and real column types, and the agent is given both.
+
+### Changed
+
+- **Data source tests run as you.** SQL and Databricks API tests use your own permissions; a statement that changes data is not run.
+- **External APIs are tested from your browser,** the same way the widget will call them.
+- **Faster quick checks in Widget Studio.** The helper model now defaults to `system.ai.gpt-6-luna`; change it under Admin Panel → Settings.
+- **Widget Studio acts on your request as you wrote it.** It's no longer reworded by a smaller model first, which could change what you asked for, and each turn starts a couple of seconds sooner.
+- **Planned widget steps can look at your data.** Each step of a large request can check tables and run its own SQL before writing code.
+
+### Fixed
+
+- **Stop and progress in Widget Studio are reliable.** Stopping a generation always takes effect, and progress no longer stalls between updates.
+- **Agent Studio keeps working when you change its model.** A draft no longer fails because the new model refuses a setting; the setting is dropped and the draft carries on.
+
 ## 1.12.1 — 2026-09-29
 
 ### Changed

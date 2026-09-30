@@ -6,8 +6,7 @@ either under pytest (when one is added) OR standalone:
     PYTHONPATH=server python3 tests/test_agent_studio_store.py
 
 Only the stdlib-backed helpers are covered here (no Databricks SDK / network):
-frontmatter parsing, slug generation, AGENT.md/SKILL.md composition, and the
-bounded TTL job store.
+frontmatter parsing, slug generation, and AGENT.md/SKILL.md composition.
 """
 import os
 import sys
@@ -61,38 +60,11 @@ def test_build_skill_markdown_passthrough_when_already_frontmattered():
     assert out.count("---") == 2
 
 
-def test_job_store_evicts_by_size():
-    js = store_job_store(ttl_s=3600, max_jobs=2)
-    js["a"] = {"status": "done"}
-    js["b"] = {"status": "done"}
-    js["c"] = {"status": "done"}
-    # Oldest ("a") evicted once we exceed max_jobs.
-    assert "a" not in js
-    assert "c" in js
-    # Stored payload is returned without the internal timestamp key.
-    assert js["c"] == {"status": "done"}
-
-
-class _Skip(Exception):
-    """Raised to skip a test when an optional dependency is unavailable."""
-
-
-def store_job_store(ttl_s, max_jobs):
-    """Import _JobStore lazily (its module pulls FastAPI/psycopg2, often absent
-    in a bare environment). Skips cleanly when those deps aren't installed."""
-    try:
-        from routes.agent_studio_profiles import _JobStore
-    except Exception as exc:  # noqa: BLE001
-        raise _Skip(f"_JobStore unavailable (missing dep): {exc}")
-    return _JobStore(ttl_s=ttl_s, max_jobs=max_jobs)
-
-
 if __name__ == "__main__":
-    # Standalone runner (no pytest needed) — skips the _JobStore test if FastAPI
-    # isn't importable in this environment.
+    # Standalone runner (no pytest needed).
     import traceback
 
-    passed = failed = skipped = 0
+    passed = failed = 0
     for _name, _fn in sorted(globals().items()):
         if not (_name.startswith("test_") and callable(_fn)):
             continue
@@ -100,12 +72,9 @@ if __name__ == "__main__":
             _fn()
             passed += 1
             print(f"PASS {_name}")
-        except _Skip as exc:
-            skipped += 1
-            print(f"SKIP {_name}: {exc}")
         except Exception:  # noqa: BLE001
             failed += 1
             print(f"FAIL {_name}")
             traceback.print_exc()
-    print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
+    print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)

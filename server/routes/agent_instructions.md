@@ -59,6 +59,7 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
           setRows(payload.rows);
 
       Render the caught message in the widget's error state.
+    - **Every value in `rows` is a string or `null`**, whatever the column's SQL type: `"42"`, `"1234.50"`, `"true"`, `"2026-09-30"`. Convert before you sort, sum, compare, format or chart — `Number(row.qty)`, `new Date(row.shipped_at)`, `row.active === 'true'` — or `"10" < "9"` sorts wrong, `+` concatenates, and a chart plots nothing.
   - `'databricks_api'`: For authenticated Databricks APIs (like Model Serving or Volume File Uploads), use `fetch('/api/databricks/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: props.data.dataSource, method: 'GET' }) })`. Ensure you pass `path` (e.g. `/api/2.0/serving-endpoints/endpoint-name/invocations`) and `method` (e.g. `POST`) in the body along with any `body` data if necessary. For file uploads, you must also pass `fileUpload: true`, `fileBase64` (the base64 encoded file content), `fileName`, and `fileSize` in the body.
   - Assume the data returned matches the schema provided in the prompt.
 

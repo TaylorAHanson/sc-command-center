@@ -174,8 +174,8 @@ agent; `false` forwards to the external consolidated agent at
 cap, Genie polling), the `AGENT_STUDIO_*` family (authoring model, MCP servers,
 sandbox limits), `APP_SETTINGS_ENV` (which schema holds `app_settings`; settings
 are deployment-global, not per-env), `APP_BRAND` (the brand name older widgets
-use in colour classes; passed at deploy time so it stays out of the repo — see
-`src/AGENTS.md`), and `DISABLE_PERMISSION_CHECKS`.
+use in colour classes, from `var.brand`; `brand` here, a customer's own name in
+their copy — see `src/AGENTS.md`), and `DISABLE_PERMISSION_CHECKS`.
 
 `DISABLE_PERMISSION_CHECKS=true` is a **temporary demo kill-switch that makes
 every signed-in user a global admin.** It is currently enabled. Don't build
