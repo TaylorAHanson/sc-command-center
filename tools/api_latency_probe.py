@@ -11,7 +11,7 @@ import time
 import urllib.request
 
 ENDPOINTS = [
-    "/api/views/?env=dev",
+    "/api/apps/?env=dev",
     "/api/widgets/custom?env=dev",
     "/api/widgets/popularity?env=dev",
     "/api/taxonomy/categories?env=dev",

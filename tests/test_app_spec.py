@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 from services import app_spec  # noqa: E402
 from services.app_spec import (  # noqa: E402
     MAX_IMAGE_CHARS, MAX_TABS, SpecError, all_widgets, can_read, compose_spec, dumps,
-    first_tab_widgets, legacy_spec, read_spec, validate_spec, with_first_tab_widgets,
+    first_tab_widgets, legacy_spec, read_spec, validate_spec,
 )
 
 APP = "5b7e6f0a-1c2d-4e3f-8a9b-0c1d2e3f4a5b"
@@ -162,15 +162,7 @@ def test_validating_does_not_mutate_the_request():
     assert raw == before
 
 
-# ------------------------------------------------- single-canvas saves
-
-def test_a_single_canvas_save_changes_only_the_first_tab():
-    spec = validate_spec(two_tabs(), APP)
-    after = with_first_tab_widgets(spec, [{"i": "moved", "type": "iframe"}])
-    assert after["tabs"][0]["widgets"] == [{"i": "moved", "type": "iframe"}]
-    assert after["tabs"][1] == spec["tabs"][1], "the tab the old client never saw is untouched"
-    assert spec["tabs"][0]["widgets"] == [DROPPED], "the input spec is not mutated"
-
+# ----------------------------------------------------- the rollback copy
 
 def test_widgets_json_mirrors_the_first_tab_and_checks_see_every_tab():
     spec = validate_spec(two_tabs(), APP)

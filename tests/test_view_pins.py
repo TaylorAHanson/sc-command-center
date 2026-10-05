@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 try:
-    from routes.views import pin_value
+    from services.app_spec import pin_value
 except Exception as e:  # pragma: no cover - needs the backend venv
     print(f"SKIP test_view_pins: {e}")
     sys.exit(0)

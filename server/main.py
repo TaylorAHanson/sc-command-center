@@ -260,7 +260,6 @@ from routes import widget_studio
 from routes import agent_studio_profiles
 from routes import agent_proxy
 from routes import promotion
-from routes import views
 from routes import apps
 from routes import databricks_api
 from routes import taxonomy
@@ -273,7 +272,6 @@ app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widg
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
 app.include_router(agent_proxy.router, prefix="/api/agent", tags=["agent_proxy"])
 app.include_router(promotion.router, prefix="/api/promotion", tags=["promotion"])
-app.include_router(views.router, prefix="/api/views", tags=["views"])
 app.include_router(apps.router, prefix="/api/apps", tags=["apps"])
 app.include_router(databricks_api.router, prefix="/api/databricks", tags=["databricks_api"])
 app.include_router(taxonomy.router, prefix="/api/taxonomy", tags=["taxonomy"])

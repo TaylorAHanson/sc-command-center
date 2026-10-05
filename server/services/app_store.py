@@ -2,9 +2,9 @@
 
 Apps live in the table views always lived in, under the view's own id, so that
 `shared_views`, `archived_views`, every `#/view/<id>` and `?shared_view=` link and
-every action-log reference keeps pointing at the same thing. Both `/api/apps` and
-the legacy `/api/views` routes write through `save_version` here, so there is one
-answer to who may change an app and one shape of row that results.
+every action-log reference keeps pointing at the same thing. `/api/apps` writes
+through `save_version` here, so there is one answer to who may change an app and
+one shape of row that results.
 
 Every write stores `spec_json` and keeps `widgets_json` equal to the first tab.
 That second copy is for rollback: code from before apps reads only
@@ -91,6 +91,37 @@ def insert_version(
     )
 
 
+def is_custom_widget(widget_id: Any) -> bool:
+    return isinstance(widget_id, str) and bool(_CUSTOM_WIDGET_ID.match(widget_id))
+
+
+def custom_widget_ids(spec: Dict[str, Any]) -> List[str]:
+    """The stored widgets an app places, each once, sorted; built-in types have no row."""
+    ids, _ = app_spec.placed_widgets(spec)
+    return sorted(i for i in ids if is_custom_widget(i))
+
+
+def widget_heads(c, ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """The current (newest live) version of each widget that exists, by id."""
+    if not ids:
+        return {}
+    c.execute(
+        """
+        SELECT w.id, w.version, w.name, w.domain, COALESCE(w.is_certified, 0) AS is_certified
+          FROM widgets w
+          INNER JOIN (
+                SELECT id, MAX(version) AS version
+                  FROM widgets
+                 WHERE is_deprecated = 0
+                   AND id = ANY(%s)
+                 GROUP BY id
+               ) latest ON w.id = latest.id AND w.version = latest.version
+        """,
+        (list(ids),),
+    )
+    return {str(r["id"]): r for r in fetch_rows(c)}
+
+
 def require_certified_widgets(c, spec: Dict[str, Any], env: str) -> None:
     """Block a global app holding widgets nobody has certified, when configured to.
 
@@ -112,35 +143,16 @@ def require_certified_widgets(c, spec: Dict[str, Any], env: str) -> None:
     if not get_bool_setting("require_certified_for_global_views"):
         return
 
-    types = {str(w.get("type")) for w in app_spec.all_widgets(spec) if w.get("type")}
-    custom_ids = sorted(t for t in types if _CUSTOM_WIDGET_ID.match(t))
-    if not custom_ids:
+    ids = custom_widget_ids(spec)
+    if not ids:
         return
 
-    c.execute(
-        """
-        SELECT w.id, w.name, COALESCE(w.is_certified, 0) AS is_certified
-          FROM widgets w
-          INNER JOIN (
-                SELECT id, MAX(version) AS version
-                  FROM widgets
-                 WHERE is_deprecated = 0
-                   AND id = ANY(%s)
-                 GROUP BY id
-               ) latest ON w.id = latest.id AND w.version = latest.version
-        """,
-        (custom_ids,),
-    )
-    uncertified: List[str] = []
-    found_ids: set = set()
-    for row in c.fetchall():
-        wid, name, certified = row[0], row[1], row[2]
-        found_ids.add(str(wid))
-        if not certified:
-            uncertified.append(name)
-    for missing_id in custom_ids:
-        if missing_id not in found_ids:
-            uncertified.append(f"unknown widget ({missing_id})")
+    heads = widget_heads(c, ids)
+    uncertified: List[str] = [
+        heads[wid]["name"] if wid in heads else f"unknown widget ({wid})"
+        for wid in ids
+        if not (wid in heads and heads[wid]["is_certified"])
+    ]
 
     if uncertified:
         raise HTTPException(
@@ -173,13 +185,10 @@ def save_version(
     is_locked: Optional[bool] = None,
     pinned_agent_id: Optional[str] = None,
     spec: Optional[Dict[str, Any]] = None,
-    first_tab_widgets: Optional[List[Any]] = None,
 ) -> int:
     """Write the next version of an app and return its number. Raises HTTPException.
 
-    Fields left as None keep their current value. `spec` replaces the whole spec;
-    `first_tab_widgets` is the single-canvas save `/api/views` makes, and touches
-    only the first tab. Never both.
+    Fields left as None keep their current value; `spec` replaces the whole spec.
     """
     existing = head(c, app_id)
     if not existing:
@@ -203,8 +212,6 @@ def save_version(
             new_spec = app_spec.validate_spec(spec, app_id)
         except app_spec.SpecError as e:
             raise HTTPException(status_code=400, detail=str(e))
-    elif first_tab_widgets is not None:
-        new_spec = app_spec.with_first_tab_widgets(spec_of(existing), first_tab_widgets)
     else:
         new_spec = spec_of(existing)
 

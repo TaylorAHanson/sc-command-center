@@ -34,7 +34,7 @@ Run the backend alone with `cd server && venv/bin/uvicorn main:app --reload
    through to `get_db_connection(env)`. Every existing data route does this.
 
 Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
-`/api/sql`, `/api/jobs`, `/api/roles`, `/api/views`, `/api/apps`, `/api/promotion`,
+`/api/sql`, `/api/jobs`, `/api/roles`, `/api/apps`, `/api/promotion`,
 `/api/taxonomy`, `/api/databricks`, `/api/agent` (proxy), `/api/agent/widget`,
 `/api/agent/studio`, `/api/migration`, plus `/api` for n8n and Tableau. Interactive docs are at
 `/api/docs`.
@@ -92,7 +92,7 @@ Table shapes worth knowing before you write a query:
 
 - **Versioned, PK `(id, version)`**: `widgets`, `dashboard_views`,
   `agent_profiles`. Reads must select the newest version per id — see the
-  `MAX(version)` join in `routes/views.py`. Writes insert a new version rather
+  `MAX(version)` join in `routes/apps.py::list_apps`. Writes insert a new version rather
   than updating in place.
 - **PK `(username, view_id)`**: `shared_views` (subscriptions).
 - **PK `id`**: `archived_views` — global views taken out of circulation, per env.
@@ -110,7 +110,7 @@ failure can't abort the rest of the transaction.
 `dashboard_views.pinned_agent_id` holds the Agent Studio profile the assistant
 drawer opens with on that view (or the literal `'default'` for the built-in
 agent). Permission is the view's own: personal views by their owner, global ones
-by a domain editor, which `PUT /api/views/{id}` already enforces — there is no
+by a domain editor, which `PUT /api/apps/{id}` already enforces — there is no
 separate check, and none should be added.
 
 The one trap is that clients save a view **whole**: nudging a widget one square
@@ -122,8 +122,8 @@ them. Get that backwards and every widget drag silently unpins the view.
 
 ### Removing a global view: archive, then delete
 
-Two steps on purpose. `POST /api/views/{id}/archive` inserts into `archived_views`
-and `get_views` (and the creator leaderboard) skip those ids; every version stays,
+Two steps on purpose. `POST /api/apps/{id}/archive` inserts into `archived_views`
+and `list_apps` (and the creator leaderboard) skip those ids; every version stays,
 so `POST /{id}/restore` is exact. `DELETE /{id}` on a **global** view answers 409
 until it has been archived, then removes every version and the marker together.
 Personal views are unchanged: the sidebar's Close deletes them outright.
@@ -148,14 +148,11 @@ that keep the deployment already running intact:
   every view in every env. `promotion.same_view_content` compares what rows
   *mean*, so a lazily upgraded row doesn't look changed next to its untouched copy
   in another env.
-- **`/api/views` changes the first tab only.** Its saves go through
-  `app_store.save_version(first_tab_widgets=...)`, because it (and any browser
-  still on the old bundle) can't see tabs 2+, and replacing the spec would delete
-  them on the next drag. `widgets_json` is always written equal to tab one, so a
-  rollback to pre-apps code still shows each app's first tab.
-- **The browser talks only to `/api/apps`.** Nothing in this bundle calls
-  `/api/views`; it stays for a browser still on the previous bundle during a
-  deploy and for a rollback, and goes in slice 6.
+- **`/api/views` is gone.** It spoke for one canvas, so every save it took had to
+  change only the first tab; nothing calls it any more and `/api/apps` is the
+  only way in. Don't bring back a single-canvas write path: anything that can't
+  see tabs 2+ and saves would delete them. `widgets_json` is still written equal
+  to tab one, so a rollback to pre-apps code still shows each app's first tab.
 - **`read_spec` never raises; `validate_spec` refuses.** Reads (sidebar,
   leaderboard, promotion) keep widget entries verbatim and fall back to
   `widgets_json`; writes reject what they would have to guess at — no tabs, a
@@ -168,9 +165,9 @@ that keep the deployment already running intact:
   awkward cases; add yours there.
 - **The access model is the views' model, unchanged.** `app_spec.can_read`: a
   global app needs a role in its domain (or global admin); a personal app opens
-  for anyone holding its id, because `POST /api/views/shared/{id}` has always
-  subscribed any caller to any id. `POST /api/apps/{id}/subscribe` *is* that
-  handler. Tightening any of this is its own decision — don't do it in passing.
+  for anyone holding its id, because a shared link (`?shared_view=`) has always
+  subscribed any caller to any id. `POST /api/apps/{id}/subscribe` is that
+  handler, moved. Tightening any of this is its own decision — don't do it in passing.
   `GET /api/apps/{id}` is new (views had no read-by-id), writes nothing, and
   answers a global app outside your domains with the same 404 as a missing id.
 - **One tightening, flagged:** `save_version` also requires editor rights on the
@@ -185,10 +182,34 @@ that keep the deployment already running intact:
   `/api/widgets/custom` would send, for only the widgets the app's tabs place,
   plus the source of any version a tab pins (`props._version`). Both go through
   `custom_widgets.library_rows` and `_visible`, so they can't drift apart, and
-  the bundle shows nobody a widget the library would hide. Nothing in the
-  workspace calls it yet; it is for opening an app without the whole library.
+  the bundle shows nobody a widget the library would hide. The workspace doesn't
+  call it; a standalone app opens with it instead of the whole library.
 
 `tests/test_app_spec.py` and `tests/test_apps_routes.py` hold all of the above.
+
+### Promoting an app (`routes/promotion.py`)
+
+`POST /api/promotion/transfer_app` copies one version of an app row (every tab)
+to another env, under the rule promotion always had: editor of the app's domain
+in the target. The row travels alone, and the widgets and agents it names are
+rows of their own in each env, so the target may lack them. Two things cover that:
+
+- **`POST /transfer_app/preflight`** reads both envs and writes nothing. It lists
+  placed widgets the target has no live version of, `props._version` pins whose
+  row of that number in the target is absent or different (numbers are per env),
+  pinned agents (app or tab) missing there, and — when global apps must hold
+  certified widgets — the uncertified ones, since saving the app there would be
+  refused. It needs the same right as the transfer, so it reveals nothing a
+  promoter couldn't find out by promoting.
+- **`include_widgets`** on the transfer copies those widgets' current source
+  versions first, each needing editor rights on *its* domain in the target
+  (exactly what `POST /transfer` asks), in the same transaction as the app. A
+  refusal for one leaves the target untouched.
+
+Nothing is refused for being missing; the View Promotion dialog shows the
+preflight and offers to bring missing widgets along. Agents have no promotion
+path at all, so a missing agent can only be reported. `tests/test_promotion.py`
+holds this with one fake connection per env.
 
 ## Who made what (`services/creator_stats.py`)
 
@@ -1026,8 +1047,8 @@ PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 16
 PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
-PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 28 passed
-PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 28 passed
+PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 27 passed
+PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 27 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
@@ -1036,7 +1057,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_db_pool.py              # 14
 PYTHONPATH=server server/venv/bin/python tests/test_research_tools.py       # 24 passed
 PYTHONPATH=server server/venv/bin/python tests/test_principals.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_data_migration.py       # 21 passed
-PYTHONPATH=server server/venv/bin/python tests/test_promotion.py            # 7 passed
+PYTHONPATH=server server/venv/bin/python tests/test_promotion.py            # 16 passed
 ```
 
 The last two need the venv interpreter, not a bare `python3`: they exercise

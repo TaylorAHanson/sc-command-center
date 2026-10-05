@@ -9,6 +9,8 @@ interface ConfirmModalProps {
     /** 'danger' = red confirm button, 'warning' = amber, 'primary' = blue (default) */
     variant?: 'danger' | 'warning' | 'primary';
     detail?: string; // optional extra detail line in smaller text
+    children?: React.ReactNode; // optional content below the message
+    confirmDisabled?: boolean;
     onConfirm: () => void;
     onCancel: () => void;
 }
@@ -20,6 +22,8 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     cancelLabel = 'Cancel',
     variant = 'primary',
     detail,
+    children,
+    confirmDisabled = false,
     onConfirm,
     onCancel,
 }) => {
@@ -51,6 +55,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                             {detail && (
                                 <p className="text-xs text-gray-400 mt-2 leading-relaxed">{detail}</p>
                             )}
+                            {children}
                         </div>
                     </div>
                 </div>
@@ -63,7 +68,8 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                     </button>
                     <button
                         onClick={onConfirm}
-                        className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${btnCls}`}
+                        disabled={confirmDisabled}
+                        className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${btnCls}`}
                     >
                         {confirmLabel}
                     </button>

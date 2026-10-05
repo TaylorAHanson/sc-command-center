@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { RefreshCw, Search, Filter, MailPlus, Plus, X, ChevronDown, Eye, Trash2, Archive, ArchiveRestore } from 'lucide-react';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { ConfirmModal } from '../../components/ConfirmModal';
@@ -44,6 +44,96 @@ interface ArchivedRow {
 interface ArchivedView extends ArchivedRow {
     envs: Env[];
 }
+
+// What promoting a view would leave missing in the target env; see
+// `app_preflight` in server/routes/promotion.py.
+interface PreflightWidget {
+    id: string;
+    name: string | null;
+    domain: string | null;
+}
+
+interface Preflight {
+    missing_widgets: PreflightWidget[];
+    version_pins: (PreflightWidget & { version: number; problem: 'missing' | 'different' })[];
+    missing_agents: { id: string; name: string | null }[];
+    uncertified: PreflightWidget[];
+}
+
+type PreflightState =
+    | { status: 'loading' }
+    | { status: 'done'; found: Preflight }
+    | { status: 'failed'; detail: string };
+
+const widgetName = (w: { id: string; name: string | null }) => w.name || `Unknown widget (${w.id.slice(0, 8)})`;
+
+const PromotionCheck: React.FC<{
+    state: PreflightState;
+    sourceEnv: string;
+    targetEnv: string;
+    bringWidgets: boolean;
+    onBringWidgets: (bring: boolean) => void;
+}> = ({ state, sourceEnv, targetEnv, bringWidgets, onBringWidgets }) => {
+    const target = targetEnv.toUpperCase();
+    if (state.status === 'loading') {
+        return <p className="text-xs text-gray-500 mt-3">Checking what {target} has…</p>;
+    }
+    if (state.status === 'failed') {
+        return (
+            <p className="text-xs text-amber-700 mt-3">
+                Couldn't check {target} for this view's widgets and agents ({state.detail}). You can still promote it.
+            </p>
+        );
+    }
+    const { missing_widgets, version_pins, missing_agents, uncertified } = state.found;
+    if (!missing_widgets.length && !version_pins.length && !missing_agents.length && !uncertified.length) {
+        return <p className="text-xs text-green-700 mt-3">Every widget and agent this view uses is in {target}.</p>;
+    }
+    const list = (items: string[]) => (
+        <ul className="list-disc pl-4 mt-1 space-y-0.5 text-gray-700">
+            {items.map((item, i) => <li key={i}>{item}</li>)}
+        </ul>
+    );
+    return (
+        <div className="mt-3 space-y-3 text-xs">
+            {missing_widgets.length > 0 && (
+                <div>
+                    <p className="text-amber-700 font-medium">Not in {target}, so {missing_widgets.length === 1 ? 'it' : 'they'} won't show there:</p>
+                    {list(missing_widgets.map(widgetName))}
+                    <label className="flex items-center gap-2 mt-2 text-gray-700 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={bringWidgets}
+                            onChange={e => onBringWidgets(e.target.checked)}
+                        />
+                        Promote {missing_widgets.length === 1 ? 'it' : 'them'} too, as {missing_widgets.length === 1 ? 'it is' : 'they are'} now in {sourceEnv.toUpperCase()}
+                    </label>
+                </div>
+            )}
+            {version_pins.length > 0 && (
+                <div>
+                    <p className="text-amber-700 font-medium">Pinned to a version that differs in {target}:</p>
+                    {list(version_pins.map(p => `${widgetName(p)} v${p.version}: ${p.problem === 'missing'
+                        ? `${target} has no such version, so it shows its current one`
+                        : `${target}'s v${p.version} is a different widget`}`))}
+                </div>
+            )}
+            {missing_agents.length > 0 && (
+                <div>
+                    <p className="text-amber-700 font-medium">Pinned agent not in {target}, so the assistant there can't open it:</p>
+                    {list(missing_agents.map(a => a.name || a.id))}
+                </div>
+            )}
+            {uncertified.length > 0 && (
+                <div>
+                    <p className="text-amber-700 font-medium">Not certified in {target}:</p>
+                    {list(uncertified.map(widgetName))}
+                    <p className="text-gray-500 mt-1">A global view there may only hold certified widgets, so saving it in {target} is refused until they are.</p>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const ENV_COLORS: Record<string, string> = {
     dev: 'bg-blue-100 text-blue-700',
@@ -199,6 +289,10 @@ export const ViewManager: React.FC = () => {
         targetEnv: 'dev' | 'test' | 'prod'; envsData: any; action: string;
         sourceEnv: string;
     } | null>(null);
+    const [preflight, setPreflight] = useState<PreflightState | null>(null);
+    const [bringWidgets, setBringWidgets] = useState(true);
+    // Answers to a check for an earlier choice in the version menu are dropped.
+    const preflightRequest = useRef(0);
 
 
     // Consolidate views from all environments
@@ -374,23 +468,56 @@ export const ViewManager: React.FC = () => {
         const action = targetVersion > currentVersion ? 'promote' : 'rollback';
 
         setPendingTransfer({ viewId, viewName, targetVersion, targetEnv, envsData, action, sourceEnv });
+        const request = ++preflightRequest.current;
+        setBringWidgets(true);
+        if (action !== 'promote') {
+            setPreflight(null);
+            return;
+        }
+        setPreflight({ status: 'loading' });
+        try {
+            const res = await fetch('/api/promotion/transfer_app/preflight', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ app_id: viewId, source_env: sourceEnv, target_env: targetEnv, version: targetVersion }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (request !== preflightRequest.current) return;
+            setPreflight(res.ok
+                ? { status: 'done', found: data.preflight }
+                : { status: 'failed', detail: data.detail || `HTTP ${res.status}` });
+        } catch {
+            if (request === preflightRequest.current) {
+                setPreflight({ status: 'failed', detail: 'the server could not be reached' });
+            }
+        }
+    };
+
+    const closeTransfer = () => {
+        preflightRequest.current++;
+        setPendingTransfer(null);
+        setPreflight(null);
     };
 
     const executeTransfer = async () => {
         if (!pendingTransfer) return;
         const { viewId, targetVersion, targetEnv, sourceEnv } = pendingTransfer;
-        setPendingTransfer(null);
+        const includeWidgets = bringWidgets && preflight?.status === 'done'
+            ? preflight.found.missing_widgets.map(w => w.id)
+            : [];
+        closeTransfer();
 
         try {
-            const res = await fetch('/api/promotion/transfer_view', {
+            const res = await fetch('/api/promotion/transfer_app', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    view_id: viewId,
+                    app_id: viewId,
                     source_env: sourceEnv,
                     target_env: targetEnv,
                     version: targetVersion,
-                    is_rollback: pendingTransfer?.action === 'rollback'
+                    is_rollback: pendingTransfer?.action === 'rollback',
+                    include_widgets: includeWidgets,
                 })
             });
             if (res.ok) {
@@ -855,9 +982,20 @@ export const ViewManager: React.FC = () => {
                         }
                         confirmLabel={isRollback ? `Roll Back to v${pendingTransfer.targetVersion}` : 'Promote'}
                         variant={isRollback ? 'warning' : 'primary'}
+                        confirmDisabled={!isRollback && preflight?.status === 'loading'}
                         onConfirm={executeTransfer}
-                        onCancel={() => { setPendingTransfer(null); loadAll(); }}
-                    />
+                        onCancel={() => { closeTransfer(); loadAll(); }}
+                    >
+                        {!isRollback && preflight && (
+                            <PromotionCheck
+                                state={preflight}
+                                sourceEnv={pendingTransfer.sourceEnv}
+                                targetEnv={pendingTransfer.targetEnv}
+                                bringWidgets={bringWidgets}
+                                onBringWidgets={setBringWidgets}
+                            />
+                        )}
+                    </ConfirmModal>
                 );
             })()}
         </div>

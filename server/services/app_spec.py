@@ -206,8 +206,8 @@ def _reserved(raw: Dict[str, Any], key: str, kind: type, strict: bool) -> Any:
 def _tab_id(value: Any, strict: bool, new_id: Callable[[], str], app_id: str) -> str:
     if value is None or value == "":
         return new_id()
-    # A view's only tab is named by the view's id, which `/api/views` never
-    # limited, so that id is always acceptable however long it is: refusing it
+    # A view's only tab is named by the view's id, which views never limited,
+    # so that id is always acceptable however long it is: refusing it
     # would make a view that exists today impossible to save from the apps API.
     if isinstance(value, str) and value.strip() and (len(value.strip()) <= MAX_ID_LENGTH or value.strip() == app_id):
         return value.strip()
@@ -304,21 +304,6 @@ def first_tab_widgets(spec: Dict[str, Any]) -> List[Any]:
     return list(tabs[0].get("widgets") or []) if tabs else []
 
 
-def with_first_tab_widgets(spec: Dict[str, Any], widgets: List[Any]) -> Dict[str, Any]:
-    """The spec after a save that only knows about one tab.
-
-    `/api/views` speaks for a single canvas, and so does a browser still running
-    the bundle from before apps. Either saving a multi-tab app must change the tab
-    it was looking at and leave the rest alone; replacing the spec with a one-tab
-    one would delete every other tab on the next drag.
-    """
-    out = copy.deepcopy(spec)
-    if not out.get("tabs"):
-        out["tabs"] = legacy_spec("", [])["tabs"]
-    out["tabs"][0]["widgets"] = copy.deepcopy(list(widgets))
-    return out
-
-
 def all_widgets(spec: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
     """Every widget placed on any tab, for checks that apply to the app as a whole."""
     for tab in spec.get("tabs") or []:
@@ -409,10 +394,10 @@ def compose_spec(
 def can_read(app: Dict[str, Any], *, perms: Dict[str, Any]) -> bool:
     """Whether the caller may open this app — exactly the rule views have always had.
 
-    A global app needs a role in its domain (or global admin), as `GET /api/views`
-    filters it. A personal app is open to anyone holding its id: that is what a
-    share link has always meant, since `POST /api/views/shared/{id}` subscribes any
-    caller to any id that exists and the sidebar then shows it. Apps deliberately
+    A global app needs a role in its domain (or global admin), as the views list
+    always filtered it. A personal app is open to anyone holding its id: that is
+    what a share link has always meant, since opening one subscribes any caller to
+    any id that exists and the sidebar then shows it. Apps deliberately
     inherit that model unchanged; tightening it is a separate decision, not a side
     effect of introducing apps.
 

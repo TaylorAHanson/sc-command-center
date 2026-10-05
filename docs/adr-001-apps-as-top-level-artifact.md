@@ -164,7 +164,7 @@ references to view ids. The design is that **none of it is touched**:
 | --- | --- |
 | Migrating rows | Not done. `spec_json` is added nullable and never backfilled; a NULL reads as the one-tab app (tab id = app id). A backfill would mint a version of every view in every env. |
 | Promotion after a lazy upgrade | `same_view_content` compares the *read* spec, not columns, so a view re-saved in Dev still matches its untouched copy in Test and isn't re-promoted for nothing. A change on tab 2+ still counts as a change. |
-| Old clients during and after deploy | A browser still on the old bundle, and `/api/views` generally, can only see one canvas. Their saves change **tab one only** (`with_first_tab_widgets`); replacing the spec would delete tabs 2+ on the next drag. |
+| Old clients during and after deploy | ~~A browser still on the old bundle, and `/api/views` generally, can only see one canvas. Their saves change **tab one only** (`with_first_tab_widgets`).~~ **Slice 6 removed `/api/views`.** A tab still running the pre-apps bundle when this deploys gets 404s from it, so it can't load or save until reloaded. It can no longer write at all, rather than writing tab one only. |
 | Rollback to pre-apps code | `widgets_json` is always written equal to tab one, so old code shows each app's first tab. Caveat: an old-code save then writes no `spec_json`, so that app reads as one tab again. Tabs 2+ survive in version history, not in the head. Don't roll back past slice 5 without restoring those heads. |
 | Ids and links | App id = view id, so `shared_views`, `archived_views`, `#/view/<id>`, `?shared_view=`, `?widget=` and action logs are unaffected. |
 | Junk in old rows | `read_spec` never raises and keeps widget entries verbatim (including `y: null` from `Infinity`). Strict validation applies only to new writes, and a widget id repeated *within* one tab is still allowed, as it always was. |
@@ -325,7 +325,7 @@ none should run as the SP.
 | 3 | App-scoped widget bundle + canonical links/aliases | Access unchanged (§2.3). **Built** (§4.3b) |
 | 4 | `AppShell` standalone: route-level split, branding, env badge, viewer/editor, route-aware provider | Critical path for shareable apps. **Built** (§4.3c) |
 | 5 | Multi-tab bar and editing; app-scoped variables | **Built** (§4.3d) |
-| 6 | `transfer_app` with preflight; delete `/api/views` shim | |
+| 6 | `transfer_app` with preflight; delete `/api/views` shim | **Built** (§4.3e) |
 | 7 | Nav styles, theme tokens, filters | Optional polish |
 
 ### 4.3a Slice 2 as built
@@ -471,6 +471,42 @@ none should run as the SP.
   coalescing is still open; multi-tab apps make each row larger and each edit
   still adds a version, so it matters more now.
 
+### 4.3e Slice 6 as built
+
+- **`/api/views` is deleted.** Its subscribe, archive, restore, delete and
+  archive-list handlers moved into `routes/apps.py` unchanged (same SQL, same
+  rules, same messages), which is where `/api/apps` already delegated. The
+  first-tab-only save path (`save_version(first_tab_widgets=...)`,
+  `with_first_tab_widgets`) went with it; nothing else could use it. This closes
+  Q8: the ungated `GET /api/views/history` no longer exists, and
+  `/api/apps/history` applies the read rule. `tools/` probes moved to
+  `/api/apps`.
+- **`POST /api/promotion/transfer_app`** replaces `transfer_view`. Same rule
+  (editor of the app's domain in the target), same rollback, same "already up to
+  date" comparison, every tab carried in the row.
+- **Preflight** (`POST /transfer_app/preflight`, read-only, same right as the
+  transfer). Resolves by id against the target's live heads and returns:
+  missing widgets; `_version` pins whose row of that number in the target is
+  absent or different; pinned agents (app or tab, not `default`) the target
+  lacks; and, when `require_certified_for_global_views` is on and the app is
+  global, widgets uncertified in the target (or in the source, for ones it
+  lacks).
+- **Missing widgets can travel with the app.** `include_widgets` copies each
+  one's current source version, under the rule promoting it alone has (editor
+  of the widget's domain in the target), in the same transaction as the app. Only
+  widgets the app places are accepted. The View Promotion dialog runs the
+  preflight, lists the findings, and ticks **Promote them too** by default.
+- **Nothing is refused for being missing,** as before. Agents have no
+  promotion path, so a missing agent can only be reported.
+- **Not changed, flagged:** promotion still copies a global app into an env
+  without running `require_certified_widgets`, as `transfer_view` did. The
+  preflight now names those widgets, and the first save in the target is
+  refused until they're certified. Enforcing the check on promotion would be a
+  tightening; it's left for a decision (Q10).
+- **Pins aren't rewritten.** A `_version` pin is reported, not translated to
+  the target's matching version number. Rewriting would change the copied row,
+  so it would never compare equal to its source again.
+
 ### 4.4 Docs and tests (per AGENTS.md)
 
 - User-visible behavior → update `RELEASE_NOTES.md` in the same commit, plus
@@ -528,8 +564,9 @@ Record answers here as they are decided; do not treat the brief as closed.
 | Q5 | Tab-level lock? | Defer | Deferred |
 | Q6 | Logo/favicon max size and allowlist | Server-side validate; CSP already allows data/https images | **Built:** https URL or base64 `data:image/*`, ≤ 256 KB encoded (`app_spec.MAX_IMAGE_CHARS`) |
 | Q7 | What access do existing personal views get under apps? | — | **Decided:** no change to the security model at all; see §2.3. `link_access` dropped. |
-| Q8 | Should `GET /api/views/history` get the access check too? Today it has no auth dependency and returns names/usernames/timestamps for any id. `/api/apps/history` is gated. | The admin screen moved to `/api/apps` in slice 2, so nothing in the UI calls it now. Gating it would still change access, so it's left for slice 6, which deletes it. | Deferred to slice 6 |
+| Q8 | Should `GET /api/views/history` get the access check too? Today it has no auth dependency and returns names/usernames/timestamps for any id. `/api/apps/history` is gated. | The admin screen moved to `/api/apps` in slice 2, so nothing in the UI calls it now. Gating it would still change access, so it's left for slice 6, which deletes it. | **Closed (slice 6):** deleted with `/api/views` |
 | Q9 | Should New View make standalone apps, as §2.4 first said? | No: New View lives in the sidebar, among views people hop between, and a standalone default would make every new view leave it when its link is shared. | **Decided (slice 4):** New View stays workspace; standalone is opt-in in View settings. Revisit with slice 5's New App flow. |
+| Q10 | Should promotion enforce `require_certified_for_global_views` in the target? Today it copies the row unchecked, as `transfer_view` did; the next save there is refused. | Enforcing it closes a gap in ISRP 30.1, but it changes what a promoter may do, so not in passing. | Open: preflight reports it (slice 6) |
 
 ---
 
@@ -555,3 +592,4 @@ From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
 | 2026-10-05 | Slice 3 built (§4.3b): canonical `#/app/...` links with permanent aliases, one parser, tab ids in links honoured, any link form subscribes as `?shared_view=` did, `GET /api/apps/{id}/widgets`. Fixed missing `hashchange` pages and a 500 on subscribing to a missing id. |
 | 2026-10-05 | Slice 4 built (§4.3c): `Root` picks the shell before first paint; standalone apps render `AppShell` with no `Layout`, read-only, loading only their own widgets; `#/workspace/<id>` for building them; View settings for presentation, branding and assistant. Decided Q9 (New View stays workspace); closed Q1, §5 #5 and #6. |
 | 2026-10-05 | Slice 5 built (§4.3d): tab bar and Add tab, rename/reorder/delete under the existing layout-edit rule, tabs in the address, variables per app. Fixed the empty-canvas hint. §5 #2 and Q3 still open; no tab-level pin UI. |
+| 2026-10-05 | Slice 6 built (§4.3e): `/api/views` and the first-tab-only save path deleted, its handlers moved into `routes/apps.py`; `transfer_app` with a read-only preflight and optional widget promotion in one transaction; View Promotion dialog shows the preflight. Closed Q8; added Q10. |

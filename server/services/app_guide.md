@@ -277,9 +277,14 @@ work in progress cannot disrupt production users.
   restoring that exact historical definition.
 - **Certify**, in Prod, flags the current version as reviewed and
   enterprise-ready. It is a signal to end users, not a permission.
-- **View Promotion** does the same for global views. Promote every widget a view
-  uses *before* promoting the view, or it will render with missing widgets in the
-  target environment.
+- **View Promotion** does the same for global views, every tab at once. Before
+  promoting, the confirmation checks the target environment and lists widgets
+  the view uses that it doesn't have (with **Promote them too**, on by default,
+  which copies each at its current version in the source and needs Editor on
+  that widget's domain), widgets pinned to a version that differs there, pinned
+  agents that aren't there (agents can't be promoted, so recreate them there or
+  re-pin), and, when global views must hold certified widgets, the uncertified
+  ones. A view promoted without its widgets shows without them.
 - **Removing a global view** is two steps, both on the View Promotion screen and
   both needing Editor or Admin on the view's domain. **Remove** archives it: it
   leaves everyone's sidebar in Dev, Test and Prod, and every version is kept. The

@@ -1,4 +1,4 @@
-"""Tests for /api/apps and the /api/views shim that writes the same rows.
+"""Tests for /api/apps.
 
 Three things are pinned, each against a fake connection that records every
 statement so a refusal can be shown to have written nothing:
@@ -7,8 +7,7 @@ statement so a refusal can be shown to have written nothing:
   to the view — apps inherit that model, they don't revise it;
 - that opening an app by id or reading its history never writes;
 - that the deployment already running keeps working: a view saved before apps
-  opens as itself, and a single-canvas save from `/api/views` (or a browser still
-  on the old bundle) changes the first tab and leaves every other tab alone.
+  opens as itself, and saving it keeps what it held.
 """
 import json
 import os
@@ -18,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 try:
     from fastapi import HTTPException
-    from routes import apps, views
+    from routes import apps
     from services import app_spec, app_store, settings_store
 except Exception as e:  # pragma: no cover - needs the backend venv
     print(f"SKIP test_apps_routes: {e}")
@@ -90,7 +89,8 @@ class FakeCursor:
         elif text.startswith("SELECT 1 FROM shared_views"):
             self._rows = [(1,)] if (params[0], params[1]) in self.store.subscriptions else []
         elif "FROM widgets w" in text:
-            self._rows = [w for w in self.store.widgets if w[0] in params[0]]
+            self.description = [("id",), ("version",), ("name",), ("domain",), ("is_certified",)]
+            self._rows = [(i, 1, name, "General", cert) for i, name, cert in self.store.widgets if i in params[0]]
         elif text.startswith("SELECT id, version, name, description") and "FROM widgets" in text:
             # The library query; which source it carries is Postgres's to work out.
             self.description = [("id",), ("domain",)]
@@ -135,12 +135,9 @@ def run(store, fn, *args, user=ME, perms=None, editor_of=(), certified_only=Fals
 
     patches = [
         (apps, "get_db_connection", lambda _env: FakeConn(store)),
-        (views, "get_db_connection", lambda _env: FakeConn(store)),
         (apps, "_get_current_username", lambda _w: user),
-        (views, "_get_current_username", lambda _w: user),
         (apps, "_get_user_permissions", lambda _w, _env: perms),
         (apps, "require_domain_editor", require_editor),
-        (views, "require_domain_editor", require_editor),
         (app_store, "require_domain_editor", require_editor),
         (settings_store, "get_bool_setting", lambda key, *a, **k: certified_only if key == "require_certified_for_global_views" else False),
     ]
@@ -226,44 +223,34 @@ def test_a_link_to_no_app_is_not_found_and_subscribes_nobody():
 
 # ------------------------------------------ the deployment that already exists
 
-def test_a_single_canvas_save_from_api_views_keeps_the_other_tabs():
-    store = Store(row("v1", owner=ME, spec=three_tabs("v1"), version=7))
-    run(store, views.update_view, "v1", views.ViewUpdate(widgets=[{"i": "moved", "type": "iframe"}]))
+def test_a_save_that_sends_no_spec_keeps_the_whole_spec():
+    store = Store(row("v1", owner=ME, spec=three_tabs("v1"), pin="agent-1", version=7))
+    run(store, apps.update_app, "v1", apps.AppUpdate(name="Renamed"))
     saved = store.inserted_app()
-    spec = json.loads(saved["spec_json"])
-    assert saved["version"] == 8
-    assert spec["tabs"][0]["widgets"] == [{"i": "moved", "type": "iframe"}]
-    assert spec["tabs"][1:] == three_tabs("v1")["tabs"][1:], "tabs the old client never saw survive its save"
-    assert json.loads(saved["widgets_json"]) == [{"i": "moved", "type": "iframe"}], "widgets_json mirrors tab one"
-
-
-def test_a_save_that_sends_no_widgets_keeps_the_whole_spec():
-    store = Store(row("v1", owner=ME, spec=three_tabs("v1"), pin="agent-1"))
-    run(store, views.update_view, "v1", views.ViewUpdate(name="Renamed"))
-    saved = store.inserted_app()
-    assert saved["name"] == "Renamed"
+    assert saved["name"] == "Renamed" and saved["version"] == 8
     assert json.loads(saved["spec_json"]) == app_spec.read_spec("v1", json.dumps(three_tabs("v1")), None)
     assert saved["pinned_agent_id"] == "agent-1", "an absent pin keeps the pin"
 
 
 def test_saving_a_legacy_view_writes_its_spec_for_the_first_time():
     store = Store(row("v1", owner=ME, widgets=[{"i": "a", "type": "iframe"}]))
-    run(store, views.update_view, "v1", views.ViewUpdate(is_locked=True))
+    run(store, apps.update_app, "v1", apps.AppUpdate(is_locked=True))
     spec = json.loads(store.inserted_app()["spec_json"])
     assert [t["id"] for t in spec["tabs"]] == ["v1"] and spec["tabs"][0]["widgets"] == [{"i": "a", "type": "iframe"}]
 
 
-def test_creating_a_view_writes_a_one_tab_app():
+def test_creating_an_app_without_a_spec_writes_an_empty_view():
     store = Store()
-    result = run(store, views.create_view, views.ViewCreate(id="new", name="Mine", widgets=[{"i": "a", "type": "x"}]))
+    result = run(store, apps.create_app, apps.AppCreate(id="new", name="Mine"))
     saved = store.inserted_app()
     assert result["id"] == "new" and saved["username"] == ME
-    assert json.loads(saved["spec_json"])["tabs"][0]["id"] == "new"
+    spec = json.loads(saved["spec_json"])
+    assert [t["id"] for t in spec["tabs"]] == ["new"] and spec["tabs"][0]["widgets"] == []
 
 
 def test_nobody_else_can_save_your_view():
     store = Store(row("v1", owner=ME))
-    assert refused(store, views.update_view, "v1", views.ViewUpdate(name="x"), user=OTHER).status_code == 403
+    assert refused(store, apps.update_app, "v1", apps.AppUpdate(name="x"), user=OTHER).status_code == 403
     assert store.writes() == []
 
 
@@ -271,10 +258,13 @@ def test_nobody_else_can_save_your_view():
 
 def test_saving_a_spec_replaces_it_whole():
     store = Store(row("v1", owner=ME, spec=three_tabs("v1")))
-    two = {"tabs": [{"id": "v1", "widgets": []}, {"id": "t9", "name": "New"}], "presentation": "standalone"}
+    two = {"tabs": [{"id": "v1", "widgets": [{"i": "z", "type": "iframe"}]}, {"id": "t9", "name": "New"}],
+           "presentation": "standalone"}
     run(store, apps.update_app, "v1", apps.AppUpdate(spec=two))
-    spec = json.loads(store.inserted_app()["spec_json"])
+    saved = store.inserted_app()
+    spec = json.loads(saved["spec_json"])
     assert [t["id"] for t in spec["tabs"]] == ["v1", "t9"] and spec["presentation"] == "standalone"
+    assert json.loads(saved["widgets_json"]) == [{"i": "z", "type": "iframe"}], "widgets_json mirrors tab one, for a rollback"
 
 
 def test_an_invalid_spec_is_refused_and_writes_nothing():

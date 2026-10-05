@@ -341,13 +341,13 @@ export const UserGuidePage: React.FC = () => {
             <div className="bg-white p-5 border rounded-lg shadow-sm">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Promoting Views</h3>
               <p className="text-sm text-gray-600 mb-3">
-                Similarly, global View Layouts are managed via the <strong>View Promotion</strong> screen. 
+                Similarly, global View Layouts are managed via the <strong>View Promotion</strong> screen. A view is promoted with all of its tabs.
               </p>
               <p className="text-sm text-gray-600 mb-3">
                 <strong>Removing a global view:</strong> click <strong>Remove</strong> on its row (you need Editor or Admin on its domain). It disappears from everyone's sidebar in Dev, Test and Prod, but nothing is deleted. Open <strong>Archived</strong> at the top of the screen to <strong>Restore</strong> it exactly as it was, or to <strong>Delete permanently</strong>, which removes every version and cannot be undone. A global view has to be archived before it can be deleted.
               </p>
               <div className="bg-orange-50 border-l-4 border-orange-400 p-3 mt-2 text-sm text-orange-800">
-                <strong>Important:</strong> Before promoting a view to a higher environment, ensure that all widgets used within that view have already been promoted. If a view references a widget that isn't available in the target environment, the view will fail to render correctly.
+                <strong>Before you confirm:</strong> the promotion dialog checks the target environment and lists any widget the view uses that isn't there yet. Leave <strong>Promote them too</strong> ticked to bring them along at their current version (you need Editor on each widget's domain); otherwise the view shows without them. It also warns about widgets pinned to a version that differs there, pinned agents that don't exist there, and widgets that still need certifying.
               </div>
             </div>
           </div>

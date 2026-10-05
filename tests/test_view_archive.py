@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 try:
     from fastapi import HTTPException
-    from routes import views
+    from routes import apps
 except Exception as e:  # pragma: no cover - needs the backend venv
     print(f"SKIP test_view_archive: {e}")
     sys.exit(0)
@@ -92,23 +92,23 @@ def personal_view(owner=ME):
 
 def run(store, fn, *args, editor=True, perms=None, **kwargs):
     """Call a route with the database, identity and permission checks faked."""
-    saved = (views.get_db_connection, views._get_current_username,
-             views.require_domain_editor, views._get_user_permissions)
+    saved = (apps.get_db_connection, apps._get_current_username,
+             apps.require_domain_editor, apps._get_user_permissions)
 
     def deny(_w, domain, _env="dev"):
         if not editor:
             raise HTTPException(status_code=403, detail=f"Forbidden: Editor required for '{domain}'")
         return True
 
-    views.get_db_connection = lambda _env: store.conn
-    views._get_current_username = lambda _w: ME
-    views.require_domain_editor = deny
-    views._get_user_permissions = lambda _w, _env: perms or {"is_admin": False, "domain_permissions": {}}
+    apps.get_db_connection = lambda _env: store.conn
+    apps._get_current_username = lambda _w: ME
+    apps.require_domain_editor = deny
+    apps._get_user_permissions = lambda _w, _env: perms or {"is_admin": False, "domain_permissions": {}}
     try:
         return fn(*args, w=None, env="dev", **kwargs)
     finally:
-        (views.get_db_connection, views._get_current_username,
-         views.require_domain_editor, views._get_user_permissions) = saved
+        (apps.get_db_connection, apps._get_current_username,
+         apps.require_domain_editor, apps._get_user_permissions) = saved
 
 
 def refused(store, fn, *args, **kwargs):
@@ -121,7 +121,7 @@ def refused(store, fn, *args, **kwargs):
 
 def test_archiving_a_global_view_records_who_and_keeps_every_version():
     store = Store(global_view())
-    result = run(store, views.archive_view, "v1")
+    result = run(store, apps.archive_app, "v1")
     assert result["archived"] is True
     inserts = [(s, p) for s, p in store.statements if s.startswith("INSERT INTO archived_views")]
     assert inserts and inserts[0][1] == ("v1", ME)
@@ -132,23 +132,23 @@ def test_archiving_a_global_view_records_who_and_keeps_every_version():
 
 def test_a_personal_view_cannot_be_archived():
     store = Store(personal_view())
-    assert refused(store, views.archive_view, "v1").status_code == 400
+    assert refused(store, apps.archive_app, "v1").status_code == 400
     assert not store.wrote("INSERT")
 
 
 def test_archiving_a_view_that_does_not_exist_is_a_404():
-    assert refused(Store(None), views.archive_view, "nope").status_code == 404
+    assert refused(Store(None), apps.archive_app, "nope").status_code == 404
 
 
 def test_only_a_domain_editor_may_archive():
     store = Store(global_view())
-    assert refused(store, views.archive_view, "v1", editor=False).status_code == 403
+    assert refused(store, apps.archive_app, "v1", editor=False).status_code == 403
     assert not store.wrote("INSERT")
 
 
 def test_restoring_clears_the_archive_and_nothing_else():
     store = Store(global_view(), archived=True)
-    run(store, views.restore_view, "v1")
+    run(store, apps.restore_app, "v1")
     assert store.wrote("DELETE FROM archived_views")
     assert not store.wrote("DELETE FROM dashboard_views")
     assert store.conn.committed
@@ -156,13 +156,13 @@ def test_restoring_clears_the_archive_and_nothing_else():
 
 def test_restoring_needs_the_same_right_as_archiving():
     store = Store(global_view(), archived=True)
-    assert refused(store, views.restore_view, "v1", editor=False).status_code == 403
+    assert refused(store, apps.restore_app, "v1", editor=False).status_code == 403
     assert not store.wrote("DELETE")
 
 
 def test_a_global_view_cannot_be_deleted_until_it_is_archived():
     store = Store(global_view(), archived=False)
-    exc = refused(store, views.delete_view, "v1")
+    exc = refused(store, apps.delete_app, "v1")
     assert exc.status_code == 409
     assert "Archive" in exc.detail
     assert not store.wrote("DELETE")
@@ -170,7 +170,7 @@ def test_a_global_view_cannot_be_deleted_until_it_is_archived():
 
 def test_an_archived_global_view_can_be_deleted_for_good():
     store = Store(global_view(), archived=True)
-    run(store, views.delete_view, "v1")
+    run(store, apps.delete_app, "v1")
     assert store.wrote("DELETE FROM dashboard_views")
     # The marker goes with the view, or the id would stay hidden if it were reused.
     assert store.wrote("DELETE FROM archived_views")
@@ -179,20 +179,20 @@ def test_an_archived_global_view_can_be_deleted_for_good():
 
 def test_deleting_for_good_still_needs_editor_rights():
     store = Store(global_view(), archived=True)
-    assert refused(store, views.delete_view, "v1", editor=False).status_code == 403
+    assert refused(store, apps.delete_app, "v1", editor=False).status_code == 403
     assert not store.wrote("DELETE")
 
 
 def test_closing_a_personal_view_is_unchanged():
     """The sidebar's Close button deletes your own view outright; archiving is for global ones."""
     store = Store(personal_view(ME))
-    run(store, views.delete_view, "v1")
+    run(store, apps.delete_app, "v1")
     assert store.wrote("DELETE FROM dashboard_views")
 
 
 def test_nobody_else_can_delete_your_personal_view():
     store = Store(personal_view("someone.else@example.com"))
-    assert refused(store, views.delete_view, "v1").status_code == 403
+    assert refused(store, apps.delete_app, "v1").status_code == 403
     assert not store.wrote("DELETE")
 
 
@@ -203,10 +203,10 @@ def test_the_archive_lists_only_domains_the_caller_edits():
     ]
     store = Store(global_view(), archive_listing=rows)
     perms = {"is_admin": False, "domain_permissions": {"Sales": "editor", "Finance": "viewer"}}
-    listed = run(store, views.get_archived_views, perms=perms)["views"]
+    listed = run(store, apps.list_archived_apps, perms=perms)["apps"]
     assert [v["id"] for v in listed] == ["a"]
 
-    everyone = run(store, views.get_archived_views, perms={"is_admin": True, "domain_permissions": {}})["views"]
+    everyone = run(store, apps.list_archived_apps, perms={"is_admin": True, "domain_permissions": {}})["apps"]
     assert [v["id"] for v in everyone] == ["a", "b"]
 
 

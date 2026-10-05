@@ -2,8 +2,9 @@
 
 An app is a row in `dashboard_views` under the id the view always had; a view is
 an app with one tab. See `services/app_spec.py` for what an app holds and
-`services/app_store.py` for how it is written. `/api/views` reads and writes the
-same rows and stays until the frontend has moved here.
+`services/app_store.py` for how it is written. This replaced `/api/views`, which
+read and wrote the same rows; the handlers below that came from it (subscribe,
+archive, restore, delete, the archive list) do exactly what they did there.
 
 Who may read and change an app is exactly who could read and change the view:
 `app_spec.can_read` for reading, `app_store.require_may_edit` for writing. Apps
@@ -20,7 +21,6 @@ from pydantic import BaseModel
 from database import get_db_connection
 from middleware.auth import get_db_client
 from routes import custom_widgets as widget_routes
-from routes import views as view_routes
 from routes.roles import _get_current_username, _get_user_permissions, require_domain_editor
 from services import app_spec, app_store
 
@@ -57,6 +57,10 @@ class AppCompose(BaseModel):
     presentation: Optional[str] = None
 
 
+def _timestamp(value: Any) -> Optional[str]:
+    return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
+
+
 def _public(row: Dict[str, Any], spec: Dict[str, Any], *, username: str, subscribed: bool) -> Dict[str, Any]:
     is_global = bool(row.get("is_global"))
     return {
@@ -72,7 +76,7 @@ def _public(row: Dict[str, Any], spec: Dict[str, Any], *, username: str, subscri
         # The app-level agent; a tab's own pin, in the spec, overrides it.
         "pinned_agent_id": row.get("pinned_agent_id") or None,
         # When this version was saved; View Promotion's "Last Modified".
-        "timestamp": view_routes._timestamp(row.get("timestamp")),
+        "timestamp": _timestamp(row.get("timestamp")),
         "spec": spec,
     }
 
@@ -85,7 +89,7 @@ def _require_readable(c, app_id: str, username: str, perms: Dict[str, Any]) -> T
     """The app's head row, spec and whether the caller subscribes to it; else 404.
 
     Archived apps are out of circulation and read as missing, as they drop out of
-    `GET /api/views`; the archive list in the admin screen is the way back to them.
+    the sidebar list; the archive list in the admin screen is the way back to them.
     """
     row = app_store.head(c, app_id)
     if row is None or app_store.is_archived(c, app_id) or not app_spec.can_read(row, perms=perms):
@@ -95,10 +99,7 @@ def _require_readable(c, app_id: str, username: str, perms: Dict[str, Any]) -> T
 
 @router.get("/")
 def list_apps(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """The caller's sidebar: their own apps, global apps in their domains, and subscriptions.
-
-    The same rows `GET /api/views` returns, with each app's whole spec.
-    """
+    """The caller's sidebar: their own apps, global apps in their domains, and subscriptions."""
     username, perms = _caller(w, env)
     conn = get_db_connection(env)
     try:
@@ -138,8 +139,40 @@ def list_apps(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
 
 @router.get("/archived")
 def list_archived_apps(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """Archived global apps the caller could restore or delete; see `/api/views/archived`."""
-    return {"apps": view_routes.get_archived_views(w=w, env=env)["views"]}
+    """Archived global apps the caller could restore or delete, newest first.
+
+    Limited to domains the caller edits: the archive is where an app goes to be
+    forgotten, so it should not become a way to browse domains one can't see.
+    """
+    perms = _get_user_permissions(w, env)
+    is_admin = perms.get("is_admin", False)
+    domain_permissions = perms.get("domain_permissions", {})
+
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        c.execute("""
+            SELECT dv.id, dv.version, dv.name, dv.domain, av.archived_by, av.timestamp AS archived_at
+            FROM archived_views av
+            INNER JOIN dashboard_views dv ON dv.id = av.id
+            INNER JOIN (
+                SELECT id, MAX(version) AS max_version
+                FROM dashboard_views
+                GROUP BY id
+            ) latest ON dv.id = latest.id AND dv.version = latest.max_version
+            ORDER BY av.timestamp DESC
+        """)
+        rows = app_store.fetch_rows(c)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching archived views: {str(e)}")
+    finally:
+        conn.close()
+
+    return {"apps": [
+        {**r, "archived_at": _timestamp(r.get("archived_at"))}
+        for r in rows
+        if is_admin or domain_permissions.get(r.get("domain") or "General") in ("editor", "admin")
+    ]}
 
 
 @router.get("/history")
@@ -161,7 +194,7 @@ def app_history(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: s
         raise HTTPException(status_code=500, detail=f"Error fetching app history: {str(e)}")
     finally:
         conn.close()
-    return {"history": [{**r, "timestamp": view_routes._timestamp(r.get("timestamp"))} for r in rows], "env": env}
+    return {"history": [{**r, "timestamp": _timestamp(r.get("timestamp"))} for r in rows], "env": env}
 
 
 @router.post("/compose")
@@ -336,25 +369,165 @@ def update_app(app_id: str, body: AppUpdate, w: WorkspaceClient = Depends(get_db
 
 @router.post("/{app_id}/subscribe")
 def subscribe_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """Put an app into the caller's sidebar; the same act as `POST /api/views/shared/{id}`."""
-    return view_routes.add_shared_view(app_id, w=w, env=env)
+    """Put an app into the caller's sidebar, which is what opening a shared link has always done.
+
+    Any app that exists, for anyone holding its id: that is what a share link
+    means here. It reveals nothing; reading the app still goes through `can_read`.
+    """
+    username = _get_current_username(w)
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        c.execute("SELECT id FROM dashboard_views WHERE id = %s", (app_id,))
+        if not c.fetchone():
+            raise HTTPException(status_code=404, detail="View not found")
+        c.execute("""
+            INSERT INTO shared_views (username, view_id)
+            VALUES (%s, %s)
+            ON CONFLICT (username, view_id) DO NOTHING
+        """, (username, app_id))
+        conn.commit()
+        return {"status": "success", "message": f"Subscribed to shared view {app_id}"}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error subscribing to shared view: {str(e)}")
+    finally:
+        conn.close()
 
 
 @router.delete("/{app_id}/subscribe")
 def unsubscribe_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    return view_routes.remove_shared_view(app_id, w=w, env=env)
+    username = _get_current_username(w)
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM shared_views WHERE username = %s AND view_id = %s", (username, app_id))
+        conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error unsubscribing from shared view: {str(e)}")
+    finally:
+        conn.close()
+
+
+def _owner_and_domain(c, app_id: str) -> Optional[Dict[str, Any]]:
+    """Who owns an app and which domain it is filed under, from its newest version.
+
+    Newest, not any: the domain can change between versions, and the permission
+    check has to be made against the one people can currently see.
+    """
+    c.execute(
+        "SELECT username, is_global, domain FROM dashboard_views "
+        "WHERE id = %s ORDER BY version DESC LIMIT 1",
+        (app_id,),
+    )
+    row = c.fetchone()
+    return dict(zip([column[0] for column in c.description], row)) if row else None
+
+
+def _global_app_for_editor(c, w, app_id: str, env: str) -> Dict[str, Any]:
+    """The app, if it is global and the caller may edit its domain; otherwise raise.
+
+    Archiving and restoring act on global apps only. A personal app is already
+    private to its owner, so "removing it from circulation" has no meaning there —
+    closing it in the sidebar deletes it, as it always has.
+    """
+    app = _owner_and_domain(c, app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail="View not found")
+    if not app["is_global"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only global views are archived. Close a personal view to delete it.",
+        )
+    require_domain_editor(w, app.get("domain") or "General", env)
+    return app
 
 
 @router.post("/{app_id}/archive")
 def archive_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    return view_routes.archive_view(app_id, w=w, env=env)
+    """Take a global app out of everyone's sidebar without deleting anything.
+
+    Every version stays, so restoring is exact and nothing an author built is
+    lost to a misclick. Idempotent: archiving twice is the same as once.
+    """
+    username = _get_current_username(w)
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        _global_app_for_editor(c, w, app_id, env)
+        c.execute(
+            "INSERT INTO archived_views (id, archived_by) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
+            (app_id, username),
+        )
+        conn.commit()
+        return {"status": "success", "id": app_id, "archived": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error archiving view: {str(e)}")
+    finally:
+        conn.close()
 
 
 @router.post("/{app_id}/restore")
 def restore_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    return view_routes.restore_view(app_id, w=w, env=env)
+    """Put an archived global app back exactly as it was."""
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        _global_app_for_editor(c, w, app_id, env)
+        c.execute("DELETE FROM archived_views WHERE id = %s", (app_id,))
+        conn.commit()
+        return {"status": "success", "id": app_id, "archived": False}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error restoring view: {str(e)}")
+    finally:
+        conn.close()
 
 
 @router.delete("/{app_id}")
 def delete_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    return view_routes.delete_view(app_id, w=w, env=env)
+    username = _get_current_username(w)
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        existing = _owner_and_domain(c, app_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="View not found")
+
+        if existing["is_global"]:
+            require_domain_editor(w, existing.get("domain") or "General", env)
+            # Deleting is the second step, after archiving: every version goes and
+            # nothing brings them back, so a global app must first have been taken
+            # out of circulation where someone could have noticed and said so.
+            if not app_store.is_archived(c, app_id):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Archive this global view before deleting it permanently.",
+                )
+        elif existing["username"] != username:
+            raise HTTPException(status_code=403, detail="You can only delete your own views")
+
+        c.execute("DELETE FROM dashboard_views WHERE id = %s", (app_id,))
+        c.execute("DELETE FROM archived_views WHERE id = %s", (app_id,))
+        conn.commit()
+        return {"status": "success", "message": f"View {app_id} deleted"}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error deleting view: {str(e)}")
+    finally:
+        conn.close()

@@ -77,8 +77,8 @@ def main() -> None:
         check("could find the created category to clean up", False)
 
     print("\n--- a failing request doesn't poison the connection ---")
-    call("GET", "/api/views/history?view_id=does-not-exist&env=dev", expect=None)
-    call("DELETE", "/api/views/definitely-not-a-view?env=dev", expect=None)
+    call("GET", "/api/apps/history?app_id=does-not-exist&env=dev", expect=None)
+    call("DELETE", "/api/apps/definitely-not-a-view?env=dev", expect=None)
     call("GET", "/api/conversations/not-a-conversation", expect=None)
     status, body, _ = call("GET", "/api/taxonomy/categories?env=dev")
     check("reads still work afterwards", status == 200)
@@ -93,7 +93,7 @@ def main() -> None:
 
     print("\n--- 60 requests, 12 at a time ---")
     paths = [
-        "/api/views/?env=dev",
+        "/api/apps/?env=dev",
         "/api/widgets/custom?env=dev",
         "/api/taxonomy/categories?env=dev",
         "/api/roles/my-permissions",
