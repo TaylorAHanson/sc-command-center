@@ -280,6 +280,20 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
 
           <section className="space-y-3">
             <div>
+              <h3 className="text-sm font-semibold text-gray-800">Colours</h3>
+              <p className="text-xs text-gray-500">
+                Replace Command Center’s blue and navy on this view’s tabs, filters and widgets; on its own, everywhere.
+                White text sits on both, so each must be dark enough to read it on.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <ColourField label="Accent colour" fallback="#007bff" value={primary} onChange={setPrimary} />
+              <ColourField label="Dark colour" fallback="#001e3c" value={dark} onChange={setDark} />
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <div>
               <h3 className="text-sm font-semibold text-gray-800">Filters</h3>
               <p className="text-xs text-gray-500">
                 Dropdowns above the canvas, wherever the view opens. Each choice sets the variable named here,
@@ -373,13 +387,6 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
             </div>
             <ImageField label="Logo" hint="Shown beside the title." value={logo} onChange={setLogo} />
             <ImageField label="Browser tab icon" hint="Shown on the browser tab." value={favicon} onChange={setFavicon} />
-            <div className="grid grid-cols-2 gap-3">
-              <ColourField label="Accent colour" fallback="#007bff" value={primary} onChange={setPrimary} />
-              <ColourField label="Dark colour" fallback="#001e3c" value={dark} onChange={setDark} />
-            </div>
-            <p className="text-xs text-gray-500 -mt-1">
-              Replace Command Center’s blue and navy, in widgets too. White text sits on both, so each must be dark enough to read it on.
-            </p>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={assistant === 'on'} onChange={e => setAssistant(e.target.checked ? 'on' : 'off')} />
               Offer the assistant

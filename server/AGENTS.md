@@ -177,6 +177,14 @@ that keep the deployment already running intact:
   The old update path checked only the domain a view started in, which let an
   owner publish a personal view as global into any domain. Creating a global view
   already required it.
+- **A burst of saves to a personal app is one version.** Every drag, resize,
+  tab rename and setting is a full PUT, so `save_version` overwrites the newest
+  version in place when it is personal and the database says it was saved less
+  than `COALESCE_SECONDS` (300) ago; the response's `version` is the one it
+  landed in. Only the owner can save a personal app, so no one else's work is
+  folded in. Global apps, and the save that makes an app global, always insert:
+  their versions are what promotion copies and rolls back to, several editors
+  share them, and the row records `system`, not who saved.
 - **`POST /api/apps/compose`** copies existing views/apps into a new personal
   app, a tab each. Sources are untouched (copy, not move) so their links and
   subscriptions keep working.
@@ -1050,7 +1058,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
 PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 33 passed
-PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 27 passed
+PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 31 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed

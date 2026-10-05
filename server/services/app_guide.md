@@ -63,9 +63,16 @@ per-user unless they are global.
   Library, no studios, under the title, logo and browser-tab icon set there. The
   assistant appears too, under the name set there, unless **Offer the
   assistant** is off. Branding is only used on its own; inside Command Center
-  the view keeps its name. The same goes for **Accent colour** and **Dark
-  colour**, which replace Command Center's blue and navy, in widgets too; each
-  must be dark enough for white text, and the dialog refuses one that isn't.
+  the view keeps its name.
+- **Colours** in **Settings** (**Accent colour**, **Dark colour**) replace
+  Command Center's blue and navy, widgets included. Inside Command Center they
+  cover the view's tabs, filter bar and canvas, while the sidebar and header
+  stay Command Center's; opened on its own, the whole page uses them. Each must
+  be dark enough for white text, and the dialog refuses one that isn't.
+- **Version history.** Changes to a personal view within five minutes of each
+  other are kept as one version, so a burst of moving and resizing doesn't fill
+  its history. Every save to a global view is still its own version, because
+  promotion copies and rolls back to those.
 - Two more choices in **Settings** apply wherever the view opens. **Tabs**:
   **Across the top** (the default) or **Down the side**; a view with one tab
   shows no tabs either way. **Filters**: dropdowns under the header, each with a
@@ -408,6 +415,13 @@ view and widgets are currently on screen. Tools run **on behalf of the signed-in
 user**, so results reflect that user's own Databricks permissions and no
 passwords or tokens are ever needed. A permission error from a tool describes the
 user's access, not the assistant's.
+
+The **pin** button beside the agent picker makes a view open the assistant with
+the agent selected there (for anyone who may change the view's settings). On a
+view with several tabs it asks where: **This tab** or **Every tab** of the view;
+a tab's own pin wins over the view's on that tab. Clicking a ticked choice
+unpins it. A pin is a starting point, not a lock: anyone can pick another agent
+while they're on the view.
 
 While an answer is being written, the send button becomes a red **Stop** button.
 Stop ends the turn: no further tools run, and what was already written is kept and

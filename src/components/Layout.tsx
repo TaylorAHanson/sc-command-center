@@ -10,7 +10,7 @@ import { FilterBar } from './FilterBar';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
-import { shownTab } from '../store/appSpec';
+import { shownTab, themeVariables } from '../store/appSpec';
 import { appHash, isStandalone, linkTab, parseAppRoute } from '../store/appRoute';
 import { useShell } from '../shell';
 
@@ -611,9 +611,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </header>
         )}
 
-        {!currentPage && <TabBar placement="top" />}
-        {!currentPage && <FilterBar />}
-
         {/* Dashboard Canvas or Page */}
         {currentPage ? (
           <main className="flex-1 overflow-hidden bg-gray-50">
@@ -629,29 +626,35 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </React.Suspense>
           </main>
         ) : (
-          <div className="flex-1 flex min-h-0">
-            <TabBar placement="side" />
-            <main
-              className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative"
-              onDragOver={(e) => {
-                // Allow drops on main content area
-                if (e.dataTransfer.types.includes('application/widget-type')) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  e.dataTransfer.dropEffect = 'copy';
-                }
-              }}
-              onDrop={(e) => {
-                // Prevent main from intercepting - let it bubble to children
-                if (e.dataTransfer.types.includes('application/widget-type')) {
-                  e.stopPropagation();
-                }
-              }}
-            >
-              <div className="w-full h-full px-2">
-                {children}
-              </div>
-            </main>
+          // The view's theme covers its own tabs, filters and canvas; the sidebar
+          // and header are Command Center's, so switching views doesn't repaint them.
+          <div className="flex-1 flex flex-col min-h-0" style={themeVariables(activeApp?.spec.theme) as React.CSSProperties}>
+            <TabBar placement="top" />
+            <FilterBar />
+            <div className="flex-1 flex min-h-0">
+              <TabBar placement="side" />
+              <main
+                className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative"
+                onDragOver={(e) => {
+                  // Allow drops on main content area
+                  if (e.dataTransfer.types.includes('application/widget-type')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = 'copy';
+                  }
+                }}
+                onDrop={(e) => {
+                  // Prevent main from intercepting - let it bubble to children
+                  if (e.dataTransfer.types.includes('application/widget-type')) {
+                    e.stopPropagation();
+                  }
+                }}
+              >
+                <div className="w-full h-full px-2">
+                  {children}
+                </div>
+              </main>
+            </div>
           </div>
         )}
       </div>

@@ -1,10 +1,10 @@
-import React, { useEffect } from 'react';
-import { Bot, MessageSquarePlus, PanelRightClose, ChevronDown, Pin } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Bot, Check, MessageSquarePlus, PanelRightClose, ChevronDown, Pin } from 'lucide-react';
 import type { AgentChat } from '../hooks/useAgentChat';
 import { AgentConversation } from './AgentConversation';
 import { ConversationHistory } from './ConversationHistory';
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
-import { pinnedAgentOf } from '../store/appSpec';
+import { pinnedAgentOf, tabLabel } from '../store/appSpec';
 
 const DEFAULT_AGENT_NAME = 'EDH Agent';
 
@@ -52,10 +52,34 @@ export const AgentPanel: React.FC<{
         isPinnedHere && activeApp?.is_global && selectedProfile?.visibility === 'personal',
     );
 
-    const togglePin = () => {
+    // With one tab there is one place to pin: whichever pin is in force (a view
+    // built from others may carry it on its tab). With several, the menu chooses.
+    const multiTab = (activeApp?.spec.tabs.length ?? 0) > 1;
+    const tabPin = activeAppTab?.pinned_agent_id || '';
+    const appPin = activeApp?.pinned_agent_id || '';
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!menuOpen) return;
+        const close = (e: MouseEvent) => {
+            if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [menuOpen]);
+
+    const pinTo = (onTab: boolean, pinned: boolean) => {
         if (!activeApp) return;
-        setPinnedAgent(activeApp.id, activeAppTab?.id ?? null, isPinnedHere ? null : wouldPin);
+        setPinnedAgent(activeApp.id, onTab ? activeAppTab?.id ?? null : null, pinned ? null : wouldPin);
     };
+    const togglePin = () => {
+        if (multiTab) setMenuOpen(open => !open);
+        else pinTo(Boolean(tabPin), isPinnedHere);
+    };
+    const tabName = activeApp && activeAppTab
+        ? tabLabel(activeApp, activeAppTab, activeApp.spec.tabs.indexOf(activeAppTab))
+        : '';
+    const pinnedWhere = multiTab && tabPin ? 'this tab' : 'this view';
 
     // Populate the profile picker as soon as the drawer opens, so the saved
     // agents are present the first time the user opens the dropdown (a native
@@ -127,21 +151,54 @@ export const AgentPanel: React.FC<{
                         <ChevronDown className="w-4 h-4 text-brand-blue absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     </div>
                     {canPin && (
-                        <button
-                            onClick={togglePin}
-                            aria-pressed={isPinnedHere}
-                            aria-label={isPinnedHere
-                                ? `Unpin ${nameOf(wouldPin)} from ${activeApp?.name}`
-                                : `Pin ${nameOf(wouldPin)} to ${activeApp?.name}`}
-                            title={isPinnedHere
-                                ? `Pinned to "${activeApp?.name}" — click to unpin`
-                                : `Open "${activeApp?.name}" with ${nameOf(wouldPin)}`}
-                            className={`shrink-0 p-1.5 rounded-md border transition-colors ${isPinnedHere
-                                ? 'border-brand-blue/40 bg-brand-blue text-white hover:bg-brand-blue/90'
-                                : 'border-gray-200 text-gray-400 hover:text-brand-blue hover:border-brand-blue/40 hover:bg-brand-blue/5'}`}
-                        >
-                            <Pin className={`w-4 h-4 ${isPinnedHere ? 'fill-current' : ''}`} />
-                        </button>
+                        <div className="relative shrink-0" ref={menuRef}>
+                            <button
+                                onClick={togglePin}
+                                aria-pressed={isPinnedHere}
+                                aria-haspopup={multiTab ? 'menu' : undefined}
+                                aria-expanded={multiTab ? menuOpen : undefined}
+                                aria-label={multiTab
+                                    ? `Pin ${nameOf(wouldPin)} to this tab or to ${activeApp?.name}`
+                                    : isPinnedHere
+                                        ? `Unpin ${nameOf(wouldPin)} from ${activeApp?.name}`
+                                        : `Pin ${nameOf(wouldPin)} to ${activeApp?.name}`}
+                                title={multiTab
+                                    ? `Open this tab or every tab of "${activeApp?.name}" with ${nameOf(wouldPin)}`
+                                    : isPinnedHere
+                                        ? `Pinned to "${activeApp?.name}" — click to unpin`
+                                        : `Open "${activeApp?.name}" with ${nameOf(wouldPin)}`}
+                                className={`p-1.5 rounded-md border transition-colors ${isPinnedHere
+                                    ? 'border-brand-blue/40 bg-brand-blue text-white hover:bg-brand-blue/90'
+                                    : 'border-gray-200 text-gray-400 hover:text-brand-blue hover:border-brand-blue/40 hover:bg-brand-blue/5'}`}
+                            >
+                                <Pin className={`w-4 h-4 ${isPinnedHere ? 'fill-current' : ''}`} />
+                            </button>
+                            {multiTab && menuOpen && (
+                                <div role="menu" className="absolute right-0 top-full mt-1 z-50 w-64 rounded-md border border-gray-200 bg-white shadow-lg py-1">
+                                    <div className="px-3 py-1.5 text-[11px] text-gray-500">Open with {nameOf(wouldPin)}:</div>
+                                    {([
+                                        [true, `This tab (${tabName})`, tabPin === wouldPin],
+                                        [false, `Every tab of ${activeApp?.name}`, appPin === wouldPin],
+                                    ] as const).map(([onTab, label, pinned]) => (
+                                        <button
+                                            key={String(onTab)}
+                                            role="menuitemcheckbox"
+                                            aria-checked={pinned}
+                                            onClick={() => { pinTo(onTab, pinned); setMenuOpen(false); }}
+                                            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-gray-700 hover:bg-gray-50"
+                                        >
+                                            <Check className={`w-4 h-4 shrink-0 ${pinned ? 'text-brand-blue' : 'invisible'}`} />
+                                            <span className="truncate">{label}</span>
+                                        </button>
+                                    ))}
+                                    {tabPin && (
+                                        <div className="px-3 pt-1 pb-1.5 text-[11px] text-gray-400">
+                                            This tab’s own pin wins over the view’s.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
                 {pinnedAgentUnavailable ? (
@@ -154,7 +211,11 @@ export const AgentPanel: React.FC<{
                     </div>
                 ) : pinnedAgentId && !isPinnedHere ? (
                     <div className="text-[10px] text-gray-400 mt-1.5 pl-0.5">
-                        {nameOf(pinnedAgentId)} is pinned to this view
+                        {nameOf(pinnedAgentId)} is pinned to {pinnedWhere}
+                    </div>
+                ) : pinnedAgentId && multiTab ? (
+                    <div className="text-[10px] text-gray-400 mt-1.5 pl-0.5">
+                        Pinned to {pinnedWhere}
                     </div>
                 ) : null}
                 <div className="text-[10px] text-gray-400 mt-1.5 pl-0.5">

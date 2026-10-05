@@ -96,8 +96,10 @@ Practical consequences for widget code:
   a customer's copy sets its own, so no customer name belongs here.
 - **Brand colours are CSS variables, so a view can recolour them.** Tailwind maps
   `brand-*` to `rgb(var(--brand-*) / <alpha-value>)` with defaults in
-  `index.css`; a view opened on its own sets `--brand-blue` / `--brand-navy` on
-  `<html>` from its theme (`AppShell`). Write brand colours as classes or
+  `index.css`. A view's theme sets `--brand-blue` / `--brand-navy` on the element
+  around its tabs, filter bar and canvas in the workspace (`Layout`), so the
+  sidebar and header stay Command Center's, and on `<html>` when it opens on its
+  own (`AppShell`), so dialogs portalled into `<body>` match. Write brand colours as classes or
   `rgb(var(--brand-blue))`, never as hex, or they won't follow the theme. White
   text is assumed on both, which is why a theme colour must be dark enough for it.
 
@@ -109,8 +111,11 @@ the LLM will keep emitting code the runtime rejects.
 ## What a page load is allowed to cost
 
 Startup is measured, not assumed: `tools/widget_payload_probe.py` weighs what the
-library sends, and the Playwright harness in the performance notes below reports
-first paint, when the dashboard becomes usable, and the longest main-thread task.
+library sends, and `tools/app_open_probe.mjs` (Playwright against the production
+build, every `/api` call faked at a chosen scale, CPU throttled ×4) reports first
+paint, when the widgets on screen are real, and the longest main-thread task, for
+an app in the workspace and on its own, with one tab and several, and for
+switching tabs. Instructions are at the top of the file.
 The number that matters is that last one — anything over a second is jank the user
 feels, and several seconds is the browser asking whether to abandon the page.
 
@@ -622,9 +627,11 @@ A view can name the agent the drawer opens with (`App.pinned_agent_id`, stored o
 the app row). A tab may override it (`AppTab.pinned_agent_id`, in the spec), and
 `pinnedAgentOf` resolves tab → app → built-in. The pin button beside the picker
 writes whatever is selected through the same full PUT as renaming or locking the
-app, so `canEditApp` — not the layout lock — decides who may set one. It changes
-the pin in force: the tab's if the tab has one, otherwise the app's. A view's only
-tab never has one, so for views it is the app's pin, as it always was.
+app, so `canEditApp` — not the layout lock — decides who may set one, for the app
+and for a tab alike. `setPinnedAgent(appId, tabId | null, agent)` names its
+target: null is the app's pin. With one tab the button toggles the pin in force
+(a view built by `compose` carries it on its tab); with several it opens a menu,
+**This tab** / **Every tab**, each a toggle.
 `DEFAULT_AGENT_PIN` (`'default'`) is how a view pins the *built-in* agent; without
 it, "pinned to the default agent" and "not pinned" would be the same empty string.
 

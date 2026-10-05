@@ -65,6 +65,9 @@ export const UserGuidePage: React.FC = () => {
               <p className="text-sm text-gray-600 mt-2">
                 In the view's <strong>Settings</strong>, <strong>Tabs</strong> puts them <strong>Across the top</strong> or <strong>Down the side</strong>, and <strong>Filters</strong> adds dropdowns above the canvas. Each filter has a label, the variable it sets, its options (one per line) and the one it starts on. Anyone who can see the view can use them; widgets that follow that variable update on every tab, and <strong>All</strong> clears it. Choices reset when the view is reopened.
               </p>
+              <p className="text-sm text-gray-600 mt-2">
+                <strong>Colours</strong> in the same dialog replace Command Center's blue and navy with your own, widgets included: on the view's tabs, filters and canvas here, and on the whole page when it opens on its own. Both must be dark enough for white text.
+              </p>
             </div>
 
             <div className="bg-white p-5 border rounded-lg shadow-sm">
@@ -96,7 +99,7 @@ export const UserGuidePage: React.FC = () => {
                 Want to show someone your setup? Click the <strong>Share</strong> button in the top-right corner to copy a direct link to your current view, or copy the address from your browser. Anyone you send it to finds your view under <strong>Shared Views</strong>, read-only.
               </p>
               <p className="text-sm text-gray-600 mt-2">
-                To share it as a page of its own, open <strong>Settings</strong> and choose <strong>On its own</strong>. The link then opens just that view, read-only, under the title, logo and assistant name you set, and in the <strong>Accent colour</strong> and <strong>Dark colour</strong> you choose, widgets included. Both must be dark enough for white text. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center.
+                To share it as a page of its own, open <strong>Settings</strong> and choose <strong>On its own</strong>. The link then opens just that view, read-only, under the title, logo and assistant name you set. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center.
               </p>
             </div>
           </div>
@@ -185,6 +188,9 @@ export const UserGuidePage: React.FC = () => {
             </p>
             <p className="text-sm text-gray-600 mt-3">
               Your conversations are private; nobody else sees them in the app. The 50 most recent are kept. Picking a different agent from the dropdown starts a new conversation and leaves the old one in your history.
+            </p>
+            <p className="text-sm text-gray-600 mt-3">
+              The <strong>pin</strong> beside the agent dropdown makes your view open with the agent selected. On a view with tabs it asks whether to pin it to <strong>This tab</strong> or <strong>Every tab</strong>; a tab's own pin wins on that tab. Click a ticked choice to unpin. Anyone can still switch agents while they're on the view.
             </p>
             <p className="text-sm text-gray-600 mt-3">
               <strong>Delete all my conversations</strong>, at the bottom of that list, removes every conversation you own along with its attached files. It asks once and can't be undone. Your administrator may also set a retention period, after which untouched conversations are deleted automatically.

@@ -420,23 +420,20 @@ export const DashboardProvider: React.FC<{
     return level === 'editor' || level === 'admin';
   }, [isAdmin, domainPermissions]);
 
-  // Pin an agent, or pass null to clear it. Saved like every other app setting:
-  // optimistic locally, then a full PUT that lands a new version.
-  //
-  // The pin a change replaces is the one in force. A tab with its own pin
-  // overrides the app's, so changing the app's there would change nothing the
-  // user could see; every view's only tab has none, so for them this is the
-  // app's pin, exactly as it was the view's.
+  // Pin an agent to the whole app (tabId null) or to one tab, which then
+  // overrides the app's there; pass null as the agent to clear that pin. Saved
+  // like every other app setting: optimistic locally, then a full PUT. Both are
+  // the same right as renaming the app, as the view's pin always was.
   const setPinnedAgent = (appId: string, tabId: string | null, agentId: string | null) => {
     const app = apps.find(a => a.id === appId);
     if (!app || !canEditApp(app)) return;
-    const tab = app.spec.tabs.find(t => t.id === tabId) || null;
-    const onTab = Boolean(tab?.pinned_agent_id);
+    const tab = tabId ? app.spec.tabs.find(t => t.id === tabId) : null;
+    if (tabId && !tab) return;
 
     const next = agentId || null;
-    if (((onTab ? tab?.pinned_agent_id : app.pinned_agent_id) || null) === next) return;
+    if (((tab ? tab.pinned_agent_id : app.pinned_agent_id) || null) === next) return;
 
-    const updatedApp = onTab && tab
+    const updatedApp = tab
       ? withTab(app, tab.id, t => ({ ...t, pinned_agent_id: next }))
       : { ...app, pinned_agent_id: next };
     setApps(apps.map(a => a.id === appId ? updatedApp : a));

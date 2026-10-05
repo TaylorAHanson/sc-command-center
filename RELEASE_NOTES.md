@@ -30,13 +30,15 @@
 - **Views can have tabs.** **Add tab** in the top right starts a tab bar; double-click a tab to rename it, drag to reorder, **×** to delete.
 - **Give a view its own filters.** In **Settings → Filters**, add dropdowns above the canvas; widgets that follow that variable update on every tab.
 - **Tabs down the side.** In **Settings → Tabs**, choose **Down the side** to list a view's tabs on the left.
-- **Your colours on a view of its own.** **Accent colour** and **Dark colour** in **Settings** recolour the view, widgets included, when it opens on its own.
+- **Your colours on a view.** **Settings → Colours** recolours the view and its widgets: its own area inside Command Center, the whole page when it opens on its own.
+- **Pin an agent to one tab.** On a view with tabs, the pin beside the agent picker offers **This tab** or **Every tab**.
 - **Promoting a view checks the target first.** View Promotion's confirmation lists widgets and pinned agents the target lacks, and can promote the missing widgets along with it.
 - **Remove a global view.** **Remove** on **View Promotion** archives it for everyone; **Archived** lists it, where you can **Restore** it or **Delete permanently**.
 - **Widgets can tell when rows were left out.** Query results now say if they were cut short, and a widget can ask for more than the default 500 rows.
 
 ### Changed
 
+- **Tidier view history.** Changes to a personal view within five minutes of each other are saved as one version.
 - **Your browser's address is a share link.** Copy it, or use **Share**; links copied before this release still open the same view.
 - **Filters belong to their view.** A choice one widget passes to others applies across that view's tabs, and another view starts fresh.
 - **Widget Studio picks where to search and sort by data size.** About 10 MB or less is fetched once and worked on in the browser; anything larger is paged and filtered in SQL.

@@ -91,6 +91,47 @@ def insert_version(
     )
 
 
+# Arranging a view is a burst of saves (every drag, resize, tab rename and
+# setting is a full PUT), and each used to be a version, so a view's history was
+# mostly noise. A save to a personal app within this long of its last one
+# replaces that version instead. Global apps keep one version per save: their
+# versions are what View Promotion copies and rolls back to, several editors
+# share them, and their rows don't record which editor saved.
+COALESCE_SECONDS = 300
+
+
+def replace_recent_version(
+    c,
+    *,
+    app_id: str,
+    version: int,
+    name: str,
+    domain: Optional[str],
+    username: str,
+    is_locked: bool,
+    pinned_agent_id: Optional[str],
+    spec: Dict[str, Any],
+) -> bool:
+    """Overwrite `version` if it is personal and saved within the window; say whether it was.
+
+    The age is judged by the database's clock, which wrote the timestamp.
+    """
+    c.execute(
+        """
+        UPDATE dashboard_views
+        SET name = %s, domain = %s, username = %s, widgets_json = %s, spec_json = %s,
+            is_locked = %s, pinned_agent_id = %s, timestamp = CURRENT_TIMESTAMP
+        WHERE id = %s AND version = %s AND is_global = 0
+          AND timestamp > CURRENT_TIMESTAMP - make_interval(secs => %s)
+        """,
+        (
+            name, domain, username, app_spec.dumps(app_spec.first_tab_widgets(spec)), app_spec.dumps(spec),
+            int(bool(is_locked)), pinned_agent_id, app_id, version, COALESCE_SECONDS,
+        ),
+    )
+    return c.rowcount == 1
+
+
 def is_custom_widget(widget_id: Any) -> bool:
     return isinstance(widget_id, str) and bool(_CUSTOM_WIDGET_ID.match(widget_id))
 
@@ -186,7 +227,8 @@ def save_version(
     pinned_agent_id: Optional[str] = None,
     spec: Optional[Dict[str, Any]] = None,
 ) -> int:
-    """Write the next version of an app and return its number. Raises HTTPException.
+    """Write the next version of an app, or fold the save into a recent personal
+    one (`COALESCE_SECONDS`), and return the version it landed in. Raises HTTPException.
 
     Fields left as None keep their current value; `spec` replaces the whole spec.
     """
@@ -220,6 +262,19 @@ def save_version(
     # an uncertified widget in front of everyone by editing it later.
     if new_global:
         require_certified_widgets(c, new_spec, env)
+
+    if not new_global and replace_recent_version(
+        c,
+        app_id=app_id,
+        version=existing["version"],
+        name=new_name,
+        domain=new_domain,
+        username=username,
+        is_locked=new_locked,
+        pinned_agent_id=new_pin,
+        spec=new_spec,
+    ):
+        return existing["version"]
 
     new_version = existing["version"] + 1
     insert_version(

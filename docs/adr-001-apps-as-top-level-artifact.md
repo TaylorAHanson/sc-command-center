@@ -522,7 +522,9 @@ the spec: strict on write, and on read a value that can't be used is dropped
   and **generated widgets follow the theme with no generator, lint or runtime
   change**: they already use the classes. `AppShell` sets the variables on
   `<html>` so portalled dialogs pick them up too, and puts them back on close.
-  Standalone only, like branding. Both colours carry white text across the app and
+  In the workspace (added in §4.3g) `Layout` sets them on the element around
+  the view's tabs, filter bar and canvas, so the sidebar and header, which use
+  the same classes, stay Command Center's as you move between views. Both colours carry white text across the app and
   in widgets (and widgetLint treats them as dark), so each must reach 3:1
   contrast with white, which is what the default blue manages (3.98:1).
 - **`filters`: up to 10 `{key, label, options[≤100], default}`.** `key` is an
@@ -535,6 +537,39 @@ the spec: strict on write, and on read a value that can't be used is dropped
   (first view wins a shared key).
 - **Edited in View settings** under `canEditApp`, the right that already covers
   presentation and branding. Nothing about who can see or change an app moved.
+
+### 4.3g Follow-ups after slice 7
+
+- **Per-tab agent pins have a UI.** On an app with two or more tabs, the pin
+  beside the agent picker opens **This tab** / **Every tab**, each a toggle;
+  `setPinnedAgent` now takes its target explicitly instead of guessing from
+  which pin was in force. Same right as the app's pin (`canEditApp`).
+- **The theme applies in the workspace**, scoped to the view's own area (above).
+- **Q3 decided: save coalescing, personal apps only.** `save_version` overwrites
+  the newest version in place when it is personal and under five minutes old by
+  the database's clock. The window slides, so an editing session is one version
+  and a five-minute pause starts the next. Global apps keep a version per save:
+  promotion copies and rolls back to them, editors share them, and the row
+  doesn't record which editor saved. No client change: the save queue already
+  serializes saves per app.
+- **App-open cost measured (§4.5)** with `tools/app_open_probe.mjs`, the old
+  startup harness rebuilt for `/api/apps` and committed. Production build, all
+  `/api` faked, CPU ×4:
+
+  | Scale | Shell, tabs | API KB | Usable | Longest task | Switch tab |
+  | --- | --- | --- | --- | --- | --- |
+  | 30 widgets × 8 versions, 60 views | workspace, 1 | 48 | 1.83s | 0.70s | — |
+  | | workspace, 5 | 52 | 1.72s | 0.67s | 0.85s, longest 0.51s |
+  | | on its own, 1 | 1 | 1.61s | 0.66s | — |
+  | | on its own, 5 | 3 | 1.68s | 0.69s | 0.64s, longest 0.52s |
+  | 150 × 20, 300 views | workspace, 1 | 238 | 2.18s | 0.73s | — |
+  | | workspace, 10 | 246 | 2.09s | 0.64s | 0.69s, longest 0.44s |
+  | | on its own, 1 | 1 | 1.64s | 0.69s | — |
+  | | on its own, 10 | 5 | 1.70s | 0.67s | 0.64s, longest 0.51s |
+
+  No task reaches a second. Opening an app on its own costs the same at any
+  library size, because it fetches only its own widgets; the workspace grows
+  with the library. Tabs add nothing to opening: only the shown tab renders.
 
 ### 4.4 Docs and tests (per AGENTS.md)
 
@@ -553,8 +588,11 @@ the spec: strict on write, and on read a value that can't be used is dropped
 
 - Confirm permission checks are really on in the target
   (`DISABLE_PERMISSION_CHECKS`; the `users` → admin lockout-prevention seed).
-- Measure app-open cost with the existing Playwright harness (longest
-  main-thread task), especially standalone.
+- ~~Measure app-open cost with the existing Playwright harness (longest
+  main-thread task), especially standalone.~~ Done (§4.3g): longest task under
+  0.8s in every case, across repeated runs. Re-run `tools/app_open_probe.mjs` against a real
+  deployment's sizes before rollout if they exceed the 150 widgets / 300 views
+  measured.
 
 ---
 
@@ -588,14 +626,14 @@ Record answers here as they are decided; do not treat the brief as closed.
 | --- | --- | --- | --- |
 | Q1 | Keep `presentation` flag, or force every app standalone? | Keep flag — analysts hop between one-canvas dashboards in the sidebar today | **Built:** kept; set in View settings |
 | Q2 | How long to dual-write `widgets_json`? | "A couple of releases" after frontend flip | Open |
-| Q3 | Coalesce window / what counts as "only layout changed"? | TBD with promotion head stability | Open |
-| Q4 | Physical table rename (`dashboard_views` → `apps`)? | Optional later; not required for product | Open |
-| Q5 | Tab-level lock? | Defer | Deferred |
+| Q3 | Coalesce window / what counts as "only layout changed"? | TBD with promotion head stability | **Decided:** any save to a personal app within 5 minutes of its last folds into that version; global apps never coalesce (§4.3g) |
+| Q4 | Physical table rename (`dashboard_views` → `apps`)? | Optional later; not required for product | **Decided: no.** |
+| Q5 | Tab-level lock? | Defer | **Decided: no.** |
 | Q6 | Logo/favicon max size and allowlist | Server-side validate; CSP already allows data/https images | **Built:** https URL or base64 `data:image/*`, ≤ 256 KB encoded (`app_spec.MAX_IMAGE_CHARS`) |
 | Q7 | What access do existing personal views get under apps? | — | **Decided:** no change to the security model at all; see §2.3. `link_access` dropped. |
 | Q8 | Should `GET /api/views/history` get the access check too? Today it has no auth dependency and returns names/usernames/timestamps for any id. `/api/apps/history` is gated. | The admin screen moved to `/api/apps` in slice 2, so nothing in the UI calls it now. Gating it would still change access, so it's left for slice 6, which deletes it. | **Closed (slice 6):** deleted with `/api/views` |
 | Q9 | Should New View make standalone apps, as §2.4 first said? | No: New View lives in the sidebar, among views people hop between, and a standalone default would make every new view leave it when its link is shared. | **Decided (slice 4):** New View stays workspace; standalone is opt-in in View settings. Revisit with slice 5's New App flow. |
-| Q10 | Should promotion enforce `require_certified_for_global_views` in the target? Today it copies the row unchecked, as `transfer_view` did; the next save there is refused. | Enforcing it closes a gap in ISRP 30.1, but it changes what a promoter may do, so not in passing. | Open: preflight reports it (slice 6) |
+| Q10 | Should promotion enforce `require_certified_for_global_views` in the target? Today it copies the row unchecked, as `transfer_view` did; the next save there is refused. | Enforcing it closes a gap in ISRP 30.1, but it changes what a promoter may do, so not in passing. | **Decided: no.** Promotion stays as it was; the preflight reports uncertified widgets (slice 6) |
 
 ---
 
@@ -623,3 +661,4 @@ From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
 | 2026-10-05 | Slice 5 built (§4.3d): tab bar and Add tab, rename/reorder/delete under the existing layout-edit rule, tabs in the address, variables per app. Fixed the empty-canvas hint. §5 #2 and Q3 still open; no tab-level pin UI. |
 | 2026-10-05 | Slice 6 built (§4.3e): `/api/views` and the first-tab-only save path deleted, its handlers moved into `routes/apps.py`; `transfer_app` with a read-only preflight and optional widget promotion in one transaction; View Promotion dialog shows the preflight. Closed Q8; added Q10. |
 | 2026-10-05 | Slice 7 built (§4.3f): `nav` (tabs top or side), `theme` (two brand colours as CSS variables, white-text contrast enforced, standalone only), `filters` (a filter bar that sets dashboard variables); all edited in View settings. |
+| 2026-10-05 | Follow-ups (§4.3g): per-tab agent pin menu; theme also in the workspace, scoped to the view's area; Q3 decided (personal saves coalesce for 5 minutes); app-open cost measured and `tools/app_open_probe.mjs` committed. Q4, Q5, Q10 decided: no. |

@@ -48,8 +48,11 @@ def three_tabs(app_id):
 
 
 class Store:
-    def __init__(self, *rows, subscriptions=(), archived=(), widgets=(), library=()):
+    def __init__(self, *rows, subscriptions=(), archived=(), widgets=(), library=(), recent=False):
         self.apps = {r["id"]: r for r in rows}
+        # Whether each app's newest version is inside the coalescing window;
+        # the real check is the database's clock, which a fake doesn't have.
+        self.recent = recent
         self.subscriptions = set(subscriptions)
         self.archived = set(archived)
         self.widgets = list(widgets)  # (id, name, is_certified)
@@ -77,8 +80,11 @@ class FakeCursor:
     def execute(self, sql, params=None):
         text = " ".join(sql.split())
         self.store.statements.append((text, params))
-        self._rows, self.description = [], [("?column?",)]
-        if text == "SELECT id FROM dashboard_views WHERE id = %s":
+        self._rows, self.description, self.rowcount = [], [("?column?",)], -1
+        if text.startswith("UPDATE dashboard_views SET name"):
+            r = self.store.apps.get(params[-3])
+            self.rowcount = int(bool(r and self.store.recent and not r["is_global"] and r["version"] == params[-2]))
+        elif text == "SELECT id FROM dashboard_views WHERE id = %s":
             self._rows = [(params[0],)] if params[0] in self.store.apps else []
         elif text.startswith("SELECT id, version, name") and "FROM dashboard_views WHERE id" in text:
             r = self.store.apps.get(params[0])
@@ -265,6 +271,39 @@ def test_saving_a_spec_replaces_it_whole():
     spec = json.loads(saved["spec_json"])
     assert [t["id"] for t in spec["tabs"]] == ["v1", "t9"] and spec["presentation"] == "standalone"
     assert json.loads(saved["widgets_json"]) == [{"i": "z", "type": "iframe"}], "widgets_json mirrors tab one, for a rollback"
+
+
+def updates(store):
+    return [p for s, p in store.statements if s.startswith("UPDATE dashboard_views SET name")]
+
+
+def test_a_burst_of_saves_to_a_personal_view_is_one_version():
+    store = Store(row("v1", owner=ME, spec=three_tabs("v1"), version=4), recent=True)
+    result = run(store, apps.update_app, "v1", apps.AppUpdate(name="Renamed", is_locked=True))
+    assert result["version"] == 4, "folded into the version saved moments ago"
+    assert not [s for s, _ in store.statements if s.startswith("INSERT INTO dashboard_views")]
+    (params,) = updates(store)
+    assert params[0] == "Renamed" and params[2] == ME and params[5] == 1
+    assert json.loads(params[4]) == app_spec.read_spec("v1", json.dumps(three_tabs("v1")), None), "the whole spec is kept"
+
+
+def test_a_save_after_a_pause_is_a_new_version():
+    store = Store(row("v1", owner=ME, version=4), recent=False)
+    assert run(store, apps.update_app, "v1", apps.AppUpdate(name="Later"))["version"] == 5
+    assert store.inserted_app()["version"] == 5
+
+
+def test_a_global_view_keeps_every_save_as_a_version():
+    # Promotion copies and rolls back to these, and the row can't say which editor saved.
+    store = Store(row("g1", is_global=1, domain="Sales", version=2), recent=True)
+    assert run(store, apps.update_app, "g1", apps.AppUpdate(name="x"), editor_of=("Sales",))["version"] == 3
+    assert updates(store) == []
+
+
+def test_making_a_view_global_is_always_a_new_version():
+    store = Store(row("v1", owner=ME, version=2), recent=True)
+    run(store, apps.update_app, "v1", apps.AppUpdate(is_global=True), editor_of=("General",))
+    assert updates(store) == [] and store.inserted_app()["version"] == 3
 
 
 def test_an_invalid_spec_is_refused_and_writes_nothing():
