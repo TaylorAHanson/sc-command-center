@@ -7,6 +7,8 @@ import { AgentPanel } from './AgentPanel';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
+import { shownTab } from '../store/appSpec';
+import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
 
 // The full-page screens load when they are opened. Together they are most of the
 // app's code — the editor, the markdown renderer, the admin tables — and a session
@@ -38,17 +40,16 @@ const PageLoading: React.FC = () => (
   </div>
 );
 
+// Every full-page screen `currentPage` can name. Reload and Back/Forward both
+// read this list, so a page missing from it is one the browser can't return to.
+const PAGES = ['admin', 'studio', 'agent-studio', 'settings', 'help', 'about', 'user-guide', 'release-notes'];
+const pageOf = (hash: string): string | null => PAGES.find(p => hash === `#/${p}`) ?? null;
+
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentPage, setCurrentPage] = useState<string | null>(() => {
-    const hash = window.location.hash;
-    if (['#/admin', '#/studio', '#/agent-studio', '#/settings', '#/help', '#/about'].includes(hash)) {
-      return hash.substring(2);
-    }
-    return null;
-  });
+  const [currentPage, setCurrentPage] = useState<string | null>(() => pageOf(window.location.hash));
   // Pages that take over the full screen (no header, no agent drawer).
   const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
-  const { apps, activeAppId, activeApp, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions } = useDashboardStore();
+  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions } = useDashboardStore();
   const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
   const canAccessAdmin = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin');
   const [isSidebarOpen, setSidebarOpen] = useState(true);
@@ -116,19 +117,23 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     };
   }, [isResizingAgent]);
 
-  // Sync state changes to URL hash
+  // Sync state changes to URL hash. A hash that already names what is on screen
+  // is left as it is, so a link spelling out the first tab isn't rewritten into
+  // a second history entry for the same place.
   useEffect(() => {
     let newHash = '';
     if (currentPage) {
       newHash = `#/${currentPage}`;
-    } else if (activeAppId) {
-      newHash = `#/view/${activeAppId}`;
+    } else if (activeApp && activeAppTab) {
+      const named = parseAppRoute(window.location.hash);
+      const showing = named?.appId === activeApp.id && shownTab(activeApp, named.tabId)?.id === activeAppTab.id;
+      if (!showing) newHash = appHash(activeApp.id, linkTab(activeApp, activeAppTab));
     }
 
     if (newHash && window.location.hash !== newHash) {
       window.location.hash = newHash;
     }
-  }, [currentPage, activeAppId]);
+  }, [currentPage, activeApp, activeAppTab]);
 
   // Auto-collapse the sidebar only in Agent Studio (it needs the full viewport),
   // and restore the user's previous sidebar state when they leave. Widget Studio
@@ -152,16 +157,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
-      if (['#/admin', '#/studio', '#/settings', '#/help', '#/about'].includes(hash)) {
-        setCurrentPage(hash.substring(2));
-      } else if (hash.startsWith('#/template/')) {
-        const templateId = decodeURIComponent(hash.replace('#/template/', ''));
+      const page = pageOf(hash);
+      const route = page ? null : parseAppRoute(hash);
+      if (page) {
+        setCurrentPage(page);
+      } else if (route) {
         setCurrentPage(null);
-        setActiveAppId(templateId);
-      } else if (hash.startsWith('#/view/')) {
-        const id = hash.replace('#/view/', '');
-        setCurrentPage(null);
-        setActiveAppId(id);
+        openRoute(route);
       } else if (hash === '' || hash === '#/') {
         // Default to first app
         setCurrentPage(null);
@@ -171,7 +173,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [apps, setActiveAppId]);
+  }, [apps, setActiveAppId, openRoute]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

@@ -7,8 +7,8 @@ same rows and stays until the frontend has moved here.
 
 Who may read and change an app is exactly who could read and change the view:
 `app_spec.can_read` for reading, `app_store.require_may_edit` for writing. Apps
-add a read-by-id (`GET /{id}`) that views never had, and it writes nothing; it
-does not add or remove anyone's access.
+add two reads views never had, `GET /{id}` and `GET /{id}/widgets`; they write
+nothing and do not add or remove anyone's access.
 """
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from database import get_db_connection
 from middleware.auth import get_db_client
+from routes import custom_widgets as widget_routes
 from routes import views as view_routes
 from routes.roles import _get_current_username, _get_user_permissions, require_domain_editor
 from services import app_spec, app_store
@@ -279,6 +280,31 @@ def get_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str =
     finally:
         conn.close()
     return {"app": _public(row, spec, username=username, subscribed=subscribed)}
+
+
+@router.get("/{app_id}/widgets")
+def app_widgets(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """The library rows for the widgets this app places, in the shape `/api/widgets/custom` sends.
+
+    Enough to render the app without loading the whole library: each placed
+    widget's versions, with the source of the current one and of any version a
+    tab pins. Filtered by domain exactly as the library is, so an app shows a
+    viewer the widgets they could already see and no others.
+    """
+    username, perms = _caller(w, env)
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        _, spec, _ = _require_readable(c, app_id, username, perms)
+        ids, pinned = app_spec.placed_widgets(spec)
+        rows = widget_routes.library_rows(c, ids, pinned) if ids else []
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching app widgets: {str(e)}")
+    finally:
+        conn.close()
+    return {"widgets": widget_routes._visible(rows, perms)}
 
 
 @router.put("/{app_id}")

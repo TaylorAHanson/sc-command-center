@@ -49,11 +49,12 @@ def three_tabs(app_id):
 
 
 class Store:
-    def __init__(self, *rows, subscriptions=(), archived=(), widgets=()):
+    def __init__(self, *rows, subscriptions=(), archived=(), widgets=(), library=()):
         self.apps = {r["id"]: r for r in rows}
         self.subscriptions = set(subscriptions)
         self.archived = set(archived)
         self.widgets = list(widgets)  # (id, name, is_certified)
+        self.library = list(library)  # (id, domain): what the widget library holds
         self.statements = []
         self.committed = False
 
@@ -90,6 +91,10 @@ class FakeCursor:
             self._rows = [(1,)] if (params[0], params[1]) in self.store.subscriptions else []
         elif "FROM widgets w" in text:
             self._rows = [w for w in self.store.widgets if w[0] in params[0]]
+        elif text.startswith("SELECT id, version, name, description") and "FROM widgets" in text:
+            # The library query; which source it carries is Postgres's to work out.
+            self.description = [("id",), ("domain",)]
+            self._rows = [lib for lib in self.store.library if lib[0] in params[-1]]
         elif text.startswith("SELECT version, name, username, timestamp"):
             self.description = [("version",), ("name",), ("username",), ("timestamp",)]
             r = self.store.apps.get(params[0])
@@ -212,6 +217,13 @@ def test_subscribing_is_the_same_act_as_subscribing_to_a_shared_view():
     assert [p for s, p in store.writes() if s.startswith("INSERT INTO shared_views")] == [(ME, "v1")]
 
 
+def test_a_link_to_no_app_is_not_found_and_subscribes_nobody():
+    store = Store()
+    exc = refused(store, apps.subscribe_app, "gone")
+    assert exc.status_code == 404, "a stale link is the caller's problem, not a server error"
+    assert store.writes() == []
+
+
 # ------------------------------------------ the deployment that already exists
 
 def test_a_single_canvas_save_from_api_views_keeps_the_other_tabs():
@@ -324,6 +336,54 @@ def test_creating_an_app_over_an_existing_id_is_refused():
     store = Store(row("v1", owner=ME))
     assert refused(store, apps.create_app, apps.AppCreate(id="v1", name="Dup")).status_code == 409
     assert store.writes() == []
+
+
+# ------------------------------------------------- the widgets an app places
+
+VIEWER = {"is_admin": False, "domain_permissions": {"General": "viewer"}}
+
+
+def library_queries(store):
+    return [p for s, p in store.statements if s.startswith("SELECT id, version, name, description")]
+
+
+def ids(result):
+    return [w["id"] for w in result["widgets"]]
+
+
+def test_an_app_asks_the_library_for_what_its_tabs_place_and_nothing_else():
+    spec = three_tabs("v1")
+    spec["tabs"][2]["widgets"].append({"i": "d", "type": CUSTOM, "props": {"_version": 3}})
+    store = Store(row("v1", owner=ME, spec=spec),
+                  library=[("iframe", "General"), (CUSTOM, "General"), ("unplaced", "General")])
+    assert ids(run(store, apps.app_widgets, "v1", perms=VIEWER)) == ["iframe", CUSTOM]
+    (params,) = library_queries(store)
+    assert params == ([f"{CUSTOM}@3"], ["iframe", CUSTOM]), "a pinned version on tab three carries its source"
+    assert store.writes() == []
+
+
+def test_an_app_shows_only_the_widgets_the_library_would():
+    store = Store(row("v1", owner=ME, widgets=[{"i": "a", "type": "iframe"}, {"i": "b", "type": CUSTOM}]),
+                  library=[("iframe", "General"), (CUSTOM, "Finance")])
+    assert ids(run(store, apps.app_widgets, "v1", perms=VIEWER)) == ["iframe"]
+    assert ids(run(store, apps.app_widgets, "v1", perms={"is_admin": True})) == ["iframe", CUSTOM]
+
+
+def test_an_apps_widgets_follow_the_apps_read_rule():
+    placed = [{"i": "a", "type": "iframe"}]
+    store = Store(row("g1", is_global=1, domain="Sales", widgets=placed), row("v2", owner=ME, widgets=placed),
+                  row("p1", widgets=placed), archived={"v2"}, library=[("iframe", "General")])
+    assert refused(store, apps.app_widgets, "g1", perms=VIEWER).status_code == 404
+    assert refused(store, apps.app_widgets, "v2", perms=VIEWER).status_code == 404
+    assert library_queries(store) == [], "a refused app says nothing about what it holds"
+    assert ids(run(store, apps.app_widgets, "p1", perms=VIEWER)) == ["iframe"], "opens by id, as the app does"
+    assert store.writes() == []
+
+
+def test_an_empty_app_needs_no_library_query():
+    store = Store(row("v1", owner=ME))
+    assert run(store, apps.app_widgets, "v1", perms=VIEWER)["widgets"] == []
+    assert library_queries(store) == []
 
 
 # ------------------------------------------------------- composing from views

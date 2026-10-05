@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
 import { newAppSpec, shownTab, withTab, type App, type AppTab, type WidgetLayout } from './appSpec';
+import { appHash, appLink, linkTab, parseAppRoute, withoutRouteParams, type AppRoute } from './appRoute';
 
 // An app can pin the built-in agent just as deliberately as an authored one, so
 // "no pin" and "pinned to the default" have to be different values. Authored
@@ -21,7 +22,12 @@ interface DashboardContextType {
   isAdmin: boolean;
   username: string;
   domainPermissions: Record<string, string>;
-  fetchApps: () => Promise<void>;
+  fetchApps: () => Promise<App[] | null>;
+  /** Show the app (and tab, and widget) a link names, adding it to the sidebar if need be. */
+  openRoute: (route: AppRoute) => Promise<void>;
+  /** A widget a link asked to open full-screen, until the canvas has done so. */
+  pendingWidgetId: string | null;
+  clearPendingWidget: () => void;
 
   variables: Record<string, any>;
   setVariable: (key: string, value: any) => void;
@@ -57,7 +63,10 @@ const DashboardContext = createContext<DashboardContextType | undefined>(undefin
 export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeDomain, setActiveDomain] = useState<string | null>(null);
   const [apps, setApps] = useState<App[]>([]);
-  const [activeAppId, setActiveAppId] = useState<string>('');
+  const [initialRoute] = useState(() => parseAppRoute(window.location.hash, window.location.search));
+  const [activeAppId, setActiveAppIdState] = useState<string>('');
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [pendingWidgetId, setPendingWidgetId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [username, setUsername] = useState('unknown');
@@ -65,7 +74,14 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [variables, setVariables] = useState<Record<string, any>>({});
 
   const activeApp = apps.find(a => a.id === activeAppId) || null;
-  const activeAppTab = shownTab(activeApp);
+  const activeAppTab = shownTab(activeApp, activeTabId);
+  const appsRef = useRef(apps);
+  useEffect(() => { appsRef.current = apps; }, [apps]);
+
+  const selectApp = useCallback((id: string, tabId: string | null = null) => {
+    setActiveAppIdState(id);
+    setActiveTabId(tabId);
+  }, []);
 
   const setVariable = useCallback((key: string, value: any) => {
     // Skip the update when the value is unchanged. Widgets share this map, so a
@@ -91,78 +107,71 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, []);
 
-  const fetchApps = useCallback(async () => {
+  const fetchApps = useCallback(async (): Promise<App[] | null> => {
     try {
       const response = await fetch('/api/apps/');
-      if (response.ok) {
-        const data = await response.json();
-        const loadedApps: App[] = (data.apps || []).map((a: any) => ({
-          ...a,
-          locked: a.is_locked || a.is_shared // Shared apps are always locked for the subscriber
-        }));
-        setApps(loadedApps);
+      if (!response.ok) return null;
+      const data = await response.json();
+      const loadedApps: App[] = (data.apps || []).map((a: any) => ({
+        ...a,
+        locked: a.is_locked || a.is_shared // Shared apps are always locked for the subscriber
+      }));
+      setApps(loadedApps);
 
-        // Only set default app if we don't have one and we're not loading a shared URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const hasShare = urlParams.get('share');
-
-        if (!hasShare && loadedApps.length > 0) {
-          // Check hash
-          const hash = window.location.hash;
-          if (hash.startsWith('#/view/')) {
-            const id = hash.replace('#/view/', '');
-            if (loadedApps.some(a => a.id === id)) {
-              setActiveAppId(id);
-            }
-            return; // Don't fall back to app 0 if a specific hash was requested
-          }
-          // A selection the server no longer returns (a global app someone has
-          // since archived) falls back to the first app instead of leaving the
-          // dashboard pointing at nothing.
-          setActiveAppId(prev => {
-            if (!prev || !loadedApps.some(a => a.id === prev)) return loadedApps[0].id;
-            return prev;
-          });
-        }
+      // While the address bar names an app, choosing one is `openRoute`'s job:
+      // falling back to the first here would flash it, and its hash would race
+      // the link's. A selection the server no longer returns (a global app
+      // someone has since archived) falls back to the first app instead of
+      // leaving the dashboard pointing at nothing.
+      if (loadedApps.length > 0 && !parseAppRoute(window.location.hash, window.location.search)) {
+        setActiveAppIdState(prev => (prev && loadedApps.some(a => a.id === prev) ? prev : loadedApps[0].id));
       }
+      return loadedApps;
     } catch (e) {
       console.error('Failed to load apps:', e);
+      return null;
     } finally {
       setIsLoading(false);
     }
   }, []); // No activeAppId dependency, so setting it doesn't refetch
 
+  // A link to an app this person doesn't have puts it in their sidebar, as
+  // `?shared_view=` always has: that is how a shared link reaches anyone. It
+  // subscribes only after a fresh list says the app really isn't there, so a
+  // link to your own app or a global one you can see never does.
+  const openRoute = useCallback(async (route: AppRoute, known?: App[] | null) => {
+    const canonical = appHash(route.appId, route.tabId);
+    const search = withoutRouteParams(window.location.search);
+    if (window.location.hash !== canonical || window.location.search !== search) {
+      window.history.replaceState(window.history.state, '', window.location.pathname + search + canonical);
+    }
+
+    const has = (list?: App[] | null) => Boolean(list?.some(a => a.id === route.appId));
+    let list: App[] | null = known ?? appsRef.current;
+    if (!has(list)) list = await fetchApps();
+    if (list && !has(list)) {
+      try {
+        const res = await fetch(`/api/apps/${encodeURIComponent(route.appId)}/subscribe`, { method: 'POST' });
+        if (res.ok) await fetchApps();
+      } catch (e) {
+        console.error('Failed to subscribe to shared app', e);
+      }
+    }
+    selectApp(route.appId, route.tabId);
+    if (route.widgetId) setPendingWidgetId(route.widgetId);
+  }, [fetchApps, selectApp]);
+
+  // The link the page opened with is acted on once, though StrictMode runs this
+  // effect twice in development.
+  const initialRouteRead = useRef(false);
   useEffect(() => {
     fetchPermissions();
-    fetchApps();
-  }, [fetchPermissions, fetchApps]);
-
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const shareParam = urlParams.get('shared_view');
-    if (shareParam) {
-      // Clear shared_view from the query string but preserve any other params
-      // (e.g. ?widget=... is consumed by App.tsx after the app loads).
-      urlParams.delete('shared_view');
-      const remaining = urlParams.toString();
-      window.history.replaceState(
-        {},
-        '',
-        window.location.pathname + (remaining ? `?${remaining}` : '') + `#/view/${shareParam}`
-      );
-
-      const subscribeAndLoad = async () => {
-        try {
-          await fetch(`/api/apps/${encodeURIComponent(shareParam)}/subscribe`, { method: 'POST' });
-          await fetchApps(); // Refresh apps to pull the newly shared one in
-          setActiveAppId(shareParam);
-        } catch (e) {
-          console.error('Failed to subscribe to shared app', e);
-        }
-      };
-      subscribeAndLoad();
-    }
-  }, [fetchApps]);
+    fetchApps().then(list => {
+      if (!initialRoute || !list || initialRouteRead.current) return;
+      initialRouteRead.current = true;
+      openRoute(initialRoute, list);
+    });
+  }, [fetchPermissions, fetchApps, openRoute, initialRoute]);
 
   // Saves to one app go one at a time, in order. Each lands the next version
   // number, which the server reads off the newest row, so two in flight at once
@@ -217,7 +226,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       is_global
     };
     setApps([...apps, newApp]);
-    setActiveAppId(newApp.id);
+    selectApp(newApp.id);
     apiSyncApp(newApp, 'POST');
   };
 
@@ -242,13 +251,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         },
       };
       setApps([...apps, newApp]);
-      setActiveAppId(newApp.id);
+      selectApp(newApp.id);
       apiSyncApp(newApp, 'POST');
     }
-  };
-
-  const handleSetActiveAppId = (id: string) => {
-    setActiveAppId(id);
   };
 
   const removeApp = async (id: string) => {
@@ -256,7 +261,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const newApps = apps.filter(a => a.id !== id);
     setApps(newApps);
     if (activeAppId === id && newApps.length > 0) {
-      setActiveAppId(newApps[0].id);
+      selectApp(newApps[0].id);
     }
 
     try {
@@ -410,17 +415,19 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   // Remaining tools
+  // Opening either link subscribes anyone who doesn't have the app; see `openRoute`.
   const generateShareLink = (): string => {
     if (!activeApp) return '';
-    return `${window.location.origin}${window.location.pathname}?shared_view=${activeApp.id}`;
+    return appLink(activeApp.id, linkTab(activeApp, activeAppTab));
   };
 
-  // Build a URL that opens a specific widget within the active app, fullscreened.
-  // We piggy-back on shared_view so non-owners subscribe to it automatically.
+  // A link that opens one widget, full-screen, on the tab it sits on.
   const generateWidgetShareLink = (widgetId: string): string => {
-    if (!activeApp) return '';
-    return `${window.location.origin}${window.location.pathname}?shared_view=${activeApp.id}&widget=${widgetId}`;
+    if (!activeApp || !activeAppTab) return '';
+    return appLink(activeApp.id, activeAppTab.id, widgetId);
   };
+
+  const clearPendingWidget = useCallback(() => setPendingWidgetId(null), []);
 
   const [configModal, setConfigModal] = useState<{ isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null }>({
     isOpen: false, widgetId: null, initialConfig: {}, onSave: null
@@ -436,9 +443,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   return (
     <DashboardContext.Provider value={{
-      apps, activeAppId, activeApp, activeAppTab, activeDomain, setActiveDomain, isLoading, isAdmin, username, domainPermissions, fetchApps,
+      apps, activeAppId, activeApp, activeAppTab, activeDomain, setActiveDomain, isLoading, isAdmin, username, domainPermissions, fetchApps, openRoute, pendingWidgetId, clearPendingWidget,
       variables, setVariable,
-      addApp, removeApp, renameApp, reorderApps, setActiveAppId: handleSetActiveAppId,
+      addApp, removeApp, renameApp, reorderApps, setActiveAppId: selectApp,
       duplicateApp, addWidget, removeWidget, updateWidget, updateLayout,
       toggleLock, setPinnedAgent, canEditApp, canEditDomain, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
     }}>

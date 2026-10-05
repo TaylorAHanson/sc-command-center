@@ -80,7 +80,7 @@ export const UserGuidePage: React.FC = () => {
                 Sharing Views
               </div>
               <p className="text-sm text-gray-600">
-                Want to show someone your setup? Click the <strong>Share</strong> button in the top-right corner to copy a direct link to your current view.
+                Want to show someone your setup? Click the <strong>Share</strong> button in the top-right corner to copy a direct link to your current view, or copy the address from your browser. Anyone you send it to finds your view under <strong>Shared Views</strong>, read-only.
               </p>
             </div>
           </div>

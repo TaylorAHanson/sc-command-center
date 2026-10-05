@@ -40,7 +40,13 @@ global.
   resized by accident; **Unlock** reverses it. A global view is read-only for
   anyone who is not an admin.
 - **Share** (top right) copies a link to the current view. The share icon on an
-  individual widget copies a link that opens that widget full-screen.
+  individual widget copies a link that opens that widget full-screen. The address
+  in the browser is the same link, so copying it from there works too.
+- Opening a link to someone else's personal view adds it to the opener's
+  **Shared Views**, read-only; the hover **×** there removes it. Links still need
+  the usual sign-in, and a global view opens only for people with access to its
+  domain. Links copied before the link format changed (`?shared_view=…`,
+  `#/view/…`) keep working; new ones look like `#/app/…`.
 
 ## Widgets
 

@@ -78,13 +78,11 @@ const ShareWidgetButton: React.FC<{ onShare: () => Promise<boolean> }> = ({ onSh
 };
 
 const DashboardGrid: React.FC = () => {
-  const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin, username, variables, setVariable, generateWidgetShareLink } = useDashboardStore();
+  const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin, username, variables, setVariable, generateWidgetShareLink, pendingWidgetId, clearPendingWidget } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
-  const [sharedWidgetId, setSharedWidgetId] = useState<string | null>(null);
-
   const isReadOnly = (activeApp?.is_global && !isAdmin) || activeApp?.locked === true;
 
   // Once the widget registry is loaded, any widget on the current tab whose type no
@@ -344,30 +342,15 @@ const DashboardGrid: React.FC = () => {
     };
   }, []);
 
-  // Look for a ?widget=... param on initial load. When present, store it so we
-  // can auto-fullscreen the widget once the targeted view has been loaded.
+  // A link to a widget opens it full-screen once its tab is on screen.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const w = params.get('widget');
-    if (w) {
-      setSharedWidgetId(w);
-      // Clean it out of the URL once captured so refreshes don't repeatedly fullscreen.
-      params.delete('widget');
-      const qs = params.toString();
-      const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
-      window.history.replaceState({}, '', newUrl);
-    }
-  }, []);
-
-  // When the desired shared widget appears in the active tab, fullscreen it.
-  useEffect(() => {
-    if (!sharedWidgetId || !activeAppTab) return;
-    const target = activeAppTab.widgets.find(w => w.i === sharedWidgetId);
+    if (!pendingWidgetId || !activeAppTab) return;
+    const target = activeAppTab.widgets.find(w => w.i === pendingWidgetId);
     if (!target) return;
     const def = widgetRegistry[target.type];
     setFullscreenWidget({ id: target.i, type: target.type, title: def?.name || target.type });
-    setSharedWidgetId(null);
-  }, [sharedWidgetId, activeAppTab?.id, activeAppTab?.widgets.length]);
+    clearPendingWidget();
+  }, [pendingWidgetId, activeAppTab?.id, activeAppTab?.widgets.length]);
 
   // Handle escape key for fullscreen
   useEffect(() => {

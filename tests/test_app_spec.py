@@ -178,6 +178,21 @@ def test_widgets_json_mirrors_the_first_tab_and_checks_see_every_tab():
     assert [w["i"] for w in all_widgets(spec)] == ["w-1", "w-2"]
 
 
+def test_an_app_names_each_widget_it_places_once_and_every_version_it_pins():
+    spec = two_tabs()
+    spec["tabs"][0]["widgets"] += [
+        {"i": "w-3", "type": "chart", "props": {"_version": 2}},
+        {"i": "w-4", "type": "chart", "props": {"_version": "5"}},
+        {"i": "w-5", "type": "table", "props": {"_version": True}},
+        {"i": "w-6", "type": "table", "props": {"_version": 0}},
+        {"i": "w-7", "props": {"_version": 9}},
+        "junk",
+    ]
+    placed, pinned = app_spec.placed_widgets(read_spec(APP, dumps(spec), None))
+    assert placed == ["iframe", "chart", "table"], "in order of first appearance, across every tab"
+    assert pinned == ["chart@2", "chart@5"], "a pin is a positive version, saved as a number or as text"
+
+
 # ----------------------------------------------------------------- composing
 
 def source(name, widgets, pin=None, tabs=None):

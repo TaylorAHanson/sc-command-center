@@ -145,6 +145,8 @@ def add_shared_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), e
         conn.close()
         
         return {"status": "success", "message": f"Subscribed to shared view {view_id}"}
+    except HTTPException:
+        raise
     except Exception as e:
         if 'conn' in locals() and conn:
             conn.rollback()

@@ -71,10 +71,11 @@ export const newAppSpec = (tabId: string): AppSpec => ({
 });
 
 /**
- * The tab the canvas shows. There is no tab bar yet, so it is the first, which
- * is also the only tab `/api/views` and the bundle before apps ever knew about.
+ * The tab the canvas shows: the one a link named, else the first. There is no
+ * tab bar yet, so only a link reaches the others.
  */
-export const shownTab = (app?: App | null): AppTab | null => app?.spec?.tabs?.[0] ?? null;
+export const shownTab = (app?: App | null, tabId?: string | null): AppTab | null =>
+  app?.spec?.tabs?.find(t => t.id === tabId) ?? app?.spec?.tabs?.[0] ?? null;
 
 /** The agent the drawer opens with: the tab's own pin, else the app's. */
 export const pinnedAgentOf = (app?: App | null, tab?: AppTab | null): string =>

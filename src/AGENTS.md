@@ -438,7 +438,7 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
 - `store/dashboardStore.tsx` — `DashboardProvider` / `useDashboardStore`, owning
   the apps in the sidebar, the active one, and dashboard variables. What an app
   *is* lives in `store/appSpec.ts` (`App`, `AppTab`, `AppSpec`, `WidgetLayout`),
-  the client's copy of `server/services/app_spec.py`. Three rules:
+  the client's copy of `server/services/app_spec.py`. Four rules:
   - **A view is an app with one tab.** "Tab" means a canvas inside an app and
     nothing else; the sidebar lists apps. Every row saved before apps exists reads
     as a one-tab app whose tab id is the app id.
@@ -452,9 +452,19 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     claims the next version number, so two in flight at once collide on the
     primary key. StrictMode sends every save scheduled from an updater twice in
     development; don't post to `/api/apps` around the queue.
-  - **The canvas shows `activeAppTab`**, which is the first tab until there is a
-    tab bar. Read it rather than `spec.tabs[0]`, so that adding one changes a
-    single function (`shownTab`).
+  - **The canvas shows `activeAppTab`**: the tab a link named, else the first.
+    Read it rather than `spec.tabs[0]`. Until there is a tab bar, a link is the
+    only way to reach tab two.
+  - **Links are parsed in one place, `store/appRoute.ts`.** The app hands out
+    `#/app/<appId>[/<tabId>[/w/<widgetId>]]`; `?shared_view=`, `#/view/`,
+    `#/template/` and `?widget=` are aliases for it, permanently, because they
+    sit in people's bookmarks and chats. `openRoute` opens one: it rewrites the
+    address to the canonical link (so a reload doesn't reopen the widget), and
+    subscribes the caller if a fresh list lacks the app, which is what
+    `?shared_view=` always did and the only way a shared link reaches anyone.
+    Layout's hash sync leaves a hash alone when it already names what's on
+    screen. Full-page screens live in Layout's `PAGES`; one missing there is a
+    page Back and reload can't return to.
 - `contexts/ActionContext.tsx` — `useActionContext` plus
   `ExecuteActionPropInjector`, which clones children to inject an
   `executeAction(name, callback)` prop into executable widgets.

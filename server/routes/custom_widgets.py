@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from database import get_db_connection
 from middleware.auth import get_db_client, get_user_token
 from databricks.sdk import WorkspaceClient
-from typing import Optional
+from typing import List, Optional, Sequence
 import logging
 import uuid
 import os
@@ -55,27 +55,47 @@ def get_custom_widgets(w: WorkspaceClient = Depends(get_db_client), env: str = "
     perms = _get_user_permissions(w, env)
 
     conn = get_db_connection(env)
-    c = conn.cursor()
+    try:
+        rows = library_rows(conn.cursor())
+    finally:
+        conn.close()
+
+    return {"widgets": _visible(rows, perms)}
+
+
+def library_rows(c, ids: Optional[List[str]] = None, pinned: Sequence[str] = ()) -> List[dict]:
+    """The rows `/custom` sends, for every widget or only ``ids``, before the domain filter.
+
+    Every version is listed but only the current one carries its source, plus any
+    named in ``pinned`` (`id@version`). `GET /api/apps/{id}/widgets` asks for the
+    widgets one app places, so that the rows it sends are the library's rows and
+    the browser can load either the same way.
+    """
     # `is_latest` is computed here rather than by fetching everything and sorting
     # in Python, so the old versions' source never leaves Postgres.
-    c.execute('''
+    with_source = "version = MAX(version) OVER (PARTITION BY id)"
+    params: list = []
+    if pinned:
+        with_source += " OR (id || '@' || version::text) = ANY(%s)"
+        params.append(list(pinned))
+    where = "is_deprecated = 0"
+    if ids is not None:
+        where += " AND id = ANY(%s)"
+        params.append(list(ids))
+    c.execute(f'''
         SELECT id, version, name, description, category, domain,
                default_w, default_h, configuration_mode, config_schema,
                data_source_type, data_source, help_text, open_in_new_tab_link,
                is_executable, is_certified, created_by, timestamp,
                (snapshot IS NOT NULL AND snapshot <> '') AS has_snapshot,
                (version = MAX(version) OVER (PARTITION BY id)) AS is_latest,
-               CASE WHEN version = MAX(version) OVER (PARTITION BY id)
-                    THEN tsx_code END AS tsx_code
+               CASE WHEN {with_source} THEN tsx_code END AS tsx_code
         FROM widgets
-        WHERE is_deprecated = 0
+        WHERE {where}
         ORDER BY timestamp DESC
-    ''')
+    ''', tuple(params) or None)
     columns = [desc[0] for desc in c.description]
-    rows = [dict(zip(columns, row)) for row in c.fetchall()]
-    conn.close()
-
-    return {"widgets": _visible(rows, perms)}
+    return [dict(zip(columns, row)) for row in c.fetchall()]
 
 
 @router.get("/custom/snapshots")

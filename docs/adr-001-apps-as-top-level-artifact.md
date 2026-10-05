@@ -55,7 +55,7 @@ must look and behave exactly like a view does today. Do not build a parallel
   view change.
 - Routing is hash-based in `Layout.tsx`: `#/view/<id>`, `#/template/<id>`. The
   `hashchange` handler omits `#/agent-studio`, `#/user-guide`, `#/release-notes`
-  (existing bug; fix when touching it).
+  (existing bug; fixed in slice 3).
 - Version numbers are **per environment** (`promotion.py`: Dev v5 and Test v5
   are unrelated rows). Never reference a version number across envs.
 - Widgets and global views are domain-filtered server-side today
@@ -321,7 +321,7 @@ none should run as the SP.
 | --- | --- | --- |
 | 1 | Storage + `/api/apps` + legacy read path + tests | No UI change. **Built**, plus `compose` |
 | 2 | Store/type rename; flip frontend to `/api/apps` | Workspace behavior identical. **Built** (§4.3a) |
-| 3 | App-scoped widget bundle + canonical links/aliases | Access unchanged (§2.3) |
+| 3 | App-scoped widget bundle + canonical links/aliases | Access unchanged (§2.3). **Built** (§4.3b) |
 | 4 | `AppShell` standalone: route-level split, branding, env badge, viewer/editor, route-aware provider | Critical path for shareable apps |
 | 5 | Multi-tab bar and editing; app-scoped variables | |
 | 6 | `transfer_app` with preflight; delete `/api/views` shim | |
@@ -364,6 +364,31 @@ none should run as the SP.
 - **Not in this slice:** links stay `#/view/<id>` and `?shared_view=` (slice 3);
   variables stay provider-wide (slice 5); the provider still loads everything
   eagerly (slice 4).
+
+### 4.3b Slice 3 as built
+
+- **Links.** Share and the widget link icon emit `#/app/<appId>[/<tabId>]` and
+  `#/app/<appId>/<tabId>/w/<widgetId>`. The tab is left out when it is the
+  app's first, so a view's link is `#/app/<id>`. `?shared_view=`, `#/view/`,
+  `#/template/` and `?widget=` parse to the same route (`src/store/appRoute.ts`)
+  and the address bar is rewritten to the canonical link once read.
+- **Opening a link subscribes, as `?shared_view=` did** (§2.3 kept that). It now
+  happens for any link form, not only `?shared_view=`, so an address copied
+  from the browser bar works as a share link; before, a `#/view/<id>` for a view
+  you didn't have opened a blank canvas. Nobody can reach anything new: any id
+  could already be subscribed to with `?shared_view=<id>`. The client subscribes
+  only after a fresh list says the app isn't there, so your own apps and global
+  apps you can see are never subscribed to (the old flow subscribed even then).
+- **A tab id in a link is honoured.** `shownTab(app, tabId)` returns that tab,
+  else the first. No tab bar yet, so a link is the only way to tab two of a
+  composed app; Back/Forward move between tabs like apps.
+- **`GET /api/apps/{id}/widgets`**: the library's rows for the widgets the app
+  places, through the same query (`custom_widgets.library_rows`) and domain
+  filter (`_visible`) as `/api/widgets/custom`, plus source for pinned versions.
+  The workspace doesn't use it; slice 4's standalone load does.
+- **Fixed on the way:** Agent Studio, User Guide and Release Notes were missing
+  from the page lists, so Back and (for the last two) reload didn't reach them;
+  a subscribe to an id that doesn't exist answered 500 instead of 404.
 
 ### 4.4 Docs and tests (per AGENTS.md)
 
@@ -442,3 +467,4 @@ From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
 | 2026-10-05 | Slice 1 built: `spec_json` column, `services/app_spec.py` + `app_store.py`, `/api/apps` (CRUD, history, subscribe, archive/restore/delete, compose) with the access rule enforced on every read, `/api/views` shim writing tab one only, certified check across tabs, leaderboard counting every tab, promotion comparing meaning. Added §2.2a (existing deployments), Q7, Q8. Also fixed: making an app global now requires editor rights on the domain it lands in. |
 | 2026-10-05 | Decided: apps inherit the views' security model unchanged. Rewrote §2.3; dropped `link_access`, the widget-domain bypass, and "opening must not subscribe". Q7 closed. |
 | 2026-10-05 | Slice 2 built (§4.3a): store speaks `App`/`AppTab`, the browser uses only `/api/apps`, saves carry the whole spec, pins resolve tab → app. Corrected §1.2 (orphan cleanup never wrote). Q8 deferred to slice 6. |
+| 2026-10-05 | Slice 3 built (§4.3b): canonical `#/app/...` links with permanent aliases, one parser, tab ids in links honoured, any link form subscribes as `?shared_view=` did, `GET /api/apps/{id}/widgets`. Fixed missing `hashchange` pages and a 500 on subscribing to a missing id. |

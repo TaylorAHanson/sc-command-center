@@ -23,7 +23,7 @@ import json
 import logging
 import re
 import uuid
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +325,29 @@ def all_widgets(spec: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
         for widget in tab.get("widgets") or []:
             if isinstance(widget, dict):
                 yield widget
+
+
+def placed_widgets(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    """The widget ids an app's tabs place, and the `id@version` of each one pinned.
+
+    A placed widget renders its current version unless `props._version` pins an
+    older one, which is what the browser looks up as `id@version`. Ids come out
+    in the order they first appear, each once.
+    """
+    ids: Dict[str, None] = {}
+    pinned: Dict[str, None] = {}
+    for widget in all_widgets(spec):
+        widget_id = widget.get("type")
+        if not isinstance(widget_id, str) or not widget_id:
+            continue
+        ids[widget_id] = None
+        props = widget.get("props")
+        version = props.get("_version") if isinstance(props, dict) else None
+        if isinstance(version, str) and version.strip().isdigit():
+            version = int(version.strip())
+        if isinstance(version, int) and not isinstance(version, bool) and version > 0:
+            pinned[f"{widget_id}@{version}"] = None
+    return list(ids), list(pinned)
 
 
 def compose_spec(

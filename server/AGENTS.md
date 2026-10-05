@@ -181,6 +181,12 @@ that keep the deployment already running intact:
 - **`POST /api/apps/compose`** copies existing views/apps into a new personal
   app, a tab each. Sources are untouched (copy, not move) so their links and
   subscriptions keep working.
+- **`GET /api/apps/{id}/widgets`** is the app's widget bundle: the rows
+  `/api/widgets/custom` would send, for only the widgets the app's tabs place,
+  plus the source of any version a tab pins (`props._version`). Both go through
+  `custom_widgets.library_rows` and `_visible`, so they can't drift apart, and
+  the bundle shows nobody a widget the library would hide. Nothing in the
+  workspace calls it yet; it is for opening an app without the whole library.
 
 `tests/test_app_spec.py` and `tests/test_apps_routes.py` hold all of the above.
 
@@ -1020,8 +1026,8 @@ PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 16
 PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
-PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 27 passed
-PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 23 passed
+PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 28 passed
+PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 28 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
