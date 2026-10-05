@@ -26,7 +26,8 @@
 
 ### Added
 
-- **Share a view as a page of its own.** In the view's **Settings**, choose **On its own**: its link then opens just that view, with your title, logo and assistant name.
+- **Share a view as a page of its own.** In the view's **Settings**, choose **On its own**: its link then opens just that view, with your title and logo.
+- **Choose a view's agent in its settings.** **Settings → Agent** picks the agent the view opens with, and the assistant button now shows that agent's name.
 - **Views can have tabs.** **Add tab** in the top right starts a tab bar; double-click a tab to rename it, drag to reorder, **×** to delete.
 - **Give a view its own filters.** In **Settings → Filters**, add dropdowns above the canvas; widgets that follow that variable update on every tab.
 - **Tabs down the side.** In **Settings → Tabs**, choose **Down the side** to list a view's tabs on the left.

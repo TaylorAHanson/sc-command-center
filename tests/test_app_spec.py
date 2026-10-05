@@ -149,6 +149,14 @@ def test_empty_branding_is_no_branding():
     assert validate_spec(two_tabs(branding={"title": "  ", "logo": ""}), APP)["branding"] is None
 
 
+def test_an_assistant_name_saved_before_the_agent_picker_is_dropped_not_refused():
+    stored = two_tabs(branding={"title": "Ops", "assistant_name": "Ops Bot"})
+    read = read_spec(APP, json.dumps(stored), None)
+    assert read["branding"] == {"title": "Ops", "logo": None, "favicon": None}
+    assert validate_spec(stored, APP)["branding"] == read["branding"]
+    assert validate_spec(two_tabs(branding={"assistant_name": "Ops Bot"}), APP)["branding"] is None
+
+
 def test_nav_is_tabs_across_the_top_unless_it_says_sidebar():
     assert validate_spec(two_tabs(nav={"style": "sidebar"}), APP)["nav"] == {"style": "sidebar"}
     assert validate_spec(two_tabs(nav={"style": "tabs"}), APP)["nav"] is None

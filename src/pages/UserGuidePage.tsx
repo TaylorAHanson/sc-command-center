@@ -99,7 +99,7 @@ export const UserGuidePage: React.FC = () => {
                 Want to show someone your setup? Click the <strong>Share</strong> button in the top-right corner to copy a direct link to your current view, or copy the address from your browser. Anyone you send it to finds your view under <strong>Shared Views</strong>, read-only.
               </p>
               <p className="text-sm text-gray-600 mt-2">
-                To share it as a page of its own, open <strong>Settings</strong> and choose <strong>On its own</strong>. The link then opens just that view, read-only, under the title, logo and assistant name you set. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center.
+                To share it as a page of its own, open <strong>Settings</strong> and choose <strong>On its own</strong>. The link then opens just that view, read-only, under the title and logo you set. <strong>Agent</strong> in the same dialog picks the agent the view opens with, wherever it opens. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center.
               </p>
             </div>
           </div>
@@ -190,7 +190,7 @@ export const UserGuidePage: React.FC = () => {
               Your conversations are private; nobody else sees them in the app. The 50 most recent are kept. Picking a different agent from the dropdown starts a new conversation and leaves the old one in your history.
             </p>
             <p className="text-sm text-gray-600 mt-3">
-              The <strong>pin</strong> beside the agent dropdown makes your view open with the agent selected. On a view with tabs it asks whether to pin it to <strong>This tab</strong> or <strong>Every tab</strong>; a tab's own pin wins on that tab. Click a ticked choice to unpin. Anyone can still switch agents while they're on the view.
+              The <strong>pin</strong> beside the agent dropdown makes your view open with the agent selected. On a view with tabs it asks whether to pin it to <strong>This tab</strong> or <strong>Every tab</strong>; a tab's own pin wins on that tab. Click a ticked choice to unpin. <strong>Settings → Agent</strong> sets the view's pin too. Anyone can still switch agents while they're on the view.
             </p>
             <p className="text-sm text-gray-600 mt-3">
               <strong>Delete all my conversations</strong>, at the bottom of that list, removes every conversation you own along with its attached files. It asks once and can't be undone. Your administrator may also set a retention period, after which untouched conversations are deleted automatically.

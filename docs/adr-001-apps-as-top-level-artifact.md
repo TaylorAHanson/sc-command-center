@@ -102,8 +102,7 @@ App {
     "branding": {
       "title": "...",
       "logo": "data-url-or-https",
-      "favicon": "...",
-      "assistant_name": "..."
+      "favicon": "..."
     },
     "tabs": [
       {
@@ -423,7 +422,7 @@ none should run as the SP.
   workspace (admin for a global app, owner for a personal one). **Edit** goes
   to `canEditApp` and opens `#/workspace/<id>`. The assistant uses the same
   `AgentDrawer` as the workspace (lifted out of `Layout`), named by
-  `branding.assistant_name`. It is absent when `assistant` is `off`, and the
+  `branding.assistant_name` (replaced in §4.3g by an agent picker). It is absent when `assistant` is `off`, and the
   pin control is hidden, because pinning is an edit.
 - **Subscribing is unchanged (§2.3).** Opening someone else's personal app by
   its link still puts it in your sidebar, once, from the provider's mount.
@@ -544,6 +543,14 @@ the spec: strict on write, and on read a value that can't be used is dropped
   beside the agent picker opens **This tab** / **Every tab**, each a toggle;
   `setPinnedAgent` now takes its target explicitly instead of guessing from
   which pin was in force. Same right as the app's pin (`canEditApp`).
+- **View settings picks the agent, instead of naming one.** `assistant_name`
+  only relabelled the built-in agent, beside a checkbox that read as choosing
+  the assistant, and the launcher kept that label even when a pin put another
+  agent in charge. It is gone: the server drops it on read and ignores it on
+  write. **Agent** in View settings sets the app's pin (`updateAppSpec` takes it
+  alongside the spec; on a one-tab app it also clears the tab's own pin, which
+  does the same job). The launcher names the selected agent, or "Assistant"
+  while the lazily loaded agent list hasn't arrived.
 - **The theme applies in the workspace**, scoped to the view's own area (above).
 - **Q3 decided: save coalescing, personal apps only.** `save_version` overwrites
   the newest version in place when it is personal and under five minutes old by
@@ -662,3 +669,4 @@ From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
 | 2026-10-05 | Slice 6 built (§4.3e): `/api/views` and the first-tab-only save path deleted, its handlers moved into `routes/apps.py`; `transfer_app` with a read-only preflight and optional widget promotion in one transaction; View Promotion dialog shows the preflight. Closed Q8; added Q10. |
 | 2026-10-05 | Slice 7 built (§4.3f): `nav` (tabs top or side), `theme` (two brand colours as CSS variables, white-text contrast enforced, standalone only), `filters` (a filter bar that sets dashboard variables); all edited in View settings. |
 | 2026-10-05 | Follow-ups (§4.3g): per-tab agent pin menu; theme also in the workspace, scoped to the view's area; Q3 decided (personal saves coalesce for 5 minutes); app-open cost measured and `tools/app_open_probe.mjs` committed. Q4, Q5, Q10 decided: no. |
+| 2026-10-05 | `branding.assistant_name` replaced by an **Agent** picker in View settings that sets the app's pin; the launcher names the selected agent. |

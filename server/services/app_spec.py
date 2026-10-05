@@ -46,7 +46,7 @@ MAX_IMAGE_CHARS = 256 * 1024
 _IMAGE_DATA_URL = re.compile(
     r"^data:image/(png|jpeg|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/=\s]+$"
 )
-_BRANDING_TEXT = ("title", "assistant_name")
+_BRANDING_TEXT = ("title",)
 _BRANDING_IMAGES = ("logo", "favicon")
 
 NAV_STYLES = ("tabs", "sidebar")

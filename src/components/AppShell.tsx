@@ -189,7 +189,6 @@ export const AppShell: React.FC = () => {
           chat={agentChat}
           isOpen={isAgentOpen}
           onOpenChange={setAgentOpen}
-          name={branding?.assistant_name || undefined}
         />
       )}
     </div>

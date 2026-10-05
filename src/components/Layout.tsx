@@ -694,7 +694,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       />
 
       {settingsOpen && activeApp && (
-        <AppSettingsModal app={activeApp} onClose={() => setSettingsOpen(false)} />
+        <AppSettingsModal
+          app={activeApp}
+          agents={agentChat.availableProfiles}
+          loadAgents={agentChat.loadProfilesOnce}
+          selectAgent={id => { if (!agentChat.isLoading) agentChat.setSelectedProfileId(id); }}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
     </div >
   );

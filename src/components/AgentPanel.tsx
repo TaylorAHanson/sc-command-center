@@ -4,16 +4,12 @@ import type { AgentChat } from '../hooks/useAgentChat';
 import { AgentConversation } from './AgentConversation';
 import { ConversationHistory } from './ConversationHistory';
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
-import { pinnedAgentOf, tabLabel } from '../store/appSpec';
-
-const DEFAULT_AGENT_NAME = 'EDH Agent';
+import { DEFAULT_AGENT_NAME, pinnedAgentOf, tabLabel } from '../store/appSpec';
 
 export const AgentPanel: React.FC<{
     chat: AgentChat;
     onCollapse: () => void;
-    /** What the built-in agent is called here; an app shown on its own may rename it. */
-    defaultAgentName?: string;
-}> = ({ chat, onCollapse, defaultAgentName = DEFAULT_AGENT_NAME }) => {
+}> = ({ chat, onCollapse }) => {
     const {
         isLoading, clear, widgetCount,
         availableProfiles, selectedProfileId, setSelectedProfileId, loadProfilesOnce,
@@ -34,7 +30,7 @@ export const AgentPanel: React.FC<{
 
     const nameOf = (id: string): string =>
         (id === DEFAULT_AGENT_PIN || !id)
-            ? defaultAgentName
+            ? DEFAULT_AGENT_NAME
             : (availableProfiles.find(p => p.id === id)?.name || 'an agent you cannot open');
 
     // A picker showing a value that isn't in its list renders blank, which reads
@@ -116,7 +112,7 @@ export const AgentPanel: React.FC<{
                         <button
                             onClick={onCollapse}
                             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                            title={`Collapse ${defaultAgentName}`}
+                            title={`Collapse ${DEFAULT_AGENT_NAME}`}
                         >
                             <PanelRightClose className="w-4 h-4" />
                         </button>
@@ -133,7 +129,7 @@ export const AgentPanel: React.FC<{
                             title="Run the drawer as a saved Agent Studio profile"
                             className="w-full truncate appearance-none rounded-md border border-brand-blue/40 bg-brand-blue/5 hover:bg-brand-blue/10 pl-2.5 pr-8 py-1.5 text-sm font-semibold text-brand-navy cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-brand-blue/40 disabled:opacity-50"
                         >
-                            <option value="">{defaultAgentName} (default)</option>
+                            <option value="">{DEFAULT_AGENT_NAME} (default)</option>
                             {availableProfiles.map(p => {
                                 const provenance = p.owned_by_me
                                     ? (p.location_label ? ` · ${p.location_label}` : '')
@@ -207,7 +203,7 @@ export const AgentPanel: React.FC<{
                     </div>
                 ) : pinnedButPrivate ? (
                     <div className="text-[10px] text-amber-600 mt-1.5 pl-0.5">
-                        This agent is private, so others on this view still get the {defaultAgentName}.
+                        This agent is private, so others on this view still get the {DEFAULT_AGENT_NAME}.
                     </div>
                 ) : pinnedAgentId && !isPinnedHere ? (
                     <div className="text-[10px] text-gray-400 mt-1.5 pl-0.5">

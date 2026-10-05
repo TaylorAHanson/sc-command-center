@@ -25,7 +25,6 @@ export interface AppBranding {
   title?: string | null;
   logo?: string | null;
   favicon?: string | null;
-  assistant_name?: string | null;
 }
 
 /** Tabs across the top unless this says otherwise. */
@@ -103,6 +102,9 @@ export const tabLabel = (app: App, tab: AppTab, index: number): string =>
 /** The agent the drawer opens with: the tab's own pin, else the app's. */
 export const pinnedAgentOf = (app?: App | null, tab?: AppTab | null): string =>
   tab?.pinned_agent_id || app?.pinned_agent_id || '';
+
+/** The built-in agent, which answers wherever no other agent is chosen. */
+export const DEFAULT_AGENT_NAME = 'EDH Agent';
 
 export const MAX_NAME_LENGTH = 120;
 export const MAX_TABS = 50;

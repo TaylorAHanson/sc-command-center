@@ -56,7 +56,7 @@ interface DashboardContextType {
   toggleLock: (appId: string) => void;
   setPinnedAgent: (appId: string, tabId: string | null, agentId: string | null) => void;
   /** Save a change to an app's spec; resolves to the server's refusal, if any. */
-  updateAppSpec: (appId: string, spec: AppSpec) => Promise<string | null>;
+  updateAppSpec: (appId: string, spec: AppSpec, pinnedAgentId?: string | null) => Promise<string | null>;
   /** Whether the signed-in user may change this app's settings (not its layout). */
   canEditApp: (app?: App | null) => boolean;
   /** Whether the signed-in user may change this app's widgets and tabs here. */
@@ -440,13 +440,16 @@ export const DashboardProvider: React.FC<{
     apiSyncApp(updatedApp);
   };
 
-  // How the app presents itself, its branding and its assistant. Optimistic like
-  // the pin, but a refusal is handed back and undone, because the dialog that
-  // made it is still open and can say why.
-  const updateAppSpec = async (appId: string, spec: AppSpec): Promise<string | null> => {
+  // How the app presents itself, its branding and its assistant, and optionally
+  // its own agent pin (undefined leaves it). Optimistic like the pin, but a
+  // refusal is handed back and undone, because the dialog that made it is still
+  // open and can say why.
+  const updateAppSpec = async (appId: string, spec: AppSpec, pinnedAgentId?: string | null): Promise<string | null> => {
     const app = apps.find(a => a.id === appId);
     if (!app || !canEditApp(app)) return 'You can’t change this view’s settings.';
-    const updatedApp = { ...app, spec };
+    const updatedApp = pinnedAgentId === undefined
+      ? { ...app, spec }
+      : { ...app, spec, pinned_agent_id: pinnedAgentId || null };
     setApps(prev => prev.map(a => a.id === appId ? updatedApp : a));
     const refusal = await apiSyncApp(updatedApp);
     if (refusal) setApps(prev => prev.map(a => (a === updatedApp ? app : a)));

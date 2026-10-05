@@ -61,9 +61,11 @@ per-user unless they are global.
   link opens. **Inside Command Center** is the default and how every view has
   always opened. **On its own** opens just that view: no sidebar, no Widget
   Library, no studios, under the title, logo and browser-tab icon set there. The
-  assistant appears too, under the name set there, unless **Offer the
-  assistant** is off. Branding is only used on its own; inside Command Center
-  the view keeps its name.
+  assistant appears too, unless **Offer the assistant** is off. Branding is only
+  used on its own; inside Command Center the view keeps its name.
+- **Agent** in **Settings** picks the agent the view opens with, inside Command
+  Center and on its own; it is the same pin as the pin button in the assistant
+  panel (below). The launcher button names whichever agent is selected.
 - **Colours** in **Settings** (**Accent colour**, **Dark colour**) replace
   Command Center's blue and navy, widgets included. Inside Command Center they
   cover the view's tabs, filter bar and canvas, while the sidebar and header
@@ -420,7 +422,8 @@ The **pin** button beside the agent picker makes a view open the assistant with
 the agent selected there (for anyone who may change the view's settings). On a
 view with several tabs it asks where: **This tab** or **Every tab** of the view;
 a tab's own pin wins over the view's on that tab. Clicking a ticked choice
-unpins it. A pin is a starting point, not a lock: anyone can pick another agent
+unpins it. **Settings → Agent** sets the view's pin too, and shows how many tabs
+pin their own. A pin is a starting point, not a lock: anyone can pick another agent
 while they're on the view.
 
 While an answer is being written, the send button becomes a red **Stop** button.

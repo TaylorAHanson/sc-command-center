@@ -1,11 +1,12 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Settings2, Upload, Trash2, Plus } from 'lucide-react';
 import clsx from 'clsx';
-import { useDashboardStore } from '../store/dashboardStore';
+import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
 import {
-  colourProblem, filtersProblem, imageProblem, MAX_FILTERS, MAX_NAME_LENGTH, navStyle,
+  colourProblem, DEFAULT_AGENT_NAME, filtersProblem, imageProblem, MAX_FILTERS, MAX_NAME_LENGTH, navStyle, pinnedAgentOf,
   type App, type AppFilter, type AppNav, type AppSpec,
 } from '../store/appSpec';
+import type { AgentProfile } from '../hooks/useAgentChat';
 
 interface FilterDraft {
   label: string;
@@ -161,15 +162,31 @@ const ImageField: React.FC<{
  * How a view opens from its link, and how it looks and talks when it opens on
  * its own. Changing any of it is the same right as renaming the view.
  */
-export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ app, onClose }) => {
-  const { updateAppSpec } = useDashboardStore();
+export const AppSettingsModal: React.FC<{
+  app: App;
+  /** The agents the signed-in user can open, as the agent panel lists them. */
+  agents: AgentProfile[];
+  loadAgents: () => void;
+  /** Switch the open chat to an agent, as choosing it in the panel would. */
+  selectAgent: (agentId: string) => void;
+  onClose: () => void;
+}> = ({ app, agents, loadAgents, selectAgent, onClose }) => {
+  const { updateAppSpec, activeAppTab } = useDashboardStore();
+  useEffect(() => { loadAgents(); }, [loadAgents]);
+  // With one tab, the tab's own pin and the view's do the same thing, and the
+  // agent panel edits whichever is set; here the choice is saved as the view's.
+  const oneTab = app.spec.tabs.length === 1;
+  const [initialPin] = useState(oneTab ? pinnedAgentOf(app, app.spec.tabs[0]) : app.pinned_agent_id || '');
+  const [agentPin, setAgentPin] = useState(initialPin);
+  const pinnedAgent = agents.find(a => a.id === agentPin);
+  const agentUnknown = Boolean(agentPin && agentPin !== DEFAULT_AGENT_PIN && !pinnedAgent);
+  const tabsPinnedOwn = oneTab ? 0 : app.spec.tabs.filter(t => t.pinned_agent_id).length;
   const branding = app.spec.branding || {};
   const [presentation, setPresentation] = useState<AppSpec['presentation']>(app.spec.presentation);
   const [title, setTitle] = useState(branding.title || '');
   const [logo, setLogo] = useState(branding.logo || '');
   const [favicon, setFavicon] = useState(branding.favicon || '');
   const [assistant, setAssistant] = useState<AppSpec['assistant']>(app.spec.assistant);
-  const [assistantName, setAssistantName] = useState(branding.assistant_name || '');
   const [nav, setNav] = useState<AppNav['style']>(navStyle(app));
   const [primary, setPrimary] = useState(app.spec.theme?.primary || '');
   const [dark, setDark] = useState(app.spec.theme?.dark || '');
@@ -200,15 +217,24 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
         title: title.trim() || null,
         logo: logo || null,
         favicon: favicon || null,
-        assistant_name: assistantName.trim() || null,
       },
       nav: nav === 'sidebar' ? { style: 'sidebar' } : null,
       theme: primary || dark ? { primary: primary || null, dark: dark || null } : null,
       filters: filters.map(filterOf),
-    });
+      tabs: oneTab ? [{ ...app.spec.tabs[0], pinned_agent_id: null }] : app.spec.tabs,
+    }, agentPin || null);
     setSaving(false);
-    if (reason) setRefusal(reason);
-    else onClose();
+    if (reason) {
+      setRefusal(reason);
+      return;
+    }
+    // A pin is otherwise applied only on arriving at a tab, so a choice made
+    // here would not show until the editor left and came back.
+    const inForceHere = oneTab || !activeAppTab?.pinned_agent_id;
+    if (agentPin !== initialPin && inForceHere && (agentPin === DEFAULT_AGENT_PIN || pinnedAgent)) {
+      selectAgent(agentPin === DEFAULT_AGENT_PIN ? '' : agentPin);
+    }
+    onClose();
   };
 
   const choice = (value: AppSpec['presentation'], label: string, detail: string) => (
@@ -369,10 +395,40 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
             )}
           </section>
 
+          <section className="space-y-2">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Agent</h3>
+              <p className="text-xs text-gray-500">
+                The agent this view opens with, wherever it opens. Anyone can still switch agents in the panel.
+              </p>
+            </div>
+            <select
+              value={agentPin}
+              onChange={e => setAgentPin(e.target.value)}
+              aria-label="Agent"
+              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+            >
+              <option value="">Not pinned: keep the agent that’s open</option>
+              <option value={DEFAULT_AGENT_PIN}>{DEFAULT_AGENT_NAME}</option>
+              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {agentUnknown && (
+                <option value={agentPin}>{agents.length ? 'An agent you can’t open' : 'Loading agents…'}</option>
+              )}
+            </select>
+            {app.is_global && pinnedAgent?.visibility === 'personal' && (
+              <p className="text-xs text-amber-600">This agent is private, so others on this view get the {DEFAULT_AGENT_NAME}.</p>
+            )}
+            {tabsPinnedOwn > 0 && (
+              <p className="text-xs text-gray-500">
+                {tabsPinnedOwn === 1 ? 'One tab pins its own agent' : `${tabsPinnedOwn} tabs pin their own agent`}, which wins there.
+              </p>
+            )}
+          </section>
+
           <section className="space-y-3">
             <div>
               <h3 className="text-sm font-semibold text-gray-800">When it opens on its own</h3>
-              <p className="text-xs text-gray-500">Inside Command Center the view keeps its name and the usual assistant.</p>
+              <p className="text-xs text-gray-500">Inside Command Center the view keeps its name, and the assistant is always there.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
@@ -391,19 +447,6 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
               <input type="checkbox" checked={assistant === 'on'} onChange={e => setAssistant(e.target.checked ? 'on' : 'off')} />
               Offer the assistant
             </label>
-            {assistant === 'on' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Assistant name</label>
-                <input
-                  type="text"
-                  value={assistantName}
-                  maxLength={MAX_NAME_LENGTH}
-                  onChange={e => setAssistantName(e.target.value)}
-                  placeholder="EDH Agent"
-                  className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
-                />
-              </div>
-            )}
           </section>
 
           {refusal && <p className="text-sm text-red-600">{refusal}</p>}

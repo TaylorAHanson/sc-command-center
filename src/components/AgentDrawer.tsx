@@ -3,8 +3,7 @@ import { Bot } from 'lucide-react';
 import clsx from 'clsx';
 import { AgentPanel } from './AgentPanel';
 import type { AgentChat } from '../hooks/useAgentChat';
-
-const DEFAULT_NAME = 'EDH Agent';
+import { DEFAULT_AGENT_NAME } from '../store/appSpec';
 
 /**
  * The assistant: a resizable panel down the right-hand side when open, a
@@ -15,9 +14,13 @@ export const AgentDrawer: React.FC<{
   chat: AgentChat;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  name?: string;
-}> = ({ chat, isOpen, onOpenChange, name }) => {
-  const label = name || DEFAULT_NAME;
+}> = ({ chat, isOpen, onOpenChange }) => {
+  // Agents are listed lazily (the listing scans Unity Catalog), so a pinned
+  // agent's name may not be known yet; say "Assistant" rather than name the
+  // built-in agent when it isn't the one that will answer.
+  const label = chat.selectedProfileId
+    ? chat.availableProfiles.find(p => p.id === chat.selectedProfileId)?.name || 'Assistant'
+    : DEFAULT_AGENT_NAME;
   const [width, setWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
 
@@ -62,7 +65,7 @@ export const AgentDrawer: React.FC<{
         >
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-10 w-1 rounded-full bg-gray-300 group-hover:bg-brand-blue transition-colors" />
         </div>
-        <AgentPanel chat={chat} onCollapse={() => onOpenChange(false)} defaultAgentName={label} />
+        <AgentPanel chat={chat} onCollapse={() => onOpenChange(false)} />
       </div>
     );
   }
