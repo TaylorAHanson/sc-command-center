@@ -22,6 +22,17 @@
 
 # Release Notes
 
+## 1.14.0 — 2026-10-05
+
+### Added
+
+- **Remove a global view.** **Remove** on **View Promotion** archives it for everyone; **Archived** lists it, where you can **Restore** it or **Delete permanently**.
+- **Widgets can tell when rows were left out.** Query results now say if they were cut short, and a widget can ask for more than the default 500 rows.
+
+### Changed
+
+- **Widget Studio picks where to search and sort by data size.** About 10 MB or less is fetched once and worked on in the browser; anything larger is paged and filtered in SQL.
+
 ## 1.13.0 — 2026-09-30
 
 ### Added

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Search, Filter, MailPlus, Plus, X, ChevronDown, Eye } from 'lucide-react';
+import { RefreshCw, Search, Filter, MailPlus, Plus, X, ChevronDown, Eye, Trash2, Archive, ArchiveRestore } from 'lucide-react';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { ConfirmModal } from '../../components/ConfirmModal';
 
@@ -25,6 +25,24 @@ interface ConsolidatedView {
     maxVersion: number;
     latestAuthor: string;
     latestTimestamp: string;
+}
+
+type Env = 'dev' | 'test' | 'prod';
+const ENVS: Env[] = ['dev', 'test', 'prod'];
+
+interface ArchivedRow {
+    id: string;
+    name: string;
+    domain: string;
+    archived_by: string | null;
+    archived_at: string | null;
+}
+
+// An archived view, gathered across environments. `envs` is where it is archived,
+// which is where Restore and Delete have to be sent: the server will only delete
+// a global view that is archived in the environment it is asked about.
+interface ArchivedView extends ArchivedRow {
+    envs: Env[];
 }
 
 const ENV_COLORS: Record<string, string> = {
@@ -119,6 +137,11 @@ export const ViewManager: React.FC = () => {
     const [devViews, setDevViews] = useState<View[]>([]);
     const [testViews, setTestViews] = useState<View[]>([]);
     const [prodViews, setProdViews] = useState<View[]>([]);
+    const [archivedByEnv, setArchivedByEnv] = useState<Record<Env, ArchivedRow[]>>({ dev: [], test: [], prod: [] });
+    const [showArchived, setShowArchived] = useState(false);
+    const [pendingRemoval, setPendingRemoval] = useState<
+        { kind: 'archive'; view: ConsolidatedView } | { kind: 'delete'; view: ArchivedView } | null
+    >(null);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedDomain, setSelectedDomain] = useState('All');
@@ -245,17 +268,94 @@ export const ViewManager: React.FC = () => {
         }
     };
 
+    const fetchArchived = async (env: Env): Promise<ArchivedRow[]> => {
+        try {
+            const res = await fetch(`/api/views/archived?env=${env}`);
+            if (!res.ok) return [];
+            const data = await res.json();
+            return data.views || [];
+        } catch (e) {
+            console.error(`Error fetching archived ${env} views:`, e);
+            return [];
+        }
+    };
+
     const loadAll = async () => {
         setLoading(true);
-        const [dev, test, prod] = await Promise.all([
+        const [dev, test, prod, archDev, archTest, archProd] = await Promise.all([
             fetchViews('dev'),
             fetchViews('test'),
-            fetchViews('prod')
+            fetchViews('prod'),
+            fetchArchived('dev'),
+            fetchArchived('test'),
+            fetchArchived('prod'),
         ]);
         setDevViews(dev);
         setTestViews(test);
         setProdViews(prod);
+        setArchivedByEnv({ dev: archDev, test: archTest, prod: archProd });
         setLoading(false);
+    };
+
+    // One row per archived view, with the environments it is archived in.
+    const archivedViews = useMemo<ArchivedView[]>(() => {
+        const map = new Map<string, ArchivedView>();
+        ENVS.forEach(env => {
+            archivedByEnv[env].forEach(v => {
+                const entry = map.get(v.id) ?? { ...v, envs: [] };
+                entry.envs.push(env);
+                map.set(v.id, entry);
+            });
+        });
+        return Array.from(map.values()).sort((a, b) => (b.archived_at ?? '').localeCompare(a.archived_at ?? ''));
+    }, [archivedByEnv]);
+
+    // A view lives in up to three databases, so removing it is up to three calls.
+    // They are made together and reported together: a refusal in one environment
+    // (no Editor role there, say) must not be hidden by success in another, or the
+    // view would look removed while still showing for users of the one that failed.
+    const applyToEnvs = async (
+        envs: Env[],
+        request: (env: Env) => Promise<Response>,
+    ): Promise<string[]> => {
+        const results = await Promise.all(envs.map(async env => {
+            try {
+                const res = await request(env);
+                if (res.ok) return null;
+                const data = await res.json().catch(() => ({}));
+                return `${env.toUpperCase()}: ${data?.detail || `HTTP ${res.status}`}`;
+            } catch (e) {
+                return `${env.toUpperCase()}: ${e instanceof Error ? e.message : String(e)}`;
+            }
+        }));
+        return results.filter((r): r is string => r !== null);
+    };
+
+    const finishRemoval = async (failures: string[], verb: string) => {
+        await loadAll();
+        await refreshGlobalSidebar();
+        if (failures.length) alert(`Could not ${verb} in every environment:\n${failures.join('\n')}`);
+    };
+
+    const handleArchive = async (view: ConsolidatedView) => {
+        const envs = ENVS.filter(env => view[env]);
+        const failures = await applyToEnvs(envs, env =>
+            fetch(`/api/views/${encodeURIComponent(view.id)}/archive?env=${env}`, { method: 'POST' }));
+        setPendingRemoval(null);
+        await finishRemoval(failures, 'remove this view');
+    };
+
+    const handleRestore = async (view: ArchivedView) => {
+        const failures = await applyToEnvs(view.envs, env =>
+            fetch(`/api/views/${encodeURIComponent(view.id)}/restore?env=${env}`, { method: 'POST' }));
+        await finishRemoval(failures, 'restore this view');
+    };
+
+    const handleDeleteForever = async (view: ArchivedView) => {
+        const failures = await applyToEnvs(view.envs, env =>
+            fetch(`/api/views/${encodeURIComponent(view.id)}?env=${env}`, { method: 'DELETE' }));
+        setPendingRemoval(null);
+        await finishRemoval(failures, 'delete this view');
     };
 
     useEffect(() => {
@@ -413,6 +513,14 @@ export const ViewManager: React.FC = () => {
                         </button>
                     )}
                     <button
+                        onClick={() => setShowArchived(s => !s)}
+                        className={`px-3 py-2 rounded-md transition text-sm font-medium flex items-center gap-2 border ${showArchived ? 'bg-gray-800 text-white border-gray-800' : 'text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+                        title="Views that were removed but can still be restored"
+                    >
+                        <Archive size={16} />
+                        Archived{archivedViews.length > 0 ? ` (${archivedViews.length})` : ''}
+                    </button>
+                    <button
                         onClick={loadAll}
                         className="p-2 text-gray-500 hover:text-brand-blue hover:bg-blue-50 rounded-md transition"
                         title="Refresh View Environments"
@@ -422,7 +530,7 @@ export const ViewManager: React.FC = () => {
                 </div>
             </div>
 
-            <div className="bg-white border-b border-gray-200 px-6 py-3 flex flex-col sm:flex-row gap-3">
+            <div className={`bg-white border-b border-gray-200 px-6 py-3 flex flex-col sm:flex-row gap-3 ${showArchived ? 'hidden' : ''}`}>
                 <div className="relative flex-1 max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                     <input
@@ -452,7 +560,68 @@ export const ViewManager: React.FC = () => {
                 </div>
             </div>
 
-            <div className="flex-1 p-6 overflow-hidden">
+            {showArchived && (
+                <div className="flex-1 p-6 overflow-hidden">
+                    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col h-full">
+                        <div className="px-6 py-3 border-b border-gray-200 text-sm text-gray-500">
+                            Archived views are hidden from everyone's sidebar but keep every version. Restore one to bring it back exactly as it was, or delete it permanently.
+                        </div>
+                        <div className="flex-1 overflow-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50 sticky top-0 shadow-sm z-10">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">View Name</th>
+                                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Domain</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Archived</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">By</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Environments</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"></th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {archivedViews.length === 0 ? (
+                                        <tr><td colSpan={6} className="px-6 py-10 text-center text-sm text-gray-400">Nothing is archived.</td></tr>
+                                    ) : archivedViews.map(v => (
+                                        <tr key={v.id} className="hover:bg-gray-50">
+                                            <td className="px-6 py-4 font-medium text-sm text-gray-900">{v.name}</td>
+                                            <td className="px-6 py-4">
+                                                <span className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">{v.domain}</span>
+                                            </td>
+                                            <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">{v.archived_at ? formatDate(v.archived_at) : '—'}</td>
+                                            <td className="px-4 py-4 text-xs text-gray-500">{v.archived_by || '—'}</td>
+                                            <td className="px-4 py-4">
+                                                <div className="flex gap-1">
+                                                    {v.envs.map(env => (
+                                                        <span key={env} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase ${ENV_COLORS[env]}`}>{env}</span>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-4">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        onClick={() => handleRestore(v)}
+                                                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-md hover:bg-gray-100 hover:border-gray-300 transition"
+                                                    >
+                                                        <ArchiveRestore size={13} /> Restore
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setPendingRemoval({ kind: 'delete', view: v })}
+                                                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 border border-red-200 text-red-600 rounded-md hover:bg-red-50 transition"
+                                                    >
+                                                        <Trash2 size={13} /> Delete permanently
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div className={`flex-1 p-6 overflow-hidden ${showArchived ? 'hidden' : ''}`}>
                 <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col h-full">
                     <div className="flex-1 overflow-auto">
                         <table className="min-w-full divide-y divide-gray-200">
@@ -467,11 +636,12 @@ export const ViewManager: React.FC = () => {
                                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider bg-green-50/60">Prod</th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Preview</th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">History</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Remove</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {filteredViews.length === 0 ? (
-                                    <tr><td colSpan={9} className="px-6 py-10 text-center text-sm text-gray-400">No views found.</td></tr>
+                                    <tr><td colSpan={10} className="px-6 py-10 text-center text-sm text-gray-400">No views found.</td></tr>
                                 ) : (
                                     filteredViews.map(v => (
                                         <tr key={v.id} className="hover:bg-gray-50">
@@ -503,6 +673,19 @@ export const ViewManager: React.FC = () => {
                                                 >
                                                     Version History
                                                 </button>
+                                            </td>
+                                            <td className="px-4 py-4">
+                                                {checkIsPromoter(v.domain) ? (
+                                                    <button
+                                                        onClick={() => setPendingRemoval({ kind: 'archive', view: v })}
+                                                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-md hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition"
+                                                        title="Remove this view for everyone. It is archived first, so it can be restored."
+                                                    >
+                                                        <Trash2 size={13} /> Remove
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-xs text-gray-300" title="Editor or Admin access on this domain is required">—</span>
+                                                )}
                                             </td>
                                         </tr>
                                     ))
@@ -639,6 +822,28 @@ export const ViewManager: React.FC = () => {
             )}
 
             {historyView && <ViewHistoryModal view={historyView} onClose={() => setHistoryView(null)} />}
+            {pendingRemoval?.kind === 'archive' && (
+                <ConfirmModal
+                    title="Remove View"
+                    message={`Remove '${pendingRemoval.view.name}' for everyone?`}
+                    detail="It disappears from every user's Global Views in Dev, Test and Prod. Nothing is deleted: open Archived to restore it, or to delete it permanently."
+                    confirmLabel="Remove"
+                    variant="warning"
+                    onConfirm={() => handleArchive(pendingRemoval.view)}
+                    onCancel={() => setPendingRemoval(null)}
+                />
+            )}
+            {pendingRemoval?.kind === 'delete' && (
+                <ConfirmModal
+                    title="Delete Permanently"
+                    message={`Permanently delete '${pendingRemoval.view.name}'?`}
+                    detail={`Every version is deleted from ${pendingRemoval.view.envs.map(e => e.toUpperCase()).join(', ')}. This cannot be undone. Personal copies users made from it are not affected.`}
+                    confirmLabel="Delete permanently"
+                    variant="danger"
+                    onConfirm={() => handleDeleteForever(pendingRemoval.view)}
+                    onCancel={() => setPendingRemoval(null)}
+                />
+            )}
             {pendingTransfer && (() => {
                 const isRollback = pendingTransfer.action === 'rollback';
                 return (

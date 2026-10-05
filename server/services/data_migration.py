@@ -75,6 +75,7 @@ TABLES: List[TableSpec] = [
     TableSpec("widgets", "content", ("id", "version")),
     TableSpec("dashboard_views", "content", ("id", "version")),
     TableSpec("shared_views", "content", ("username", "view_id")),
+    TableSpec("archived_views", "content", ("id",)),
     TableSpec("agent_profiles", "content", ("id", "version")),
     TableSpec("widget_categories", "access", ("name",), serial=True),
     TableSpec("widget_domains", "access", ("name",), serial=True),

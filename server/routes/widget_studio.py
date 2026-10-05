@@ -252,14 +252,33 @@ def _extract_meta(content: str, req: GenerateRequest) -> tuple[Dict[str, Any], s
     return meta, remainder
 
 
-# Above this, a widget that fetches everything and works in the browser is the
-# wrong shape: the payload is slow to arrive, the tab holds all of it, and sorting
-# or filtering it in JavaScript re-does work the warehouse is built for. Below it,
-# pushing every interaction back to SQL costs a round trip per keystroke to solve
-# a problem that doesn't exist yet. The number is a judgement rather than a
-# measurement, chosen because a few thousand rows of a handful of columns is still
-# a fraction of a megabyte.
-CLIENT_SIDE_ROW_CEILING = 2000
+# Which side should search, sort, filter and page is the old server-side versus
+# client-side choice, and the deciding number is how much the browser has to
+# download and hold, not how many rows there are. Fetched once and worked on
+# locally, a table is as fast as it can be and costs no round trip per keystroke;
+# the price is the payload, and past roughly 10 MB (desktop only) the transfer gets
+# slow and then the tab does. Beyond that the work moves into the query and the
+# widget only ever holds the slice being looked at. Neither is a limit: both work at
+# any row count, which is why this is advice to the model and not a cap.
+CLIENT_SIDE_MAX_MB = 10
+
+# What one cell of a fetched row costs once it is JSON: `"order_id":"10482",` is
+# about this, with the key repeated on every row. A judgement, not a measurement;
+# it is deliberately on the high side because the estimate that matters is the one
+# that errs toward the database.
+BYTES_PER_CELL = 32
+
+# A source tested before its columns were known, or one that returned none.
+ASSUMED_COLUMNS = 20
+
+
+def _column_count(req: GenerateRequest) -> int:
+    schema = req.data_source_schema
+    return len(schema) if isinstance(schema, dict) and schema else ASSUMED_COLUMNS
+
+
+def estimated_payload_mb(rows: int, columns: int) -> float:
+    return rows * max(columns, 1) * BYTES_PER_CELL / 1_000_000
 
 
 def _size_guidance(req: GenerateRequest) -> str:
@@ -283,18 +302,31 @@ def _size_guidance(req: GenerateRequest) -> str:
             "component. Never fetch a whole table in order to reduce it in JavaScript."
         )
 
-    if rows <= CLIENT_SIDE_ROW_CEILING:
+    columns = _column_count(req)
+    megabytes = estimated_payload_mb(rows, columns)
+    size = f"about {rows:,} rows x {columns} columns, roughly {megabytes:.1f} MB as JSON"
+
+    if megabytes <= CLIENT_SIDE_MAX_MB:
+        # The response is capped at 500 rows unless the request names a larger
+        # `max_rows`, so "fetch it all once" only works if the widget says so. The
+        # headroom is for rows added after the data source was tested.
+        want = int(rows * 1.1) + 100
         return (
-            f"\n\nThis query returns about {rows:,} rows, which is small enough to fetch "
-            "in one go. Sort, filter and page in the component over the rows you already "
-            "have — a round trip per keystroke would be slower, not faster. Still cap the "
-            "rows you render at once and keep the query's own `WHERE` doing the coarse work."
+            f"\n\nThis query returns {size}, which is comfortable to fetch once. Sort, "
+            "filter and page in the component over the rows you already have — a round "
+            "trip per keystroke would be slower, not faster. Keep the query's own `WHERE` "
+            "doing the coarse work, and cap how many rows you render at once.\n"
+            f"`/api/sql/execute-raw` returns at most 500 rows unless you ask for more, so "
+            f"send `max_rows: {want}` in the request body. If the response has "
+            "`truncated: true`, tell the user the table is showing part of the data; "
+            "never present it as the whole."
         )
 
     return (
-        f"\n\nThis query returns about {rows:,} rows. **Do the work in the database, not "
-        "the browser.** Compose the SQL for `props.data.dataSource` per interaction and "
-        "re-query:\n"
+        f"\n\nThis query returns {size} — more than a browser tab should download and "
+        f"hold (about {CLIENT_SIDE_MAX_MB} MB is the practical ceiling). **Do the work in "
+        "the database, not the browser.** Compose the SQL for `props.data.dataSource` per "
+        "interaction and re-query:\n"
         "- Page with `LIMIT`/`OFFSET` — one page of rows per request, never the whole "
         "table in batches. Fetching sequential pages in a loop to assemble the full "
         "result is the thing this rule exists to prevent: it is slower than one large "
@@ -308,6 +340,9 @@ def _size_guidance(req: GenerateRequest) -> str:
         "and present it as a total for the table.\n"
         "- Get the row count for the pager from a separate `SELECT COUNT(*)` over the same "
         "`WHERE`, not from the length of the page you fetched.\n"
+        "- A page of up to 500 rows needs nothing extra; for a larger page, send "
+        "`max_rows` with the request, because that is all `/api/sql/execute-raw` returns "
+        "by default.\n"
         "Wrap the configured query rather than editing it — "
         "`SELECT * FROM (<props.data.dataSource>) AS t WHERE … ORDER BY … LIMIT … OFFSET …` "
         "— so the user's own SQL keeps working. Show a loading state on each re-query and "

@@ -15,7 +15,8 @@ try:
     from services import upload_store
     from routes.widget_studio import (
         CLARIFY_MARKER,
-        CLIENT_SIDE_ROW_CEILING,
+        CLIENT_SIDE_MAX_MB,
+        estimated_payload_mb,
         MAX_SUGGESTIONS,
         GenerateRequest,
         Message,
@@ -139,12 +140,45 @@ def test_a_big_result_set_is_told_to_work_in_the_database():
 
 
 def test_a_small_result_set_is_left_to_the_browser():
-    guidance = _size_guidance(_req(
-        data_source_type="sql",
-        data_source_row_estimate=CLIENT_SIDE_ROW_CEILING,
-    ))
-    assert "small enough to fetch" in guidance
+    guidance = _size_guidance(_req(data_source_type="sql", data_source_row_estimate=2000))
+    assert "comfortable to fetch once" in guidance
     assert "round trip per keystroke" in guidance
+
+
+def test_a_result_the_browser_can_hold_is_fetched_whole_and_the_widget_is_told_how():
+    """The endpoint answers 500 rows unless asked, so "fetch it once" needs `max_rows`."""
+    guidance = _size_guidance(_req(data_source_type="sql", data_source_row_estimate=8000))
+    assert "comfortable to fetch once" in guidance
+    # Headroom over the tested count, for rows added since.
+    assert "max_rows: 8900" in guidance
+    assert "truncated: true" in guidance
+
+
+def test_the_line_is_the_payload_not_the_row_count():
+    """Rows alone say nothing: the same 20,000 rows are light narrow and heavy wide."""
+    narrow = _req(data_source_type="sql", data_source_row_estimate=20000,
+                  data_source_schema={f"c{i}": "string" for i in range(5)})
+    wide = _req(data_source_type="sql", data_source_row_estimate=20000,
+                data_source_schema={f"c{i}": "string" for i in range(100)})
+    assert "comfortable to fetch once" in _size_guidance(narrow)
+    assert "Do the work in the database" in _size_guidance(wide)
+
+
+def test_the_ceiling_is_where_the_payload_estimate_crosses_it():
+    columns = 10
+    per_row = estimated_payload_mb(1, columns)
+    fits = int(CLIENT_SIDE_MAX_MB / per_row)
+    schema = {f"c{i}": "string" for i in range(columns)}
+    just_under = _req(data_source_type="sql", data_source_row_estimate=fits, data_source_schema=schema)
+    just_over = _req(data_source_type="sql", data_source_row_estimate=fits + 1000, data_source_schema=schema)
+    assert "comfortable to fetch once" in _size_guidance(just_under)
+    assert "Do the work in the database" in _size_guidance(just_over)
+
+
+def test_a_big_result_set_says_why_and_how_big():
+    guidance = _size_guidance(_req(data_source_type="sql", data_source_row_estimate=40000))
+    assert "MB" in guidance
+    assert "max_rows" in guidance  # a page over 500 rows has to ask for it
 
 
 def test_an_untested_source_is_treated_as_large():
@@ -288,6 +322,10 @@ if __name__ == "__main__":
         test_long_history_becomes_a_digest_plus_the_recent_turns,
         test_history_falls_back_to_the_raw_tail_when_the_summary_fails,
         test_size_guidance_only_speaks_about_sql,
+        test_a_result_the_browser_can_hold_is_fetched_whole_and_the_widget_is_told_how,
+        test_the_line_is_the_payload_not_the_row_count,
+        test_the_ceiling_is_where_the_payload_estimate_crosses_it,
+        test_a_big_result_set_says_why_and_how_big,
         test_a_big_result_set_is_told_to_work_in_the_database,
         test_a_small_result_set_is_left_to_the_browser,
         test_an_untested_source_is_treated_as_large,

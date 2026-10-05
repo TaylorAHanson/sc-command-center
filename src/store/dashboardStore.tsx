@@ -133,8 +133,11 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             }
             return; // Don't fall back to tab 0 if a specific hash was requested
           }
+          // A selection the server no longer returns (a global view someone has
+          // since archived) falls back to the first view instead of leaving the
+          // dashboard pointing at nothing.
           setActiveTabId(prev => {
-            if (!prev) return loadedTabs[0].id;
+            if (!prev || !loadedTabs.some((t: Tab) => t.id === prev)) return loadedTabs[0].id;
             return prev;
           });
         }

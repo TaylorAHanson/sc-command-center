@@ -95,6 +95,7 @@ Table shapes worth knowing before you write a query:
   `MAX(version)` join in `routes/views.py`. Writes insert a new version rather
   than updating in place.
 - **PK `(username, view_id)`**: `shared_views` (subscriptions).
+- **PK `id`**: `archived_views` — global views taken out of circulation, per env.
 - **`SERIAL id`**: `widget_categories`, `widget_domains`, `role_mappings`,
   `widget_runs`, `action_logs`. Categories/domains are `UNIQUE (name)` and are
   seeded with defaults on first creation, as is a fallback global-admin
@@ -118,6 +119,22 @@ what's there" and an empty string as "clear it", because a field that isn't sent
 and a field sent as `null` are both `None` by the time Pydantic is done with
 them. Get that backwards and every widget drag silently unpins the view.
 `tests/test_view_pins.py` holds the distinction.
+
+### Removing a global view: archive, then delete
+
+Two steps on purpose. `POST /api/views/{id}/archive` inserts into `archived_views`
+and `get_views` (and the creator leaderboard) skip those ids; every version stays,
+so `POST /{id}/restore` is exact. `DELETE /{id}` on a **global** view answers 409
+until it has been archived, then removes every version and the marker together.
+Personal views are unchanged: the sidebar's Close deletes them outright.
+
+The marker is its own table rather than a flag on `dashboard_views` because that
+table is versioned and promotion copies whole rows between environments — a flag
+would be promoted with a version or lost on a rollback, when "retired" is a fact
+about the view's id. It is per env (each env has its own schema), so the View
+Promotion screen calls the endpoint once per env the view exists in and reports
+each failure; a partly-applied archive is visible in the Archived list rather than
+hidden. `tests/test_view_archive.py` holds the ordering and the permissions.
 
 ## Who made what (`services/creator_stats.py`)
 
@@ -903,6 +920,22 @@ on every call including every step of a plan, and only a request with a tested
 source can be told anything specific. **`None` means "treat as large"** — reading
 silence as "small" is how a 40,000-row table ends up in a tab.
 
+The line between the two is a *payload*, not a row count: rows × columns ×
+`BYTES_PER_CELL` against `CLIENT_SIDE_MAX_MB` (10, a desktop-only rule of thumb), with
+the column count taken from the tested schema. It is the server-side versus
+client-side choice every table library exposes, and both sides work at any row
+count — which is why it is advice in the prompt and not a cap. Tune the two
+constants, not the prose.
+
+**The 500-row default is the thing people call "the query limit".**
+`/api/sql/execute-raw` returns 500 rows unless the body sets `max_rows`, and until
+`truncated` / `total_rows` were added it said nothing about the rest: `row_count`
+was just the length of what arrived. A widget sorting "the table" in the browser
+was sorting its first 500 rows. `gather_rows` now follows result chunks (reading
+only `data_array` gave the first chunk, so a larger `max_rows` changed nothing),
+and `_size_guidance` tells the model to send `max_rows` when it fetches everything.
+`tests/test_sql_rows.py` pins both.
+
 **Trace (`_trace` / `_settle`).** The studio's "Thinking" is narration the job
 writes about its own decisions, not model reasoning — the current models keep that
 private and the app never sees it. `_settle` exists because a plain
@@ -927,7 +960,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 22
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_helper.py  # 20 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_helper.py  # 24 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_context.py # 18 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
 PYTHONPATH=server server/venv/bin/python tests/test_native_files.py         # 10 passed
@@ -938,6 +971,8 @@ PYTHONPATH=server server/venv/bin/python tests/test_llm_params.py           # 17
 PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 16 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
+PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
+PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server server/venv/bin/python tests/test_conversation_store.py   # 5 passed

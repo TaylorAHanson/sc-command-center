@@ -302,11 +302,53 @@ def _raise_if_unsuccessful(statement, sql: str) -> None:
         raise SqlStatementError(status_code=400, detail=detail + quoting_hint(sql, detail))
 
 
+#: Rows a response carries when the caller doesn't say how many it wants. A widget
+#: that fetches a whole table to work on it in the browser has to ask for more with
+#: `max_rows`, and the response says (`truncated`) whenever it still got less.
+DEFAULT_MAX_ROWS = 500
+
+# A result bigger than one chunk arrives as a first chunk plus a pointer to the
+# next. The bound only exists so a warehouse that never stops pointing can't hold
+# a request open; a real result runs out of chunks long before it.
+MAX_CHUNK_HOPS = 200
+
+
+def gather_rows(first, fetch_chunk, max_rows: int):
+    """Rows of an inline result, following chunks until `max_rows` are in hand.
+
+    `first` is the statement's `result`. Reading only its `data_array` returns the
+    first chunk and nothing else, so a large result looked complete when it wasn't
+    and no `max_rows` could get past it. Returns `(rows, more)`, where `more` says
+    there were rows beyond what was handed back.
+    """
+    rows = list(getattr(first, "data_array", None) or [])
+    next_chunk = getattr(first, "next_chunk_index", None)
+    hops = 0
+    while next_chunk is not None and len(rows) < max_rows and hops < MAX_CHUNK_HOPS:
+        chunk = fetch_chunk(next_chunk)
+        rows.extend(getattr(chunk, "data_array", None) or [])
+        next_chunk = getattr(chunk, "next_chunk_index", None)
+        hops += 1
+    return rows[:max_rows], next_chunk is not None or len(rows) > max_rows
+
+
+def result_window(returned: int, total: Optional[int], more: bool, warehouse_truncated: bool = False) -> Dict[str, Any]:
+    """What a widget needs to know about the rows it did not receive.
+
+    Additive fields on the response, so widgets written before they existed are
+    unaffected. `total_rows` is `None` when the warehouse didn't say and there is
+    more than we fetched; a widget should treat that like `truncated`.
+    """
+    if total is not None:
+        return {"total_rows": total, "truncated": bool(warehouse_truncated or total > returned)}
+    return {"total_rows": None if more else returned, "truncated": bool(warehouse_truncated or more)}
+
+
 class RawSqlRequest(BaseModel):
     """Request to execute a raw SQL string against Databricks."""
     sql: Optional[str] = None
     raw_query: Optional[str] = None  # Alias accepted for convenience
-    max_rows: Optional[int] = 500
+    max_rows: Optional[int] = DEFAULT_MAX_ROWS
     #: Correlation handle from the action confirmation, recorded in `action_logs`.
     #: Prepended to the statement as a comment so the same id appears in
     #: Databricks' own query history and the two records can be joined.
@@ -406,18 +448,33 @@ def _run_statement(
         if statement.manifest and statement.manifest.schema and statement.manifest.schema.columns:
             columns = [col.name for col in statement.manifest.schema.columns]
 
-        max_rows = req.max_rows or 500
-        if statement.result and statement.result.data_array:
-            for row_data in statement.result.data_array[:max_rows]:
+        max_rows = req.max_rows or DEFAULT_MAX_ROWS
+        more = False
+        if statement.result:
+            data_array, more = gather_rows(
+                statement.result,
+                lambda index: sql_api.get_statement_result_chunk_n(statement.statement_id, index),
+                max_rows,
+            )
+            for row_data in data_array:
                 row_dict = {}
                 for i, col_name in enumerate(columns):
                     row_dict[col_name] = row_data[i] if i < len(row_data) else None
                 rows.append(row_dict)
 
+        manifest = statement.manifest
+        window = result_window(
+            len(rows),
+            getattr(manifest, "total_row_count", None),
+            more,
+            bool(getattr(manifest, "truncated", False)),
+        )
+
         return {
             "columns": columns,
             "rows": rows,
             "row_count": len(rows),
+            **window,
             "statement_id": statement.statement_id,
         }
     except SqlStatementError as e:

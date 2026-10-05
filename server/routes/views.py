@@ -138,9 +138,11 @@ def get_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
                 GROUP BY id
             ) latest ON dv.id = latest.id AND dv.version = latest.max_version
             LEFT JOIN shared_views sv ON dv.id = sv.view_id AND sv.username = %s
-            WHERE (dv.username = %s) 
-               OR (dv.is_global = 1)
-               OR (sv.username IS NOT NULL)
+            LEFT JOIN archived_views av ON dv.id = av.id
+            WHERE av.id IS NULL
+              AND ((dv.username = %s)
+                   OR (dv.is_global = 1)
+                   OR (sv.username IS NOT NULL))
         """, (username, username, username))
         rows = c.fetchall()
         views = [dict(zip([column[0] for column in c.description], row)) for row in rows]
@@ -363,6 +365,130 @@ def update_view(view_id: str, view: ViewUpdate, w: WorkspaceClient = Depends(get
             conn.close()
         raise HTTPException(status_code=500, detail=f"Error updating view: {str(e)}")
 
+def _latest_view(c, view_id: str) -> Optional[Dict[str, Any]]:
+    """Who owns a view and which domain it is filed under, from its newest version.
+
+    Newest, not any: the domain can change between versions, and the permission
+    check has to be made against the one people can currently see.
+    """
+    c.execute(
+        "SELECT username, is_global, domain FROM dashboard_views "
+        "WHERE id = %s ORDER BY version DESC LIMIT 1",
+        (view_id,),
+    )
+    row = c.fetchone()
+    return dict(zip([column[0] for column in c.description], row)) if row else None
+
+
+def _global_view_for_editor(c, w, view_id: str, env: str) -> Dict[str, Any]:
+    """The view, if it is global and the caller may edit its domain; otherwise raise.
+
+    Archiving and restoring act on global views only. A personal view is already
+    private to its owner, so "removing it from circulation" has no meaning there —
+    closing it in the sidebar deletes it, as it always has.
+    """
+    view = _latest_view(c, view_id)
+    if not view:
+        raise HTTPException(status_code=404, detail="View not found")
+    if not view["is_global"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only global views are archived. Close a personal view to delete it.",
+        )
+    require_domain_editor(w, view.get("domain") or "General", env)
+    return view
+
+
+def _timestamp(value: Any) -> Optional[str]:
+    return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
+
+
+@router.get("/archived")
+def get_archived_views(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """Archived global views the caller could restore or delete, newest first.
+
+    Limited to domains the caller edits: the archive is where a view goes to be
+    forgotten, so it should not become a way to browse domains one can't see.
+    """
+    perms = _get_user_permissions(w, env)
+    is_admin = perms.get("is_admin", False)
+    domain_permissions = perms.get("domain_permissions", {})
+
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        c.execute("""
+            SELECT dv.id, dv.version, dv.name, dv.domain, av.archived_by, av.timestamp AS archived_at
+            FROM archived_views av
+            INNER JOIN dashboard_views dv ON dv.id = av.id
+            INNER JOIN (
+                SELECT id, MAX(version) AS max_version
+                FROM dashboard_views
+                GROUP BY id
+            ) latest ON dv.id = latest.id AND dv.version = latest.max_version
+            ORDER BY av.timestamp DESC
+        """)
+        rows = [dict(zip([column[0] for column in c.description], row)) for row in c.fetchall()]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching archived views: {str(e)}")
+    finally:
+        conn.close()
+
+    return {"views": [
+        {**r, "archived_at": _timestamp(r.get("archived_at"))}
+        for r in rows
+        if is_admin or domain_permissions.get(r.get("domain") or "General") in ("editor", "admin")
+    ]}
+
+
+@router.post("/{view_id}/archive")
+def archive_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """Take a global view out of everyone's sidebar without deleting anything.
+
+    Every version stays, so restoring is exact and nothing a view's author built is
+    lost to a misclick. Idempotent: archiving twice is the same as once.
+    """
+    username = _get_current_username(w)
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        _global_view_for_editor(c, w, view_id, env)
+        c.execute(
+            "INSERT INTO archived_views (id, archived_by) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
+            (view_id, username),
+        )
+        conn.commit()
+        return {"status": "success", "id": view_id, "archived": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error archiving view: {str(e)}")
+    finally:
+        conn.close()
+
+
+@router.post("/{view_id}/restore")
+def restore_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+    """Put an archived global view back exactly as it was."""
+    conn = get_db_connection(env)
+    try:
+        c = conn.cursor()
+        _global_view_for_editor(c, w, view_id, env)
+        c.execute("DELETE FROM archived_views WHERE id = %s", (view_id,))
+        conn.commit()
+        return {"status": "success", "id": view_id, "archived": False}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error restoring view: {str(e)}")
+    finally:
+        conn.close()
+
+
 @router.delete("/{view_id}")
 def delete_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     username = _get_current_username(w)
@@ -371,12 +497,7 @@ def delete_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: 
         conn = get_db_connection(env)
         c = conn.cursor()
         
-        c.execute("SELECT username, is_global, domain FROM dashboard_views WHERE id = %s LIMIT 1", (view_id,))
-        row = c.fetchone()
-        if row:
-            existing = dict(zip([column[0] for column in c.description], row))
-        else:
-            existing = None
+        existing = _latest_view(c, view_id)
             
         if not existing:
             conn.close()
@@ -384,12 +505,23 @@ def delete_view(view_id: str, w: WorkspaceClient = Depends(get_db_client), env: 
         
         if existing['is_global']:
             require_domain_editor(w, existing.get('domain', 'General'), env)
+            # Deleting is the second step, after archiving: every version goes and
+            # nothing brings them back, so a global view must first have been taken
+            # out of circulation where someone could have noticed and said so.
+            c.execute("SELECT 1 FROM archived_views WHERE id = %s", (view_id,))
+            if not c.fetchone():
+                conn.close()
+                raise HTTPException(
+                    status_code=409,
+                    detail="Archive this global view before deleting it permanently.",
+                )
             
         if not existing['is_global'] and existing['username'] != username:
             conn.close()
             raise HTTPException(status_code=403, detail="You can only delete your own views")
             
         c.execute("DELETE FROM dashboard_views WHERE id = %s", (view_id,))
+        c.execute("DELETE FROM archived_views WHERE id = %s", (view_id,))
             
         conn.commit()
         conn.close()

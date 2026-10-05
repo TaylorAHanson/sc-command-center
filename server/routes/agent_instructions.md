@@ -48,7 +48,7 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 - The configured `props.data.dataSourceType` remains authoritative. If it conflicts with the user's requested operation, explain the recommended source-type change instead of silently hardcoding a different SQL statement or URL into the component.
 - Data Source Types (`props.data.dataSourceType`):
   - `'api'`: Use `fetch(props.data.dataSource)` to retrieve the data.
-  - `'sql'`: Use `/api/sql/execute-raw` for **read-only** queries (`SELECT`, `SHOW`, `DESCRIBE`, and similar). Use `/api/sql/execute-write` for statements that change data (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, …). `execute-raw` refuses writes with a clear error. A successful response has `{ columns: string[], rows: object[], row_count: number }`.
+  - `'sql'`: Use `/api/sql/execute-raw` for **read-only** queries (`SELECT`, `SHOW`, `DESCRIBE`, and similar). Use `/api/sql/execute-write` for statements that change data (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, …). `execute-raw` refuses writes with a clear error. A successful response has `{ columns: string[], rows: object[], row_count: number, truncated: boolean, total_rows: number | null }`.
     - Read-only example: `fetch('/api/sql/execute-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: props.data.dataSource }) })`.
     - Write example (executable widgets only): include the action's `request_id` from `ctx` as a leading SQL comment so audit logs join to Databricks query history — `` fetch('/api/sql/execute-write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: \`/* cc-action: \${ctx.requestId} */ \${props.data.dataSource}\`, request_id: ctx.requestId }) }) ``.
     - **Check the status before reading the rows.** A query the warehouse refuses — a missing table, a column that needs backticks, no permission — comes back non-2xx with `{ detail: string }` explaining why. Show that message; never let it surface as "no data", which hides a fixable query behind an empty panel:
@@ -73,6 +73,12 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
   `ORDER BY … LIMIT` — rather than for the rows behind it.
 - Where the prompt tells you the size of a result set, it also tells you which
   side to do the work on. Where it doesn't, assume the table is large.
+- **`/api/sql/execute-raw` returns at most 500 rows unless the request body sets
+  `max_rows`.** That is the default and not a limit on the table: a widget that
+  works on the whole result in the browser must send a `max_rows` big enough for
+  it. A response carries `truncated` (true when rows were left out) and
+  `total_rows`; when `truncated` is true, say in the widget that it is showing part
+  of the data, because `row_count` is only the length of what arrived.
 
 ### Writing SQL for Databricks
 

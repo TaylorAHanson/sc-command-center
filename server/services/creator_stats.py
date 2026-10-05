@@ -188,6 +188,7 @@ def _placements(cursor) -> List[Tuple[str, Optional[str]]]:
             FROM dashboard_views
             GROUP BY id
         ) latest ON dv.id = latest.id AND dv.version = latest.version
+        WHERE dv.id NOT IN (SELECT id FROM archived_views)
         """
     )
     found: List[Tuple[str, Optional[str]]] = []

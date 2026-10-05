@@ -583,6 +583,19 @@ def init_db(env: str = "dev"):
         )
     ''')
 
+    # Global views that have been removed from circulation but not deleted.
+    # A table of its own rather than a flag on dashboard_views: that table is
+    # versioned and promotion copies whole rows between environments, so a flag
+    # would travel with a promoted version (or vanish on a rollback), whereas
+    # "this view is retired in this environment" belongs to the view's id.
+    c.execute(f'''
+        CREATE TABLE IF NOT EXISTS archived_views (
+            id TEXT PRIMARY KEY,
+            archived_by TEXT,
+            timestamp TIMESTAMP {default_ts}
+        )
+    ''')
+
     # Agent Studio Profiles Table (versioned, domain-scoped)
     # Agents authored in the Agent Studio now live as DB rows instead of files on
     # Unity Catalog Volumes / Workspace folders. This mirrors the widget/view

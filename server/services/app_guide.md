@@ -96,10 +96,16 @@ description.
    never run to test it; the studio says so instead. An external API is called
    from your browser, exactly as the widget will call it, so a CORS block shows up
    here. Testing a SQL source also counts the rows it
-   returns, which decides how the agent builds: a few thousand rows are fetched
-   and worked with in the browser, while a large table gets paging, sorting,
-   searching and totals pushed into SQL so the widget only ever holds one page.
-   An untested source is treated as large.
+   returns, which decides how the agent builds. Searching, sorting and paging can
+   happen in the browser or in the query, and both work at any row count; the
+   deciding factor is how much data the browser would download, about 10 MB
+   (rows times columns). Under that, the widget fetches everything once and works
+   locally; over it, paging, sorting, searching and totals are pushed into SQL so
+   the widget only ever holds one page. An untested source is treated as large.
+   A query returns its first 500 rows unless the widget asks for more, and the
+   response says when rows were left out; a user who "hit a row limit" usually
+   means this, and the fix is to ask the studio agent to fetch the whole result
+   or to page in SQL.
 2. **The agent** — describe the widget in the chat and it writes the TSX. Asking
    for a change edits the existing code in place rather than rewriting the whole
    component. After generating, it also proposes Configuration-tab values;
@@ -243,6 +249,13 @@ work in progress cannot disrupt production users.
 - **View Promotion** does the same for global views. Promote every widget a view
   uses *before* promoting the view, or it will render with missing widgets in the
   target environment.
+- **Removing a global view** is two steps, both on the View Promotion screen and
+  both needing Editor or Admin on the view's domain. **Remove** archives it: it
+  leaves everyone's sidebar in Dev, Test and Prod, and every version is kept. The
+  **Archived** button lists archived views, where **Restore** brings one back
+  exactly as it was and **Delete permanently** removes every version for good. A
+  global view must be archived before it can be deleted. A user's personal views
+  are closed from the sidebar, which deletes them.
 - Promotion, rollback, and certification require Editor or Admin on the asset's
   domain in the environment being promoted into. Without it the studio panel
   shows the status read-only.
