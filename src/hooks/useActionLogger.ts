@@ -22,24 +22,27 @@ const newRequestId = (): string => {
 };
 
 export const useActionLogger = ({ widgetId, widgetName }: UseActionLoggerProps) => {
-    const { tabs, activeTabId } = useDashboardStore();
+    const { activeApp, activeAppTab } = useDashboardStore();
 
     const getDashboardContext = useCallback(() => {
-        // Find the current active tab
-        const activeTab = tabs.find(t => t.id === activeTabId);
+        if (!activeApp || !activeAppTab) return { error: "No active tab found" };
 
-        if (!activeTab) return { error: "No active tab found" };
-
+        // `tabId` / `tabName` have always held the view's id and name, and every
+        // action_logs row written so far says so; they keep that meaning (now the
+        // app's) so the audit trail reads the same before and after apps. The tab
+        // within the app is recorded alongside.
         return {
-            tabId: activeTab.id,
-            tabName: activeTab.name,
-            widgets: activeTab.widgets.map(w => ({
+            tabId: activeApp.id,
+            tabName: activeApp.name,
+            appTabId: activeAppTab.id,
+            appTabName: activeAppTab.name,
+            widgets: activeAppTab.widgets.map(w => ({
                 id: w.i,
                 type: w.type,
                 props: w.props
             }))
         };
-    }, [tabs, activeTabId]);
+    }, [activeApp, activeAppTab]);
 
     const runAction = useCallback(async (name: string, action: (ctx: ActionRunContext) => void) => {
         const context = getDashboardContext();

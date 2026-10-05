@@ -31,7 +31,9 @@ export interface EmittedUserContext {
 
 export interface DashboardContext {
     user: EmittedUserContext;
-    view: { id: string; name: string } | null;
+    app: { id: string; name: string } | null;
+    /** The tab on screen; named only when the app has more than one. */
+    tab: { id: string; name: string } | null;
     widgets: EmittedWidgetContext[];
     /** Explicit dashboard variables set by Emitter widgets. */
     variables: Record<string, any>;
@@ -54,18 +56,13 @@ const sanitizeConfiguration = (props?: Record<string, any>): Record<string, any>
  * inputs so consumers (e.g. the agent panel) can depend on it directly.
  */
 export const useDashboardContext = (): DashboardContext => {
-    const { tabs, activeTabId, username, isAdmin, domainPermissions, variables } = useDashboardStore();
+    const { activeApp, activeAppTab, username, isAdmin, domainPermissions, variables } = useDashboardStore();
     // Subscribe to the widget registry so titles/descriptions resolve correctly
     // once custom widgets have loaded (otherwise they fall back to raw type IDs).
     const { version: registryVersion } = useWidgetRegistry();
 
-    const activeTab = useMemo(
-        () => tabs.find(t => t.id === activeTabId) || null,
-        [tabs, activeTabId]
-    );
-
     return useMemo<DashboardContext>(() => {
-        const widgets: EmittedWidgetContext[] = (activeTab?.widgets || []).map(w => {
+        const widgets: EmittedWidgetContext[] = (activeAppTab?.widgets || []).map(w => {
             const versionKey = w.props?._version ? `${w.type}@${w.props._version}` : w.type;
             const def = widgetRegistry[versionKey] || widgetRegistry[w.type];
             return {
@@ -84,11 +81,14 @@ export const useDashboardContext = (): DashboardContext => {
                 isAdmin,
                 roles: domainPermissions || {},
             },
-            view: activeTab ? { id: activeTab.id, name: activeTab.name } : null,
+            app: activeApp ? { id: activeApp.id, name: activeApp.name } : null,
+            tab: activeApp && activeAppTab && activeApp.spec.tabs.length > 1
+                ? { id: activeAppTab.id, name: activeAppTab.name }
+                : null,
             widgets,
             variables: variables || {},
         };
-    }, [activeTab, username, isAdmin, domainPermissions, variables, registryVersion]);
+    }, [activeApp, activeAppTab, username, isAdmin, domainPermissions, variables, registryVersion]);
 };
 
 /**
@@ -120,7 +120,8 @@ export const buildContextPreamble = (ctx: DashboardContext): string => {
     lines.push('');
 
     // View + widgets.
-    lines.push(`## Active view: ${ctx.view ? `"${ctx.view.name}"` : 'none'}`);
+    lines.push(`## Active view: ${ctx.app ? `"${ctx.app.name}"` : 'none'}`);
+    if (ctx.tab) lines.push(`Tab on screen: "${ctx.tab.name || 'untitled'}"`);
     if (ctx.widgets.length) {
         lines.push(`Widgets on screen (${ctx.widgets.length}):`);
         ctx.widgets.forEach((w, i) => {

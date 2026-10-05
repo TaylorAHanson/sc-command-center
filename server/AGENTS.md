@@ -140,7 +140,7 @@ hidden. `tests/test_view_archive.py` holds the ordering and the permissions.
 
 `docs/adr-001-apps-as-top-level-artifact.md` is the plan; this is what is built.
 An app is a `dashboard_views` row under the view's own id, plus `spec_json`
-(tabs, each a widget layout, and presentation/link/assistant/branding). The rules
+(tabs, each a widget layout, and presentation/assistant/branding). The rules
 that keep the deployment already running intact:
 
 - **No backfill, ever.** A NULL `spec_json` reads as the one-tab app the view
@@ -153,10 +153,19 @@ that keep the deployment already running intact:
   still on the old bundle) can't see tabs 2+, and replacing the spec would delete
   them on the next drag. `widgets_json` is always written equal to tab one, so a
   rollback to pre-apps code still shows each app's first tab.
+- **The browser talks only to `/api/apps`.** Nothing in this bundle calls
+  `/api/views`; it stays for a browser still on the previous bundle during a
+  deploy and for a rollback, and goes in slice 6.
 - **`read_spec` never raises; `validate_spec` refuses.** Reads (sidebar,
   leaderboard, promotion) keep widget entries verbatim and fall back to
   `widgets_json`; writes reject what they would have to guess at — no tabs, a
   widget instance on two tabs, an unknown choice, a spec from a newer schema.
+- **Whatever a read returns, a write must accept.** The browser saves an app by
+  sending back the spec it was given with one tab changed, so a row that reads
+  fine but fails `validate_spec` is an app nobody can drag a widget on. That is
+  why a view's only tab, named by the view's id, is accepted however long the id
+  is. `test_every_app_the_api_hands_out_saves_back_unchanged` round-trips the
+  awkward cases; add yours there.
 - **The access model is the views' model, unchanged.** `app_spec.can_read`: a
   global app needs a role in its domain (or global admin); a personal app opens
   for anyone holding its id, because `POST /api/views/shared/{id}` has always
@@ -1012,7 +1021,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
 PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 27 passed
-PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 21 passed
+PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 23 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed

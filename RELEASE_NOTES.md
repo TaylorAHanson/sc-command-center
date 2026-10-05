@@ -33,6 +33,11 @@
 
 - **Widget Studio picks where to search and sort by data size.** About 10 MB or less is fetched once and worked on in the browser; anything larger is paged and filtered in SQL.
 
+### Fixed
+
+- **View Promotion shows when each view last changed.** **Last Modified** and the dates in **Preview** were always blank.
+- **Quick edits to a view all save.** Two changes made close together could collide, and one would be lost on the next reload.
+
 ## 1.13.0 — 2026-09-30
 
 ### Added

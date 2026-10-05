@@ -48,7 +48,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   });
   // Pages that take over the full screen (no header, no agent drawer).
   const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
-  const { tabs, activeTabId, setActiveTabId, addTab, removeTab, renameTab, reorderTabs, duplicateView, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions } = useDashboardStore();
+  const { apps, activeAppId, activeApp, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions } = useDashboardStore();
   const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
   const canAccessAdmin = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin');
   const [isSidebarOpen, setSidebarOpen] = useState(true);
@@ -63,9 +63,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [agentWidth, setAgentWidth] = useState(400);
   const [isResizingAgent, setIsResizingAgent] = useState(false);
   const [isTrayOpen, setTrayOpen] = useState(false);
-  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editingAppId, setEditingAppId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
-  const [draggedTabIndex, setDraggedTabIndex] = useState<number | null>(null);
+  const [draggedAppIndex, setDraggedAppIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [editWidgetId, setEditWidgetId] = useState<string | null>(null);
@@ -121,14 +121,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     let newHash = '';
     if (currentPage) {
       newHash = `#/${currentPage}`;
-    } else if (activeTabId) {
-      newHash = `#/view/${activeTabId}`;
+    } else if (activeAppId) {
+      newHash = `#/view/${activeAppId}`;
     }
 
     if (newHash && window.location.hash !== newHash) {
       window.location.hash = newHash;
     }
-  }, [currentPage, activeTabId]);
+  }, [currentPage, activeAppId]);
 
   // Auto-collapse the sidebar only in Agent Studio (it needs the full viewport),
   // and restore the user's previous sidebar state when they leave. Widget Studio
@@ -157,21 +157,21 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       } else if (hash.startsWith('#/template/')) {
         const templateId = decodeURIComponent(hash.replace('#/template/', ''));
         setCurrentPage(null);
-        setActiveTabId(templateId);
+        setActiveAppId(templateId);
       } else if (hash.startsWith('#/view/')) {
         const id = hash.replace('#/view/', '');
         setCurrentPage(null);
-        setActiveTabId(id);
+        setActiveAppId(id);
       } else if (hash === '' || hash === '#/') {
-        // Default to first tab
+        // Default to first app
         setCurrentPage(null);
-        if (tabs.length > 0) setActiveTabId(tabs[0].id);
+        if (apps.length > 0) setActiveAppId(apps[0].id);
       }
     };
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [tabs, setActiveTabId]);
+  }, [apps, setActiveAppId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -198,12 +198,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     };
   }, [currentPage]);
 
-  // Separate user tabs from global templates
-  const activeTab = tabs.find(t => t.id === activeTabId);
-  const myTabs = tabs.filter(t => !t.is_global && !t.is_shared);
-  const sharedTabs = tabs.filter(t => !t.is_global && t.is_shared);
+  // Separate the user's apps from global templates
+  const myApps = apps.filter(a => !a.is_global && !a.is_shared);
+  const sharedApps = apps.filter(a => !a.is_global && a.is_shared);
   const effectiveDomain = activeDomain || 'All';
-  const globalTemplates = tabs.filter(t => t.is_global && (effectiveDomain === 'All' || !t.domain || t.domain === effectiveDomain));
+  const globalTemplates = apps.filter(a => a.is_global && (effectiveDomain === 'All' || !a.domain || a.domain === effectiveDomain));
 
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
@@ -231,34 +230,34 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   My Views
                 </div>
                 <div className="space-y-1">
-                  {myTabs.map((tab, index) => {
-                    const isEditing = editingTabId === tab.id;
-                    const isDragging = draggedTabIndex === index;
+                  {myApps.map((app, index) => {
+                    const isEditing = editingAppId === app.id;
+                    const isDragging = draggedAppIndex === index;
                     const isDragOver = dragOverIndex === index;
-                    const tabIndex = tabs.findIndex(t => t.id === tab.id);
+                    const appIndex = apps.findIndex(a => a.id === app.id);
 
                     return (
                       <div
-                        key={tab.id}
+                        key={app.id}
                         className={clsx(
                           "group relative",
                           isDragging && "opacity-50",
-                          isDragOver && draggedTabIndex !== null && draggedTabIndex !== index && "border-t-2 border-brand-blue"
+                          isDragOver && draggedAppIndex !== null && draggedAppIndex !== index && "border-t-2 border-brand-blue"
                         )}
                         draggable={!isEditing}
                         onDragStart={(e) => {
-                          setDraggedTabIndex(tabIndex);
+                          setDraggedAppIndex(appIndex);
                           e.dataTransfer.effectAllowed = 'move';
-                          e.dataTransfer.setData('text/plain', tabIndex.toString());
+                          e.dataTransfer.setData('text/plain', appIndex.toString());
                         }}
                         onDragEnd={() => {
-                          setDraggedTabIndex(null);
+                          setDraggedAppIndex(null);
                           setDragOverIndex(null);
                         }}
                         onDragOver={(e) => {
                           e.preventDefault();
                           e.dataTransfer.dropEffect = 'move';
-                          if (draggedTabIndex !== null && draggedTabIndex !== index) {
+                          if (draggedAppIndex !== null && draggedAppIndex !== index) {
                             setDragOverIndex(index);
                           }
                         }}
@@ -269,10 +268,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         }}
                         onDrop={(e) => {
                           e.preventDefault();
-                          if (draggedTabIndex !== null && draggedTabIndex !== index) {
-                            reorderTabs(draggedTabIndex, index);
+                          if (draggedAppIndex !== null && draggedAppIndex !== index) {
+                            reorderApps(draggedAppIndex, index);
                           }
-                          setDraggedTabIndex(null);
+                          setDraggedAppIndex(null);
                           setDragOverIndex(null);
                         }}
                       >
@@ -284,19 +283,19 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                               onChange={(e) => setEditName(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
-                                  renameTab(tab.id, editName);
-                                  setEditingTabId(null);
+                                  renameApp(app.id, editName);
+                                  setEditingAppId(null);
                                   setEditName('');
                                 } else if (e.key === 'Escape') {
-                                  setEditingTabId(null);
+                                  setEditingAppId(null);
                                   setEditName('');
                                 }
                               }}
                               onBlur={() => {
                                 if (editName.trim()) {
-                                  renameTab(tab.id, editName);
+                                  renameApp(app.id, editName);
                                 }
-                                setEditingTabId(null);
+                                setEditingAppId(null);
                                 setEditName('');
                               }}
                               autoFocus
@@ -307,12 +306,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         ) : (
                           <div
                             onClick={() => {
-                              setActiveTabId(tab.id);
+                              setActiveAppId(app.id);
                               setCurrentPage(null);
                             }}
                             className={clsx(
                               "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between cursor-pointer",
-                              activeTabId === tab.id && currentPage === null
+                              activeAppId === app.id && currentPage === null
                                 ? "bg-brand-blue text-white"
                                 : "text-gray-300 hover:bg-gray-800 hover:text-white"
                             )}
@@ -321,18 +320,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                               <GripVertical
                                 className={clsx(
                                   "w-4 h-4 flex-shrink-0 cursor-move",
-                                  activeTabId === tab.id ? "text-white/60" : "text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  activeAppId === app.id ? "text-white/60" : "text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
                                 )}
                                 onMouseDown={(e) => e.stopPropagation()}
                               />
-                              <span className="truncate flex-1">{tab.name}</span>
+                              <span className="truncate flex-1">{app.name}</span>
                             </div>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setEditingTabId(tab.id);
-                                  setEditName(tab.name);
+                                  setEditingAppId(app.id);
+                                  setEditName(app.name);
                                 }}
                                 className="hover:bg-brand-blue/20 rounded p-0.5 transition-colors"
                                 title="Rename View"
@@ -340,11 +339,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
-                              {tabs.length > 1 && (
+                              {apps.length > 1 && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    removeTab(tab.id);
+                                    removeApp(app.id);
                                   }}
                                   className="hover:bg-red-500/20 rounded p-0.5 transition-colors"
                                   title="Close View"
@@ -360,7 +359,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     );
                   })}
                   <button
-                    onClick={() => addTab(`View ${myTabs.length + 1}`)}
+                    onClick={() => addApp(`View ${myApps.length + 1}`)}
                     className="w-full text-left px-3 py-2 rounded-md text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
@@ -370,20 +369,20 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               </div>
 
               {/* Shared Views */}
-              {sharedTabs.length > 0 && (
+              {sharedApps.length > 0 && (
                 <div className="p-3 border-b border-gray-700">
                   <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
                     <Share2 className="w-3 h-3" />
                     Shared Views
                   </div>
                   <div className="space-y-1">
-                    {sharedTabs.map(tab => {
-                      const isViewing = activeTabId === tab.id;
+                    {sharedApps.map(app => {
+                      const isViewing = activeAppId === app.id;
                       return (
-                        <div key={tab.id} className="group relative">
+                        <div key={app.id} className="group relative">
                           <button
                             onClick={() => {
-                              setActiveTabId(tab.id);
+                              setActiveAppId(app.id);
                               setCurrentPage(null);
                             }}
                             className={clsx(
@@ -393,12 +392,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                                 : "text-gray-300 hover:bg-gray-800 hover:text-white"
                             )}
                           >
-                            <span className="truncate flex-1">{tab.name}</span>
+                            <span className="truncate flex-1">{app.name}</span>
                           </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              removeTab(tab.id);
+                              removeApp(app.id);
                             }}
                             className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-500/20 rounded transition-all text-gray-400 hover:text-red-400"
                             title="Remove Shared View"
@@ -420,12 +419,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </div>
                 <div className="space-y-1">
                   {globalTemplates.map(template => {
-                    const isViewing = activeTabId === template.id;
+                    const isViewing = activeAppId === template.id;
                     return (
                       <div key={template.id} className="group relative">
                         <button
                           onClick={() => {
-                            setActiveTabId(template.id);
+                            setActiveAppId(template.id);
                             setCurrentPage(null);
                           }}
                           className={clsx(
@@ -440,7 +439,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            duplicateView(template.id);
+                            duplicateApp(template.id);
                           }}
                           className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-brand-blue/20 rounded transition-all text-gray-400 hover:text-brand-blue"
                           title="Copy this template to My Views"
@@ -520,27 +519,26 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <div className="flex items-center gap-4">
               <h1 className="text-lg font-semibold text-brand-navy">
                 {currentPage === 'admin' ? 'Admin Panel' : (
-                  activeTab?.is_global && !isAdmin
-                    ? `${activeTab.name} (Read-Only)`
-                    : activeTab?.name || 'Command Center'
+                  activeApp?.is_global && !isAdmin
+                    ? `${activeApp.name} (Read-Only)`
+                    : activeApp?.name || 'Command Center'
                 )}
               </h1>
             </div>
 
             <div className="flex items-center gap-3">
-              {(!activeTab?.is_global || isAdmin) && !activeTab?.is_shared && (
+              {(!activeApp?.is_global || isAdmin) && !activeApp?.is_shared && (
                 <>
                   <button
                     onClick={() => {
-                      const activeTab = tabs.find(t => t.id === activeTabId);
-                      if (activeTab) {
-                        toggleLock(activeTabId);
+                      if (activeApp) {
+                        toggleLock(activeApp.id);
                       }
                     }}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
-                    title={tabs.find(t => t.id === activeTabId)?.locked ? "Unlock View" : "Lock View"}
+                    title={activeApp?.locked ? "Unlock View" : "Lock View"}
                   >
-                    {tabs.find(t => t.id === activeTabId)?.locked ? (
+                    {activeApp?.locked ? (
                       <>
                         <Lock className="w-4 h-4" />
                         <span>Locked</span>

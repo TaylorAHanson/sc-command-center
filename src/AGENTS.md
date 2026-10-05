@@ -436,7 +436,25 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
 ## State and cross-widget communication
 
 - `store/dashboardStore.tsx` — `DashboardProvider` / `useDashboardStore`, owning
-  tabs, layouts (`WidgetLayout`, `Tab`), and dashboard variables.
+  the apps in the sidebar, the active one, and dashboard variables. What an app
+  *is* lives in `store/appSpec.ts` (`App`, `AppTab`, `AppSpec`, `WidgetLayout`),
+  the client's copy of `server/services/app_spec.py`. Three rules:
+  - **A view is an app with one tab.** "Tab" means a canvas inside an app and
+    nothing else; the sidebar lists apps. Every row saved before apps exists reads
+    as a one-tab app whose tab id is the app id.
+  - **Every save sends the whole spec** (`PUT /api/apps/{id}`), so it must carry
+    every tab the server handed out, including ones this screen doesn't show.
+    Widget operations take an app id *and* a tab id and change only that tab;
+    replacing `spec.tabs` with what's on screen would delete the rest on the next
+    drag. The server's strict check accepts every spec its read returns
+    (`tests/test_apps_routes.py` round-trips them), so a 400 on save is a bug.
+    Saves go through `apiSyncApp`, which runs them one at a time per app: each
+    claims the next version number, so two in flight at once collide on the
+    primary key. StrictMode sends every save scheduled from an updater twice in
+    development; don't post to `/api/apps` around the queue.
+  - **The canvas shows `activeAppTab`**, which is the first tab until there is a
+    tab bar. Read it rather than `spec.tabs[0]`, so that adding one changes a
+    single function (`shownTab`).
 - `contexts/ActionContext.tsx` — `useActionContext` plus
   `ExecuteActionPropInjector`, which clones children to inject an
   `executeAction(name, callback)` prop into executable widgets.
@@ -554,17 +572,20 @@ Things worth knowing before changing this:
 
 ### Agents pinned to a view
 
-A view can name the agent the drawer opens with (`Tab.pinned_agent_id`, stored on
-the view row). The pin button beside the picker writes whatever is selected to the
-active view, through the same full-view PUT as renaming or locking it, so
-`canEditView` — not the layout lock — decides who may set one. `DEFAULT_AGENT_PIN`
-(`'default'`) is how a view pins the *built-in* agent; without it, "pinned to the
-default agent" and "not pinned" would be the same empty string.
+A view can name the agent the drawer opens with (`App.pinned_agent_id`, stored on
+the app row). A tab may override it (`AppTab.pinned_agent_id`, in the spec), and
+`pinnedAgentOf` resolves tab → app → built-in. The pin button beside the picker
+writes whatever is selected through the same full PUT as renaming or locking the
+app, so `canEditApp` — not the layout lock — decides who may set one. It changes
+the pin in force: the tab's if the tab has one, otherwise the app's. A view's only
+tab never has one, so for views it is the app's pin, as it always was.
+`DEFAULT_AGENT_PIN` (`'default'`) is how a view pins the *built-in* agent; without
+it, "pinned to the default agent" and "not pinned" would be the same empty string.
 
 The pin is a default, not a lock, and the effect that applies it is fussier than
 it looks:
 
-- **It fires once per view activation** (`appliedPinRef`), so choosing a different
+- **It fires once per tab activation** (`appliedPinRef`, keyed `appId/tabId`), so choosing a different
   agent while you are on the view sticks. Leaving and coming back re-applies it.
 - **It defers to a reopened conversation on the first view it sees**
   (`reopenedRef`). Applying the pin means starting a new conversation, so without

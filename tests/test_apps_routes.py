@@ -30,12 +30,12 @@ CUSTOM = "0b5c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d"
 NOBODY = {"is_admin": False, "domain_permissions": {}}
 
 
-def row(app_id, *, owner=OTHER, is_global=0, domain="General", widgets=None, spec=None, version=1, pin=None):
+def row(app_id, *, owner=OTHER, is_global=0, domain="General", widgets=None, spec=None, version=1, pin=None, timestamp=None):
     return {
         "id": app_id, "version": version, "name": f"App {app_id}", "domain": domain,
         "username": "system" if is_global else owner, "is_global": is_global,
         "widgets_json": json.dumps(widgets or []), "spec_json": json.dumps(spec) if spec else None,
-        "is_locked": 0, "pinned_agent_id": pin,
+        "is_locked": 0, "pinned_agent_id": pin, "timestamp": timestamp,
     }
 
 
@@ -83,7 +83,7 @@ class FakeCursor:
         elif text.startswith("SELECT id, version, name") and "FROM dashboard_views WHERE id" in text:
             r = self.store.apps.get(params[0])
             self.description = [(c,) for c in app_store.HEAD_COLUMNS]
-            self._rows = [tuple(r[c] for c in app_store.HEAD_COLUMNS)] if r else []
+            self._rows = [tuple(r.get(c) for c in app_store.HEAD_COLUMNS)] if r else []
         elif text.startswith("SELECT 1 FROM archived_views"):
             self._rows = [(1,)] if params[0] in self.store.archived else []
         elif text.startswith("SELECT 1 FROM shared_views"):
@@ -292,6 +292,32 @@ def test_the_certified_check_reads_every_tab():
     exc = refused(store, apps.update_app, "g1", apps.AppUpdate(name="x"), editor_of=("Sales",), certified_only=True)
     assert exc.status_code == 400 and "Margins" in exc.detail, "the uncertified widget is on tab two"
     assert store.writes() == []
+
+
+def test_every_app_the_api_hands_out_saves_back_unchanged():
+    # The browser saves an app by sending back the spec it was given with one
+    # tab's layout changed. If any row read leniently failed strict validation,
+    # every drag on that app would start failing the day the client moved here.
+    long_id = "imported-" + "x" * 80
+    rows = [
+        row("v1", owner=ME, widgets=[{"i": "a", "type": "iframe", "x": 0, "y": None, "w": 4, "h": 4}]),
+        row("v2", owner=ME, widgets=[{"i": "a", "type": "iframe"}, {"i": "a", "type": "iframe"}]),
+        row(long_id, owner=ME, widgets=[{"i": "a", "type": "iframe"}]),
+        row("v3", owner=ME, spec=three_tabs("v3"), pin="agent-1"),
+        row("v4", owner=ME, spec={"tabs": [{"id": "t", "widgets": []}], "branding": {"title": "Ops"}, "nav": {"x": 1}}),
+    ]
+    for r in rows:
+        store = Store(r)
+        given = run(store, apps.get_app, r["id"])["app"]
+        run(store, apps.update_app, r["id"], apps.AppUpdate(spec=given["spec"]))
+        assert json.loads(store.inserted_app()["spec_json"]) == given["spec"], r["id"]
+
+
+def test_an_app_says_when_it_was_last_saved():
+    import datetime
+    saved_at = datetime.datetime(2026, 10, 5, 12, 30)
+    app = run(Store(row("v1", owner=ME, timestamp=saved_at)), apps.get_app, "v1")["app"]
+    assert app["timestamp"] == "2026-10-05T12:30:00"
 
 
 def test_creating_an_app_over_an_existing_id_is_refused():

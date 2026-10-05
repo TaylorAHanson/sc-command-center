@@ -203,10 +203,13 @@ def _reserved(raw: Dict[str, Any], key: str, kind: type, strict: bool) -> Any:
     return empty
 
 
-def _tab_id(value: Any, strict: bool, new_id: Callable[[], str]) -> str:
+def _tab_id(value: Any, strict: bool, new_id: Callable[[], str], app_id: str) -> str:
     if value is None or value == "":
         return new_id()
-    if isinstance(value, str) and len(value.strip()) <= MAX_ID_LENGTH and value.strip():
+    # A view's only tab is named by the view's id, which `/api/views` never
+    # limited, so that id is always acceptable however long it is: refusing it
+    # would make a view that exists today impossible to save from the apps API.
+    if isinstance(value, str) and value.strip() and (len(value.strip()) <= MAX_ID_LENGTH or value.strip() == app_id):
         return value.strip()
     if strict:
         raise SpecError(f"A tab id must be text of at most {MAX_ID_LENGTH} characters.")
@@ -236,7 +239,7 @@ def _normalize(raw: Dict[str, Any], app_id: str, *, strict: bool, new_id: Callab
             if strict:
                 raise SpecError(f"Tab {position} is not an object.")
             continue
-        tab_id = _tab_id(tab.get("id"), strict, new_id)
+        tab_id = _tab_id(tab.get("id"), strict, new_id, app_id)
         if tab_id in seen_tabs:
             if strict:
                 raise SpecError(f"Two tabs share the id {tab_id!r}.")

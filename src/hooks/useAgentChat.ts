@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDashboardContext, buildContextPreamble, type DashboardContext } from './useDashboardContext';
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
+import { pinnedAgentOf } from '../store/appSpec';
 import { useChatUploads } from './useChatUploads';
 
 export type { Attachment } from './useChatUploads';
@@ -361,15 +362,18 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         startConversation(greetingText);
     }, [selectedProfileId, availableProfiles, isDraftMode, options.greeting, startConversation]);
 
-    // A view can name the agent it wants in the drawer. Arriving at that view
-    // selects it — which, by the effect above, opens a fresh conversation with
-    // that agent, exactly as if the user had chosen it from the picker.
+    // An app (or one of its tabs) can name the agent it wants in the drawer.
+    // Arriving there selects it — which, by the effect above, opens a fresh
+    // conversation with that agent, exactly as if the user had chosen it from the
+    // picker.
     //
-    // The pin is a default, not a lock: it is applied when the view becomes
+    // The pin is a default, not a lock: it is applied when the tab becomes
     // active and never again, so a user who picks a different agent keeps it for
-    // as long as they stay. Coming back re-applies the pin.
-    const { tabs, activeTabId } = useDashboardStore();
-    const pinnedAgentId = (tabs.find(t => t.id === activeTabId)?.pinned_agent_id) || '';
+    // as long as they stay. Coming back re-applies the pin. A view has one tab,
+    // so for a view the tab changes exactly when the view does.
+    const { activeApp, activeAppTab } = useDashboardStore();
+    const pinnedAgentId = pinnedAgentOf(activeApp, activeAppTab);
+    const activePlace = activeApp && activeAppTab ? `${activeApp.id}/${activeAppTab.id}` : '';
     // A pin naming an agent that has since been deleted, or that this user cannot
     // see, is not applied — the runtime would quietly answer as the default agent
     // while the picker showed an agent nobody could open.
@@ -383,14 +387,14 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
     useEffect(() => {
         if (isDraftMode || !persists) return;
         // Wait out the reopen: it sets the agent too, and would race this one.
-        if (!activeTabId || isRestoring) return;
-        if (appliedPinRef.current === activeTabId) return;
+        if (!activePlace || isRestoring) return;
+        if (appliedPinRef.current === activePlace) return;
         // Never swap the agent from under a turn that is already streaming. This
-        // effect runs again when it finishes, and the view is still unhandled.
+        // effect runs again when it finishes, and the tab is still unhandled.
         if (isLoading) return;
 
         const firstView = appliedPinRef.current === '';
-        appliedPinRef.current = activeTabId;
+        appliedPinRef.current = activePlace;
         if (firstView && reopenedRef.current) return;
         if (!pinnedAgentId || pinnedAgentUnavailable) return;
 
@@ -402,7 +406,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         // never in a loop: the ref above closes the door behind it.
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setSelectedProfileId(wanted);
-    }, [activeTabId, pinnedAgentId, pinnedAgentUnavailable, selectedProfileId,
+    }, [activePlace, pinnedAgentId, pinnedAgentUnavailable, selectedProfileId,
         isRestoring, isLoading, isDraftMode, persists]);
 
     // Agent Studio profile discovery is LAZY: listing them triggers a UC scan

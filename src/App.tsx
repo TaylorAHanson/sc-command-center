@@ -78,33 +78,33 @@ const ShareWidgetButton: React.FC<{ onShare: () => Promise<boolean> }> = ({ onSh
 };
 
 const DashboardGrid: React.FC = () => {
-  const { tabs, activeTabId, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin, username, variables, setVariable, generateWidgetShareLink } = useDashboardStore();
+  const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin, username, variables, setVariable, generateWidgetShareLink } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
   const [sharedWidgetId, setSharedWidgetId] = useState<string | null>(null);
 
-  // Get active tab
-  const activeTab = tabs.find(t => t.id === activeTabId);
-  const isReadOnly = (activeTab?.is_global && !isAdmin) || activeTab?.locked === true;
+  const isReadOnly = (activeApp?.is_global && !isAdmin) || activeApp?.locked === true;
 
   // Once the widget registry is loaded, any widget on the current tab whose type no
-  // longer exists in the registry is an orphan (widget was deleted). We clean those
-  // up automatically and persist the cleanup so empty placeholders never appear.
+  // longer exists in the registry is an orphan (widget was deleted). The intent was
+  // to drop those and save, but `updateLayout` saves only a move or resize, and
+  // leaving widgets out moves nothing — so in practice this never writes, and the
+  // orphan is hidden by `visibleWidgets` below instead.
   useEffect(() => {
-    if (isRegistryLoading || !activeTab || isReadOnly) return;
-    const orphans = activeTab.widgets.filter(w => {
+    if (isRegistryLoading || !activeApp || !activeAppTab || isReadOnly) return;
+    const orphans = activeAppTab.widgets.filter(w => {
       const versionedKey = w.props?._version ? `${w.type}@${w.props._version}` : w.type;
       return !widgetRegistry[versionedKey] && !widgetRegistry[w.type];
     });
     if (orphans.length === 0) return;
-    const cleaned = activeTab.widgets.filter(w => !orphans.includes(w));
-    updateLayout(activeTab.id, cleaned as WidgetLayout[]);
-  }, [isRegistryLoading, activeTab?.id, activeTab?.widgets, isReadOnly]);
+    const cleaned = activeAppTab.widgets.filter(w => !orphans.includes(w));
+    updateLayout(activeApp.id, activeAppTab.id, cleaned as WidgetLayout[]);
+  }, [isRegistryLoading, activeApp?.id, activeAppTab?.id, activeAppTab?.widgets, isReadOnly]);
 
   const visibleWidgets = React.useMemo(() => {
-    return activeTab?.widgets.filter(widget => {
+    return activeAppTab?.widgets.filter(widget => {
       const versionedKey = widget.props?._version ? `${widget.type}@${widget.props._version}` : widget.type;
       const def = widgetRegistry[versionedKey] || widgetRegistry[widget.type];
       // Hide widgets whose definition is missing once the registry has finished loading.
@@ -113,7 +113,7 @@ const DashboardGrid: React.FC = () => {
       if (activeDomain && def.domain && def.domain !== activeDomain) return false;
       return true;
     }) || [];
-  }, [activeTab?.widgets, activeDomain, isRegistryLoading]);
+  }, [activeAppTab?.widgets, activeDomain, isRegistryLoading]);
 
   const layouts = React.useMemo(() => {
     return {
@@ -141,10 +141,10 @@ const DashboardGrid: React.FC = () => {
   }, [visibleWidgets, username, variables, setVariable]);
 
   const handleLayoutChange = (layout: WidgetLayout[]) => {
-    if (activeTab && !isReadOnly) {
+    if (activeApp && activeAppTab && !isReadOnly) {
       // Remove static property before saving (we add it dynamically)
       const layoutWithoutStatic = layout.map(({ static: _, ...rest }) => rest);
-      updateLayout(activeTab.id, layoutWithoutStatic as WidgetLayout[]);
+      updateLayout(activeApp.id, activeAppTab.id, layoutWithoutStatic as WidgetLayout[]);
     }
   };
 
@@ -155,7 +155,7 @@ const DashboardGrid: React.FC = () => {
 
     console.log('🎯 Native drop event triggered!', {
       draggedWidget,
-      activeTab: !!activeTab,
+      activeAppTab: !!activeAppTab,
       target: e.target,
       currentTarget: e.currentTarget,
       dataTransferTypes: Array.from(e.dataTransfer.types)
@@ -178,8 +178,8 @@ const DashboardGrid: React.FC = () => {
       console.warn('Could not read from dataTransfer:', err);
     }
 
-    if (!widgetType || !activeTab) {
-      console.warn('Drop failed - missing widget type or active tab', { widgetType, activeTab: !!activeTab });
+    if (!widgetType || !activeApp || !activeAppTab) {
+      console.warn('Drop failed - missing widget type or active tab', { widgetType, activeAppTab: !!activeAppTab });
       setDroppingItem(undefined);
       setDraggedWidget(null);
       return;
@@ -217,13 +217,16 @@ const DashboardGrid: React.FC = () => {
       y: gridY,
       w,
       h,
-      activeTabId: activeTab.id
+      appId: activeApp.id,
+      tabId: activeAppTab.id
     });
 
+    const appId = activeApp.id;
+    const tabId = activeAppTab.id;
     const def = widgetRegistry[widgetType];
     if (def?.configurationMode === 'config_required') {
       openConfigModal(widgetType, (config) => {
-        addWidget(activeTab.id, widgetType, {
+        addWidget(appId, tabId, widgetType, {
           x: gridX,
           y: gridY,
           w,
@@ -243,7 +246,7 @@ const DashboardGrid: React.FC = () => {
           }
         });
       }
-      addWidget(activeTab.id, widgetType, {
+      addWidget(appId, tabId, widgetType, {
         x: gridX,
         y: gridY,
         w,
@@ -358,13 +361,13 @@ const DashboardGrid: React.FC = () => {
 
   // When the desired shared widget appears in the active tab, fullscreen it.
   useEffect(() => {
-    if (!sharedWidgetId || !activeTab) return;
-    const target = activeTab.widgets.find(w => w.i === sharedWidgetId);
+    if (!sharedWidgetId || !activeAppTab) return;
+    const target = activeAppTab.widgets.find(w => w.i === sharedWidgetId);
     if (!target) return;
     const def = widgetRegistry[target.type];
     setFullscreenWidget({ id: target.i, type: target.type, title: def?.name || target.type });
     setSharedWidgetId(null);
-  }, [sharedWidgetId, activeTab?.id, activeTab?.widgets.length]);
+  }, [sharedWidgetId, activeAppTab?.id, activeAppTab?.widgets.length]);
 
   // Handle escape key for fullscreen
   useEffect(() => {
@@ -390,7 +393,9 @@ const DashboardGrid: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Early return after all hooks
-  if (!activeTab) return null;
+  if (!activeApp || !activeAppTab) return null;
+  const appId = activeApp.id;
+  const tabId = activeAppTab.id;
 
   return (
     <div
@@ -543,13 +548,13 @@ const DashboardGrid: React.FC = () => {
                   availableVersions={def.availableVersions}
                   helpText={def.helpText}
                   onChangeVersion={isReadOnly ? undefined : (version: number) => {
-                    updateWidget(activeTabId, widget.i, {
+                    updateWidget(appId, tabId, widget.i, {
                       props: { ...widget.props, _version: version }
                     });
                   }}
                   customActions={customActions}
                   isFullscreen={fullscreenWidget?.id === widget.i}
-                  onRemove={isReadOnly && fullscreenWidget?.id !== widget.i ? undefined : () => removeWidget(activeTabId, widget.i)}
+                  onRemove={isReadOnly && fullscreenWidget?.id !== widget.i ? undefined : () => removeWidget(appId, tabId, widget.i)}
                   onFullscreen={() => {
                     if (fullscreenWidget?.id === widget.i) {
                       setFullscreenWidget(null);
@@ -559,7 +564,7 @@ const DashboardGrid: React.FC = () => {
                   }}
                   onConfigure={
                   (def.configurationMode === 'config_required' || def.configurationMode === 'config_allowed') && !isReadOnly
-                    ? () => openConfigModal(widget.type, (config) => updateWidget(activeTabId, widget.i, { props: config }), widget.props)
+                    ? () => openConfigModal(widget.type, (config) => updateWidget(appId, tabId, widget.i, { props: config }), widget.props)
                     : undefined
                 }
                 className={`h-full w-full ${isReadOnly ? 'locked-widget' : ''}`}

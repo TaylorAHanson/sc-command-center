@@ -62,7 +62,7 @@ const ViewHistoryModal: React.FC<{ view: ConsolidatedView; onClose: () => void }
             const results = await Promise.all(
                 envs.map(async env => {
                     try {
-                        const res = await fetch(`/api/views/history?view_id=${view.id}&env=${env}`);
+                        const res = await fetch(`/api/apps/history?app_id=${encodeURIComponent(view.id)}&env=${env}`);
                         if (!res.ok) return [];
                         const data = await res.json();
                         return (data.history || []).map((h: any) => ({ ...h, author: h.username || '—', env }));
@@ -147,7 +147,7 @@ export const ViewManager: React.FC = () => {
     const [selectedDomain, setSelectedDomain] = useState('All');
 
     // Dashboard store to trigger sidebar reloads
-    const { fetchViews: refreshGlobalSidebar, isAdmin, domainPermissions } = useDashboardStore();
+    const { fetchApps: refreshGlobalSidebar, isAdmin, domainPermissions } = useDashboardStore();
 
     // Modal state
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -155,7 +155,7 @@ export const ViewManager: React.FC = () => {
     const [newViewDomain, setNewViewDomain] = useState('General');
     const [isCreating, setIsCreating] = useState(false);
     // The domains a global view may be filed under: the taxonomy's, narrowed to
-    // those this user can edit (the same check `POST /api/views/` makes). This was
+    // those this user can edit (the same check `POST /api/apps/` makes). This was
     // a hardcoded list that had drifted from the taxonomy — it offered
     // "Manufacturing" and "Finance" whether or not they existed, and nothing an
     // admin added under Categories & Domains.
@@ -259,9 +259,9 @@ export const ViewManager: React.FC = () => {
 
     const fetchViews = async (env: string) => {
         try {
-            const res = await fetch(`/api/views/?env=${env}`);
+            const res = await fetch(`/api/apps/?env=${env}`);
             const data = await res.json();
-            return data.views || [];
+            return data.apps || [];
         } catch (e) {
             console.error(`Error fetching ${env} views:`, e);
             return [];
@@ -270,10 +270,10 @@ export const ViewManager: React.FC = () => {
 
     const fetchArchived = async (env: Env): Promise<ArchivedRow[]> => {
         try {
-            const res = await fetch(`/api/views/archived?env=${env}`);
+            const res = await fetch(`/api/apps/archived?env=${env}`);
             if (!res.ok) return [];
             const data = await res.json();
-            return data.views || [];
+            return data.apps || [];
         } catch (e) {
             console.error(`Error fetching archived ${env} views:`, e);
             return [];
@@ -340,20 +340,20 @@ export const ViewManager: React.FC = () => {
     const handleArchive = async (view: ConsolidatedView) => {
         const envs = ENVS.filter(env => view[env]);
         const failures = await applyToEnvs(envs, env =>
-            fetch(`/api/views/${encodeURIComponent(view.id)}/archive?env=${env}`, { method: 'POST' }));
+            fetch(`/api/apps/${encodeURIComponent(view.id)}/archive?env=${env}`, { method: 'POST' }));
         setPendingRemoval(null);
         await finishRemoval(failures, 'remove this view');
     };
 
     const handleRestore = async (view: ArchivedView) => {
         const failures = await applyToEnvs(view.envs, env =>
-            fetch(`/api/views/${encodeURIComponent(view.id)}/restore?env=${env}`, { method: 'POST' }));
+            fetch(`/api/apps/${encodeURIComponent(view.id)}/restore?env=${env}`, { method: 'POST' }));
         await finishRemoval(failures, 'restore this view');
     };
 
     const handleDeleteForever = async (view: ArchivedView) => {
         const failures = await applyToEnvs(view.envs, env =>
-            fetch(`/api/views/${encodeURIComponent(view.id)}?env=${env}`, { method: 'DELETE' }));
+            fetch(`/api/apps/${encodeURIComponent(view.id)}?env=${env}`, { method: 'DELETE' }));
         setPendingRemoval(null);
         await finishRemoval(failures, 'delete this view');
     };
@@ -418,15 +418,14 @@ export const ViewManager: React.FC = () => {
 
         setIsCreating(true);
         try {
-            const res = await fetch('/api/views/', {
+            const res = await fetch('/api/apps/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: newViewName.trim(),
                     domain: newViewDomain.trim(),
                     is_global: true,
-                    is_locked: false,
-                    widgets: []
+                    is_locked: false
                 })
             });
             if (res.ok) {

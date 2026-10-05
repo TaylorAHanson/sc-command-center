@@ -70,6 +70,8 @@ def _public(row: Dict[str, Any], spec: Dict[str, Any], *, username: str, subscri
         "is_shared": bool(subscribed and not is_global and row.get("username") != username),
         # The app-level agent; a tab's own pin, in the spec, overrides it.
         "pinned_agent_id": row.get("pinned_agent_id") or None,
+        # When this version was saved; View Promotion's "Last Modified".
+        "timestamp": view_routes._timestamp(row.get("timestamp")),
         "spec": spec,
     }
 

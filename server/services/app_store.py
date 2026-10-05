@@ -30,7 +30,7 @@ _CUSTOM_WIDGET_ID = re.compile(
 
 HEAD_COLUMNS = (
     "id", "version", "name", "domain", "username", "is_global",
-    "widgets_json", "spec_json", "is_locked", "pinned_agent_id",
+    "widgets_json", "spec_json", "is_locked", "pinned_agent_id", "timestamp",
 )
 
 

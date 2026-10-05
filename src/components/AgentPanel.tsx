@@ -4,6 +4,7 @@ import type { AgentChat } from '../hooks/useAgentChat';
 import { AgentConversation } from './AgentConversation';
 import { ConversationHistory } from './ConversationHistory';
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
+import { pinnedAgentOf } from '../store/appSpec';
 
 const DEFAULT_AGENT_NAME = 'EDH Agent';
 
@@ -14,17 +15,16 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
         pinnedAgentUnavailable,
     } = chat;
 
-    // The pin belongs to the view, so it is read and written through the
+    // The pin belongs to the app, so it is read and written through the
     // dashboard store rather than the chat — the same save path as renaming or
-    // locking a view, which is also what decides who is allowed to do it.
-    const { tabs, activeTabId, setPinnedAgent, canEditView } = useDashboardStore();
-    const activeTab = tabs.find(t => t.id === activeTabId) || null;
-    const pinnedAgentId = activeTab?.pinned_agent_id || '';
+    // locking an app, which is also what decides who is allowed to do it.
+    const { activeApp, activeAppTab, setPinnedAgent, canEditApp } = useDashboardStore();
+    const pinnedAgentId = pinnedAgentOf(activeApp, activeAppTab);
     // What the pin would be if the user set it now. Pinning the built-in agent is
     // a real choice, so an empty picker maps to the explicit default marker.
     const wouldPin = selectedProfileId || DEFAULT_AGENT_PIN;
     const isPinnedHere = pinnedAgentId === wouldPin;
-    const canPin = canEditView(activeTab);
+    const canPin = canEditApp(activeApp);
 
     const nameOf = (id: string): string =>
         (id === DEFAULT_AGENT_PIN || !id)
@@ -43,12 +43,12 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
     // default agent and no explanation, so say so at the moment it happens.
     const selectedProfile = availableProfiles.find(p => p.id === selectedProfileId);
     const pinnedButPrivate = Boolean(
-        isPinnedHere && activeTab?.is_global && selectedProfile?.visibility === 'personal',
+        isPinnedHere && activeApp?.is_global && selectedProfile?.visibility === 'personal',
     );
 
     const togglePin = () => {
-        if (!activeTab) return;
-        setPinnedAgent(activeTab.id, isPinnedHere ? null : wouldPin);
+        if (!activeApp) return;
+        setPinnedAgent(activeApp.id, activeAppTab?.id ?? null, isPinnedHere ? null : wouldPin);
     };
 
     // Populate the profile picker as soon as the drawer opens, so the saved
@@ -125,11 +125,11 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                             onClick={togglePin}
                             aria-pressed={isPinnedHere}
                             aria-label={isPinnedHere
-                                ? `Unpin ${nameOf(wouldPin)} from ${activeTab?.name}`
-                                : `Pin ${nameOf(wouldPin)} to ${activeTab?.name}`}
+                                ? `Unpin ${nameOf(wouldPin)} from ${activeApp?.name}`
+                                : `Pin ${nameOf(wouldPin)} to ${activeApp?.name}`}
                             title={isPinnedHere
-                                ? `Pinned to "${activeTab?.name}" — click to unpin`
-                                : `Open "${activeTab?.name}" with ${nameOf(wouldPin)}`}
+                                ? `Pinned to "${activeApp?.name}" — click to unpin`
+                                : `Open "${activeApp?.name}" with ${nameOf(wouldPin)}`}
                             className={`shrink-0 p-1.5 rounded-md border transition-colors ${isPinnedHere
                                 ? 'border-brand-blue/40 bg-brand-blue text-white hover:bg-brand-blue/90'
                                 : 'border-gray-200 text-gray-400 hover:text-brand-blue hover:border-brand-blue/40 hover:bg-brand-blue/5'}`}

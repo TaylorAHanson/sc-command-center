@@ -17,9 +17,8 @@ interface WidgetTrayProps {
 }
 
 export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditWidget, onCloneWidget }) => {
-  const { tabs, activeTabId, activeDomain, addWidget, openConfigModal, canEditDomain } = useDashboardStore();
-  const activeTab = tabs.find(t => t.id === activeTabId);
-  const isLocked = activeTab?.locked === true;
+  const { activeApp, activeAppTab, activeDomain, addWidget, openConfigModal, canEditDomain } = useDashboardStore();
+  const isLocked = activeApp?.locked === true;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
@@ -256,13 +255,16 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
     if (isLocked) return;
     if (widget.accessControl?.mockHasAccess === false) return;
     logWidgetRun(widget.id);
+    if (!activeApp || !activeAppTab) return;
+    const appId = activeApp.id;
+    const tabId = activeAppTab.id;
 
     if (widget.configurationMode === 'config_required') {
       openConfigModal(widget.id, (config) => {
-        addWidget(activeTabId, widget.id, undefined, config);
+        addWidget(appId, tabId, widget.id, undefined, config);
       });
     } else {
-      addWidget(activeTabId, widget.id);
+      addWidget(appId, tabId, widget.id);
     }
   };
 

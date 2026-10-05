@@ -47,8 +47,9 @@ must look and behave exactly like a view does today. Do not build a parallel
 - The store already calls views "tabs" (`src/store/dashboardStore.tsx`: `Tab`,
   `tabs`, `activeTabId`). The sidebar lists them (`Layout.tsx`).
 - `DashboardGrid` in `src/App.tsx` is hard-wired to `activeTabId`. It also has
-  an orphan-cleanup effect that **writes to the view** when a widget no longer
-  exists.
+  an orphan-cleanup effect meant to **write to the view** when a widget no longer
+  exists. *Found in slice 2:* it never does — it calls `updateLayout`, which saves
+  only a move or resize — and orphans are merely hidden by the grid's filter.
 - Grid is a single 12-col `react-grid-layout` layout (`breakpoints={{ lg: 0 }}`).
 - `variables` (emitter/receiver state) is one provider-wide map, never reset on
   view change.
@@ -319,12 +320,50 @@ none should run as the SP.
 | # | Slice | Notes |
 | --- | --- | --- |
 | 1 | Storage + `/api/apps` + legacy read path + tests | No UI change. **Built**, plus `compose` |
-| 2 | Store/type rename; flip frontend to `/api/apps` | Workspace behavior identical |
+| 2 | Store/type rename; flip frontend to `/api/apps` | Workspace behavior identical. **Built** (§4.3a) |
 | 3 | App-scoped widget bundle + canonical links/aliases | Access unchanged (§2.3) |
 | 4 | `AppShell` standalone: route-level split, branding, env badge, viewer/editor, route-aware provider | Critical path for shareable apps |
 | 5 | Multi-tab bar and editing; app-scoped variables | |
 | 6 | `transfer_app` with preflight; delete `/api/views` shim | |
 | 7 | Nav styles, theme tokens, filters | Optional polish |
+
+### 4.3a Slice 2 as built
+
+- **Store.** `Tab` is now `App` (in `src/store/appSpec.ts`, beside `AppTab`,
+  `AppSpec`, `WidgetLayout`), and the store's `tabs`/`activeTabId`/`addTab`/... are
+  `apps`/`activeAppId`/`addApp`/.... It also exposes `activeApp` and
+  `activeAppTab`. "Tab" now means only a canvas inside an app.
+- **Shown tab = first tab** (`shownTab`), until slice 5's tab bar. An app with
+  more tabs (only `compose` can make one today) shows tab one, as `/api/views`
+  always did, and keeps the rest.
+- **Saves send the whole spec**, built from what `GET /api/apps` returned with one
+  tab's widgets changed. Widget operations take `(appId, tabId)`. The server
+  accepts every spec its read path returns; the route tests round-trip legacy
+  rows (null `y`, a widget id repeated within a tab, a view id over the 64-char
+  tab-id cap, which is now accepted when it is the app's own id).
+- **Saves to one app are queued.** Each save claims version + 1 off the newest
+  row, so overlapping saves hit `dashboard_views_pkey` and one is refused. That
+  predates apps (StrictMode doubled every save in dev; in production it took two
+  edits close together). The store now chains saves per app. Q3's
+  debounce/coalescing can sit on the same queue.
+- **Pins.** The drawer resolves tab → app → built-in (`pinnedAgentOf`). The pin
+  button changes the pin in force: the tab's if it has one, else the app's. A
+  view's tab never has one, so for views nothing changed. The apply-on-arrival
+  effect is keyed `appId/tabId`.
+- **Telemetry.** `action_logs.context.tabId`/`tabName` keep meaning the
+  view's (app's) id and name, so the audit trail reads the same either side of
+  the change; `appTabId`/`appTabName` are added. The assistant preamble is
+  unchanged for one-tab apps and names the tab only when there are several.
+- **Admin.** View Promotion lists, archives, restores, deletes and reads history
+  through `/api/apps`. Promotion itself stays on `transfer_view` until slice 6.
+  `/api/apps` now returns `timestamp`, which `/api/views` selected but dropped.
+  That is why "Last Modified" was always blank.
+- **Words on screen are unchanged** ("My Views", "New View", "View Promotion").
+  Renaming what users see belongs with the change that gives them something new
+  to see (slices 4–5), alongside the user guide and `app_guide.md`.
+- **Not in this slice:** links stay `#/view/<id>` and `?shared_view=` (slice 3);
+  variables stay provider-wide (slice 5); the provider still loads everything
+  eagerly (slice 4).
 
 ### 4.4 Docs and tests (per AGENTS.md)
 
@@ -380,7 +419,7 @@ Record answers here as they are decided; do not treat the brief as closed.
 | Q5 | Tab-level lock? | Defer | Deferred |
 | Q6 | Logo/favicon max size and allowlist | Server-side validate; CSP already allows data/https images | **Built:** https URL or base64 `data:image/*`, ≤ 256 KB encoded (`app_spec.MAX_IMAGE_CHARS`) |
 | Q7 | What access do existing personal views get under apps? | — | **Decided:** no change to the security model at all; see §2.3. `link_access` dropped. |
-| Q8 | Should `GET /api/views/history` get the access check too? Today it has no auth dependency and returns names/usernames/timestamps for any id. `/api/apps/history` is gated. | Gate it when the admin screen moves to `/api/apps` | Open |
+| Q8 | Should `GET /api/views/history` get the access check too? Today it has no auth dependency and returns names/usernames/timestamps for any id. `/api/apps/history` is gated. | The admin screen moved to `/api/apps` in slice 2, so nothing in the UI calls it now. Gating it would still change access, so it's left for slice 6, which deletes it. | Deferred to slice 6 |
 
 ---
 
@@ -402,3 +441,4 @@ From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
 | 2026-10-05 | Created from Apps brief + standalone-shell amendment. Status: Proposed. |
 | 2026-10-05 | Slice 1 built: `spec_json` column, `services/app_spec.py` + `app_store.py`, `/api/apps` (CRUD, history, subscribe, archive/restore/delete, compose) with the access rule enforced on every read, `/api/views` shim writing tab one only, certified check across tabs, leaderboard counting every tab, promotion comparing meaning. Added §2.2a (existing deployments), Q7, Q8. Also fixed: making an app global now requires editor rights on the domain it lands in. |
 | 2026-10-05 | Decided: apps inherit the views' security model unchanged. Rewrote §2.3; dropped `link_access`, the widget-domain bypass, and "opening must not subscribe". Q7 closed. |
+| 2026-10-05 | Slice 2 built (§4.3a): store speaks `App`/`AppTab`, the browser uses only `/api/apps`, saves carry the whole spec, pins resolve tab → app. Corrected §1.2 (orphan cleanup never wrote). Q8 deferred to slice 6. |
