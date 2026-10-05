@@ -18,6 +18,24 @@ def same_content(a: dict, b: dict) -> bool:
     return all((a.get(k) or None) == (b.get(k) or None) for k in keys)
 
 
+def same_view_content(a: dict, b: dict) -> bool:
+    """`same_content` for view/app rows, comparing what the rows mean rather than how they're stored.
+
+    A row saved before apps has only `widgets_json`; the same layout saved since
+    also carries `spec_json`. Compared column by column, every view promoted from
+    an env where someone had touched it to one where nobody had would look
+    changed, and get a new version, with nothing different about it.
+    """
+    from services.app_spec import read_spec
+
+    def meaning(row: dict) -> dict:
+        out = {k: v for k, v in row.items() if k not in ("widgets_json", "spec_json")}
+        out["spec"] = read_spec(str(row.get("id") or ""), row.get("spec_json"), row.get("widgets_json"))
+        return out
+
+    return same_content(meaning(a), meaning(b))
+
+
 class TransferRequest(BaseModel):
     widget_id: str
     source_env: str
@@ -185,7 +203,7 @@ def transfer_view(request: ViewTransferRequest, w: WorkspaceClient = Depends(get
     head_row = c_target.fetchone()
     if head_row is not None:
         head = dict(zip([d[0] for d in c_target.description], head_row))
-        if same_content(view, head):
+        if same_view_content(view, head):
             target_conn.close()
             return {"status": "success", "message": f"Already up to date: {request.target_env} v{head['version']} is the same view"}
 

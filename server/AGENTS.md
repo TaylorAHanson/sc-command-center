@@ -34,7 +34,7 @@ Run the backend alone with `cd server && venv/bin/uvicorn main:app --reload
    through to `get_db_connection(env)`. Every existing data route does this.
 
 Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
-`/api/sql`, `/api/jobs`, `/api/roles`, `/api/views`, `/api/promotion`,
+`/api/sql`, `/api/jobs`, `/api/roles`, `/api/views`, `/api/apps`, `/api/promotion`,
 `/api/taxonomy`, `/api/databricks`, `/api/agent` (proxy), `/api/agent/widget`,
 `/api/agent/studio`, `/api/migration`, plus `/api` for n8n and Tableau. Interactive docs are at
 `/api/docs`.
@@ -135,6 +135,45 @@ about the view's id. It is per env (each env has its own schema), so the View
 Promotion screen calls the endpoint once per env the view exists in and reports
 each failure; a partly-applied archive is visible in the Archived list rather than
 hidden. `tests/test_view_archive.py` holds the ordering and the permissions.
+
+### Apps: a view is an app with one tab (`services/app_spec.py`, `services/app_store.py`, `routes/apps.py`)
+
+`docs/adr-001-apps-as-top-level-artifact.md` is the plan; this is what is built.
+An app is a `dashboard_views` row under the view's own id, plus `spec_json`
+(tabs, each a widget layout, and presentation/link/assistant/branding). The rules
+that keep the deployment already running intact:
+
+- **No backfill, ever.** A NULL `spec_json` reads as the one-tab app the view
+  always was, tab id = app id. Writing specs for old rows would add a version to
+  every view in every env. `promotion.same_view_content` compares what rows
+  *mean*, so a lazily upgraded row doesn't look changed next to its untouched copy
+  in another env.
+- **`/api/views` changes the first tab only.** Its saves go through
+  `app_store.save_version(first_tab_widgets=...)`, because it (and any browser
+  still on the old bundle) can't see tabs 2+, and replacing the spec would delete
+  them on the next drag. `widgets_json` is always written equal to tab one, so a
+  rollback to pre-apps code still shows each app's first tab.
+- **`read_spec` never raises; `validate_spec` refuses.** Reads (sidebar,
+  leaderboard, promotion) keep widget entries verbatim and fall back to
+  `widgets_json`; writes reject what they would have to guess at — no tabs, a
+  widget instance on two tabs, an unknown choice, a spec from a newer schema.
+- **The access model is the views' model, unchanged.** `app_spec.can_read`: a
+  global app needs a role in its domain (or global admin); a personal app opens
+  for anyone holding its id, because `POST /api/views/shared/{id}` has always
+  subscribed any caller to any id. `POST /api/apps/{id}/subscribe` *is* that
+  handler. Tightening any of this is its own decision — don't do it in passing.
+  `GET /api/apps/{id}` is new (views had no read-by-id), writes nothing, and
+  answers a global app outside your domains with the same 404 as a missing id.
+- **One tightening, flagged:** `save_version` also requires editor rights on the
+  *resulting* domain when an app is made global or a global app changes domain.
+  The old update path checked only the domain a view started in, which let an
+  owner publish a personal view as global into any domain. Creating a global view
+  already required it.
+- **`POST /api/apps/compose`** copies existing views/apps into a new personal
+  app, a tab each. Sources are untouched (copy, not move) so their links and
+  subscriptions keep working.
+
+`tests/test_app_spec.py` and `tests/test_apps_routes.py` hold all of the above.
 
 ## Who made what (`services/creator_stats.py`)
 
@@ -972,6 +1011,8 @@ PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 16
 PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
+PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 27 passed
+PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 21 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed
 server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
@@ -980,7 +1021,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_db_pool.py              # 14
 PYTHONPATH=server server/venv/bin/python tests/test_research_tools.py       # 24 passed
 PYTHONPATH=server server/venv/bin/python tests/test_principals.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_data_migration.py       # 21 passed
-PYTHONPATH=server server/venv/bin/python tests/test_promotion.py            # 5 passed
+PYTHONPATH=server server/venv/bin/python tests/test_promotion.py            # 7 passed
 ```
 
 The last two need the venv interpreter, not a bare `python3`: they exercise

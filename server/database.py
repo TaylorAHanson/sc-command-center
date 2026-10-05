@@ -811,6 +811,17 @@ def init_db(env: str = "dev"):
         conn.rollback()
         pass
 
+    # An app's tabs and presentation (services/app_spec.py). Deliberately not
+    # backfilled: a NULL reads as the one-tab app the row always was, whereas
+    # writing one would add a version to every view in every env and make
+    # promotion see all of them as changed.
+    try:
+        c.execute("ALTER TABLE dashboard_views ADD COLUMN IF NOT EXISTS spec_json TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+
     # Turns the user pressed Stop on, keyed by the client's per-turn id. A table
     # rather than process memory because the Stop request can land on a different
     # worker from the one running the turn, and keyed by turn rather than hung off

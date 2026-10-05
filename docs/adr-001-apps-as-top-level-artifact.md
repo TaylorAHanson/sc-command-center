@@ -1,0 +1,404 @@
+# ADR-001 — Apps as the top-level artifact (Views become Tabs)
+
+| Field | Value |
+| --- | --- |
+| Status | Proposed |
+| Date | 2026-10-05 |
+| Branch | `feature/apps-as-top-level-artifact` |
+| Scope | Application only: data model, API, shell, builder, promotion |
+| Out of scope | Signals/pipelines/new intelligence; presets/"modes"; a spec-authoring agent; iframe isolation for widgets; a responsive grid; public/anonymous links; iframe embedding in other sites |
+
+This document is the working ADR and implementation spec for folding today's
+**views** into **apps**. The brief that seeded it is advisory; open questions and
+verify-before-building items are called out explicitly so implementation can
+challenge them.
+
+---
+
+## 1. Context
+
+Command Center is a configurable single-canvas dashboard. Users compose a canvas
+from widgets (Widget Studio), agents (Agent Studio), and data (OBO / Unity
+Catalog). The canvas is stored as a **view** (`dashboard_views`).
+
+We want users to compose a multi-tab, designed experience — an **app** — from
+those same building blocks. Examples: an executive-facing multi-tab experience,
+a team hub, or a simple one-canvas dashboard that behaves exactly as a view does
+today.
+
+Separately, an app must be **linkable** and able to render **without Command
+Center chrome**, so a shared link feels like its own product while Command
+Center remains the authoring and management surface.
+
+### 1.1 Design stance
+
+**One concept, not two.** A view is just a simple app. The model becomes
+**App → Tabs**, where each tab is what we call a view today. An app with one tab
+must look and behave exactly like a view does today. Do not build a parallel
+"apps" system next to views; fold views into apps.
+
+### 1.2 Facts about the current code (verified at brief time)
+
+- A view is a row in `dashboard_views`, PK `(id, version)`, with
+  `name, domain, username, is_global, widgets_json, is_locked, pinned_agent_id`.
+  Every save (`PUT /api/views/{id}`, `server/routes/views.py::update_view`)
+  **inserts a new version row**, and the client PUTs on every drag/resize
+  (`dashboardStore.apiSyncView`).
+- The store already calls views "tabs" (`src/store/dashboardStore.tsx`: `Tab`,
+  `tabs`, `activeTabId`). The sidebar lists them (`Layout.tsx`).
+- `DashboardGrid` in `src/App.tsx` is hard-wired to `activeTabId`. It also has
+  an orphan-cleanup effect that **writes to the view** when a widget no longer
+  exists.
+- Grid is a single 12-col `react-grid-layout` layout (`breakpoints={{ lg: 0 }}`).
+- `variables` (emitter/receiver state) is one provider-wide map, never reset on
+  view change.
+- Routing is hash-based in `Layout.tsx`: `#/view/<id>`, `#/template/<id>`. The
+  `hashchange` handler omits `#/agent-studio`, `#/user-guide`, `#/release-notes`
+  (existing bug; fix when touching it).
+- Version numbers are **per environment** (`promotion.py`: Dev v5 and Test v5
+  are unrelated rows). Never reference a version number across envs.
+- Widgets and global views are domain-filtered server-side today
+  (`custom_widgets.py::_visible`, `views.py::get_views`).
+- Opening `?shared_view=` calls `POST /api/views/shared/{id}`, which only
+  checks the row exists and then **subscribes the caller**. Anyone holding a
+  view id can read any view, including personal ones.
+- `Layout.tsx` always renders the sidebar, header, floating agent launcher,
+  `WidgetTray`, `w` shortcut, and studio/admin entry points. Shell decision must
+  be made before first paint (Layout reads hash synchronously in `useState`) or
+  users see a sidebar flash.
+- `DashboardProvider` eagerly calls `fetchPermissions()` and `fetchViews()` on
+  mount; the app also loads the full widget library. Layout prefetches studio /
+  admin chunks at idle — none of that is wanted in a standalone context.
+- CSP already has `frame-ancestors 'self'` (`server/main.py`); iframe embedding
+  elsewhere stays out of scope. `img-src` already allows logos from data URLs or
+  https.
+
+### 1.3 Blast radius (files that touch views today)
+
+| Area | Files |
+| --- | --- |
+| Backend | `routes/views.py`, `routes/promotion.py` (`transfer_view`), `database.py`, `services/data_migration.py`, `services/creator_stats.py` |
+| Tests | `tests/test_view_archive.py`, `tests/test_view_pins.py` (+ any new apps tests) |
+| Frontend | `dashboardStore.tsx`, `Layout.tsx`, `App.tsx`, `pages/admin/ViewManager.tsx`, `AdminPage.tsx`, `AgentPanel.tsx`, `useAgentChat.ts`, `useDashboardContext.ts`, `useActionLogger.ts`, `WidgetTray.tsx`, `WidgetStudio.tsx`, `WidgetPromotionPanel.tsx`, `ThumbnailCapture.tsx` |
+
+`data_migration.py` table specs must stay current; a test fails if a table isn't
+listed.
+
+---
+
+## 2. Decision
+
+### 2.1 Target model
+
+```json
+App {
+  "id": "...", "version": 1, "name": "...", "domain": "...", "username": "...",
+  "is_global": false, "is_locked": false,
+  "spec": {
+    "schema": 1,
+    "presentation": "workspace" | "standalone",
+    "assistant": "on" | "off",
+    "branding": {
+      "title": "...",
+      "logo": "data-url-or-https",
+      "favicon": "...",
+      "assistant_name": "..."
+    },
+    "tabs": [
+      {
+        "id": "...",
+        "name": "...",
+        "widgets": ["WidgetLayout"],
+        "pinned_agent_id": null
+      }
+    ],
+    "default_agent_id": null,
+    "nav": null,
+    "theme": null,
+    "filters": []
+  }
+}
+```
+
+- **As built (slice 1):** the app-level agent stays in the existing
+  `pinned_agent_id` column, exposed as `pinned_agent_id` on the app, rather than
+  moving into `spec.default_agent_id`. One place to store it, `pin_value`
+  semantics unchanged, and the legacy API keeps working. Tabs carry their own
+  `pinned_agent_id` in the spec; resolution is tab → app → built-in default.
+  Name, domain, owner, global and lock likewise stay columns.
+- **As built:** a missing `presentation` reads as `workspace`. "New apps default
+  to standalone" is a client default for the *New app* flow (slice 4), not a
+  storage default, so that no row can lose the sidebar by omission.
+- Rename the store's current `Tab` to `App` and introduce `AppTab`. Do not leave
+  two meanings of "tab" in the code.
+- Tabs live **inside** the app (embedded in `spec`), not as separate rows
+  referenced by id. One versioned artifact, promoted atomically.
+- The only promotion dependencies left are widgets and pinned agents.
+- Optional later fields (`nav`, `theme`, `filters`) are reserved; do not block
+  early slices on them.
+
+### 2.2 Storage and compatibility (evolve in place)
+
+Recommended path — challenge if a cleaner cutover appears during slice 1:
+
+- Keep table `dashboard_views` for now. Add `spec_json TEXT` via
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (idempotent DDL, advisory-lock
+  block in `database.py`).
+- A row with no `spec_json` is read as a one-tab app
+  (`tab.id = app.id`, widgets from `widgets_json`). No data move.
+- Writes always write `spec_json`; optionally dual-write `widgets_json`
+  (= first tab) for a couple of releases for rollback safety.
+- **Preserve ids.** App id = old view id, so `shared_views`, `archived_views`,
+  `?shared_view=` links, `#/view/<id>`, `?widget=<id>` deep links and
+  action-log references keep working.
+- A later, optional step can rename the physical table.
+
+### 2.2a Existing deployments (many views, many widgets, every env)
+
+The deployment this lands on already has every version of every view anyone saved,
+in dev, test and prod, plus subscriptions, archives, shared links and action-log
+references to view ids. The design is that **none of it is touched**:
+
+| Concern | How it's handled |
+| --- | --- |
+| Migrating rows | Not done. `spec_json` is added nullable and never backfilled; a NULL reads as the one-tab app (tab id = app id). A backfill would mint a version of every view in every env. |
+| Promotion after a lazy upgrade | `same_view_content` compares the *read* spec, not columns, so a view re-saved in Dev still matches its untouched copy in Test and isn't re-promoted for nothing. A change on tab 2+ still counts as a change. |
+| Old clients during and after deploy | A browser still on the old bundle, and `/api/views` generally, can only see one canvas. Their saves change **tab one only** (`with_first_tab_widgets`); replacing the spec would delete tabs 2+ on the next drag. |
+| Rollback to pre-apps code | `widgets_json` is always written equal to tab one, so old code shows each app's first tab. Caveat: an old-code save then writes no `spec_json`, so that app reads as one tab again. Tabs 2+ survive in version history, not in the head. Don't roll back past slice 5 without restoring those heads. |
+| Ids and links | App id = view id, so `shared_views`, `archived_views`, `#/view/<id>`, `?shared_view=`, `?widget=` and action logs are unaffected. |
+| Junk in old rows | `read_spec` never raises and keeps widget entries verbatim (including `y: null` from `Infinity`). Strict validation applies only to new writes, and a widget id repeated *within* one tab is still allowed, as it always was. |
+| Folding many views into apps | `POST /api/apps/compose` copies chosen views (or apps) into a new personal app, one tab each, in order. Sources are copied, not moved, so their links, subscriptions and history keep working; the author archives them afterwards if they want. Tabs get new ids; widget instance ids are kept unless two sources share one (e.g. a duplicated view), in which case the later copy is re-keyed. Every source must be one the caller could open. |
+| Data migration snapshots | The column travels automatically ("only columns both sides have"). Importing into an app older than slice 1 drops `spec_json` and keeps tab one. |
+
+### 2.3 Access: unchanged from views (decided 2026-10-05)
+
+**Everything that was true for views is true for apps. Introducing apps does not
+change the security model.** The brief proposed several changes here; all of them
+are dropped:
+
+| Brief proposed | Decision |
+| --- | --- |
+| Viewers render an app's widgets without a role in the widgets' domains (bypass `_visible`) | **Dropped.** The app-scoped widget bundle (`GET /api/apps/{id}/widgets`, slice 3) must apply the same domain filter `/api/widgets/custom` applies today. |
+| `link_access: restricted \| workspace` | **Dropped.** No such field. |
+| Opening a link must not subscribe; subscribing becomes an explicit button | **Dropped as a security change.** The `?shared_view=` flow keeps auto-subscribing. `POST /api/apps/{id}/subscribe` is the same handler as `POST /api/views/shared/{id}`. |
+| 404 for no-access on read | Kept where views already denied access (a global app outside your domains); it grants and removes nothing. |
+
+What that means concretely, as built in `app_spec.can_read` and
+`app_store.require_may_edit`:
+
+- **Read:** a global app needs a role in its domain, or global admin, as
+  `GET /api/views` filters global views. A personal app opens for anyone holding
+  its id, because `?shared_view=<id>` has always subscribed any caller to any id
+  that exists. Archived apps read as missing, as they drop out of the views list.
+- **Write:** personal apps by their owner, global apps by an editor of their
+  domain, as `PUT /api/views/{id}`.
+- **Data:** every query still runs as the viewer (OBO), and Unity Catalog decides
+  what it returns.
+- **One tightening, flagged for review:** making an app global, or moving a
+  global app to another domain, now needs editor rights on the domain it lands
+  in. The old update path checked only the starting domain, so an owner could
+  publish a personal view as global into any domain, which the create path already
+  refused. Revert by removing the `new_global and (...)` check in
+  `app_store.save_version` if this is unwanted.
+
+Still worth auditing before rollout, though it is not a change: any widget with
+side effects that are not UC-governed (n8n, Tableau, custom_widgets APIs,
+executable actions) must run as the viewer (OBO) and write `action_logs`, and
+none should run as the SP.
+
+### 2.4 Presentation and shell
+
+- Canonical link: `#/app/<appId>[/<tabId>]`, optional widget deep link
+  `#/app/<appId>/<tabId>/w/<widgetId>`.
+- `#/view/<id>` and `?shared_view=` remain permanent aliases that resolve to the
+  same app.
+- **The shell is a property of the app, not the URL.** Spec field
+  `presentation: "workspace" | "standalone"`:
+  - Migrated legacy views default to `workspace` (analysts keep the sidebar).
+  - Newly created apps default to `standalone`.
+- Standalone = no Command Center chrome (no sidebar, no "Command Center"
+  header/title, no widget tray, no studio/admin entry points). Render
+  `AppShell` with **no Layout at all** — do not hide Layout with CSS.
+- Links still require normal sign-in to this Databricks App (OBO identity). Never
+  public/anonymous.
+- Keep an environment badge in dev/test/stage even in standalone.
+
+### 2.5 Behavior to preserve or define
+
+| Concern | Rule |
+| --- | --- |
+| Single-tab app | No tab bar; sidebar (workspace) opens straight to the canvas |
+| Multi-tab | Tab bar inside the app; sidebar lists apps, not tabs |
+| Lock / share / archive | App-level (tab-level lock later if needed) |
+| Agent pin | App-level default with tab-level override (tab → app → default). Keep `pin_value` semantics (absent = keep, `""` = clear); covered by `tests/test_view_pins.py` |
+| Variables | Scope to the active app. Reset on app change; shared across its tabs. Fixes a cross-view leak — verify nothing relies on cross-view persistence |
+| Orphan widgets | Do not write to an app from orphan-cleanup for non-editors; show a visible "widget unavailable" placeholder instead of silently hiding |
+| Version churn | Debounce client autosave; update the head row in place when the same user saves within a short window and only layout changed. Promotion must still see a stable head |
+| Branding | Applied by `AppShell`; set `document.title` / favicon while mounted; restore Command Center's on exit. Validate and size-limit logo/favicon server-side |
+| Assistant | `assistant: "on" \| "off"`. When on, reuse `AgentPanel` with app default or per-tab pin; conversation held above tabs. Branding replaces "EDH Agent" |
+| Viewer vs editor (standalone) | Viewers: no tray, no `w`, no drag/resize, no lock/share, no orphan writes. Editors: one unobtrusive "Edit app" → workspace builder. "Copy link" for anyone allowed to share |
+
+---
+
+## 3. Consequences
+
+### 3.1 Positive
+
+- One mental model and one promotion unit for single-canvas and multi-tab
+  experiences.
+- Shared links can look like a product without forking the runtime.
+- No change to who can see or change what (§2.3), so nothing to re-review or
+  re-communicate about access.
+- App-scoped widget bundle is smaller/faster than loading the full library,
+  which matters most for standalone apps opened from a link.
+
+### 3.2 Trade-offs / risks
+
+- Embedding tabs multiplies row size; version-per-drag already churns rows —
+  coalescing is required, not optional, for multi-tab to stay healthy.
+- Dual-write / legacy read path adds temporary complexity; delete the
+  `/api/views` shim once the frontend is flipped.
+- Standalone load path must be route-aware from the first paint; any eager
+  `fetchViews` / full library / studio prefetch will regress link open cost and
+  flash chrome.
+- `presentation` defaults differ for migrated vs new apps — document clearly in
+  user guide and release notes so creators are not surprised.
+
+### 3.3 Non-goals (restate)
+
+- Public anonymous apps, cross-site iframe embeds, responsive grid redesign,
+  widget iframe isolation, intelligence/presets, authoring agent for the app
+  spec.
+
+---
+
+## 4. Implementation plan
+
+### 4.1 Backend
+
+1. `database.py`: add `spec_json`; keep idempotent DDL + advisory lock.
+2. New `routes/apps.py` (or rename `views.py`) reading legacy and new rows.
+   Register by hand in `main.py`. Accept `env` on every route.
+3. API surface: `/api/apps` (CRUD, history, shared, archive/restore). Keep
+   `/api/views` as a thin shim until the frontend is flipped, then delete it.
+4. `GET /api/apps/{id}/widgets`: source for widgets the app's tabs use (honor
+   placed `props._version`), for users who can read the app, with the **same
+   domain filter** `/api/widgets/custom` applies (§2.3).
+5. `_require_certified_widgets`: run over **all tabs'** widgets on create and
+   update.
+6. `promotion.py`: `transfer_view` → `transfer_app`, with a **preflight** that
+   lists widgets and pinned agents missing in the target env (resolve by id to
+   target env's head). Fixes the existing "view references a widget not in the
+   target" gap.
+7. `creator_stats.py`: count placements across every tab.
+8. `data_migration.py`: keep table spec current.
+9. Share-link helpers (`generateShareLink` / `generateWidgetShareLink`): emit
+   canonical `#/app/...` links.
+
+### 4.2 Frontend
+
+1. `dashboardStore.tsx`: `App` / `AppTab`, active app + active tab, app-scoped
+   variables. Make `DashboardProvider` route-aware (standalone skips
+   `fetchViews`, full library, studio/admin prefetch).
+2. Parameterize `DashboardGrid` by app/tab id and read-only flag.
+3. Route-level shell split: resolve `#/app/<id>` before Layout; standalone →
+   `AppShell`, else existing Layout.
+4. `Layout.tsx`: sidebar lists apps; header lock/share act on the app; hash
+   routing for `#/app/<id>[/<tabId>]`; fix missing `hashchange` entries.
+5. Tab bar (reorder, add, rename, delete) for editors; part of `AppShell` for
+   standalone.
+6. Admin / promotion screens: app terminology, new API.
+7. `useDashboardContext` / `useActionLogger`: include app name and active tab.
+8. Add-widget flows target the active tab.
+9. Later slices: nav style, theme tokens (if generators learn about them, update
+   `agent_instructions.md`, `widgetLint.ts`, and the runtime together),
+   app-scoped filters into `variables`.
+
+### 4.3 Ship slices (independently shippable; behavior-preserving first)
+
+| # | Slice | Notes |
+| --- | --- | --- |
+| 1 | Storage + `/api/apps` + legacy read path + tests | No UI change. **Built**, plus `compose` |
+| 2 | Store/type rename; flip frontend to `/api/apps` | Workspace behavior identical |
+| 3 | App-scoped widget bundle + canonical links/aliases | Access unchanged (§2.3) |
+| 4 | `AppShell` standalone: route-level split, branding, env badge, viewer/editor, route-aware provider | Critical path for shareable apps |
+| 5 | Multi-tab bar and editing; app-scoped variables | |
+| 6 | `transfer_app` with preflight; delete `/api/views` shim | |
+| 7 | Nav styles, theme tokens, filters | Optional polish |
+
+### 4.4 Docs and tests (per AGENTS.md)
+
+- User-visible behavior → update `RELEASE_NOTES.md` in the same commit, plus
+  `src/pages/UserGuidePage.tsx` and `server/services/app_guide.md`.
+- New pages → both `pageImports` and the prefetch list (and skip prefetch in
+  standalone).
+- Tests are standalone Python under the venv (no pytest harness). Cover at
+  least: access is identical to views (global needs a domain role; personal
+  opens by id; edit rights unchanged); alias resolution; pin semantics;
+  certified check across tabs; legacy read and single-canvas saves.
+- Run `npm run lint` and `npm run build` (real type gate) before claiming a
+  slice done.
+
+### 4.5 Prerequisites before broad rollout
+
+- Confirm permission checks are really on in the target
+  (`DISABLE_PERMISSION_CHECKS`; the `users` → admin lockout-prevention seed).
+- Measure app-open cost with the existing Playwright harness (longest
+  main-thread task), especially standalone.
+
+---
+
+## 5. Verify before building
+
+These are gates, not folklore. Resolve or document findings before the matching
+slice lands.
+
+1. Does any placed widget or endpoint run as the SP or without OBO?
+   (§2.3 caveat)
+2. Do any widgets depend on `variables` persisting across view switches?
+3. Anything else that parses `widgets_json` outside the blast-radius list in
+   §1.3?
+4. ~~Does anything else rely on `?shared_view=` auto-subscribing?~~ Moot: the
+   auto-subscribe stays (§2.3).
+5. Which widgets/endpoints read sidebar-era global state (`activeTabId`,
+   `activeDomain`) and would break when no Layout is mounted?
+6. Is `/api/roles/my-permissions` acceptable from a standalone app, or is a
+   lighter identity endpoint needed?
+
+---
+
+## 6. Open questions
+
+Record answers here as they are decided; do not treat the brief as closed.
+
+| # | Question | Lean | Decision |
+| --- | --- | --- | --- |
+| Q1 | Keep `presentation` flag, or force every app standalone? | Keep flag — analysts hop between one-canvas dashboards in the sidebar today | Open |
+| Q2 | How long to dual-write `widgets_json`? | "A couple of releases" after frontend flip | Open |
+| Q3 | Coalesce window / what counts as "only layout changed"? | TBD with promotion head stability | Open |
+| Q4 | Physical table rename (`dashboard_views` → `apps`)? | Optional later; not required for product | Open |
+| Q5 | Tab-level lock? | Defer | Deferred |
+| Q6 | Logo/favicon max size and allowlist | Server-side validate; CSP already allows data/https images | **Built:** https URL or base64 `data:image/*`, ≤ 256 KB encoded (`app_spec.MAX_IMAGE_CHARS`) |
+| Q7 | What access do existing personal views get under apps? | — | **Decided:** no change to the security model at all; see §2.3. `link_access` dropped. |
+| Q8 | Should `GET /api/views/history` get the access check too? Today it has no auth dependency and returns names/usernames/timestamps for any id. `/api/apps/history` is gated. | Gate it when the admin screen moves to `/api/apps` | Open |
+
+---
+
+## 7. Repo rules reminder
+
+From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
+
+- Default to `get_db_client` (OBO); frontend never holds secrets.
+- Widgets, views/apps, and agents are database rows, not files in this repo.
+- Version numbers are per environment — never reference across envs.
+- Register routers by hand in `main.py`.
+
+---
+
+## Change log
+
+| Date | Change |
+| --- | --- |
+| 2026-10-05 | Created from Apps brief + standalone-shell amendment. Status: Proposed. |
+| 2026-10-05 | Slice 1 built: `spec_json` column, `services/app_spec.py` + `app_store.py`, `/api/apps` (CRUD, history, subscribe, archive/restore/delete, compose) with the access rule enforced on every read, `/api/views` shim writing tab one only, certified check across tabs, leaderboard counting every tab, promotion comparing meaning. Added §2.2a (existing deployments), Q7, Q8. Also fixed: making an app global now requires editor rights on the domain it lands in. |
+| 2026-10-05 | Decided: apps inherit the views' security model unchanged. Rewrote §2.3; dropped `link_access`, the widget-domain bypass, and "opening must not subscribe". Q7 closed. |

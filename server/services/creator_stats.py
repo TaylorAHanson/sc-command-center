@@ -21,7 +21,6 @@ data and can be reasoned about — and tested — without a database.
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -178,10 +177,12 @@ def _runs(cursor) -> List[Tuple[str, Optional[str]]]:
 
 
 def _placements(cursor) -> List[Tuple[str, Optional[str]]]:
-    """Every widget sitting on the current version of someone's view."""
+    """Every widget sitting on any tab of the current version of someone's app."""
+    from services.app_spec import all_widgets, read_spec
+
     cursor.execute(
         """
-        SELECT dv.widgets_json, dv.username
+        SELECT dv.id, dv.spec_json, dv.widgets_json, dv.username
         FROM dashboard_views dv
         INNER JOIN (
             SELECT id, MAX(version) AS version
@@ -192,15 +193,10 @@ def _placements(cursor) -> List[Tuple[str, Optional[str]]]:
         """
     )
     found: List[Tuple[str, Optional[str]]] = []
-    for widgets_json, owner in cursor.fetchall():
-        try:
-            widgets = json.loads(widgets_json or "[]")
-        except (TypeError, ValueError):
-            continue  # a malformed view is not worth failing the whole board over
-        if not isinstance(widgets, list):
-            continue
-        for widget in widgets:
-            if isinstance(widget, dict) and widget.get("type"):
+    # read_spec never raises: a malformed app is not worth failing the whole board over.
+    for app_id, spec_json, widgets_json, owner in cursor.fetchall():
+        for widget in all_widgets(read_spec(str(app_id), spec_json, widgets_json)):
+            if widget.get("type"):
                 found.append((str(widget["type"]), owner))
     return found
 
