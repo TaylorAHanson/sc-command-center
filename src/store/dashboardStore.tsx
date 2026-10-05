@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
-import { newAppSpec, shownTab, withTab, type App, type AppTab, type WidgetLayout } from './appSpec';
-import { appHash, appLink, linkTab, parseAppRoute, withoutRouteParams, type AppRoute } from './appRoute';
+import { newAppSpec, shownTab, withTab, type App, type AppSpec, type AppTab, type WidgetLayout } from './appSpec';
+import { appHash, appLink, isStandalone, linkTab, parseAppRoute, withoutRouteParams, type AppRoute } from './appRoute';
+import { useShell } from '../shell';
 
 // An app can pin the built-in agent just as deliberately as an authored one, so
 // "no pin" and "pinned to the default" have to be different values. Authored
@@ -23,8 +24,13 @@ interface DashboardContextType {
   username: string;
   domainPermissions: Record<string, string>;
   fetchApps: () => Promise<App[] | null>;
-  /** Show the app (and tab, and widget) a link names, adding it to the sidebar if need be. */
+  /**
+   * Show the app (and tab, and widget) a link names, adding it to the sidebar if
+   * need be. A standalone app named by its own link is handed to the shell.
+   */
   openRoute: (route: AppRoute) => Promise<void>;
+  /** This provider serves one app shown on its own, not the workspace. */
+  standalone: boolean;
   /** A widget a link asked to open full-screen, until the canvas has done so. */
   pendingWidgetId: string | null;
   clearPendingWidget: () => void;
@@ -40,6 +46,8 @@ interface DashboardContextType {
   duplicateApp: (appId: string) => void;
   toggleLock: (appId: string) => void;
   setPinnedAgent: (appId: string, tabId: string | null, agentId: string | null) => void;
+  /** Save a change to an app's spec; resolves to the server's refusal, if any. */
+  updateAppSpec: (appId: string, spec: AppSpec) => Promise<string | null>;
   /** Whether the signed-in user may change this app's settings (not its layout). */
   canEditApp: (app?: App | null) => boolean;
   /** Whether the signed-in user may change a widget belonging to this domain. */
@@ -60,14 +68,22 @@ interface DashboardContextType {
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
 
-export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+/**
+ * `standalone` serves one app on its own, already read by whoever chose that
+ * shell: it never lists the workspace's apps, and nothing on it can be changed.
+ */
+export const DashboardProvider: React.FC<{
+  children: React.ReactNode;
+  standalone?: { app: App; route: AppRoute };
+}> = ({ children, standalone }) => {
+  const shell = useShell();
   const [activeDomain, setActiveDomain] = useState<string | null>(null);
-  const [apps, setApps] = useState<App[]>([]);
-  const [initialRoute] = useState(() => parseAppRoute(window.location.hash, window.location.search));
-  const [activeAppId, setActiveAppIdState] = useState<string>('');
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [pendingWidgetId, setPendingWidgetId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [apps, setApps] = useState<App[]>(() => (standalone ? [standalone.app] : []));
+  const [initialRoute] = useState(() => (standalone ? null : parseAppRoute(window.location.hash, window.location.search)));
+  const [activeAppId, setActiveAppIdState] = useState<string>(standalone?.app.id ?? '');
+  const [activeTabId, setActiveTabId] = useState<string | null>(standalone?.route.tabId ?? null);
+  const [pendingWidgetId, setPendingWidgetId] = useState<string | null>(standalone?.route.widgetId ?? null);
+  const [isLoading, setIsLoading] = useState(!standalone);
   const [isAdmin, setIsAdmin] = useState(false);
   const [username, setUsername] = useState('unknown');
   const [domainPermissions, setDomainPermissions] = useState<Record<string, string>>({});
@@ -93,7 +109,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setVariables(prev => (Object.is(prev[key], value) ? prev : { ...prev, [key]: value }));
   }, []);
 
-  const fetchPermissions = useCallback(async () => {
+  const fetchPermissions = useCallback(async (): Promise<string | null> => {
     try {
       const response = await fetch('/api/roles/my-permissions');
       if (response.ok) {
@@ -101,10 +117,12 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setIsAdmin(data.is_admin);
         setUsername(data.username || 'unknown');
         setDomainPermissions(data.domain_permissions || {});
+        return data.username || null;
       }
     } catch (e) {
       console.error('Failed to load permissions:', e);
     }
+    return null;
   }, []);
 
   const fetchApps = useCallback(async (): Promise<App[] | null> => {
@@ -140,46 +158,63 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // subscribes only after a fresh list says the app really isn't there, so a
   // link to your own app or a global one you can see never does.
   const openRoute = useCallback(async (route: AppRoute, known?: App[] | null) => {
-    const canonical = appHash(route.appId, route.tabId);
+    const canonical = appHash(route.appId, route.tabId, null, route.workspace);
     const search = withoutRouteParams(window.location.search);
     if (window.location.hash !== canonical || window.location.search !== search) {
       window.history.replaceState(window.history.state, '', window.location.pathname + search + canonical);
     }
 
-    const has = (list?: App[] | null) => Boolean(list?.some(a => a.id === route.appId));
+    const find = (list?: App[] | null) => list?.find(a => a.id === route.appId);
     let list: App[] | null = known ?? appsRef.current;
-    if (!has(list)) list = await fetchApps();
-    if (list && !has(list)) {
+    if (!find(list)) list = await fetchApps();
+    if (list && !find(list)) {
       try {
         const res = await fetch(`/api/apps/${encodeURIComponent(route.appId)}/subscribe`, { method: 'POST' });
-        if (res.ok) await fetchApps();
+        if (res.ok) list = await fetchApps();
       } catch (e) {
         console.error('Failed to subscribe to shared app', e);
       }
     }
+    const app = find(list);
+    if (app && isStandalone(app) && !route.workspace) {
+      shell.present(app, route.tabId, route.widgetId);
+      return;
+    }
     selectApp(route.appId, route.tabId);
     if (route.widgetId) setPendingWidgetId(route.widgetId);
-  }, [fetchApps, selectApp]);
+  }, [fetchApps, selectApp, shell]);
 
   // The link the page opened with is acted on once, though StrictMode runs this
-  // effect twice in development.
+  // effect twice in development. A standalone app was read before this mounted,
+  // so all that's left of its link is the subscription opening it has always
+  // meant: someone else's personal app goes in your sidebar, as in the workspace.
   const initialRouteRead = useRef(false);
   useEffect(() => {
+    if (standalone) {
+      fetchPermissions().then(me => {
+        const app = standalone.app;
+        if (initialRouteRead.current || !me || app.is_global || app.is_shared || !app.username || app.username === me) return;
+        initialRouteRead.current = true;
+        fetch(`/api/apps/${encodeURIComponent(app.id)}/subscribe`, { method: 'POST' })
+          .catch(e => console.error('Failed to subscribe to shared app', e));
+      });
+      return;
+    }
     fetchPermissions();
     fetchApps().then(list => {
       if (!initialRoute || !list || initialRouteRead.current) return;
       initialRouteRead.current = true;
       openRoute(initialRoute, list);
     });
-  }, [fetchPermissions, fetchApps, openRoute, initialRoute]);
+  }, [fetchPermissions, fetchApps, openRoute, initialRoute, standalone]);
 
   // Saves to one app go one at a time, in order. Each lands the next version
   // number, which the server reads off the newest row, so two in flight at once
   // claim the same number and Postgres refuses one — and if that was the newer,
   // its change is gone. StrictMode runs the updaters that schedule saves twice in
   // development, so there overlap is every save, not a rare one.
-  const saveQueue = useRef(new Map<string, Promise<void>>());
-  const apiSyncApp = (app: App, method: 'PUT' | 'POST' = 'PUT'): Promise<void> => {
+  const saveQueue = useRef(new Map<string, Promise<string | null>>());
+  const apiSyncApp = (app: App, method: 'PUT' | 'POST' = 'PUT'): Promise<string | null> => {
     const previous = saveQueue.current.get(app.id) ?? Promise.resolve();
     const next = previous.then(() => sendApp(app, method));
     saveQueue.current.set(app.id, next);
@@ -189,8 +224,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // Every save sends the whole spec, including tabs this screen doesn't show, so
   // a drag on the first tab can't drop the others. The server reads an absent
   // field as "keep it", so the pin is always sent: an empty string is the only
-  // way a save can clear one. Never rejects, so one failure can't stall the queue.
-  const sendApp = async (app: App, method: 'PUT' | 'POST') => {
+  // way a save can clear one. Never rejects, so one failure can't stall the queue;
+  // resolves to why the save failed, or null.
+  const sendApp = async (app: App, method: 'PUT' | 'POST'): Promise<string | null> => {
     try {
       const res = await fetch(method === 'PUT' ? `/api/apps/${encodeURIComponent(app.id)}` : '/api/apps/', {
         method,
@@ -207,10 +243,14 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        console.error(`Failed to save app ${app.id}: ${data?.detail || `HTTP ${res.status}`}`);
+        const reason = typeof data?.detail === 'string' ? data.detail : `HTTP ${res.status}`;
+        console.error(`Failed to save app ${app.id}: ${reason}`);
+        return reason;
       }
+      return null;
     } catch (e) {
       console.error('Failed to save app:', e);
+      return 'The save did not reach the server.';
     }
   };
 
@@ -351,6 +391,19 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     apiSyncApp(updatedApp);
   };
 
+  // How the app presents itself, its branding and its assistant. Optimistic like
+  // the pin, but a refusal is handed back and undone, because the dialog that
+  // made it is still open and can say why.
+  const updateAppSpec = async (appId: string, spec: AppSpec): Promise<string | null> => {
+    const app = apps.find(a => a.id === appId);
+    if (!app || !canEditApp(app)) return 'You can’t change this view’s settings.';
+    const updatedApp = { ...app, spec };
+    setApps(prev => prev.map(a => a.id === appId ? updatedApp : a));
+    const refusal = await apiSyncApp(updatedApp);
+    if (refusal) setApps(prev => prev.map(a => (a === updatedApp ? app : a)));
+    return refusal;
+  };
+
   // Changes one tab's widgets and saves the app. Shared apps are read-only to
   // their subscribers, so nothing here touches one.
   const changeWidgets = (appId: string, tabId: string, change: (widgets: WidgetLayout[]) => WidgetLayout[] | null) => {
@@ -444,10 +497,11 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   return (
     <DashboardContext.Provider value={{
       apps, activeAppId, activeApp, activeAppTab, activeDomain, setActiveDomain, isLoading, isAdmin, username, domainPermissions, fetchApps, openRoute, pendingWidgetId, clearPendingWidget,
+      standalone: Boolean(standalone),
       variables, setVariable,
       addApp, removeApp, renameApp, reorderApps, setActiveAppId: selectApp,
       duplicateApp, addWidget, removeWidget, updateWidget, updateLayout,
-      toggleLock, setPinnedAgent, canEditApp, canEditDomain, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
+      toggleLock, setPinnedAgent, updateAppSpec, canEditApp, canEditDomain, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
     }}>
       {children}
     </DashboardContext.Provider>

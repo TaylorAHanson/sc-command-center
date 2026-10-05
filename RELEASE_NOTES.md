@@ -26,6 +26,7 @@
 
 ### Added
 
+- **Share a view as a page of its own.** In the view's **Settings**, choose **On its own**: its link then opens just that view, with your title, logo and assistant name.
 - **Remove a global view.** **Remove** on **View Promotion** archives it for everyone; **Archived** lists it, where you can **Restore** it or **Delete permanently**.
 - **Widgets can tell when rows were left out.** Query results now say if they were cut short, and a widget can ask for more than the default 500 rows.
 

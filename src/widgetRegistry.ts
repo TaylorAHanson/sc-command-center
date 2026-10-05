@@ -51,7 +51,6 @@ export interface WidgetDefinition {
 export const widgetRegistry: Record<string, WidgetDefinition> = {};
 let registryVersion = 0;
 let isRegistryLoading = true;
-let initialLoadStarted = false;
 const listeners = new Set<() => void>();
 
 export const getRegistryLoading = () => isRegistryLoading;
@@ -209,14 +208,32 @@ const fetchVersionSource = async (id: string, version: number): Promise<string> 
   return data.widget?.tsx_code || data.tsx_code || '';
 };
 
-export const loadCustomWidgets = async () => {
-  if (isRegistryLoading && initialLoadStarted) return;
-  initialLoadStarted = true;
+/** The whole library: what the workspace, its tray and its studios work from. */
+export const loadCustomWidgets = () => loadWidgetRows('/api/widgets/custom');
+
+/**
+ * Only the widgets one app places, in the library's own row shape. An app opened
+ * on its own needs a handful of widgets, not the library behind the tray.
+ */
+export const loadAppWidgets = (appId: string) => loadWidgetRows(`/api/apps/${encodeURIComponent(appId)}/widgets`);
+
+// A request already in flight for the same rows is shared rather than repeated;
+// a later call fetches afresh, which is how the tray picks up a new widget.
+const inFlight = new Map<string, Promise<void>>();
+const loadWidgetRows = (url: string): Promise<void> => {
+  const pending = inFlight.get(url);
+  if (pending) return pending;
+  const load = registerRows(url).finally(() => inFlight.delete(url));
+  inFlight.set(url, load);
+  return load;
+};
+
+const registerRows = async (url: string) => {
   isRegistryLoading = true;
   listeners.forEach(l => l());
 
   try {
-    const res = await fetch('/api/widgets/custom');
+    const res = await fetch(url);
     if (!res.ok) return;
     const data = await res.json();
     

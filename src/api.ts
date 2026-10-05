@@ -33,6 +33,18 @@ export const getAppEnvironment = async (): Promise<string> => {
     return typeof environment === 'string' ? environment.trim().toLowerCase() : '';
 };
 
+/**
+ * The badge for this environment ('Dev', 'Stage', 'Local'), or '' for prod.
+ * The tab title is the only cue that tells someone with dev, stage and prod
+ * open side by side which window they are typing into, so everything except
+ * prod gets badged. An unknown environment stays unbadged rather than guessing.
+ */
+export const getEnvironmentBadge = async (): Promise<string> => {
+    const env = (await getAppEnvironment()) || (import.meta.env.DEV ? 'local' : '');
+    if (!env || env === 'prod' || env === 'production') return '';
+    return `${env.charAt(0).toUpperCase()}${env.slice(1)}`;
+};
+
 /** The deployment's brand name (`APP_BRAND`), or '' when none is set. */
 export const getAppBrand = async (): Promise<string> => {
     const { brand } = await getHealth();

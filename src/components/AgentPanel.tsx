@@ -8,7 +8,12 @@ import { pinnedAgentOf } from '../store/appSpec';
 
 const DEFAULT_AGENT_NAME = 'EDH Agent';
 
-export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> = ({ chat, onCollapse }) => {
+export const AgentPanel: React.FC<{
+    chat: AgentChat;
+    onCollapse: () => void;
+    /** What the built-in agent is called here; an app shown on its own may rename it. */
+    defaultAgentName?: string;
+}> = ({ chat, onCollapse, defaultAgentName = DEFAULT_AGENT_NAME }) => {
     const {
         isLoading, clear, widgetCount,
         availableProfiles, selectedProfileId, setSelectedProfileId, loadProfilesOnce,
@@ -18,17 +23,18 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
     // The pin belongs to the app, so it is read and written through the
     // dashboard store rather than the chat — the same save path as renaming or
     // locking an app, which is also what decides who is allowed to do it.
-    const { activeApp, activeAppTab, setPinnedAgent, canEditApp } = useDashboardStore();
+    const { activeApp, activeAppTab, setPinnedAgent, canEditApp, standalone } = useDashboardStore();
     const pinnedAgentId = pinnedAgentOf(activeApp, activeAppTab);
     // What the pin would be if the user set it now. Pinning the built-in agent is
     // a real choice, so an empty picker maps to the explicit default marker.
     const wouldPin = selectedProfileId || DEFAULT_AGENT_PIN;
     const isPinnedHere = pinnedAgentId === wouldPin;
-    const canPin = canEditApp(activeApp);
+    // Pinning is an edit to the app, and an app shown on its own is edited in the workspace.
+    const canPin = !standalone && canEditApp(activeApp);
 
     const nameOf = (id: string): string =>
         (id === DEFAULT_AGENT_PIN || !id)
-            ? DEFAULT_AGENT_NAME
+            ? defaultAgentName
             : (availableProfiles.find(p => p.id === id)?.name || 'an agent you cannot open');
 
     // A picker showing a value that isn't in its list renders blank, which reads
@@ -86,7 +92,7 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                         <button
                             onClick={onCollapse}
                             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                            title="Collapse EDH Agent"
+                            title={`Collapse ${defaultAgentName}`}
                         >
                             <PanelRightClose className="w-4 h-4" />
                         </button>
@@ -103,7 +109,7 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                             title="Run the drawer as a saved Agent Studio profile"
                             className="w-full truncate appearance-none rounded-md border border-brand-blue/40 bg-brand-blue/5 hover:bg-brand-blue/10 pl-2.5 pr-8 py-1.5 text-sm font-semibold text-brand-navy cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-brand-blue/40 disabled:opacity-50"
                         >
-                            <option value="">{DEFAULT_AGENT_NAME} (default)</option>
+                            <option value="">{defaultAgentName} (default)</option>
                             {availableProfiles.map(p => {
                                 const provenance = p.owned_by_me
                                     ? (p.location_label ? ` · ${p.location_label}` : '')
@@ -144,7 +150,7 @@ export const AgentPanel: React.FC<{ chat: AgentChat; onCollapse: () => void }> =
                     </div>
                 ) : pinnedButPrivate ? (
                     <div className="text-[10px] text-amber-600 mt-1.5 pl-0.5">
-                        This agent is private, so others on this view still get the {DEFAULT_AGENT_NAME}.
+                        This agent is private, so others on this view still get the {defaultAgentName}.
                     </div>
                 ) : pinnedAgentId && !isPinnedHere ? (
                     <div className="text-[10px] text-gray-400 mt-1.5 pl-0.5">

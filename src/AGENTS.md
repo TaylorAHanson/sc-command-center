@@ -427,7 +427,10 @@ the file opens with a comment holding the authoring conventions.
 ## Browser tab title
 
 `index.html` ships `Command Center`; `App.tsx` then appends the deployment
-environment (`Command Center - Dev`) for anything that is not prod. The
+environment (`Command Center - Dev`) for anything that is not prod. An app shown
+on its own uses its branded title instead (`<title> - Dev`), plus a badge in its
+header, and puts the tab's title and favicon back when it closes. Both read
+`getEnvironmentBadge()` in `api.ts`. The
 environment comes from `GET /api/health` (`APP_ENVIRONMENT` on the server, set
 per bundle target) rather than a `import.meta.env` constant, because the same
 built assets are promoted from dev to stage to prod — a build-time value would
@@ -438,7 +441,7 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
 - `store/dashboardStore.tsx` — `DashboardProvider` / `useDashboardStore`, owning
   the apps in the sidebar, the active one, and dashboard variables. What an app
   *is* lives in `store/appSpec.ts` (`App`, `AppTab`, `AppSpec`, `WidgetLayout`),
-  the client's copy of `server/services/app_spec.py`. Four rules:
+  the client's copy of `server/services/app_spec.py`. Five rules:
   - **A view is an app with one tab.** "Tab" means a canvas inside an app and
     nothing else; the sidebar lists apps. Every row saved before apps exists reads
     as a one-tab app whose tab id is the app id.
@@ -465,6 +468,18 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     Layout's hash sync leaves a hash alone when it already names what's on
     screen. Full-page screens live in Layout's `PAGES`; one missing there is a
     page Back and reload can't return to.
+  - **There are two shells, and `Root.tsx` picks one before anything draws.**
+    The workspace (`App` inside `Layout`) is Command Center. An app whose
+    `presentation` is `standalone`, opened by its own link, gets `AppShell`
+    under `<DashboardProvider standalone>` instead: no `Layout` at all (hiding
+    it with CSS would still mount the tray, the prefetch and the library). That
+    provider holds the one app `Root` read, never lists apps, loads only
+    `loadAppWidgets(id)`, and is read-only for everyone. Anything that assumes
+    a sidebar, the full widget library or a writable canvas must check
+    `standalone`. `#/workspace/<id>` shows any app inside the workspace,
+    which is where a standalone app is built. Moving between shells goes
+    through `useShell()` (`present` / `edit`), which uses `pushState`, so the
+    page being left sees no `hashchange`.
 - `contexts/ActionContext.tsx` — `useActionContext` plus
   `ExecuteActionPropInjector`, which clones children to inject an
   `executeAction(name, callback)` prop into executable widgets.
@@ -619,13 +634,16 @@ widgetRegistry.ts       Runtime widget loading + shared type contracts
 widgetRuntime.ts        Widget Studio: records what the preview does when it runs
 widgetLint.ts           Widget Studio: pattern checks on widget code
 widgetDataSource.ts     Widget Studio: schema and sample rows from a JSON response
-App.tsx main.tsx        Router/providers and entry point
+main.tsx Root.tsx       Entry point; Root picks the shell (workspace or one app)
+shell.ts                ShellContext: present an app on its own / edit it
+App.tsx                 The workspace: Layout around DashboardGrid
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
                         Help/About/UserGuide, AdminPage
 pages/admin/            WidgetManager, ViewManager, RoleMappings, TaxonomyManager,
                         SettingsManager, DataMigration
-components/             BaseWidget, WidgetPreview, WidgetTray, Layout, modals,
-                        AgentPanel/AgentConversation, ConversationHistory,
+components/             BaseWidget, DashboardGrid, WidgetPreview, WidgetTray,
+                        Layout, AppShell, AppSettingsModal, modals,
+                        AgentDrawer/AgentPanel/AgentConversation, ConversationHistory,
                         ThinkingDisclosure, AttachmentChip, ThumbnailCapture,
                         WidgetDiagnostics
 hooks/                  useAgentChat, useChatUploads, useActionLogger,

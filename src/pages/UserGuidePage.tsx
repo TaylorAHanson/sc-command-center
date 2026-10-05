@@ -82,6 +82,9 @@ export const UserGuidePage: React.FC = () => {
               <p className="text-sm text-gray-600">
                 Want to show someone your setup? Click the <strong>Share</strong> button in the top-right corner to copy a direct link to your current view, or copy the address from your browser. Anyone you send it to finds your view under <strong>Shared Views</strong>, read-only.
               </p>
+              <p className="text-sm text-gray-600 mt-2">
+                To share it as a page of its own, open <strong>Settings</strong> and choose <strong>On its own</strong>. The link then opens just that view, read-only, under the title, logo and assistant name you set. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center.
+              </p>
             </div>
           </div>
         </div>

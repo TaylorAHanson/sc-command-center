@@ -81,6 +81,20 @@ export const shownTab = (app?: App | null, tabId?: string | null): AppTab | null
 export const pinnedAgentOf = (app?: App | null, tab?: AppTab | null): string =>
   tab?.pinned_agent_id || app?.pinned_agent_id || '';
 
+export const MAX_BRANDING_TEXT = 120;
+export const MAX_IMAGE_CHARS = 256 * 1024;
+const IMAGE_DATA_URL = /^data:image\/(png|jpeg|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/=\s]+$/;
+
+/** Why the server would refuse this logo or favicon, or null if it would store it. */
+export const imageProblem = (value: string): string | null => {
+  if (!value) return null;
+  if (value.length > MAX_IMAGE_CHARS) {
+    return `That image is ${Math.ceil(value.length / 1024)} KB once stored; the limit is ${MAX_IMAGE_CHARS / 1024} KB.`;
+  }
+  if (value.startsWith('https://') || IMAGE_DATA_URL.test(value)) return null;
+  return 'Use an https:// address, or upload a PNG, JPEG, GIF, WebP, SVG or ICO file.';
+};
+
 export const withTab = (app: App, tabId: string, change: (tab: AppTab) => AppTab): App => ({
   ...app,
   spec: { ...app.spec, tabs: app.spec.tabs.map(t => (t.id === tabId ? change(t) : t)) },

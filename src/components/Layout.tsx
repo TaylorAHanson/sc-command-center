@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText } from 'lucide-react';
+import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow } from 'lucide-react';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
-import { AgentPanel } from './AgentPanel';
+import { AgentDrawer } from './AgentDrawer';
+import { AppSettingsModal } from './AppSettingsModal';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
 import { shownTab } from '../store/appSpec';
-import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
+import { appHash, isStandalone, linkTab, parseAppRoute } from '../store/appRoute';
+import { useShell } from '../shell';
 
 // The full-page screens load when they are opened. Together they are most of the
 // app's code — the editor, the markdown renderer, the admin tables — and a session
@@ -49,7 +51,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [currentPage, setCurrentPage] = useState<string | null>(() => pageOf(window.location.hash));
   // Pages that take over the full screen (no header, no agent drawer).
   const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
-  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions } = useDashboardStore();
+  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp } = useDashboardStore();
+  const shell = useShell();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
   const canAccessAdmin = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin');
   const [isSidebarOpen, setSidebarOpen] = useState(true);
@@ -61,8 +65,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   useEffect(() => {
     try { localStorage.setItem('sccc-agent-open', String(isAgentOpen)); } catch { /* ignore */ }
   }, [isAgentOpen]);
-  const [agentWidth, setAgentWidth] = useState(400);
-  const [isResizingAgent, setIsResizingAgent] = useState(false);
   const [isTrayOpen, setTrayOpen] = useState(false);
   const [editingAppId, setEditingAppId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -94,40 +96,22 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     };
   }, [canAccessAdmin]);
 
-  // Drag-to-resize the assistant panel. Width is the distance from the right
-  // edge of the viewport to the cursor, clamped to a sensible range.
-  useEffect(() => {
-    if (!isResizingAgent) return;
-    const MIN = 320;
-    const MAX = 900;
-    const onMove = (e: MouseEvent) => {
-      const next = window.innerWidth - e.clientX;
-      setAgentWidth(Math.min(MAX, Math.max(MIN, next)));
-    };
-    const onUp = () => setIsResizingAgent(false);
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'col-resize';
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [isResizingAgent]);
-
   // Sync state changes to URL hash. A hash that already names what is on screen
   // is left as it is, so a link spelling out the first tab isn't rewritten into
-  // a second history entry for the same place.
+  // a second history entry for the same place. A standalone app's own link would
+  // show it on its own, so here, where it is being built, its address is the
+  // workspace one: reloading keeps its editor in the workspace.
   useEffect(() => {
     let newHash = '';
     if (currentPage) {
       newHash = `#/${currentPage}`;
     } else if (activeApp && activeAppTab) {
       const named = parseAppRoute(window.location.hash);
-      const showing = named?.appId === activeApp.id && shownTab(activeApp, named.tabId)?.id === activeAppTab.id;
-      if (!showing) newHash = appHash(activeApp.id, linkTab(activeApp, activeAppTab));
+      const standalone = isStandalone(activeApp);
+      const showing = named?.appId === activeApp.id
+        && (named.workspace || !standalone)
+        && shownTab(activeApp, named.tabId)?.id === activeAppTab.id;
+      if (!showing) newHash = appHash(activeApp.id, linkTab(activeApp, activeAppTab), null, standalone);
     }
 
     if (newHash && window.location.hash !== newHash) {
@@ -529,6 +513,26 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
 
             <div className="flex items-center gap-3">
+              {!currentPage && activeApp && isStandalone(activeApp) && (
+                <button
+                  onClick={() => shell.present(activeApp, linkTab(activeApp, activeAppTab))}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                  title="See this view on its own, as people with its link do"
+                >
+                  <AppWindow className="w-4 h-4" />
+                  <span>Open</span>
+                </button>
+              )}
+              {!currentPage && activeApp && canEditApp(activeApp) && (
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                  title="How this view opens from its link, its title and logo, and its assistant"
+                >
+                  <Settings2 className="w-4 h-4" />
+                  <span>Settings</span>
+                </button>
+              )}
               {(!activeApp?.is_global || isAdmin) && !activeApp?.is_shared && (
                 <>
                   <button
@@ -634,45 +638,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         )}
       </div>
 
-      {/* Agent Assistant panel (hidden in Studios, which need the full viewport) */}
-      {!isFullScreenStudio && isAgentOpen && (
-        <div
-          className="relative border-l border-gray-200 bg-white flex flex-col shrink-0"
-          style={{ width: agentWidth }}
-        >
-          {/* Drag handle to resize the panel */}
-          <div
-            onMouseDown={(e) => { e.preventDefault(); setIsResizingAgent(true); }}
-            className={clsx(
-              'absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-10 group',
-              'hover:bg-brand-blue/30 transition-colors',
-              isResizingAgent && 'bg-brand-blue/40'
-            )}
-            title="Drag to resize"
-          >
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-10 w-1 rounded-full bg-gray-300 group-hover:bg-brand-blue transition-colors" />
-          </div>
-          <AgentPanel chat={agentChat} onCollapse={() => setAgentOpen(false)} />
-        </div>
-      )}
-
-      {/* Floating launcher — shown whenever the panel is collapsed */}
-      {!isFullScreenStudio && !isAgentOpen && (
-        <button
-          onClick={() => setAgentOpen(true)}
-          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-4 pr-5 py-3 bg-brand-navy text-white rounded-full shadow-lg shadow-brand-navy/40 hover:bg-brand-blue hover:shadow-xl transition-all group"
-          title="Open EDH Agent"
-        >
-          {agentChat.isLoading && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
-            </span>
-          )}
-          <Bot className="w-5 h-5 relative" />
-          <span className="text-sm font-semibold relative">EDH Agent</span>
-        </button>
-      )}
+      {/* Agent Assistant (hidden in Studios, which need the full viewport) */}
+      {!isFullScreenStudio && <AgentDrawer chat={agentChat} isOpen={isAgentOpen} onOpenChange={setAgentOpen} />}
 
       {/* Widget Tray */}
       <WidgetTray
@@ -704,6 +671,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         widget={configModal.widgetId ? widgetRegistry[configModal.widgetId] : null}
         initialConfig={configModal.initialConfig}
       />
+
+      {settingsOpen && activeApp && (
+        <AppSettingsModal app={activeApp} onClose={() => setSettingsOpen(false)} />
+      )}
     </div >
   );
 };

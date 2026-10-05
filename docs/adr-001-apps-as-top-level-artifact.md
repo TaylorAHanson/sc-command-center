@@ -216,7 +216,8 @@ none should run as the SP.
 - **The shell is a property of the app, not the URL.** Spec field
   `presentation: "workspace" | "standalone"`:
   - Migrated legacy views default to `workspace` (analysts keep the sidebar).
-  - Newly created apps default to `standalone`.
+  - ~~Newly created apps default to `standalone`.~~ New View still makes a
+    workspace app; standalone is chosen in View settings (Q9).
 - Standalone = no Command Center chrome (no sidebar, no "Command Center"
   header/title, no widget tray, no studio/admin entry points). Render
   `AppShell` with **no Layout at all** — do not hide Layout with CSS.
@@ -322,7 +323,7 @@ none should run as the SP.
 | 1 | Storage + `/api/apps` + legacy read path + tests | No UI change. **Built**, plus `compose` |
 | 2 | Store/type rename; flip frontend to `/api/apps` | Workspace behavior identical. **Built** (§4.3a) |
 | 3 | App-scoped widget bundle + canonical links/aliases | Access unchanged (§2.3). **Built** (§4.3b) |
-| 4 | `AppShell` standalone: route-level split, branding, env badge, viewer/editor, route-aware provider | Critical path for shareable apps |
+| 4 | `AppShell` standalone: route-level split, branding, env badge, viewer/editor, route-aware provider | Critical path for shareable apps. **Built** (§4.3c) |
 | 5 | Multi-tab bar and editing; app-scoped variables | |
 | 6 | `transfer_app` with preflight; delete `/api/views` shim | |
 | 7 | Nav styles, theme tokens, filters | Optional polish |
@@ -390,6 +391,53 @@ none should run as the SP.
   from the page lists, so Back and (for the last two) reload didn't reach them;
   a subscribe to an id that doesn't exist answered 500 instead of 404.
 
+### 4.3c Slice 4 as built
+
+- **The shell is chosen before anything is drawn.** `src/Root.tsx` owns the
+  page. An address that names an app (any link form) is read with
+  `GET /api/apps/{id}` behind a plain spinner. A standalone app gets
+  `<DashboardProvider standalone>` + `AppShell`; anything else gets today's
+  workspace, unchanged. That includes a link that can't be read, so the
+  workspace still subscribes or shows nothing as before. `Layout` is never
+  mounted for a standalone app.
+- **Two addresses, one app.** `#/app/<id>` shows the app the way it presents
+  itself. `#/workspace/<id>[/<tab>[/w/<widget>]]` is the same place inside the
+  workspace whatever the app is. The workspace writes it for a standalone app,
+  so an editor who reloads stays in the builder, and `Root` doesn't read the
+  app first for it. Moving between the two (`Edit`, `Open`, Back/Forward)
+  goes through `ShellContext` (`src/shell.ts`) with `pushState`, which raises
+  no `hashchange`, so neither page reacts to the other's navigation. Inside
+  the workspace, `openRoute` hands a standalone app named by its own link to
+  the shell instead of selecting it.
+- **Route-aware provider.** In standalone mode the store is seeded with the one
+  app `Root` read. It never calls `GET /api/apps/` and is read-only for
+  everyone, editors included (`DashboardGrid` reads `standalone`), which also
+  turns off the orphan cleanup: the registry holds only this app's widgets.
+  It still loads `/api/roles/my-permissions` (§5 #6: yes, it's acceptable; Edit
+  needs it).
+- **`AppShell`** (`src/components/AppShell.tsx`): logo, branded title, and the
+  environment badge off prod. It loads `loadAppWidgets(id)` (slice 3's bundle)
+  instead of the library. There is no tray, no `w`, no studio prefetch and no
+  `ThumbnailCaptureHost`. It sets the tab title and favicon while mounted and
+  restores them on exit. **Copy link** goes to the people who get Share in the
+  workspace (admin for a global app, owner for a personal one). **Edit** goes
+  to `canEditApp` and opens `#/workspace/<id>`. The assistant uses the same
+  `AgentDrawer` as the workspace (lifted out of `Layout`), named by
+  `branding.assistant_name`. It is absent when `assistant` is `off`, and the
+  pin control is hidden, because pinning is an edit.
+- **Subscribing is unchanged (§2.3).** Opening someone else's personal app by
+  its link still puts it in your sidebar, once, from the provider's mount.
+  `Root` itself only reads.
+- **View settings** (workspace header, for `canEditApp`) sets presentation,
+  title, logo, favicon, assistant on/off and assistant name. The client checks
+  images against the server's rules (`imageProblem` mirrors `_image`). A save
+  the server refuses is undone and shown in the dialog. `apiSyncApp` now
+  resolves to the refusal.
+- **Moved, not changed:** `DashboardGrid` now lives in its own module; the
+  workspace page header, Lock and Share are unchanged. §5 #5: `activeDomain` is
+  the only sidebar-era state the grid reads, and it is null without a sidebar,
+  which filters nothing.
+
 ### 4.4 Docs and tests (per AGENTS.md)
 
 - User-visible behavior → update `RELEASE_NOTES.md` in the same commit, plus
@@ -437,7 +485,7 @@ Record answers here as they are decided; do not treat the brief as closed.
 
 | # | Question | Lean | Decision |
 | --- | --- | --- | --- |
-| Q1 | Keep `presentation` flag, or force every app standalone? | Keep flag — analysts hop between one-canvas dashboards in the sidebar today | Open |
+| Q1 | Keep `presentation` flag, or force every app standalone? | Keep flag — analysts hop between one-canvas dashboards in the sidebar today | **Built:** kept; set in View settings |
 | Q2 | How long to dual-write `widgets_json`? | "A couple of releases" after frontend flip | Open |
 | Q3 | Coalesce window / what counts as "only layout changed"? | TBD with promotion head stability | Open |
 | Q4 | Physical table rename (`dashboard_views` → `apps`)? | Optional later; not required for product | Open |
@@ -445,6 +493,7 @@ Record answers here as they are decided; do not treat the brief as closed.
 | Q6 | Logo/favicon max size and allowlist | Server-side validate; CSP already allows data/https images | **Built:** https URL or base64 `data:image/*`, ≤ 256 KB encoded (`app_spec.MAX_IMAGE_CHARS`) |
 | Q7 | What access do existing personal views get under apps? | — | **Decided:** no change to the security model at all; see §2.3. `link_access` dropped. |
 | Q8 | Should `GET /api/views/history` get the access check too? Today it has no auth dependency and returns names/usernames/timestamps for any id. `/api/apps/history` is gated. | The admin screen moved to `/api/apps` in slice 2, so nothing in the UI calls it now. Gating it would still change access, so it's left for slice 6, which deletes it. | Deferred to slice 6 |
+| Q9 | Should New View make standalone apps, as §2.4 first said? | No: New View lives in the sidebar, among views people hop between, and a standalone default would make every new view leave it when its link is shared. | **Decided (slice 4):** New View stays workspace; standalone is opt-in in View settings. Revisit with slice 5's New App flow. |
 
 ---
 
@@ -468,3 +517,4 @@ From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
 | 2026-10-05 | Decided: apps inherit the views' security model unchanged. Rewrote §2.3; dropped `link_access`, the widget-domain bypass, and "opening must not subscribe". Q7 closed. |
 | 2026-10-05 | Slice 2 built (§4.3a): store speaks `App`/`AppTab`, the browser uses only `/api/apps`, saves carry the whole spec, pins resolve tab → app. Corrected §1.2 (orphan cleanup never wrote). Q8 deferred to slice 6. |
 | 2026-10-05 | Slice 3 built (§4.3b): canonical `#/app/...` links with permanent aliases, one parser, tab ids in links honoured, any link form subscribes as `?shared_view=` did, `GET /api/apps/{id}/widgets`. Fixed missing `hashchange` pages and a 500 on subscribing to a missing id. |
+| 2026-10-05 | Slice 4 built (§4.3c): `Root` picks the shell before first paint; standalone apps render `AppShell` with no `Layout`, read-only, loading only their own widgets; `#/workspace/<id>` for building them; View settings for presentation, branding and assistant. Decided Q9 (New View stays workspace); closed Q1, §5 #5 and #6. |

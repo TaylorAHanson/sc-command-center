@@ -47,6 +47,20 @@ global.
   the usual sign-in, and a global view opens only for people with access to its
   domain. Links copied before the link format changed (`?shared_view=…`,
   `#/view/…`) keep working; new ones look like `#/app/…`.
+- **Settings** (top right, for anyone who may rename the view) decides how its
+  link opens. **Inside Command Center** is the default and how every view has
+  always opened. **On its own** opens just that view: no sidebar, no Widget
+  Library, no studios, under the title, logo and browser-tab icon set there. The
+  assistant appears too, under the name set there, unless **Offer the
+  assistant** is off. Branding is only used on its own; inside Command Center
+  the view keeps its name.
+- A view opened on its own is read-only for everyone, including its owner.
+  **Copy link** there goes to the same people who get **Share** in Command
+  Center, and **Edit** goes to anyone who may change the view's settings.
+  **Edit** reopens it inside Command Center at an address starting
+  `#/workspace/…`, which keeps it there on reload; **Open** in the header goes
+  back to seeing it on its own. Who can open the link is unchanged, and opening
+  someone else's personal view on its own still adds it to **Shared Views**.
 
 ## Widgets
 
