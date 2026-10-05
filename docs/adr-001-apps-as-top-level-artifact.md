@@ -136,7 +136,7 @@ App {
   referenced by id. One versioned artifact, promoted atomically.
 - The only promotion dependencies left are widgets and pinned agents.
 - Optional later fields (`nav`, `theme`, `filters`) are reserved; do not block
-  early slices on them.
+  early slices on them. (Slice 7 gave them meaning; see §4.3f.)
 
 ### 2.2 Storage and compatibility (evolve in place)
 
@@ -326,7 +326,7 @@ none should run as the SP.
 | 4 | `AppShell` standalone: route-level split, branding, env badge, viewer/editor, route-aware provider | Critical path for shareable apps. **Built** (§4.3c) |
 | 5 | Multi-tab bar and editing; app-scoped variables | **Built** (§4.3d) |
 | 6 | `transfer_app` with preflight; delete `/api/views` shim | **Built** (§4.3e) |
-| 7 | Nav styles, theme tokens, filters | Optional polish |
+| 7 | Nav styles, theme tokens, filters | **Built** (§4.3f) |
 
 ### 4.3a Slice 2 as built
 
@@ -507,6 +507,35 @@ none should run as the SP.
   the target's matching version number. Rewriting would change the copied row,
   so it would never compare equal to its source again.
 
+### 4.3f Slice 7 as built
+
+The three reserved fields are now interpreted, and validated like the rest of
+the spec: strict on write, and on read a value that can't be used is dropped
+(the read result always passes the write check).
+
+- **`nav`: `{"style": "sidebar"}` or null** (tabs across the top). Applies in
+  both shells: the same `TabBar`, with the same editing rules, drawn down the
+  left of the canvas instead of above it. A one-tab app shows no tabs either way.
+- **`theme`: `{"primary", "dark"}`, each `#rrggbb` or null.** They replace
+  `brand-blue` and `brand-navy`, which are now CSS variables (`rgb(var(--brand-*)
+  / <alpha-value>)`, defaults in `index.css`), so opacity variants keep working
+  and **generated widgets follow the theme with no generator, lint or runtime
+  change**: they already use the classes. `AppShell` sets the variables on
+  `<html>` so portalled dialogs pick them up too, and puts them back on close.
+  Standalone only, like branding. Both colours carry white text across the app and
+  in widgets (and widgetLint treats them as dark), so each must reach 3:1
+  contrast with white, which is what the default blue manages (3.98:1).
+- **`filters`: up to 10 `{key, label, options[≤100], default}`.** `key` is an
+  identifier, because a widget reads it as `variables.<key>`. A `FilterBar`
+  under the header (both shells, any viewer) writes `setVariable(key, value)`;
+  **All** writes `''`. Defaults are merged under chosen values in the store,
+  so widgets see a default before anyone chooses, and a widget may still write
+  the same key. Choices aren't persisted: reopening the app starts from the
+  defaults, as variables always have. `compose` keeps the sources' filters
+  (first view wins a shared key).
+- **Edited in View settings** under `canEditApp`, the right that already covers
+  presentation and branding. Nothing about who can see or change an app moved.
+
 ### 4.4 Docs and tests (per AGENTS.md)
 
 - User-visible behavior → update `RELEASE_NOTES.md` in the same commit, plus
@@ -593,3 +622,4 @@ From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
 | 2026-10-05 | Slice 4 built (§4.3c): `Root` picks the shell before first paint; standalone apps render `AppShell` with no `Layout`, read-only, loading only their own widgets; `#/workspace/<id>` for building them; View settings for presentation, branding and assistant. Decided Q9 (New View stays workspace); closed Q1, §5 #5 and #6. |
 | 2026-10-05 | Slice 5 built (§4.3d): tab bar and Add tab, rename/reorder/delete under the existing layout-edit rule, tabs in the address, variables per app. Fixed the empty-canvas hint. §5 #2 and Q3 still open; no tab-level pin UI. |
 | 2026-10-05 | Slice 6 built (§4.3e): `/api/views` and the first-tab-only save path deleted, its handlers moved into `routes/apps.py`; `transfer_app` with a read-only preflight and optional widget promotion in one transaction; View Promotion dialog shows the preflight. Closed Q8; added Q10. |
+| 2026-10-05 | Slice 7 built (§4.3f): `nav` (tabs top or side), `theme` (two brand colours as CSS variables, white-text contrast enforced, standalone only), `filters` (a filter bar that sets dashboard variables); all edited in View settings. |

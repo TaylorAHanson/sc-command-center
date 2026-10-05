@@ -63,7 +63,18 @@ per-user unless they are global.
   Library, no studios, under the title, logo and browser-tab icon set there. The
   assistant appears too, under the name set there, unless **Offer the
   assistant** is off. Branding is only used on its own; inside Command Center
-  the view keeps its name.
+  the view keeps its name. The same goes for **Accent colour** and **Dark
+  colour**, which replace Command Center's blue and navy, in widgets too; each
+  must be dark enough for white text, and the dialog refuses one that isn't.
+- Two more choices in **Settings** apply wherever the view opens. **Tabs**:
+  **Across the top** (the default) or **Down the side**; a view with one tab
+  shows no tabs either way. **Filters**: dropdowns under the header, each with a
+  label, a variable name, its options (one per line) and the option it starts
+  on. Anyone who can see the view can use them. A choice sets that dashboard
+  variable for every widget on every tab, exactly as a widget passing a value to
+  others does, so only widgets written to follow that variable change. **All**
+  clears it. Choices aren't saved: reopening the view starts from the defaults.
+  A view built from several views keeps their filters.
 - A view opened on its own is read-only for everyone, including its owner; its
   tabs can be switched but not changed.
   **Copy link** there goes to the same people who get **Share** in Command

@@ -94,6 +94,12 @@ Practical consequences for widget code:
   those widgets lose their colours there. The name comes from `/api/health`, which
   reads `var.brand` in `databricks.yml`. It is `brand` (no alias) in this repo, and
   a customer's copy sets its own, so no customer name belongs here.
+- **Brand colours are CSS variables, so a view can recolour them.** Tailwind maps
+  `brand-*` to `rgb(var(--brand-*) / <alpha-value>)` with defaults in
+  `index.css`; a view opened on its own sets `--brand-blue` / `--brand-navy` on
+  `<html>` from its theme (`AppShell`). Write brand colours as classes or
+  `rgb(var(--brand-blue))`, never as hex, or they won't follow the theme. White
+  text is assumed on both, which is why a theme colour must be dark enough for it.
 
 The authoritative, more detailed contract is
 `server/routes/agent_instructions.md` — it's the prompt sent to the widget

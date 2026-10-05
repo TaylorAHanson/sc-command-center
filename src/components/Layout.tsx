@@ -6,6 +6,7 @@ import { WidgetTray } from './WidgetTray';
 import { AgentDrawer } from './AgentDrawer';
 import { AppSettingsModal } from './AppSettingsModal';
 import { TabBar } from './TabBar';
+import { FilterBar } from './FilterBar';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
@@ -610,7 +611,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </header>
         )}
 
-        {!currentPage && <TabBar />}
+        {!currentPage && <TabBar placement="top" />}
+        {!currentPage && <FilterBar />}
 
         {/* Dashboard Canvas or Page */}
         {currentPage ? (
@@ -627,27 +629,30 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </React.Suspense>
           </main>
         ) : (
-          <main
-            className="flex-1 overflow-auto bg-gray-50/50 relative"
-            onDragOver={(e) => {
-              // Allow drops on main content area
-              if (e.dataTransfer.types.includes('application/widget-type')) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.dataTransfer.dropEffect = 'copy';
-              }
-            }}
-            onDrop={(e) => {
-              // Prevent main from intercepting - let it bubble to children
-              if (e.dataTransfer.types.includes('application/widget-type')) {
-                e.stopPropagation();
-              }
-            }}
-          >
-            <div className="w-full h-full px-2">
-              {children}
-            </div>
-          </main>
+          <div className="flex-1 flex min-h-0">
+            <TabBar placement="side" />
+            <main
+              className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative"
+              onDragOver={(e) => {
+                // Allow drops on main content area
+                if (e.dataTransfer.types.includes('application/widget-type')) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.dataTransfer.dropEffect = 'copy';
+                }
+              }}
+              onDrop={(e) => {
+                // Prevent main from intercepting - let it bubble to children
+                if (e.dataTransfer.types.includes('application/widget-type')) {
+                  e.stopPropagation();
+                }
+              }}
+            >
+              <div className="w-full h-full px-2">
+                {children}
+              </div>
+            </main>
+          </div>
         )}
       </div>
 

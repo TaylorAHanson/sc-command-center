@@ -49,6 +49,22 @@ _IMAGE_DATA_URL = re.compile(
 _BRANDING_TEXT = ("title", "assistant_name")
 _BRANDING_IMAGES = ("logo", "favicon")
 
+NAV_STYLES = ("tabs", "sidebar")
+
+# The theme recolours the `brand-blue` and `brand-navy` classes, which the app and
+# generated widgets alike put white text on (buttons, badges, the sidebar), and
+# which widgetLint treats as dark backgrounds. So a theme colour must keep white
+# text readable; 3:1 is what Command Center's own blue manages.
+THEME_COLOURS = ("primary", "dark")
+MIN_WHITE_CONTRAST = 3.0
+_HEX_COLOUR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+# A filter's choice lands in the dashboard variables under its key, which widget
+# code reads as `data.variables.<key>`, so the key must be a plain identifier.
+MAX_FILTERS = 10
+MAX_FILTER_OPTIONS = 100
+_FILTER_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
 
 class SpecError(ValueError):
     """A spec submitted for saving that cannot be stored as it stands."""
@@ -190,17 +206,116 @@ def _branding(value: Any, strict: bool) -> Optional[Dict[str, Optional[str]]]:
     return out if any(out.values()) else None
 
 
-def _reserved(raw: Dict[str, Any], key: str, kind: type, strict: bool) -> Any:
-    """`nav`, `theme` and `filters` are carried, not yet interpreted."""
-    value = raw.get(key)
-    empty = [] if kind is list else None
+def _nav(value: Any, strict: bool) -> Optional[Dict[str, str]]:
+    """How the tabs are laid out. Tabs across the top is no nav at all."""
     if value is None:
-        return empty
-    if isinstance(value, kind):
-        return copy.deepcopy(value)
+        return None
+    if not isinstance(value, dict):
+        if strict:
+            raise SpecError("`nav` must be an object.")
+        return None
+    style = value.get("style")
+    if style in (None, NAV_STYLES[0]):
+        return None
+    if style in NAV_STYLES:
+        return {"style": style}
     if strict:
-        raise SpecError(f"`{key}` must be {'a list' if kind is list else 'an object'}.")
-    return empty
+        raise SpecError(f"`nav.style` must be one of {', '.join(NAV_STYLES)}.")
+    return None
+
+
+def white_text_contrast(colour: str) -> float:
+    """WCAG contrast ratio of white text on a `#rrggbb` colour."""
+    def channel(hex_pair: str) -> float:
+        c = int(hex_pair, 16) / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (channel(colour[i:i + 2]) for i in (1, 3, 5))
+    return 1.05 / (0.2126 * r + 0.7152 * g + 0.0722 * b + 0.05)
+
+
+def _theme(value: Any, strict: bool) -> Optional[Dict[str, Optional[str]]]:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        if strict:
+            raise SpecError("`theme` must be an object.")
+        return None
+    out: Dict[str, Optional[str]] = {}
+    for key in THEME_COLOURS:
+        colour = value.get(key)
+        if colour in (None, ""):
+            out[key] = None
+        elif isinstance(colour, str) and _HEX_COLOUR.match(colour) and white_text_contrast(colour) >= MIN_WHITE_CONTRAST:
+            out[key] = colour.lower()
+        elif strict:
+            raise SpecError(
+                f"theme.{key} must be a #rrggbb colour dark enough to carry white text "
+                f"(a contrast of at least {MIN_WHITE_CONTRAST:g}:1)."
+            )
+        else:
+            out[key] = None
+    return out if any(out.values()) else None
+
+
+def _filter(value: Any, position: int) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise SpecError(f"Filter {position} is not an object.")
+    key = value.get("key")
+    if not isinstance(key, str) or not _FILTER_KEY.match(key):
+        raise SpecError(
+            f"Filter {position}'s key must be letters, digits and underscores, "
+            "not starting with a digit, at most 64 characters."
+        )
+    label = _text(value.get("label"), f"Filter {position}'s label", True) or key
+    options_in = value.get("options")
+    if not isinstance(options_in, list) or not options_in:
+        raise SpecError(f"Filter {position} needs at least one option.")
+    if len(options_in) > MAX_FILTER_OPTIONS:
+        raise SpecError(f"Filter {position} may have at most {MAX_FILTER_OPTIONS} options.")
+    options: List[str] = []
+    for option in options_in:
+        text = _text(option, f"Filter {position}'s options", True)
+        if not text:
+            raise SpecError(f"Filter {position} has an empty option.")
+        if text in options:
+            raise SpecError(f"Filter {position} lists {text!r} twice.")
+        options.append(text)
+    default = value.get("default")
+    if default in (None, ""):
+        default = None
+    elif not isinstance(default, str) or default.strip() not in options:
+        raise SpecError(f"Filter {position}'s default must be one of its options.")
+    else:
+        default = default.strip()
+    return {"key": key, "label": label, "options": options, "default": default}
+
+
+def _filters(value: Any, strict: bool) -> List[Dict[str, Any]]:
+    """The view's own filter bar. Reading drops a filter it can't use whole."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        if strict:
+            raise SpecError("`filters` must be a list.")
+        return []
+    if strict and len(value) > MAX_FILTERS:
+        raise SpecError(f"A view may have at most {MAX_FILTERS} filters.")
+    out: List[Dict[str, Any]] = []
+    keys: set = set()
+    for position, item in enumerate(value, start=1):
+        try:
+            one = _filter(item, position)
+            if one["key"] in keys:
+                raise SpecError(f"Two filters set the variable {one['key']!r}.")
+        except SpecError:
+            if strict:
+                raise
+            continue
+        keys.add(one["key"])
+        out.append(one)
+        if len(out) == MAX_FILTERS:
+            break
+    return out
 
 
 def _tab_id(value: Any, strict: bool, new_id: Callable[[], str], app_id: str) -> str:
@@ -288,9 +403,9 @@ def _normalize(raw: Dict[str, Any], app_id: str, *, strict: bool, new_id: Callab
         "assistant": _choice(raw, "assistant", ASSISTANT, strict),
         "branding": _branding(raw.get("branding"), strict),
         "tabs": tabs,
-        "nav": _reserved(raw, "nav", dict, strict),
-        "theme": _reserved(raw, "theme", dict, strict),
-        "filters": _reserved(raw, "filters", list, strict),
+        "nav": _nav(raw.get("nav"), strict),
+        "theme": _theme(raw.get("theme"), strict),
+        "filters": _filters(raw.get("filters"), strict),
     }
 
 
@@ -384,8 +499,18 @@ def compose_spec(
             })
     if len(tabs) > MAX_TABS:
         raise SpecError(f"An app may have at most {MAX_TABS} tabs; these views have {len(tabs)} between them.")
+    # The copied widgets may read variables their view's filter bar set, so the
+    # app keeps those filters; where two views filter the same key, the first wins.
+    filters: List[Dict[str, Any]] = []
+    for source in sources:
+        for one in (source.get("spec") or {}).get("filters") or []:
+            if isinstance(one, dict) and one.get("key") not in {f["key"] for f in filters}:
+                filters.append(copy.deepcopy(one))
+    if len(filters) > MAX_FILTERS:
+        raise SpecError(f"An app may have at most {MAX_FILTERS} filters; these views have {len(filters)} between them.")
     spec = legacy_spec("", [])
     spec["tabs"] = tabs
+    spec["filters"] = filters
     if presentation is not None:
         spec["presentation"] = presentation
     return validate_spec(spec, "", new_id=new_id)

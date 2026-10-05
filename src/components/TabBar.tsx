@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useDashboardStore } from '../store/dashboardStore';
-import { MAX_NAME_LENGTH, MAX_TABS, tabLabel } from '../store/appSpec';
+import { MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel } from '../store/appSpec';
 
 const NEW_TAB = '\u0000new';
 
@@ -10,8 +10,11 @@ const NEW_TAB = '\u0000new';
  * The tabs of the app on screen. An app with one tab — every view — has no bar:
  * its editors add a second tab from the header. Whoever may move the app's
  * widgets may also add, rename, reorder and delete its tabs.
+ *
+ * Each shell places one bar above the canvas and one beside it; only the one the
+ * app's nav style asks for draws anything.
  */
-export const TabBar: React.FC = () => {
+export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) => {
   const { activeApp, activeAppTab, selectTab, addTab, renameTab, moveTab, removeTab, canEditLayout } = useDashboardStore();
   const [editing, setEditing] = useState<{ id: string; was: string } | null>(null);
   const [draft, setDraft] = useState('');
@@ -20,6 +23,8 @@ export const TabBar: React.FC = () => {
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
   if (!activeApp || activeApp.spec.tabs.length < 2) return null;
+  const side = navStyle(activeApp) === 'sidebar';
+  if (side !== (placement === 'side')) return null;
   const app = activeApp;
   const tabs = app.spec.tabs;
   const editable = canEditLayout(app);
@@ -55,12 +60,21 @@ export const TabBar: React.FC = () => {
       }}
       onBlur={finishEditing}
       aria-label="Tab name"
-      className="my-1 px-2 py-1 text-sm border border-brand-blue rounded focus:outline-none focus:ring-2 focus:ring-brand-blue/30 w-40"
+      className={clsx(
+        'px-2 py-1 text-sm border border-brand-blue rounded focus:outline-none focus:ring-2 focus:ring-brand-blue/30',
+        side ? 'mx-2 my-0.5' : 'my-1 w-40',
+      )}
     />
   );
 
   return (
-    <nav className="bg-white border-b border-gray-200 px-4 flex items-end gap-1 overflow-x-auto shrink-0" aria-label="Tabs">
+    <nav
+      className={clsx(
+        'bg-white border-gray-200 shrink-0',
+        side ? 'w-52 border-r py-2 flex flex-col gap-0.5 overflow-y-auto' : 'border-b px-4 flex items-end gap-1 overflow-x-auto',
+      )}
+      aria-label="Tabs"
+    >
       {tabs.map((tab, index) => {
         const label = tabLabel(app, tab, index);
         const active = tab.id === activeAppTab?.id;
@@ -94,13 +108,15 @@ export const TabBar: React.FC = () => {
             onDoubleClick={() => editable && startEditing(tab.id, label)}
             title={editable ? `${label} — double-click to rename, drag to reorder` : label}
             className={clsx(
-              'group flex items-center gap-1 px-3 py-2 text-sm border-b-2 cursor-pointer select-none whitespace-nowrap transition-colors',
+              'group flex items-center gap-1 px-3 py-2 text-sm cursor-pointer select-none whitespace-nowrap transition-colors',
+              side ? 'border-l-2 justify-between' : 'border-b-2',
               active ? 'border-brand-blue text-brand-navy font-medium' : 'border-transparent text-gray-500 hover:text-gray-800',
+              side && active && 'bg-brand-blue/5',
               dragIndex === index && 'opacity-50',
               overIndex === index && dragIndex !== null && dragIndex !== index && 'bg-brand-blue/5',
             )}
           >
-            <span className="max-w-[14rem] truncate">{label}</span>
+            <span className={clsx('truncate', !side && 'max-w-[14rem]')}>{label}</span>
             {editable && (
               <button
                 type="button"
@@ -124,7 +140,10 @@ export const TabBar: React.FC = () => {
         <button
           type="button"
           onClick={() => startEditing(NEW_TAB, `Tab ${tabs.length + 1}`)}
-          className="mb-1 ml-1 p-1.5 rounded-md text-gray-400 hover:text-brand-blue hover:bg-gray-100"
+          className={clsx(
+            'p-1.5 rounded-md text-gray-400 hover:text-brand-blue hover:bg-gray-100',
+            side ? 'mx-2 self-start' : 'mb-1 ml-1',
+          )}
           title="Add a tab"
         >
           <Plus className="w-4 h-4" />

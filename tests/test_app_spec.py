@@ -149,10 +149,65 @@ def test_empty_branding_is_no_branding():
     assert validate_spec(two_tabs(branding={"title": "  ", "logo": ""}), APP)["branding"] is None
 
 
-def test_reserved_fields_are_carried_not_interpreted():
-    spec = validate_spec(two_tabs(nav={"style": "rail"}, filters=[{"key": "region"}]), APP)
-    assert spec["nav"] == {"style": "rail"} and spec["filters"] == [{"key": "region"}]
-    refuses(two_tabs(filters={"key": "region"}), "filters")
+def test_nav_is_tabs_across_the_top_unless_it_says_sidebar():
+    assert validate_spec(two_tabs(nav={"style": "sidebar"}), APP)["nav"] == {"style": "sidebar"}
+    assert validate_spec(two_tabs(nav={"style": "tabs"}), APP)["nav"] is None
+    assert validate_spec(two_tabs(nav={}), APP)["nav"] is None
+    refuses(two_tabs(nav={"style": "rail"}), "nav.style")
+    refuses(two_tabs(nav="sidebar"), "`nav`")
+
+
+def test_theme_colours_are_hex_and_dark_enough_for_white_text():
+    spec = validate_spec(two_tabs(theme={"primary": "#0F766E", "dark": ""}), APP)
+    assert spec["theme"] == {"primary": "#0f766e", "dark": None}
+    assert validate_spec(two_tabs(theme={"primary": None}), APP)["theme"] is None
+    # Command Center's own colours are the bar, so they must clear it.
+    assert app_spec.white_text_contrast("#007bff") >= app_spec.MIN_WHITE_CONTRAST
+    assert app_spec.white_text_contrast("#001e3c") >= app_spec.MIN_WHITE_CONTRAST
+    for bad in ("#FFD700", "#fff", "teal", "rgb(0,0,0)", "#00000g", 12):
+        refuses(two_tabs(theme={"primary": bad}), "theme.primary")
+    refuses(two_tabs(theme={"dark": "#f8f9fa"}), "theme.dark")
+    refuses(two_tabs(theme="#0f766e"), "`theme`")
+
+
+REGION = {"key": "region", "label": " Region ", "options": ["EMEA", " APAC "], "default": "EMEA"}
+
+
+def test_a_filter_is_a_variable_key_a_label_and_its_options():
+    spec = validate_spec(two_tabs(filters=[REGION, {"key": "plant", "options": ["P1"]}]), APP)
+    assert spec["filters"] == [
+        {"key": "region", "label": "Region", "options": ["EMEA", "APAC"], "default": "EMEA"},
+        {"key": "plant", "label": "plant", "options": ["P1"], "default": None},
+    ]
+
+
+def test_filters_that_could_not_work_are_refused():
+    refuses(two_tabs(filters={"key": "region"}), "must be a list")
+    refuses(two_tabs(filters=["region"]), "not an object")
+    for key in ("", "1st", "has space", "a-b", "x" * 65, None):
+        refuses(two_tabs(filters=[dict(REGION, key=key)]), "key must be")
+    refuses(two_tabs(filters=[dict(REGION, options=[])]), "at least one option")
+    refuses(two_tabs(filters=[dict(REGION, options=["A", " "])]), "empty option")
+    refuses(two_tabs(filters=[dict(REGION, options=["A", "A"])]), "twice")
+    refuses(two_tabs(filters=[dict(REGION, options=[str(n) for n in range(app_spec.MAX_FILTER_OPTIONS + 1)])]), "at most")
+    refuses(two_tabs(filters=[dict(REGION, default="LATAM")]), "default must be one of")
+    refuses(two_tabs(filters=[REGION, dict(REGION, label="Again")]), "Two filters set")
+    refuses(two_tabs(filters=[dict(REGION, key=f"k{n}") for n in range(app_spec.MAX_FILTERS + 1)]), "at most")
+
+
+def test_reading_drops_a_filter_it_cannot_use_and_keeps_the_rest():
+    stored = two_tabs(filters=[{"key": "region"}, REGION, dict(REGION, label="Twin")], nav={"style": "rail"},
+                      theme={"primary": "#FFD700", "dark": "#001E3C"})
+    spec = read_spec(APP, json.dumps(stored), "[]")
+    assert [f["label"] for f in spec["filters"]] == ["Region"]
+    assert spec["nav"] is None
+    assert spec["theme"] == {"primary": None, "dark": "#001e3c"}
+    assert validate_spec(spec, APP) == spec, "whatever a read returns, a write must accept"
+
+
+def test_nav_theme_and_filters_round_trip():
+    spec = validate_spec(two_tabs(nav={"style": "sidebar"}, theme={"dark": "#1e293b"}, filters=[REGION]), APP)
+    assert read_spec(APP, dumps(spec), "[]") == spec
 
 
 def test_validating_does_not_mutate_the_request():
@@ -233,6 +288,15 @@ def test_composing_refuses_nothing_and_too_much():
         raise AssertionError("too many tabs were accepted")
     except SpecError as e:
         assert "at most" in str(e)
+
+
+def test_composing_keeps_each_views_filters_and_the_first_wins_a_shared_key():
+    a = source("A", [])
+    a["spec"]["filters"] = [REGION]
+    b = source("B", [])
+    b["spec"]["filters"] = [dict(REGION, label="Other"), {"key": "plant", "label": "Plant", "options": ["P1"], "default": None}]
+    spec = compose_spec([a, b])
+    assert [(f["key"], f["label"]) for f in spec["filters"]] == [("region", "Region"), ("plant", "Plant")]
 
 
 def test_composing_checks_the_presentation():

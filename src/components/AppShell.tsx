@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Check, Link2, Pencil } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
-import { shownTab } from '../store/appSpec';
+import { shownTab, themeVariables, type AppTheme } from '../store/appSpec';
 import { TabBar } from './TabBar';
+import { FilterBar } from './FilterBar';
 import { loadAppWidgets } from '../widgetRegistry';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { getEnvironmentBadge } from '../api';
@@ -45,6 +46,25 @@ const useTabIdentity = (title: string, favicon: string | null | undefined) => {
       if (previous.type !== null) link.setAttribute('type', previous.type);
     };
   }, [favicon]);
+};
+
+// On the document root rather than this component, so the dialogs and menus
+// that widgets portal into <body> take the app's colours too.
+const useTheme = (theme: AppTheme | null | undefined) => {
+  const primary = theme?.primary;
+  const dark = theme?.dark;
+  useEffect(() => {
+    const root = document.documentElement.style;
+    const vars = themeVariables({ primary, dark });
+    const previous = Object.keys(vars).map(name => [name, root.getPropertyValue(name)] as const);
+    for (const [name, value] of Object.entries(vars)) root.setProperty(name, value);
+    return () => {
+      for (const [name, value] of previous) {
+        if (value) root.setProperty(name, value);
+        else root.removeProperty(name);
+      }
+    };
+  }, [primary, dark]);
 };
 
 /**
@@ -93,6 +113,7 @@ export const AppShell: React.FC = () => {
   const branding = activeApp?.spec.branding;
   const title = branding?.title || activeApp?.name || 'Command Center';
   useTabIdentity(badge ? `${title} - ${badge}` : title, branding?.favicon);
+  useTheme(activeApp?.spec.theme);
 
   if (!activeApp) return null;
 
@@ -150,13 +171,17 @@ export const AppShell: React.FC = () => {
           </div>
         </header>
 
-        <TabBar />
+        <TabBar placement="top" />
+        <FilterBar />
 
-        <main className="flex-1 overflow-auto bg-gray-50/50 relative">
-          <div className="w-full h-full px-2">
-            <DashboardGrid />
-          </div>
-        </main>
+        <div className="flex-1 flex min-h-0">
+          <TabBar placement="side" />
+          <main className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative">
+            <div className="w-full h-full px-2">
+              <DashboardGrid />
+            </div>
+          </main>
+        </div>
       </div>
 
       {offersAssistant && (

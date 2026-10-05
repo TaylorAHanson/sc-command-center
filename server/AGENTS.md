@@ -140,7 +140,9 @@ hidden. `tests/test_view_archive.py` holds the ordering and the permissions.
 
 `docs/adr-001-apps-as-top-level-artifact.md` is the plan; this is what is built.
 An app is a `dashboard_views` row under the view's own id, plus `spec_json`
-(tabs, each a widget layout, and presentation/assistant/branding). The rules
+(tabs, each a widget layout; presentation/assistant/branding; and `nav`
+(tab placement), `theme` (two brand colours, each required to carry white text)
+and `filters` (dropdowns whose choices are dashboard variables)). The rules
 that keep the deployment already running intact:
 
 - **No backfill, ever.** A NULL `spec_json` reads as the one-tab app the view
@@ -1047,7 +1049,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 16
 PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
-PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 27 passed
+PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 33 passed
 PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 27 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed

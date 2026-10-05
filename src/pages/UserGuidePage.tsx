@@ -62,6 +62,9 @@ export const UserGuidePage: React.FC = () => {
               <p className="text-sm text-gray-600">
                 Click <strong>Add tab</strong> in the top-right corner to give a view a second tab; use the <strong>+</strong> in the tab bar for more. Double-click a tab to rename it, drag it to reorder, or click its <strong>×</strong> to delete it. Widgets you add go on the tab you're looking at, and filters one widget sets apply on every tab of the view.
               </p>
+              <p className="text-sm text-gray-600 mt-2">
+                In the view's <strong>Settings</strong>, <strong>Tabs</strong> puts them <strong>Across the top</strong> or <strong>Down the side</strong>, and <strong>Filters</strong> adds dropdowns above the canvas. Each filter has a label, the variable it sets, its options (one per line) and the one it starts on. Anyone who can see the view can use them; widgets that follow that variable update on every tab, and <strong>All</strong> clears it. Choices reset when the view is reopened.
+              </p>
             </div>
 
             <div className="bg-white p-5 border rounded-lg shadow-sm">
@@ -93,7 +96,7 @@ export const UserGuidePage: React.FC = () => {
                 Want to show someone your setup? Click the <strong>Share</strong> button in the top-right corner to copy a direct link to your current view, or copy the address from your browser. Anyone you send it to finds your view under <strong>Shared Views</strong>, read-only.
               </p>
               <p className="text-sm text-gray-600 mt-2">
-                To share it as a page of its own, open <strong>Settings</strong> and choose <strong>On its own</strong>. The link then opens just that view, read-only, under the title, logo and assistant name you set. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center.
+                To share it as a page of its own, open <strong>Settings</strong> and choose <strong>On its own</strong>. The link then opens just that view, read-only, under the title, logo and assistant name you set, and in the <strong>Accent colour</strong> and <strong>Dark colour</strong> you choose, widgets included. Both must be dark enough for white text. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center.
               </p>
             </div>
           </div>

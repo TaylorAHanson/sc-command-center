@@ -2,15 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --brand-navy: 0 30 60;
+  --brand-blue: 0 123 255;
+  --brand-light: 248 249 250;
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
-  background-color: #F8F9FA;
-  color: #001E3C;
+  background-color: rgb(var(--brand-light));
+  color: rgb(var(--brand-navy));
 }
 
 .react-grid-item.react-grid-placeholder {
-  background: #007BFF !important;
+  background: rgb(var(--brand-blue)) !important;
   opacity: 0.2 !important;
 }
 
@@ -24,9 +30,9 @@ html, body, #root {
 
 /* Drop preview styling */
 .react-grid-item.react-grid-placeholder {
-  background: #007BFF !important;
+  background: rgb(var(--brand-blue)) !important;
   opacity: 0.3 !important;
-  border: 2px dashed #007BFF !important;
+  border: 2px dashed rgb(var(--brand-blue)) !important;
   border-radius: 8px;
 }
 

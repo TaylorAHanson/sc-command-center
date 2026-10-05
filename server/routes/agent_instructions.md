@@ -10,7 +10,7 @@ Therefore, you MUST NEVER use `import` statements of any kind. All React hooks a
 - Always import `WidgetProps` from `../widgetRegistry`.
 - Your component receives `id` (unique widget instance ID) and optional `data` (widget-specific props).
 - Use `className="h-full"` on your root `div` so the widget fills its container.
-- Use Tailwind CSS classes for styling (we use the brand color scheme: `text-brand-navy` (#001E3C), `text-brand-blue` (#007BFF)).
+- Use Tailwind CSS classes for styling (we use the brand color scheme: `text-brand-navy` (#001E3C), `text-brand-blue` (#007BFF)). A view may recolour these, so use the classes rather than the hex values.
 - **Accessibility & Contrast (CRITICAL)**: The widget is rendered on a **solid white background**. You MUST use dark text colors (e.g., `text-slate-800`, `text-gray-900`, `text-blue-900`) for all text, headings, and icons to ensure WCAG AAA contrast ratios. NEVER use light or pastel colors (like `text-blue-300`, `text-white`, `text-slate-300`) for text or button hovers unless you explicitly add a dark background block (e.g., `bg-slate-800`) to that specific element. Pay special attention to interactive elements: a button with a white/light background must have dark text, and it must remain dark on hover!
 - **CRITICAL**: Do NOT use arbitrary Tailwind values (like `w-[150px]` or `bg-[#ff0000]`). The dynamic runtime environment only supports standard Tailwind utility classes (e.g., `w-32`, `bg-red-500`). If you absolutely need an exact custom measurement or color, use a React inline `style={{ width: '150px' }}` prop instead.
 - Use standard React Hooks (`useState`, `useEffect`, etc.).
@@ -116,7 +116,7 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 
 ### Emitters and Receivers (Dashboard Variables)
 
-- Widgets can share state using dashboard variables. They are shared by every widget in the same view, on all of its tabs; opening a different view starts with none set.
+- Widgets can share state using dashboard variables. They are shared by every widget in the same view, on all of its tabs; opening a different view starts with none set. A view's own filter bar sets them too, so a widget that should follow a "Region" filter just reads its variable; an empty string means "All".
 - **Emitters** update a variable: `props.data.setVariable('selected_region', 'NA')`
 - **Receivers** read a variable: `const region = props.data.variables?.selected_region || 'All'`
 - When an emitter updates a variable, receiver widgets will automatically re-render with the new value.

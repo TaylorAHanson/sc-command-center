@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
-import { MAX_NAME_LENGTH, MAX_TABS, newAppSpec, shownTab, withTab, type App, type AppSpec, type AppTab, type WidgetLayout } from './appSpec';
+import { filterDefaults, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, shownTab, withTab, type App, type AppSpec, type AppTab, type WidgetLayout } from './appSpec';
 import { appHash, appLink, isStandalone, linkTab, parseAppRoute, routeTab, withoutRouteParams, type AppRoute } from './appRoute';
 import { useShell } from '../shell';
 
@@ -102,10 +102,17 @@ export const DashboardProvider: React.FC<{
   // opening another app starts with none, so a filter chosen on one app can't
   // quietly narrow another that happens to read the same key.
   const [appVariables, setAppVariables] = useState<{ appId: string; values: Record<string, any> }>({ appId: '', values: NO_VARIABLES });
-  const variables = appVariables.appId === activeAppId ? appVariables.values : NO_VARIABLES;
+  const chosen = appVariables.appId === activeAppId ? appVariables.values : NO_VARIABLES;
 
   const activeApp = apps.find(a => a.id === activeAppId) || null;
   const activeAppTab = shownTab(activeApp, activeTabId);
+  // A filter's default is what its variable holds until someone chooses; "All"
+  // is a choice too (an empty string), so it is not overridden by the default.
+  const filters = activeApp?.spec.filters;
+  const variables = useMemo(() => {
+    const defaults = filterDefaults(filters);
+    return Object.keys(defaults).length ? { ...defaults, ...chosen } : chosen;
+  }, [filters, chosen]);
   const appsRef = useRef(apps);
   useEffect(() => { appsRef.current = apps; }, [apps]);
 

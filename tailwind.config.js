@@ -15,10 +15,12 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Channels, not hex, so a view's theme can swap them at runtime and
+        // opacity modifiers (`bg-brand-blue/5`) still work. Defaults: index.css.
         brand: {
-          navy: '#001E3C',
-          blue: '#007BFF',
-          light: '#F8F9FA',
+          navy: 'rgb(var(--brand-navy) / <alpha-value>)',
+          blue: 'rgb(var(--brand-blue) / <alpha-value>)',
+          light: 'rgb(var(--brand-light) / <alpha-value>)',
         }
       }
     },

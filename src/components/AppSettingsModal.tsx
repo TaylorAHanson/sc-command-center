@@ -1,8 +1,86 @@
 import React, { useRef, useState } from 'react';
-import { X, Settings2, Upload, Trash2 } from 'lucide-react';
+import { X, Settings2, Upload, Trash2, Plus } from 'lucide-react';
 import clsx from 'clsx';
 import { useDashboardStore } from '../store/dashboardStore';
-import { imageProblem, MAX_NAME_LENGTH, type App, type AppSpec } from '../store/appSpec';
+import {
+  colourProblem, filtersProblem, imageProblem, MAX_FILTERS, MAX_NAME_LENGTH, navStyle,
+  type App, type AppFilter, type AppNav, type AppSpec,
+} from '../store/appSpec';
+
+interface FilterDraft {
+  label: string;
+  key: string;
+  /** The key follows the label until someone types one. */
+  autoKey: boolean;
+  options: string;
+  default: string;
+}
+
+const keyFromLabel = (label: string): string => {
+  const key = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return (/^[0-9]/.test(key) ? `_${key}` : key).slice(0, 64);
+};
+
+const draftOf = (filter: AppFilter): FilterDraft => ({
+  label: filter.label,
+  key: filter.key,
+  autoKey: false,
+  options: filter.options.join('\n'),
+  default: filter.default || '',
+});
+
+const optionsOf = (text: string): string[] => text.split('\n').map(o => o.trim()).filter(Boolean);
+
+const filterOf = (draft: FilterDraft): AppFilter => {
+  const options = optionsOf(draft.options);
+  return {
+    key: draft.key.trim(),
+    label: draft.label.trim() || draft.key.trim(),
+    options,
+    default: options.includes(draft.default) ? draft.default : null,
+  };
+};
+
+const ColourField: React.FC<{
+  label: string;
+  fallback: string;
+  value: string;
+  onChange: (value: string) => void;
+}> = ({ label, fallback, value, onChange }) => {
+  const problem = colourProblem(value);
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value && !problem ? value : fallback}
+          onChange={e => onChange(e.target.value)}
+          className="w-8 h-8 p-0.5 border border-gray-300 rounded cursor-pointer shrink-0"
+          aria-label={`${label} picker`}
+        />
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value.trim())}
+          placeholder={fallback}
+          maxLength={7}
+          className="w-28 px-3 py-1.5 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="text-xs text-gray-500 hover:text-brand-blue"
+          >
+            Use Command Center’s
+          </button>
+        )}
+      </div>
+      {problem && <p className="text-xs mt-1 text-red-600">{problem}</p>}
+    </div>
+  );
+};
 
 const readAsDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -92,10 +170,24 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
   const [favicon, setFavicon] = useState(branding.favicon || '');
   const [assistant, setAssistant] = useState<AppSpec['assistant']>(app.spec.assistant);
   const [assistantName, setAssistantName] = useState(branding.assistant_name || '');
+  const [nav, setNav] = useState<AppNav['style']>(navStyle(app));
+  const [primary, setPrimary] = useState(app.spec.theme?.primary || '');
+  const [dark, setDark] = useState(app.spec.theme?.dark || '');
+  const [filters, setFilters] = useState<FilterDraft[]>(() => (app.spec.filters || []).map(draftOf));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  const invalid = Boolean(imageProblem(logo) || imageProblem(favicon));
+  const filterProblem = filtersProblem(filters.map(filterOf));
+  const invalid = Boolean(imageProblem(logo) || imageProblem(favicon) || colourProblem(primary) || colourProblem(dark) || filterProblem);
+
+  const changeFilter = (index: number, change: Partial<FilterDraft>) =>
+    setFilters(prev => prev.map((f, i) => {
+      if (i !== index) return f;
+      const next = { ...f, ...change };
+      if ('key' in change) next.autoKey = false;
+      else if ('label' in change && f.autoKey) next.key = keyFromLabel(next.label);
+      return next;
+    }));
 
   const save = async () => {
     setSaving(true);
@@ -110,6 +202,9 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
         favicon: favicon || null,
         assistant_name: assistantName.trim() || null,
       },
+      nav: nav === 'sidebar' ? { style: 'sidebar' } : null,
+      theme: primary || dark ? { primary: primary || null, dark: dark || null } : null,
+      filters: filters.map(filterOf),
     });
     setSaving(false);
     if (reason) setRefusal(reason);
@@ -162,6 +257,104 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
             {choice('standalone', 'On its own', 'Just this view, under its own title and logo. Its editors still build it here.')}
           </section>
 
+          <section className="space-y-2">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Tabs</h3>
+              <p className="text-xs text-gray-500">Where the tabs sit, wherever the view opens. A view with one tab shows none.</p>
+            </div>
+            <div className="flex gap-2">
+              {([['tabs', 'Across the top'], ['sidebar', 'Down the side']] as const).map(([value, label]) => (
+                <label
+                  key={value}
+                  className={clsx(
+                    'flex-1 flex items-center gap-2 p-2 border rounded-md cursor-pointer text-sm text-gray-800 transition-colors',
+                    nav === value ? 'border-brand-blue bg-brand-blue/5' : 'border-gray-200 hover:border-gray-300'
+                  )}
+                >
+                  <input type="radio" name="nav" checked={nav === value} onChange={() => setNav(value)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Filters</h3>
+              <p className="text-xs text-gray-500">
+                Dropdowns above the canvas, wherever the view opens. Each choice sets the variable named here,
+                which widgets that follow that variable then use, on every tab.
+              </p>
+            </div>
+            {filters.map((filter, index) => (
+              <div key={index} className="p-3 border border-gray-200 rounded-md space-y-2">
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-xs font-medium text-gray-600 mb-0.5">Label</label>
+                    <input
+                      type="text"
+                      value={filter.label}
+                      maxLength={MAX_NAME_LENGTH}
+                      onChange={e => changeFilter(index, { label: e.target.value })}
+                      placeholder="Region"
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-xs font-medium text-gray-600 mb-0.5">Variable</label>
+                    <input
+                      type="text"
+                      value={filter.key}
+                      maxLength={64}
+                      onChange={e => changeFilter(index, { key: e.target.value.trim() })}
+                      placeholder="region"
+                      className="w-full px-2 py-1 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFilters(prev => prev.filter((_, i) => i !== index))}
+                    className="mt-5 p-1 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-md"
+                    title="Remove this filter"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-0.5">Options, one per line</label>
+                  <textarea
+                    value={filter.options}
+                    rows={3}
+                    onChange={e => changeFilter(index, { options: e.target.value })}
+                    placeholder={'EMEA\nAPAC\nAmericas'}
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-600">Starts on</label>
+                  <select
+                    value={optionsOf(filter.options).includes(filter.default) ? filter.default : ''}
+                    onChange={e => changeFilter(index, { default: e.target.value })}
+                    className="px-2 py-1 text-sm border border-gray-300 rounded-md bg-white"
+                  >
+                    <option value="">All</option>
+                    {optionsOf(filter.options).map(option => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </div>
+              </div>
+            ))}
+            {filterProblem && <p className="text-xs text-red-600">{filterProblem}</p>}
+            {filters.length < MAX_FILTERS && (
+              <button
+                type="button"
+                onClick={() => setFilters(prev => [...prev, { label: '', key: '', autoKey: true, options: '', default: '' }])}
+                className="flex items-center gap-1 text-sm text-brand-blue hover:text-brand-navy"
+              >
+                <Plus className="w-4 h-4" /> Add a filter
+              </button>
+            )}
+          </section>
+
           <section className="space-y-3">
             <div>
               <h3 className="text-sm font-semibold text-gray-800">When it opens on its own</h3>
@@ -180,6 +373,13 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
             </div>
             <ImageField label="Logo" hint="Shown beside the title." value={logo} onChange={setLogo} />
             <ImageField label="Browser tab icon" hint="Shown on the browser tab." value={favicon} onChange={setFavicon} />
+            <div className="grid grid-cols-2 gap-3">
+              <ColourField label="Accent colour" fallback="#007bff" value={primary} onChange={setPrimary} />
+              <ColourField label="Dark colour" fallback="#001e3c" value={dark} onChange={setDark} />
+            </div>
+            <p className="text-xs text-gray-500 -mt-1">
+              Replace Command Center’s blue and navy, in widgets too. White text sits on both, so each must be dark enough to read it on.
+            </p>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={assistant === 'on'} onChange={e => setAssistant(e.target.checked ? 'on' : 'off')} />
               Offer the assistant

@@ -28,6 +28,9 @@
 
 - **Share a view as a page of its own.** In the view's **Settings**, choose **On its own**: its link then opens just that view, with your title, logo and assistant name.
 - **Views can have tabs.** **Add tab** in the top right starts a tab bar; double-click a tab to rename it, drag to reorder, **×** to delete.
+- **Give a view its own filters.** In **Settings → Filters**, add dropdowns above the canvas; widgets that follow that variable update on every tab.
+- **Tabs down the side.** In **Settings → Tabs**, choose **Down the side** to list a view's tabs on the left.
+- **Your colours on a view of its own.** **Accent colour** and **Dark colour** in **Settings** recolour the view, widgets included, when it opens on its own.
 - **Promoting a view checks the target first.** View Promotion's confirmation lists widgets and pinned agents the target lacks, and can promote the missing widgets along with it.
 - **Remove a global view.** **Remove** on **View Promotion** archives it for everyone; **Archived** lists it, where you can **Restore** it or **Delete permanently**.
 - **Widgets can tell when rows were left out.** Query results now say if they were cut short, and a widget can ask for more than the default 500 rows.
