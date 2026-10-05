@@ -130,6 +130,49 @@ def test_a_refusal_that_keeps_coming_back_stops_after_one_retry():
     assert events[-1]["type"] == "error"
 
 
+# A draft that can't be read used to end the run like a good one: the prose said
+# the agent was built, the form stayed empty, and only the server log knew.
+
+DRAFT_START = 'I built a demo agent.\n\n```json\n{"name": "Taxi", "prompt": "You answer questions about '
+
+
+def final_of(script):
+    events, _ = run(script)
+    assert events[-1]["type"] == "final", events[-1]
+    return events[-1]
+
+
+def test_a_draft_cut_off_at_the_length_limit_says_so():
+    final = final_of(lambda p: [reply(DRAFT_START),
+                                AIMessageChunk(content="taxi", id="m1", response_metadata={"finish_reason": "length"})])
+    assert final["draft"] is None
+    assert "length limit" in final["draft_error"], final["draft_error"]
+
+
+def test_a_draft_that_stops_short_without_a_reason_says_it_was_cut_off():
+    final = final_of(lambda p: [reply(DRAFT_START + "taxi trips")])
+    assert final["draft"] is None
+    assert "cut off" in final["draft_error"], final["draft_error"]
+
+
+def test_a_draft_that_is_not_valid_json_says_where():
+    final = final_of(lambda p: [reply('Done.\n\n```json\n{"name": "Taxi", "prompt": "Use "trips" only",}\n```')])
+    assert final["draft"] is None
+    assert "not valid JSON" in final["draft_error"] and "line" in final["draft_error"], final["draft_error"]
+
+
+def test_a_reply_with_no_draft_in_it_is_not_an_error():
+    final = final_of(lambda p: [reply("Which data should it reach: the {sales} tables or Genie?")])
+    assert final["draft"] is None
+    assert not final.get("draft_error")
+
+
+def test_a_good_draft_has_no_error():
+    final = final_of(lambda p: [reply(DRAFT_START + 'taxi trips."}\n```')])
+    assert final["draft"] == {"name": "Taxi", "prompt": "You answer questions about taxi trips."}
+    assert not final.get("draft_error")
+
+
 if __name__ == "__main__":
     import traceback
 

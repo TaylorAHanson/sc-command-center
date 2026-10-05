@@ -379,7 +379,11 @@ an *Unsaved changes* marker when there are any), sit **New agent**, **Open**, an
 **Save**. New agent and Open ask before discarding unsaved work. **Delete agent**
 is at the bottom of the **Settings** tab. While the authoring assistant writes,
 its send button becomes **Stop**; stopping keeps what it wrote and leaves the
-agent unchanged. Enter never stops it.
+agent unchanged. Enter never stops it. If its reply describes an agent but the
+draft didn't arrive in a usable form, a note under the reply says so (cut off, or
+not valid JSON) and the editor is left as it was; asking again usually works. A
+draft cut off at the length limit means raising **Agent Studio response length
+limit** in Admin Panel → Settings.
 
 The **Try it** tab runs the draft agent exactly as the sidebar chat would.
 Saved agents have one of three visibilities: **personal** (only the author),

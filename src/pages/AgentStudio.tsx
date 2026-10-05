@@ -448,6 +448,12 @@ export const AgentStudio: React.FC = () => {
                         if (evt.draft?.review) setRightTab('review');
                         assistantText = evt.explanation || assistantText || 'Draft updated.';
                         renderAssistant();
+                        if (evt.draft_error) {
+                            setMessages(prev => [...prev, {
+                                role: 'system',
+                                content: `${evt.draft_error} Nothing in the editor changed, so the agent above was not built. Ask again to get a new draft.`,
+                            }]);
+                        }
                     } else if (evt.type === 'error') {
                         setMessages([...baseMessages, { role: 'system', content: `Generation Error: ${evt.content}` }]);
                     }

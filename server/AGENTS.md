@@ -582,6 +582,10 @@ loop, and every LLM call site goes through it. The exception is Agent Studio's
 streamed draft, which can't be rerun from the top once text has reached the
 browser: it runs the same `adapt` loop itself, and only until the first frame is
 sent (`tests/test_agent_studio_stream.py`). The lesson is remembered per process.
+That stream's `final` frame also carries `draft_error` when the reply attempted a
+draft (a ```json fence or a `"prompt"` key) that `_read_draft` couldn't use: cut
+off (the model's `finish_reason` says whether by the length limit) or invalid JSON
+with its position. The studio shows it; without it the run looked like a success.
 Two rules worth knowing before you change it:
 
 - **A parameter is only dropped if it's in `_DROPPABLE`.** An error naming
@@ -1039,7 +1043,7 @@ settles as *completed* with an apology: the user's code is already fine.
 
 ```bash
 PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py   # 6 passed
-PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_stream.py  # 5 passed
+PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_stream.py  # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 9 passed
 PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 22 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed

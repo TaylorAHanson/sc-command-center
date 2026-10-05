@@ -31,7 +31,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _now_iso() -> str:
@@ -703,7 +703,7 @@ def _agent_studio_max_tokens() -> int:
 
     The draft is a single JSON object holding the system prompt PLUS every skill
     body and Python tool. A too-small cap truncates that JSON mid-string, which
-    surfaces as "draft JSON found but failed to parse" (the object never closes).
+    surfaces as "The draft was cut off at the response length limit".
     A multi-skill agent easily exceeds 6k output tokens, so the default is generous.
     """
     return get_int_setting("authoring_max_tokens")
@@ -849,36 +849,53 @@ def _scan_balanced_object(text: str, start: int) -> Optional[str]:
     return None
 
 
-def _extract_json_block(content: str) -> Optional[Dict[str, Any]]:
-    """Parse the profile JSON the model appended after its prose.
+def _read_draft(content: str, finish_reason: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """The profile JSON the model appended after its prose, or why it can't be used.
 
     The model often does NOT fence the JSON, and when it does the body can
     contain inner ``` fences that defeat a naive non-greedy regex. We therefore
     extract the JSON by balanced-brace scanning (string-aware), trying the
     fenced region first, then the whole message, then a greedy regex as a final
     fallback. The first candidate that parses wins.
+
+    The reason is for the author: without it a draft that failed to arrive ends
+    the run exactly like one that did, under prose saying the agent was built.
+    A reply with no draft in it (a clarifying question) has no reason; only a
+    ```json fence or a "prompt" key counts as an attempt at one.
     """
     candidates: List[str] = []
     fence = re.search(r"```json\s*\n", content, re.IGNORECASE)
+    primary = _scan_balanced_object(content, fence.end() if fence else 0)
+    if primary:
+        candidates.append(primary)
     if fence:
-        obj = _scan_balanced_object(content, fence.end())
+        obj = _scan_balanced_object(content, 0)
         if obj:
             candidates.append(obj)
-    obj = _scan_balanced_object(content, 0)
-    if obj:
-        candidates.append(obj)
     greedy = re.search(r"\{.*\}", content, re.DOTALL)
     if greedy:
         candidates.append(greedy.group(0))
 
+    error: Optional[ValueError] = None
     for raw in candidates:
         try:
-            return json.loads(raw)
-        except Exception:  # noqa: BLE001
-            continue
-    if candidates:
-        logger.warning("Agent Studio: draft JSON found but failed to parse (len=%d)", len(content))
-    return None
+            return json.loads(raw), None
+        except ValueError as exc:
+            error = error or exc
+
+    if not (fence or '"prompt"' in content):
+        return None, None
+    if finish_reason == "length":
+        problem = "The draft was cut off at the response length limit (Admin Panel → Settings)."
+    elif primary is None:
+        problem = "The draft was cut off before it finished."
+    elif isinstance(error, json.JSONDecodeError):
+        problem = f"The draft is not valid JSON ({error.msg} at line {error.lineno}, column {error.colno})."
+    else:
+        problem = "The draft is not valid JSON."
+    logger.warning("Agent Studio: unusable draft: %s finish_reason=%s len=%d tail=%r",
+                   problem, finish_reason, len(content), content[-160:])
+    return None, problem
 
 
 # --------------------------------------------------------------------- routes
@@ -1089,6 +1106,7 @@ async def stream_authoring(
                     prompt=_build_authoring_system_prompt(req),
                 )
                 full = ""
+                finish_reason: Optional[str] = None
                 emitted = 0
                 tool_calls: List[Dict[str, str]] = []
                 tool_seen: set[str] = set()
@@ -1120,6 +1138,7 @@ async def stream_authoring(
                                 tool_calls.append({"tool_name": _FRIENDLY_TOOL.get(nm, nm), "status": "running"})
                                 await emit(_sse({"type": "tool_calls", "content": tool_calls}))
 
+                        finish_reason = (getattr(msg, "response_metadata", None) or {}).get("finish_reason") or finish_reason
                         content = reply_text(msg)
                         if not content:
                             continue
@@ -1154,9 +1173,10 @@ async def stream_authoring(
                     last_note = note
                     logger.info("Agent Studio authoring retrying: %s.", note)
 
-            draft = _extract_json_block(full)
+            draft, draft_error = _read_draft(full, finish_reason)
             explanation = _split_explanation(full) or "Draft updated."
-            await queue.put(_sse({"type": "final", "draft": draft, "explanation": explanation}))
+            await queue.put(_sse({"type": "final", "draft": draft, "draft_error": draft_error,
+                                  "explanation": explanation}))
             await queue.put(b"data: [DONE]\n\n")
         except Exception as exc:  # noqa: BLE001
             logger.exception("Authoring stream failed")

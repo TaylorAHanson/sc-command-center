@@ -46,6 +46,7 @@
 
 ### Fixed
 
+- **Agent Studio says when a draft didn't arrive.** If the reply describes an agent but its draft was cut off or unreadable, a note says so instead of leaving the editor silently unchanged.
 - **View Promotion shows when each view last changed.** **Last Modified** and the dates in **Preview** were always blank.
 - **Quick edits to a view all save.** Two changes made close together could collide, and one would be lost on the next reload.
 - **Back, Forward and reload return to Agent Studio, User Guide and Release Notes.** They used to land on a dashboard instead.
