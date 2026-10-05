@@ -77,11 +77,20 @@ export const newAppSpec = (tabId: string): AppSpec => ({
 export const shownTab = (app?: App | null, tabId?: string | null): AppTab | null =>
   app?.spec?.tabs?.find(t => t.id === tabId) ?? app?.spec?.tabs?.[0] ?? null;
 
+/**
+ * What a tab is called on screen. A view's only tab was never named (its name
+ * is the view's), so once a second tab joins it, it reads as the app, wherever
+ * it is moved to.
+ */
+export const tabLabel = (app: App, tab: AppTab, index: number): string =>
+  tab.name || (index === 0 || tab.id === app.id ? app.name : `Tab ${index + 1}`);
+
 /** The agent the drawer opens with: the tab's own pin, else the app's. */
 export const pinnedAgentOf = (app?: App | null, tab?: AppTab | null): string =>
   tab?.pinned_agent_id || app?.pinned_agent_id || '';
 
-export const MAX_BRANDING_TEXT = 120;
+export const MAX_NAME_LENGTH = 120;
+export const MAX_TABS = 50;
 export const MAX_IMAGE_CHARS = 256 * 1024;
 const IMAGE_DATA_URL = /^data:image\/(png|jpeg|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/=\s]+$/;
 

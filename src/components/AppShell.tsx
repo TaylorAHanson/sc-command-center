@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Link2, Pencil } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { linkTab } from '../store/appRoute';
+import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
+import { shownTab } from '../store/appSpec';
+import { TabBar } from './TabBar';
 import { loadAppWidgets } from '../widgetRegistry';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { getEnvironmentBadge } from '../api';
@@ -51,7 +53,7 @@ const useTabIdentity = (title: string, favicon: string | null | undefined) => {
  * and nothing here changes the app; its editors build it in the workspace.
  */
 export const AppShell: React.FC = () => {
-  const { activeApp, activeAppTab, isAdmin, username, canEditApp, generateShareLink } = useDashboardStore();
+  const { activeApp, activeAppTab, isAdmin, username, canEditApp, generateShareLink, openRoute } = useDashboardStore();
   const shell = useShell();
   const agentChat = useAgentChat();
   const [isAgentOpen, setAgentOpen] = useState(false);
@@ -62,6 +64,25 @@ export const AppShell: React.FC = () => {
   useEffect(() => {
     if (appId) loadAppWidgets(appId);
   }, [appId]);
+
+  // The address follows the tab on screen, as it does in the workspace, so Back
+  // moves between tabs and the address bar is a link to the tab being read.
+  useEffect(() => {
+    if (!activeApp || !activeAppTab) return;
+    const named = parseAppRoute(window.location.hash);
+    const showing = named && !named.workspace && named.appId === activeApp.id
+      && shownTab(activeApp, named.tabId)?.id === activeAppTab.id;
+    if (!showing) window.location.hash = appHash(activeApp.id, linkTab(activeApp, activeAppTab));
+  }, [activeApp, activeAppTab]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const route = parseAppRoute(window.location.hash);
+      if (route) openRoute(route);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [openRoute]);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +149,8 @@ export const AppShell: React.FC = () => {
             )}
           </div>
         </header>
+
+        <TabBar />
 
         <main className="flex-1 overflow-auto bg-gray-50/50 relative">
           <div className="w-full h-full px-2">

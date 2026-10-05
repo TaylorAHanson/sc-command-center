@@ -6,7 +6,7 @@
 // out before — `?shared_view=<id>`, `#/view/<id>`, `#/template/<id>` and
 // `?widget=<id>` — is still in people's bookmarks, chats and emails, and opens
 // the same app forever.
-import type { App, AppTab } from './appSpec';
+import { shownTab, type App, type AppTab } from './appSpec';
 
 export interface AppRoute {
   appId: string;
@@ -47,19 +47,23 @@ export const parseAppRoute = (hash: string, search = ''): AppRoute | null => {
 };
 
 /**
- * The hash for an app, one of its tabs, or a widget on one. A view's only tab is
- * named by the view's id, so a link to it is just the app's.
+ * The hash for an app, one of its tabs, or a widget on one. Pass the tab from
+ * `linkTab`, which leaves out the first: a tab id here is always written, since
+ * the tab a view started with keeps the view's id wherever it is moved to.
  */
 export const appHash = (appId: string, tabId?: string | null, widgetId?: string | null, workspace = false): string => {
   const parts = [workspace ? '#/workspace' : '#/app', encodeURIComponent(appId)];
   if (widgetId) parts.push(encodeURIComponent(tabId || appId), 'w', encodeURIComponent(widgetId));
-  else if (tabId && tabId !== appId) parts.push(encodeURIComponent(tabId));
+  else if (tabId) parts.push(encodeURIComponent(tabId));
   return parts.join('/');
 };
 
 /** The tab a link to what is on screen names: none when it is the first. */
 export const linkTab = (app: App, tab: AppTab | null): string | null =>
   tab && tab.id !== app.spec.tabs[0]?.id ? tab.id : null;
+
+/** The tab to write for a link once read: the one it opens, unless that is the first. */
+export const routeTab = (app: App, tabId: string | null): string | null => linkTab(app, shownTab(app, tabId));
 
 /** Whether an app shows on its own when a link to it is opened. */
 export const isStandalone = (app?: App | null): boolean => app?.spec?.presentation === 'standalone';

@@ -1,14 +1,16 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
-import { newAppSpec, shownTab, withTab, type App, type AppSpec, type AppTab, type WidgetLayout } from './appSpec';
-import { appHash, appLink, isStandalone, linkTab, parseAppRoute, withoutRouteParams, type AppRoute } from './appRoute';
+import { MAX_NAME_LENGTH, MAX_TABS, newAppSpec, shownTab, withTab, type App, type AppSpec, type AppTab, type WidgetLayout } from './appSpec';
+import { appHash, appLink, isStandalone, linkTab, parseAppRoute, routeTab, withoutRouteParams, type AppRoute } from './appRoute';
 import { useShell } from '../shell';
 
 // An app can pin the built-in agent just as deliberately as an authored one, so
 // "no pin" and "pinned to the default" have to be different values. Authored
 // agents are UUIDs, so this word can never collide with one.
 export const DEFAULT_AGENT_PIN = 'default';
+
+const NO_VARIABLES = Object.freeze({}) as DashboardContextType['variables'];
 
 export type { WidgetLayout, App, AppTab, AppSpec, AppBranding } from './appSpec';
 
@@ -43,6 +45,13 @@ interface DashboardContextType {
   renameApp: (id: string, newName: string) => void;
   reorderApps: (fromIndex: number, toIndex: number) => void;
   setActiveAppId: (id: string) => void;
+  /** Show another tab of the app on screen. */
+  selectTab: (tabId: string) => void;
+  /** Adds an empty tab and shows it; returns its id, or null if it can't. */
+  addTab: (appId: string, name: string) => string | null;
+  renameTab: (appId: string, tabId: string, name: string) => void;
+  moveTab: (appId: string, fromIndex: number, toIndex: number) => void;
+  removeTab: (appId: string, tabId: string) => void;
   duplicateApp: (appId: string) => void;
   toggleLock: (appId: string) => void;
   setPinnedAgent: (appId: string, tabId: string | null, agentId: string | null) => void;
@@ -50,6 +59,8 @@ interface DashboardContextType {
   updateAppSpec: (appId: string, spec: AppSpec) => Promise<string | null>;
   /** Whether the signed-in user may change this app's settings (not its layout). */
   canEditApp: (app?: App | null) => boolean;
+  /** Whether the signed-in user may change this app's widgets and tabs here. */
+  canEditLayout: (app?: App | null) => boolean;
   /** Whether the signed-in user may change a widget belonging to this domain. */
   canEditDomain: (domain?: string | null) => boolean;
 
@@ -87,7 +98,11 @@ export const DashboardProvider: React.FC<{
   const [isAdmin, setIsAdmin] = useState(false);
   const [username, setUsername] = useState('unknown');
   const [domainPermissions, setDomainPermissions] = useState<Record<string, string>>({});
-  const [variables, setVariables] = useState<Record<string, any>>({});
+  // Dashboard variables belong to the app on screen: its tabs share them, and
+  // opening another app starts with none, so a filter chosen on one app can't
+  // quietly narrow another that happens to read the same key.
+  const [appVariables, setAppVariables] = useState<{ appId: string; values: Record<string, any> }>({ appId: '', values: NO_VARIABLES });
+  const variables = appVariables.appId === activeAppId ? appVariables.values : NO_VARIABLES;
 
   const activeApp = apps.find(a => a.id === activeAppId) || null;
   const activeAppTab = shownTab(activeApp, activeTabId);
@@ -97,8 +112,13 @@ export const DashboardProvider: React.FC<{
   const selectApp = useCallback((id: string, tabId: string | null = null) => {
     setActiveAppIdState(id);
     setActiveTabId(tabId);
+    setAppVariables(prev => (prev.appId === id ? prev : { appId: id, values: NO_VARIABLES }));
   }, []);
 
+  const selectTab = useCallback((tabId: string) => setActiveTabId(tabId), []);
+
+  // Bound to the app it was handed out on, so a widget seeding its variable as
+  // it mounts on a newly opened app writes to that app, not the one just left.
   const setVariable = useCallback((key: string, value: any) => {
     // Skip the update when the value is unchanged. Widgets share this map, so a
     // new `variables` object re-renders every widget on the app; an unguarded
@@ -106,8 +126,12 @@ export const DashboardProvider: React.FC<{
     // pattern) would otherwise loop forever — new object -> new widget `data`
     // -> effect re-runs -> writes again -> ... pegging a CPU core and dragging
     // the whole machine down the longer the app stays open.
-    setVariables(prev => (Object.is(prev[key], value) ? prev : { ...prev, [key]: value }));
-  }, []);
+    setAppVariables(prev => {
+      const values = prev.appId === activeAppId ? prev.values : NO_VARIABLES;
+      if (prev.appId === activeAppId && Object.is(values[key], value)) return prev;
+      return { appId: activeAppId, values: { ...values, [key]: value } };
+    });
+  }, [activeAppId]);
 
   const fetchPermissions = useCallback(async (): Promise<string | null> => {
     try {
@@ -158,12 +182,24 @@ export const DashboardProvider: React.FC<{
   // subscribes only after a fresh list says the app really isn't there, so a
   // link to your own app or a global one you can see never does.
   const openRoute = useCallback(async (route: AppRoute, known?: App[] | null) => {
-    const canonical = appHash(route.appId, route.tabId, null, route.workspace);
-    const search = withoutRouteParams(window.location.search);
-    if (window.location.hash !== canonical || window.location.search !== search) {
-      window.history.replaceState(window.history.state, '', window.location.pathname + search + canonical);
+    const canonicalize = (app?: App) => {
+      const canonical = appHash(route.appId, app ? routeTab(app, route.tabId) : route.tabId, null, route.workspace);
+      const search = withoutRouteParams(window.location.search);
+      if (window.location.hash !== canonical || window.location.search !== search) {
+        window.history.replaceState(window.history.state, '', window.location.pathname + search + canonical);
+      }
+    };
+
+    // On its own, the page holds one app: a link to another is the shell's to follow.
+    if (standalone) {
+      if (route.appId !== standalone.app.id || route.workspace) return;
+      canonicalize(appsRef.current[0]);
+      selectApp(route.appId, route.tabId);
+      if (route.widgetId) setPendingWidgetId(route.widgetId);
+      return;
     }
 
+    canonicalize(appsRef.current.find(a => a.id === route.appId));
     const find = (list?: App[] | null) => list?.find(a => a.id === route.appId);
     let list: App[] | null = known ?? appsRef.current;
     if (!find(list)) list = await fetchApps();
@@ -176,13 +212,14 @@ export const DashboardProvider: React.FC<{
       }
     }
     const app = find(list);
+    if (app) canonicalize(app);
     if (app && isStandalone(app) && !route.workspace) {
       shell.present(app, route.tabId, route.widgetId);
       return;
     }
     selectApp(route.appId, route.tabId);
     if (route.widgetId) setPendingWidgetId(route.widgetId);
-  }, [fetchApps, selectApp, shell]);
+  }, [fetchApps, selectApp, shell, standalone]);
 
   // The link the page opened with is acted on once, though StrictMode runs this
   // effect twice in development. A standalone app was read before this mounted,
@@ -357,6 +394,14 @@ export const DashboardProvider: React.FC<{
     return !app.username || app.username === username;
   }, [isAdmin, domainPermissions, username]);
 
+  // Who may change what is on an app's canvases: its widgets and its tabs. A
+  // locked app is read-only to everyone, a global one to everyone but admins,
+  // and an app shown on its own is built in the workspace instead.
+  const canEditLayout = useCallback((app?: App | null): boolean => {
+    if (!app || standalone || app.locked) return false;
+    return !(app.is_global && !isAdmin);
+  }, [standalone, isAdmin]);
+
   // Who may edit a widget, mirroring `require_domain_editor` — the check its save
   // actually goes through. Editing a widget is a domain right, not an ownership
   // one: the server has never asked who wrote a widget before accepting a new
@@ -402,6 +447,58 @@ export const DashboardProvider: React.FC<{
     const refusal = await apiSyncApp(updatedApp);
     if (refusal) setApps(prev => prev.map(a => (a === updatedApp ? app : a)));
     return refusal;
+  };
+
+  // Changes an app's tabs and saves it, under the same rule as moving a widget.
+  const changeTabs = (appId: string, change: (tabs: AppTab[]) => AppTab[] | null): boolean => {
+    const app = apps.find(a => a.id === appId);
+    if (!app || !canEditLayout(app)) return false;
+    const tabs = change(app.spec.tabs);
+    if (!tabs) return false;
+    const updatedApp = { ...app, spec: { ...app.spec, tabs } };
+    setApps(apps.map(a => a.id === appId ? updatedApp : a));
+    apiSyncApp(updatedApp);
+    return true;
+  };
+
+  const addTab = (appId: string, name: string): string | null => {
+    const id = uuidv4();
+    const added = changeTabs(appId, tabs => (tabs.length >= MAX_TABS ? null : [
+      ...tabs,
+      { id, name: name.trim().slice(0, MAX_NAME_LENGTH), widgets: [], pinned_agent_id: null },
+    ]));
+    if (!added) return null;
+    selectApp(appId, id);
+    return id;
+  };
+
+  const renameTab = (appId: string, tabId: string, name: string) => {
+    const next = name.trim().slice(0, MAX_NAME_LENGTH);
+    changeTabs(appId, tabs => (tabs.some(t => t.id === tabId && t.name !== next)
+      ? tabs.map(t => (t.id === tabId ? { ...t, name: next } : t))
+      : null));
+  };
+
+  const moveTab = (appId: string, fromIndex: number, toIndex: number) => {
+    changeTabs(appId, tabs => {
+      if (fromIndex === toIndex || !tabs[fromIndex] || toIndex < 0 || toIndex >= tabs.length) return null;
+      const next = [...tabs];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  };
+
+  // The last tab can't go: an app is at least one canvas. Removing the tab on
+  // screen shows the one that took its place.
+  const removeTab = (appId: string, tabId: string) => {
+    const app = apps.find(a => a.id === appId);
+    const index = app?.spec.tabs.findIndex(t => t.id === tabId) ?? -1;
+    const removed = changeTabs(appId, tabs => (tabs.length > 1 && index >= 0 ? tabs.filter(t => t.id !== tabId) : null));
+    if (removed && app && activeAppId === appId && activeAppTab?.id === tabId) {
+      const remaining = app.spec.tabs.filter(t => t.id !== tabId);
+      selectApp(appId, remaining[Math.min(index, remaining.length - 1)].id);
+    }
   };
 
   // Changes one tab's widgets and saves the app. Shared apps are read-only to
@@ -500,8 +597,9 @@ export const DashboardProvider: React.FC<{
       standalone: Boolean(standalone),
       variables, setVariable,
       addApp, removeApp, renameApp, reorderApps, setActiveAppId: selectApp,
+      selectTab, addTab, renameTab, moveTab, removeTab,
       duplicateApp, addWidget, removeWidget, updateWidget, updateLayout,
-      toggleLock, setPinnedAgent, updateAppSpec, canEditApp, canEditDomain, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
+      toggleLock, setPinnedAgent, updateAppSpec, canEditApp, canEditLayout, canEditDomain, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
     }}>
       {children}
     </DashboardContext.Provider>

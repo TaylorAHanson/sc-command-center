@@ -233,7 +233,7 @@ none should run as the SP.
 | Multi-tab | Tab bar inside the app; sidebar lists apps, not tabs |
 | Lock / share / archive | App-level (tab-level lock later if needed) |
 | Agent pin | App-level default with tab-level override (tab → app → default). Keep `pin_value` semantics (absent = keep, `""` = clear); covered by `tests/test_view_pins.py` |
-| Variables | Scope to the active app. Reset on app change; shared across its tabs. Fixes a cross-view leak — verify nothing relies on cross-view persistence |
+| Variables | Scope to the active app. Reset on app change; shared across its tabs. Fixes a cross-view leak — verify nothing relies on cross-view persistence (§5 #2, still open) |
 | Orphan widgets | Do not write to an app from orphan-cleanup for non-editors; show a visible "widget unavailable" placeholder instead of silently hiding |
 | Version churn | Debounce client autosave; update the head row in place when the same user saves within a short window and only layout changed. Promotion must still see a stable head |
 | Branding | Applied by `AppShell`; set `document.title` / favicon while mounted; restore Command Center's on exit. Validate and size-limit logo/favicon server-side |
@@ -324,7 +324,7 @@ none should run as the SP.
 | 2 | Store/type rename; flip frontend to `/api/apps` | Workspace behavior identical. **Built** (§4.3a) |
 | 3 | App-scoped widget bundle + canonical links/aliases | Access unchanged (§2.3). **Built** (§4.3b) |
 | 4 | `AppShell` standalone: route-level split, branding, env badge, viewer/editor, route-aware provider | Critical path for shareable apps. **Built** (§4.3c) |
-| 5 | Multi-tab bar and editing; app-scoped variables | |
+| 5 | Multi-tab bar and editing; app-scoped variables | **Built** (§4.3d) |
 | 6 | `transfer_app` with preflight; delete `/api/views` shim | |
 | 7 | Nav styles, theme tokens, filters | Optional polish |
 
@@ -438,6 +438,39 @@ none should run as the SP.
   the only sidebar-era state the grid reads, and it is null without a sidebar,
   which filters nothing.
 
+### 4.3d Slice 5 as built
+
+- **Tab bar** (`src/components/TabBar.tsx`), under the header in both shells,
+  shown only when an app has two or more tabs (§2.5). A one-tab app gets
+  **Add tab** in the workspace header instead, so every existing view looks
+  exactly as before until someone adds a tab. There is no separate New App
+  flow: any view becomes a multi-tab app this way, and Q9 stands.
+- **Editing.** Double-click renames, drag reorders, × deletes (confirming when
+  the tab holds widgets; the last tab can't go), + adds up to `MAX_TABS` (50).
+  A new tab is named before it exists, so adding one is one save. Each change
+  sends the whole spec through the same per-app queue as widget edits, and a
+  refusal is undone.
+- **Who may edit tabs: whoever may move widgets** (§2.3, unchanged).
+  `canEditLayout(app)` is that rule, now named once: not standalone, not
+  locked, and a global app only for an admin. `DashboardGrid` uses it too.
+  Standalone tabs switch but never change.
+- **Addresses.** Switching tabs writes the tab into the hash, so Back steps
+  between tabs and a link opens on the tab it was copied from. The tab is left
+  out only when it is first (`routeTab`). A view's original tab has the app's
+  id; once moved down the bar its links say `#/app/<id>/<id>`, while old
+  `#/app/<id>` links now open the new first tab. `tabLabel` shows a view's
+  unnamed first tab as the app's name wherever it moves.
+- **Variables are per app.** Kept in the store keyed by app id and bound into
+  `setVariable` per app, so an emitter seeding on mount in a newly opened app
+  writes to that app. Shared by its tabs; another app starts empty.
+- **Fixed on the way:** the "Empty Dashboard" hint never rendered, because the
+  grid drops children that aren't its items. It now sits beside the grid and
+  lets drops through.
+- **Not in this slice:** a tab-level pin control. The pin button still changes
+  the pin in force (tab → app), and no UI sets a tab's own pin. Q3's
+  coalescing is still open; multi-tab apps make each row larger and each edit
+  still adds a version, so it matters more now.
+
 ### 4.4 Docs and tests (per AGENTS.md)
 
 - User-visible behavior → update `RELEASE_NOTES.md` in the same commit, plus
@@ -468,6 +501,9 @@ slice lands.
 1. Does any placed widget or endpoint run as the SP or without OBO?
    (§2.3 caveat)
 2. Do any widgets depend on `variables` persisting across view switches?
+   Slice 5 resets them, so check each deployed env: a receiver
+   (`variables?.<key>`) placed in a view with no emitter
+   (`setVariable('<key>'`) for that key. Local dev has too few widgets to tell.
 3. Anything else that parses `widgets_json` outside the blast-radius list in
    §1.3?
 4. ~~Does anything else rely on `?shared_view=` auto-subscribing?~~ Moot: the
@@ -518,3 +554,4 @@ From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
 | 2026-10-05 | Slice 2 built (§4.3a): store speaks `App`/`AppTab`, the browser uses only `/api/apps`, saves carry the whole spec, pins resolve tab → app. Corrected §1.2 (orphan cleanup never wrote). Q8 deferred to slice 6. |
 | 2026-10-05 | Slice 3 built (§4.3b): canonical `#/app/...` links with permanent aliases, one parser, tab ids in links honoured, any link form subscribes as `?shared_view=` did, `GET /api/apps/{id}/widgets`. Fixed missing `hashchange` pages and a 500 on subscribing to a missing id. |
 | 2026-10-05 | Slice 4 built (§4.3c): `Root` picks the shell before first paint; standalone apps render `AppShell` with no `Layout`, read-only, loading only their own widgets; `#/workspace/<id>` for building them; View settings for presentation, branding and assistant. Decided Q9 (New View stays workspace); closed Q1, §5 #5 and #6. |
+| 2026-10-05 | Slice 5 built (§4.3d): tab bar and Add tab, rename/reorder/delete under the existing layout-edit rule, tabs in the address, variables per app. Fixed the empty-canvas hint. §5 #2 and Q3 still open; no tab-level pin UI. |

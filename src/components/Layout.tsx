@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
 import { AgentDrawer } from './AgentDrawer';
 import { AppSettingsModal } from './AppSettingsModal';
+import { TabBar } from './TabBar';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
@@ -51,7 +52,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [currentPage, setCurrentPage] = useState<string | null>(() => pageOf(window.location.hash));
   // Pages that take over the full screen (no header, no agent drawer).
   const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
-  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp } = useDashboardStore();
+  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp, canEditLayout, addTab } = useDashboardStore();
   const shell = useShell();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
@@ -523,6 +524,16 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <span>Open</span>
                 </button>
               )}
+              {!currentPage && activeApp && activeApp.spec.tabs.length === 1 && canEditLayout(activeApp) && (
+                <button
+                  onClick={() => addTab(activeApp.id, 'Tab 2')}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                  title="Give this view a second tab"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add tab</span>
+                </button>
+              )}
               {!currentPage && activeApp && canEditApp(activeApp) && (
                 <button
                   onClick={() => setSettingsOpen(true)}
@@ -598,6 +609,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
           </header>
         )}
+
+        {!currentPage && <TabBar />}
 
         {/* Dashboard Canvas or Page */}
         {currentPage ? (

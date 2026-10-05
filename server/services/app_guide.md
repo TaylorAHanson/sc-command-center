@@ -29,10 +29,20 @@ bottom of the sidebar.
 
 ## Views and layouts
 
-A view is a tab: a named grid of widgets. Views are per-user unless they are
-global.
+A view is a named set of widgets, laid out on one or more tabs. Views are
+per-user unless they are global.
 
 - **New View** in the sidebar creates a blank one. The pencil icon renames it.
+- **Add tab** (top right) gives a one-tab view a second tab; a tab bar then
+  appears under the header with a **+** for more (up to 50). Double-click a tab
+  to rename it, drag it to reorder, and use its **×** to delete it (asking first
+  if it holds widgets; the last tab can't be deleted). Whoever may move widgets
+  in a view may change its tabs: not while it is locked, and in a global view
+  only an admin. A widget added from the Widget Library goes on the tab being
+  shown.
+- The address names the tab being shown, so a link opens on that tab and Back
+  steps between tabs. A link to the first tab doesn't name it, so it opens
+  whichever tab is first.
 - **Global Views** are shared templates. A user only sees the global views whose
   domain they have at least Viewer access to. Hovering one and clicking the copy
   icon duplicates it into My Views, where it becomes editable.
@@ -54,7 +64,8 @@ global.
   assistant appears too, under the name set there, unless **Offer the
   assistant** is off. Branding is only used on its own; inside Command Center
   the view keeps its name.
-- A view opened on its own is read-only for everyone, including its owner.
+- A view opened on its own is read-only for everyone, including its owner; its
+  tabs can be switched but not changed.
   **Copy link** there goes to the same people who get **Share** in Command
   Center, and **Edit** goes to anyone who may change the view's settings.
   **Edit** reopens it inside Command Center at an address starting

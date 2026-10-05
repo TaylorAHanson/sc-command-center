@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Book, Shield, Layers, Code, PlayCircle, Settings, Users, LayoutGrid, MousePointerClick, Lock, Copy, PlusCircle, Bot, Paperclip, History, ArrowRightLeft, Square, BarChart3 } from 'lucide-react';
+import { Book, Shield, Layers, Code, PlayCircle, Settings, Users, LayoutGrid, MousePointerClick, Lock, Copy, PlusCircle, PanelTop, Bot, Paperclip, History, ArrowRightLeft, Square, BarChart3 } from 'lucide-react';
 import clsx from 'clsx';
 
 type Section = {
@@ -40,7 +40,7 @@ export const UserGuidePage: React.FC = () => {
         <div className="space-y-6">
           <h2 className="text-2xl font-bold text-gray-900">Views & Layouts</h2>
           <p className="text-gray-600">
-            Your workspace is organized into "Views", which act like different tabs or pages that you can customize.
+            Your workspace is organized into "Views": pages of widgets that you can customize, each with one or more tabs.
           </p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
@@ -51,6 +51,16 @@ export const UserGuidePage: React.FC = () => {
               </div>
               <p className="text-sm text-gray-600">
                 Click <strong>New View</strong> in the left sidebar to create a fresh, blank canvas. You can rename your view by clicking the pencil icon next to its name.
+              </p>
+            </div>
+
+            <div className="bg-white p-5 border rounded-lg shadow-sm">
+              <div className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
+                <PanelTop className="w-4 h-4 text-teal-500" />
+                Tabs
+              </div>
+              <p className="text-sm text-gray-600">
+                Click <strong>Add tab</strong> in the top-right corner to give a view a second tab; use the <strong>+</strong> in the tab bar for more. Double-click a tab to rename it, drag it to reorder, or click its <strong>×</strong> to delete it. Widgets you add go on the tab you're looking at, and filters one widget sets apply on every tab of the view.
               </p>
             </div>
 

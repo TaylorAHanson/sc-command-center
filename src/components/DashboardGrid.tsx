@@ -76,14 +76,12 @@ const ShareWidgetButton: React.FC<{ onShare: () => Promise<boolean> }> = ({ onSh
 };
 
 export const DashboardGrid: React.FC = () => {
-  const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, isAdmin, username, variables, setVariable, generateWidgetShareLink, pendingWidgetId, clearPendingWidget, standalone } = useDashboardStore();
+  const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, username, variables, setVariable, generateWidgetShareLink, pendingWidgetId, clearPendingWidget, canEditLayout } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
-  // An app shown on its own is the finished thing, editors included: it is
-  // built in the workspace, where the library it would be built from is.
-  const isReadOnly = standalone || (activeApp?.is_global && !isAdmin) || activeApp?.locked === true;
+  const isReadOnly = !canEditLayout(activeApp);
 
   // Once the widget registry is loaded, any widget on the current tab whose type no
   // longer exists in the registry is an orphan (widget was deleted). The intent was
@@ -427,6 +425,20 @@ export const DashboardGrid: React.FC = () => {
         and an automatic snap-back when the window grows because the saved layout
         never changes with viewport width.
       */}
+      {/* Beside the grid, not in it: the grid drops any child that isn't one of
+          its items. It lets drops through to the grid underneath. */}
+      {visibleWidgets.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">
+          <div className="text-center">
+            <p className="text-lg mb-2">Empty Dashboard</p>
+            <p className="text-sm">
+              {isReadOnly
+                ? "Dashboard is read-only."
+                : "Drag widgets from the library to get started"}
+            </p>
+          </div>
+        </div>
+      )}
       <ResponsiveGridLayout
         className="layout"
         layouts={layouts}
@@ -446,18 +458,6 @@ export const DashboardGrid: React.FC = () => {
         droppingItem={droppingItem}
         onDropDragOver={handleDropDragOver as any}
       >
-        {visibleWidgets.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-400">
-            <div className="text-center">
-              <p className="text-lg mb-2">Empty Dashboard</p>
-              <p className="text-sm">
-                {isReadOnly
-                  ? "Dashboard is read-only."
-                  : "Drag widgets from the library to get started"}
-              </p>
-            </div>
-          </div>
-        )}
         {visibleWidgets.map((widget: WidgetLayout) => {
           const versionToUse = widget.props?._version;
           const lookupKey = versionToUse ? `${widget.type}@${versionToUse}` : widget.type;

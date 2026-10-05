@@ -116,7 +116,7 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 
 ### Emitters and Receivers (Dashboard Variables)
 
-- Widgets can share state using global dashboard variables.
+- Widgets can share state using dashboard variables. They are shared by every widget in the same view, on all of its tabs; opening a different view starts with none set.
 - **Emitters** update a variable: `props.data.setVariable('selected_region', 'NA')`
 - **Receivers** read a variable: `const region = props.data.variables?.selected_region || 'All'`
 - When an emitter updates a variable, receiver widgets will automatically re-render with the new value.

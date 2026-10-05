@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { X, Settings2, Upload, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import { useDashboardStore } from '../store/dashboardStore';
-import { imageProblem, MAX_BRANDING_TEXT, type App, type AppSpec } from '../store/appSpec';
+import { imageProblem, MAX_NAME_LENGTH, type App, type AppSpec } from '../store/appSpec';
 
 const readAsDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -172,7 +172,7 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
               <input
                 type="text"
                 value={title}
-                maxLength={MAX_BRANDING_TEXT}
+                maxLength={MAX_NAME_LENGTH}
                 onChange={e => setTitle(e.target.value)}
                 placeholder={app.name}
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
@@ -190,7 +190,7 @@ export const AppSettingsModal: React.FC<{ app: App; onClose: () => void }> = ({ 
                 <input
                   type="text"
                   value={assistantName}
-                  maxLength={MAX_BRANDING_TEXT}
+                  maxLength={MAX_NAME_LENGTH}
                   onChange={e => setAssistantName(e.target.value)}
                   placeholder="EDH Agent"
                   className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"

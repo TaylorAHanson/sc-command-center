@@ -441,7 +441,7 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
 - `store/dashboardStore.tsx` — `DashboardProvider` / `useDashboardStore`, owning
   the apps in the sidebar, the active one, and dashboard variables. What an app
   *is* lives in `store/appSpec.ts` (`App`, `AppTab`, `AppSpec`, `WidgetLayout`),
-  the client's copy of `server/services/app_spec.py`. Five rules:
+  the client's copy of `server/services/app_spec.py`. Six rules:
   - **A view is an app with one tab.** "Tab" means a canvas inside an app and
     nothing else; the sidebar lists apps. Every row saved before apps exists reads
     as a one-tab app whose tab id is the app id.
@@ -455,9 +455,16 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     claims the next version number, so two in flight at once collide on the
     primary key. StrictMode sends every save scheduled from an updater twice in
     development; don't post to `/api/apps` around the queue.
-  - **The canvas shows `activeAppTab`**: the tab a link named, else the first.
-    Read it rather than `spec.tabs[0]`. Until there is a tab bar, a link is the
-    only way to reach tab two.
+  - **The canvas shows `activeAppTab`**: the tab a link or `components/TabBar.tsx`
+    selected, else the first. Read it rather than `spec.tabs[0]`. The bar only
+    appears with two or more tabs; a one-tab app gets **Add tab** in Layout's
+    header instead, so a plain view looks the way it always did.
+  - **`canEditLayout(app)` is the one edit rule for a canvas and its tabs**:
+    false when standalone or locked, and a global app needs an admin. It is the
+    rule views always had for moving widgets, so tabs inherit it rather than
+    getting one of their own; don't gate a canvas or tab control on anything
+    else. Tab names follow `tabLabel`, since a view's first tab has no name of
+    its own and shows the app's.
   - **Links are parsed in one place, `store/appRoute.ts`.** The app hands out
     `#/app/<appId>[/<tabId>[/w/<widgetId>]]`; `?shared_view=`, `#/view/`,
     `#/template/` and `?widget=` are aliases for it, permanently, because they
@@ -465,8 +472,12 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     address to the canonical link (so a reload doesn't reopen the widget), and
     subscribes the caller if a fresh list lacks the app, which is what
     `?shared_view=` always did and the only way a shared link reaches anyone.
-    Layout's hash sync leaves a hash alone when it already names what's on
-    screen. Full-page screens live in Layout's `PAGES`; one missing there is a
+    A link leaves out the tab only when it is the first (`linkTab` / `routeTab`),
+    and a bare `#/app/<id>` opens whichever tab is first. A view's original tab
+    has the app's id, so once it moves down the bar its link is
+    `#/app/<id>/<id>`; `appHash` writes whatever tab it is given, so don't
+    special-case a tab id equal to the app id there. Layout's and AppShell's hash
+    sync leave a hash alone when it already names what's on screen. Full-page screens live in Layout's `PAGES`; one missing there is a
     page Back and reload can't return to.
   - **There are two shells, and `Root.tsx` picks one before anything draws.**
     The workspace (`App` inside `Layout`) is Command Center. An app whose
@@ -492,7 +503,11 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
 - `hooks/useActionLogger.ts` — the `logAction` telemetry path.
 - Emitter/receiver pattern: emitters call `props.data.setVariable(key, value)`,
   receivers read `props.data.variables?.key`. Emitters must seed their variable
-  on mount, or receivers render with nothing on first load.
+  on mount, or receivers render with nothing on first load. Variables belong to
+  the active app, shared by its tabs, and are empty again in another app; the
+  store keys them by app id (rather than clearing them in an effect) because
+  child effects run before the provider's, so an emitter on the new app would
+  seed into the old app's values and then be wiped.
 
 ## Assistant panel
 
@@ -642,7 +657,7 @@ pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings
 pages/admin/            WidgetManager, ViewManager, RoleMappings, TaxonomyManager,
                         SettingsManager, DataMigration
 components/             BaseWidget, DashboardGrid, WidgetPreview, WidgetTray,
-                        Layout, AppShell, AppSettingsModal, modals,
+                        Layout, AppShell, TabBar, AppSettingsModal, modals,
                         AgentDrawer/AgentPanel/AgentConversation, ConversationHistory,
                         ThinkingDisclosure, AttachmentChip, ThumbnailCapture,
                         WidgetDiagnostics
