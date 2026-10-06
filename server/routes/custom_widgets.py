@@ -86,6 +86,7 @@ def library_rows(c, ids: Optional[List[str]] = None, pinned: Sequence[str] = ())
         SELECT id, version, name, description, category, domain,
                default_w, default_h, configuration_mode, config_schema,
                data_source_type, data_source, help_text, open_in_new_tab_link,
+               COALESCE(layout_kind, 'card') AS layout_kind,
                is_executable, is_certified, created_by, timestamp,
                (snapshot IS NOT NULL AND snapshot <> '') AS has_snapshot,
                (version = MAX(version) OVER (PARTITION BY id)) AS is_latest,
@@ -193,6 +194,11 @@ def get_widget_version(widget_id: str, version: int, env: str = "dev", w: Worksp
 
 
 
+def layout_kind(widget: dict) -> str:
+    """What a save body says the widget is: a page, or else a card."""
+    return "page" if widget.get("layout_kind") == "page" else "card"
+
+
 def _reject_unsafe(tsx_code, data_source, data_source_type, is_executable, conn=None) -> None:
     """Refuse to store a widget that breaks the runtime's safety rules.
 
@@ -260,9 +266,9 @@ def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_clien
 
     c.execute('''
         INSERT INTO widgets 
-        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, is_executable, created_by) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, config_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, is_executable, created_by))
+        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, layout_kind, is_executable, created_by) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, config_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, layout_kind(widget), is_executable, created_by))
 
     conn.commit()
     conn.close()
@@ -327,9 +333,9 @@ def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient = Depe
 
     c.execute('''
         INSERT INTO widgets 
-        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, is_executable, created_by) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, is_executable, owner))
+        (id, version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, layout_kind, is_executable, created_by) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ''', (widget_id, new_version, name, description, category, domain, default_w, default_h, tsx_code, configuration_mode, config_schema, data_source_type, data_source, snapshot, help_text, open_in_new_tab_link, layout_kind(widget), is_executable, owner))
 
     conn.commit()
     conn.close()

@@ -23,6 +23,9 @@ import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import { DarkChatImage } from '../components/ChatImage';
 import { withBrandColors } from '../brand';
+import { loadFontsNamedIn } from '../fonts';
+import { PagePreview } from '../components/PagePreview';
+import { PAGE_WIDTHS, usePreviewApp, type PageWidth } from '../components/pagePreviewApp';
 import remarkGfm from 'remark-gfm';
 
 const DARK_CHAT_MARKDOWN: Components = { img: DarkChatImage };
@@ -477,6 +480,10 @@ const CodeHistoryPanel: React.FC<{
 
 // The settings the agent is allowed to propose. Same key names as the
 // `widget-meta` block described in server/routes/agent_instructions.md.
+type LayoutKind = 'card' | 'page';
+// A new widget's first request asking for one of these is built as a page.
+const LOOKS_LIKE_PAGE = /\b(?:landing|home|welcome|start|front|cover|splash|title|intro(?:duction)?)\s+page\b|\bhub\b|\bfull[- ]?(?:screen|page|tab)\b|\bwhole tab\b|\bpage tab\b/i;
+
 const SETTING_KEYS = ['name', 'description', 'helpText', 'category', 'domain', 'defaultW', 'defaultH', 'isExecutable'];
 const DEFAULT_WIDGET_NAME = "New Custom Widget";
 
@@ -542,6 +549,18 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [widgetDomain, setWidgetDomain] = useState(sessionState?.widgetDomain || "");
     const [isExecutable, setIsExecutable] = useState(sessionState?.isExecutable || false);
     const [openInNewTabLink, setOpenInNewTabLink] = useState(sessionState?.openInNewTabLink || "");
+    const [layoutKind, setLayoutKindState] = useState<LayoutKind>(sessionState?.layoutKind === 'page' ? 'page' : 'card');
+    const layoutKindRef = useRef<LayoutKind>(layoutKind);
+    // Settled once someone picks a kind, a widget is loaded, or the first request
+    // is sent: only that first request is read for "a landing page" or "a hub".
+    const kindSettledRef = useRef<boolean>(Boolean(sessionState?.layoutKindSettled));
+    const setLayoutKind = (kind: LayoutKind) => {
+        layoutKindRef.current = kind;
+        kindSettledRef.current = true;
+        setLayoutKindState(kind);
+    };
+    const [pageWidth, setPageWidth] = useState<PageWidth>('laptop');
+    const previewApp = usePreviewApp();
     const [dataSourceType, setDataSourceType] = useState<"none" | "api" | "sql" | "databricks_api">(sessionState?.dataSourceType || "none");
     const [dataSource, setDataSource] = useState(sessionState?.dataSource || "");
     const [dataSourceSchema, setDataSourceSchema] = useState<any>(sessionState?.dataSourceSchema || null);
@@ -653,7 +672,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
     // Pattern checks only — a few regexes over the file, cheap enough to run on
     // every change rather than waiting for the compile.
-    const lintFindings = React.useMemo(() => lintWidget(code, { dataSourceType }), [code, dataSourceType]);
+    const lintFindings = React.useMemo(() => lintWidget(code, { dataSourceType, layoutKind }), [code, dataSourceType, layoutKind]);
 
     // Latest values for the compile effect further down. That effect must run when
     // the code changes and at no other time, but the auto-fix inside it still needs
@@ -784,7 +803,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             const currentState = {
                 messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
                 isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, rowEstimate, dataSourceSample, defaultW, defaultH, configMode, configSchema, editingId,
-                checkpoints, uploadConversationId: uploadConversationId.current
+                checkpoints, uploadConversationId: uploadConversationId.current, layoutKind, layoutKindSettled: kindSettledRef.current
             };
             try {
                 sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
@@ -801,7 +820,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         }
     }, [messages, prompt, code, viewMode, widgetName, widgetDescription, widgetHelpText, widgetCategory, widgetDomain,
         isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, rowEstimate, dataSourceSample, defaultW, defaultH, configMode, configSchema, editingId,
-        checkpoints, editWidgetId, cloneWidgetId]);
+        checkpoints, editWidgetId, cloneWidgetId, layoutKind]);
 
     // Load existing widget data when editWidgetId or cloneWidgetId is provided
     useEffect(() => {
@@ -848,6 +867,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 setDefaultW(w.default_w || 6);
                 setDefaultH(w.default_h || 6);
                 setConfigMode(w.configuration_mode || 'none');
+                setLayoutKind(w.layout_kind === 'page' ? 'page' : 'card');
                 
                 let loadedSchema = [];
                 try {
@@ -863,7 +883,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 // Overwrite the session storage right after loading existing widget
                 const currentState = {
                     messages: initMessages, prompt: "", code: w.tsx_code, viewMode: 'preview', widgetName: isClone ? `Clone of ${w.name}` : w.name, widgetDescription: w.description || '', widgetHelpText: w.helpText || '', widgetCategory: w.category || 'Custom', widgetDomain: w.domain || '',
-                    isExecutable: w.is_executable === 1, openInNewTabLink: w.open_in_new_tab_link || '', dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: loadedSchema, editingId: isClone ? null : w.id
+                    isExecutable: w.is_executable === 1, openInNewTabLink: w.open_in_new_tab_link || '', dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: loadedSchema, editingId: isClone ? null : w.id,
+                    layoutKind: w.layout_kind === 'page' ? 'page' : 'card', layoutKindSettled: true
                 };
                 sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
             })
@@ -913,6 +934,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     return;
                 }
 
+                loadFontsNamedIn(code);
                 // Two-pass Babel transform (mirrors widgetRegistry.ts so the preview
                 // matches what dashboards run). Pass 1 strips TS types/type-only imports
                 // and compiles JSX; pass 2 converts any remaining runtime ES `import`/
@@ -1131,7 +1153,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         locked_settings: SETTING_KEYS.filter(k => touchedSettingsRef.current.has(k)),
         data_source_sample: dataSourceType !== 'none' ? dataSourceSample : null,
         runtime_log: currentRuntime().slice(-15).map(formatRuntimeEntry),
-        lint_findings: lintWidget(codeRef.current, { dataSourceType }).map(formatLintFinding),
+        lint_findings: lintWidget(codeRef.current, { dataSourceType, layoutKind: layoutKindRef.current }).map(formatLintFinding),
+        layout_kind: layoutKindRef.current,
     });
 
     /**
@@ -1151,7 +1174,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         const area = document.getElementById('widget-preview-capture-area');
         if (!area) return undefined;
         try {
-            const url = await toPng(area, { cacheBust: true, pixelRatio: 1 });
+            const url = await toPng(area, { cacheBust: true, pixelRatio: layoutKindRef.current === 'page' ? 0.75 : 1 });
             return url.length <= MAX_SCREENSHOT_CHARS ? url : undefined;
         } catch {
             // A cross-origin image or canvas can't be captured; the text still goes.
@@ -1182,7 +1205,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         if (unwanted()) return;
 
         const failures = entries.filter(e => e.fixable);
-        const broken = lintWidget(settledCode, { dataSourceType }).filter(f => f.severity === 'error');
+        const broken = lintWidget(settledCode, { dataSourceType, layoutKind: layoutKindRef.current }).filter(f => f.severity === 'error');
         if (agentCodeRef.current === settledCode && (failures.length || broken.length)
             && runtimeRetryCountRef.current < MAX_RUNTIME_RETRIES) {
             const screenshot = ran ? await capturePreview() : undefined;
@@ -1434,6 +1457,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 content: asking,
                 attachments: sending.map(a => ({ id: a.id, filename: a.filename, kind: a.kind })),
             });
+            if (!kindSettledRef.current) {
+                const page = codeRef.current === DEFAULT_WIDGET_CODE && LOOKS_LIKE_PAGE.test(asking);
+                setLayoutKind(page ? 'page' : layoutKindRef.current);
+                if (page) newMessages.push({
+                    role: 'system',
+                    content: 'Building this as a **page**: it fills a whole tab of a view. Choose **Card** above the preview if you meant a card on a canvas.',
+                });
+            }
             setMessages(newMessages);
             if (!options?.overridePrompt) setPrompt("");
             // Clear any old preview errors on a fresh prompt
@@ -1445,8 +1476,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             stoppedCodeRef.current = null;
             // Files ride on the turn that sent them. The chips go now so the
             // composer is clear; the rows stay on the server, which is what the
-            // agent reads them from.
-            setAttachments([]);
+            // agent reads them from. One still being read stays for the next turn.
+            setAttachments(prev => prev.filter(a => a.status !== 'failed' && !sending.some(s => s.id === a.id)));
         }
 
         // Review is chained off the compile that follows this turn, not off the
@@ -1579,7 +1610,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             }
             const captureArea = document.getElementById('widget-preview-capture-area');
             if (captureArea) {
-                snapshotDataUrl = await toPng(captureArea, { cacheBust: true, pixelRatio: 1 });
+                snapshotDataUrl = await toPng(captureArea, { cacheBust: true, pixelRatio: layoutKindRef.current === 'page' ? 0.35 : 1 });
             }
         } catch (e) {
             console.warn("Failed to capture widget snapshot:", e);
@@ -1598,6 +1629,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     tsx_code: code,
                     isExecutable: isExecutable,
                     open_in_new_tab_link: openInNewTabLink,
+                    layout_kind: layoutKind,
                     data_source_type: dataSourceType,
                     data_source: dataSource,
                     snapshot: snapshotDataUrl,
@@ -1712,7 +1744,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setIsCapturing(true);
         clearUploadError();
         try {
-            const dataUrl = await toPng(captureArea, { cacheBust: true, pixelRatio: 1 });
+            const dataUrl = await toPng(captureArea, { cacheBust: true, pixelRatio: layoutKindRef.current === 'page' ? 0.75 : 1 });
             const blob = await (await fetch(dataUrl)).blob();
 
             // Drop the previous screenshot first, so repeatedly grabbing one
@@ -1755,6 +1787,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setDataSourceTestNote(null);
         setDefaultW(6);
         setDefaultH(6);
+        setLayoutKind('card');
+        kindSettledRef.current = false;
         setConfigMode('none');
         setConfigSchema([]);
         setPrompt("");
@@ -1788,6 +1822,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 tsx_code: code,
                 is_executable: isExecutable,
                 open_in_new_tab_link: openInNewTabLink,
+                layout_kind: layoutKind,
                 data_source_type: dataSourceType,
                 data_source: dataSource,
                 default_w: defaultW,
@@ -1828,6 +1863,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             replaceCode(w.tsx_code || code, `Before importing "${w.name || 'a widget file'}"`);
             setIsExecutable(w.is_executable === true || w.is_executable === 1);
             setOpenInNewTabLink(w.open_in_new_tab_link || '');
+            setLayoutKind(w.layout_kind === 'page' ? 'page' : 'card');
             setDataSourceType((w.data_source_type as any) || 'none');
             setDataSource(w.data_source || '');
             setDataSourceSchema(null);
@@ -1845,6 +1881,51 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             alert(`Could not import widget: ${e.message || e}`);
         }
     };
+
+
+    const previewWidget = previewComponent ? (
+        <WidgetErrorBoundary
+            resetKey={previewComponent}
+            onReset={handleReloadPreview}
+            onError={(err) => {
+                renderCrashedRef.current = true;
+                // Its own budget, not the compile one: a render
+                // crash only happens *after* a successful
+                // compile, which resets that counter — so
+                // sharing it would mean no limit at all, and a
+                // widget that throws every render would
+                // generate, crash and generate again forever.
+                if (isGenerating || renderRetryCountRef.current >= MAX_AUTO_RETRIES
+                    || codeRef.current === stoppedCodeRef.current) return;
+                renderRetryCountRef.current += 1;
+                setTimeout(() => handleGenerate(
+                    err.message || String(err),
+                    { errorKind: 'render' },
+                ), 1000);
+            }}
+        >
+            <ExecuteActionPropInjector>
+                {React.createElement(previewComponent as any, {
+                    id: "preview-widget",
+                    app: previewApp.app,
+                    data: {
+                        dataSource: dataSource,
+                        dataSourceType: dataSourceType,
+                        ...(configSchema || []).reduce((acc, field) => {
+                            if (field.key) {
+                                // Attempt to map back to number if type is number, though string will usually suffice for preview
+                                acc[field.key] = field.type === 'number' && field.defaultValue ? Number(field.defaultValue) : field.defaultValue;
+                            }
+                            return acc;
+                        }, {} as Record<string, any>),
+                        username: username,
+                        variables: variables,
+                        setVariable: setVariable
+                    }
+                })}
+            </ExecuteActionPropInjector>
+        </WidgetErrorBoundary>
+    ) : null;
 
     return (
         <div className="flex h-full w-full bg-slate-900 text-slate-100 overflow-hidden font-sans">
@@ -2256,8 +2337,43 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
                 <div className="flex-1 relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CjxjaXJjbGUgY3g9IjIiIGN5PSIyIiByPSIxIiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMDMpIi8+Cjwvc3ZnPg==')]">
                     {viewMode === 'preview' ? (
-                        <div className="absolute inset-0 p-8 overflow-auto w-full h-full flex items-start justify-center">
-                            <div className="min-w-min min-h-min pb-16">
+                        <div className="absolute inset-0 flex flex-col">
+                        <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-slate-800 bg-slate-900/80 text-xs text-slate-400">
+                            <div role="radiogroup" aria-label="Widget kind" className="flex rounded-md border border-slate-700 overflow-hidden">
+                                {(['card', 'page'] as const).map(kind => (
+                                    <button
+                                        key={kind}
+                                        role="radio"
+                                        aria-checked={layoutKind === kind}
+                                        onClick={() => setLayoutKind(kind)}
+                                        className={`px-2.5 py-1 transition-colors ${layoutKind === kind ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+                                    >
+                                        {kind === 'card' ? 'Card' : 'Page'}
+                                    </button>
+                                ))}
+                            </div>
+                            <span className="text-slate-500 truncate">
+                                {layoutKind === 'page' ? 'Fills a whole tab of a view, under its header and tabs.' : 'A card on a view’s canvas.'}
+                            </span>
+                            {layoutKind === 'page' && (
+                                <div role="radiogroup" aria-label="Preview width" className="ml-auto flex rounded-md border border-slate-700 overflow-hidden shrink-0">
+                                    {PAGE_WIDTHS.map(w => (
+                                        <button
+                                            key={w.id}
+                                            role="radio"
+                                            aria-checked={pageWidth === w.id}
+                                            onClick={() => setPageWidth(w.id)}
+                                            title={`${w.px}px wide. Classes like md: and lg: still follow your browser window, not this frame.`}
+                                            className={`px-2.5 py-1 transition-colors ${pageWidth === w.id ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+                                        >
+                                            {w.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div className={`flex-1 min-h-0 p-8 overflow-auto w-full flex items-start ${layoutKind === 'page' ? 'justify-start' : 'justify-center'}`}>
+                            <div className={`min-h-min pb-16 ${layoutKind === 'page' ? 'w-full min-w-0' : 'min-w-min'}`}>
                                 {previewError ? (
                                     <div className="w-full max-w-2xl bg-rose-950/40 border border-rose-900/50 rounded-xl p-6 text-rose-200">
                                         <div className="flex items-center gap-2 mb-4">
@@ -2267,80 +2383,46 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                         <pre className="text-sm overflow-x-auto whitespace-pre-wrap p-4 bg-black/30 rounded-lg border border-rose-900/20">{previewError}</pre>
                                     </div>
                                 ) : previewComponent ? (
-                                    <div className="min-w-min min-h-min">
-                                        <div
-                                            id="widget-preview-capture-area"
-                                            style={{
-                                                // Assume ~80px width per grid column, ~60px height per row to give a rough feel for Grid layout.
-                                                width: `${Math.max(300, defaultW * 80)}px`,
-                                                height: `${Math.max(200, defaultH * 60)}px`,
-                                                resize: 'both',
-                                                overflow: 'auto'
-                                            }}
-                                            className="bg-gray-100 rounded-xl shadow-2xl overflow-hidden flex flex-col border border-gray-300 pb-1 pr-1"
-                                        >
-                                            <BaseWidget
-                                                id="preview-widget"
-                                                title={widgetName}
-                                                helpText={widgetHelpText}
-                                                className="h-full w-full"
-                                                onConfigure={configMode !== 'none' ? () => setViewMode('config') : undefined}
-                                                customActions={openInNewTabLink ? (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            window.open(openInNewTabLink, '_blank');
-                                                        }}
-                                                        className="text-gray-400 hover:text-brand-blue transition-colors"
-                                                        title="Open in New Tab"
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                                                    </button>
-                                                ) : undefined}
+                                    <div className={layoutKind === 'page' ? 'w-full' : 'min-w-min min-h-min'}>
+                                        {layoutKind === 'page' ? (
+                                            <PagePreview title={widgetName} width={pageWidth} app={previewApp.app} note={previewApp.note} onShowHome={previewApp.showHome}>
+                                                {previewWidget}
+                                            </PagePreview>
+                                        ) : (
+                                            <div
+                                                id="widget-preview-capture-area"
+                                                style={{
+                                                    // Assume ~80px width per grid column, ~60px height per row to give a rough feel for Grid layout.
+                                                    width: `${Math.max(300, defaultW * 80)}px`,
+                                                    height: `${Math.max(200, defaultH * 60)}px`,
+                                                    resize: 'both',
+                                                    overflow: 'auto'
+                                                }}
+                                                className="bg-gray-100 rounded-xl shadow-2xl overflow-hidden flex flex-col border border-gray-300 pb-1 pr-1"
                                             >
-                                                {/* */}
-                                                <WidgetErrorBoundary
-                                                    resetKey={previewComponent}
-                                                    onReset={handleReloadPreview}
-                                                    onError={(err) => {
-                                                        renderCrashedRef.current = true;
-                                                        // Its own budget, not the compile one: a render
-                                                        // crash only happens *after* a successful
-                                                        // compile, which resets that counter — so
-                                                        // sharing it would mean no limit at all, and a
-                                                        // widget that throws every render would
-                                                        // generate, crash and generate again forever.
-                                                        if (isGenerating || renderRetryCountRef.current >= MAX_AUTO_RETRIES
-                                                            || codeRef.current === stoppedCodeRef.current) return;
-                                                        renderRetryCountRef.current += 1;
-                                                        setTimeout(() => handleGenerate(
-                                                            err.message || String(err),
-                                                            { errorKind: 'render' },
-                                                        ), 1000);
-                                                    }}
+                                                <BaseWidget
+                                                    id="preview-widget"
+                                                    title={widgetName}
+                                                    helpText={widgetHelpText}
+                                                    className="h-full w-full"
+                                                    onConfigure={configMode !== 'none' ? () => setViewMode('config') : undefined}
+                                                    customActions={openInNewTabLink ? (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                window.open(openInNewTabLink, '_blank');
+                                                            }}
+                                                            className="text-gray-400 hover:text-brand-blue transition-colors"
+                                                            title="Open in New Tab"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                                                        </button>
+                                                    ) : undefined}
                                                 >
-                                                    <ExecuteActionPropInjector>
-                                                        {React.createElement(previewComponent as any, {
-                                                            id: "preview-widget",
-                                                            data: {
-                                                                dataSource: dataSource,
-                                                                dataSourceType: dataSourceType,
-                                                                ...(configSchema || []).reduce((acc, field) => {
-                                                                    if (field.key) {
-                                                                        // Attempt to map back to number if type is number, though string will usually suffice for preview
-                                                                        acc[field.key] = field.type === 'number' && field.defaultValue ? Number(field.defaultValue) : field.defaultValue;
-                                                                    }
-                                                                    return acc;
-                                                                }, {} as Record<string, any>),
-                                                                username: username,
-                                                                variables: variables,
-                                                                setVariable: setVariable
-                                                            }
-                                                        })}
-                                                    </ExecuteActionPropInjector>
-                                                </WidgetErrorBoundary>
-                                            </BaseWidget>
-                                        </div>
+                                                    {previewWidget}
+                                                </BaseWidget>
+                                            </div>
+                                        )}
                                         {/* Under the widget, because what it captures is the widget
                                             as drawn — including the resize the user just did. */}
                                         <div className="mt-3 flex items-center gap-2">
@@ -2367,6 +2449,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                     </div>
                                 )}
                             </div>
+                        </div>
                         </div>
                     ) : viewMode === 'code' ? (
                         <CodeEditor

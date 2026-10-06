@@ -121,6 +121,8 @@ class GenerateRequest(BaseModel):
     lint_findings: List[str] = []
     # A PNG data URL of the rendered widget, sent with review and runtime-fix turns.
     preview_screenshot: Optional[str] = None
+    # "page" fills a whole tab rather than a card; `page_instructions.md` applies.
+    layout_kind: str = "card"
     env: str = "dev"
 
 class DataSourceTestRequest(BaseModel):
@@ -350,6 +352,17 @@ def _size_guidance(req: GenerateRequest) -> str:
     )
 
 
+def _page_instructions() -> str:
+    """The rules that replace the card rules for a page widget.
+
+    Separate from `agent_instructions.md` for the reason `_size_guidance` is: that
+    file is paid for on every call, and most widgets are cards.
+    """
+    path = os.path.join(os.path.dirname(__file__), "page_instructions.md")
+    with open(path, "r") as f:
+        return f.read()
+
+
 def _build_system_prompt(req: GenerateRequest) -> str:
     import json
 
@@ -360,6 +373,9 @@ def _build_system_prompt(req: GenerateRequest) -> str:
     except Exception as e:
         print(f"Failed to load agent instructions: {e}")
         system_prompt = "You are an expert React developer."
+
+    if req.layout_kind == "page":
+        system_prompt += "\n\n" + _page_instructions()
 
     system_prompt += "\n\nIf the user is asking to build a widget that sounds like it might already exist, use the search_widgets tool to find similar widgets and suggest them before proceeding. If they explicitly want to build it anyway, then generate the code."
 
@@ -1592,6 +1608,13 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
 # has working code: a review that takes as long as the build is not worth waiting
 # for, and one that runs out of time simply reports what it found.
 REVIEW_SECONDS = 120
+# A page is several cards' worth of code, read alongside a screenshot of a whole
+# tab; at the card allowance its review runs out of time before it answers.
+PAGE_REVIEW_SECONDS = 240
+
+
+def _review_seconds(layout_kind: str, timeout: int) -> int:
+    return min(PAGE_REVIEW_SECONDS if layout_kind == "page" else REVIEW_SECONDS, timeout)
 
 
 def _review_evidence(req: GenerateRequest, screenshot: bool) -> str:
@@ -1732,7 +1755,7 @@ def run_review_task(job_id: str, req: GenerateRequest, api_key: str, host: str):
     repair apply here too — a review is not allowed to eat the widget it was
     checking.
     """
-    budget = _Budget(min(REVIEW_SECONDS, _widget_timeout()))
+    budget = _Budget(_review_seconds(req.layout_kind, _widget_timeout()))
     code = req.current_code or ""
     try:
         if not code.strip():

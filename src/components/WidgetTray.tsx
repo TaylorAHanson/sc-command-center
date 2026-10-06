@@ -550,11 +550,19 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                                 : "cursor-not-allowed border-gray-200 bg-gray-50"
                           )}
                         >
-                          {/* Badge: Certified */}
-                          {widget.isCertified && (
-                            <div className="absolute top-2 left-2 z-10 bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-green-200 flex items-center gap-1">
-                              <ShieldCheck className="w-3 h-3" />
-                              CERTIFIED
+                          {(widget.isCertified || widget.layoutKind === 'page') && (
+                            <div className="absolute top-2 left-2 z-10 flex items-center gap-1">
+                              {widget.isCertified && (
+                                <div className="bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-green-200 flex items-center gap-1">
+                                  <ShieldCheck className="w-3 h-3" />
+                                  CERTIFIED
+                                </div>
+                              )}
+                              {widget.layoutKind === 'page' && (
+                                <div className="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-indigo-200" title="Built to fill a whole tab: place it on a page tab">
+                                  PAGE
+                                </div>
+                              )}
                             </div>
                           )}
 

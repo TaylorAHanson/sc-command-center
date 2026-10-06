@@ -764,6 +764,15 @@ ReAct agent. The contract for what it may emit is
 `routes/agent_instructions.md` — edit that file, not the Python, when you want to
 change the model's output shape.
 
+**Pages get a second contract.** A widget is a card or a page (`widgets.layout_kind`,
+`'card'` by default, sent on generate and on save). For a page,
+`_build_system_prompt` appends `routes/page_instructions.md` straight after
+`agent_instructions.md`, and the review is built by the same function, so it holds
+the page to the same rules. It stays a separate file because it overrides the card
+rules (white background, fill the tile) and only pages should pay for it. Anything
+that reads widget rows for the browser must pass `layout_kind` through, or the
+library loses the **PAGE** badge; promotion copies whole rows, so it already does.
+
 **Jobs are shared between workers (`services/generation_jobs.py`).** The deploy
 runs two uvicorn workers, so a poll or a Stop can land on the one that isn't
 running the job. `generation_jobs` is a `JobStore`: the running worker keeps the
@@ -1041,7 +1050,7 @@ studio is the one that knows whether the code it was handed builds — and, now,
 it behaved once it ran, which is when the studio sends it (with a screenshot). It shares the job shape, so the
 studio polls it with the same code, and findings come back through `_apply_reply`
 like any other reply — a review is not allowed to eat the widget it was checking.
-It gets `REVIEW_SECONDS`, a fraction of the generation allowance, and a failure
+It gets `REVIEW_SECONDS` (a page, `PAGE_REVIEW_SECONDS`), a fraction of the generation allowance, and a failure
 settles as *completed* with an apology: the user's code is already fine.
 
 ## Tests
@@ -1055,7 +1064,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_helper.py  # 24 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_context.py # 18 passed
+PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_context.py # 23 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
 PYTHONPATH=server server/venv/bin/python tests/test_native_files.py         # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 16 passed

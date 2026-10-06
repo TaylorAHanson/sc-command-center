@@ -51,7 +51,9 @@ per-user unless they are global.
   replaces it, after asking). The toolbar in its top-right corner — shown only
   to whoever may change the tab, inside Command Center — offers **Change
   widget**, **Edit in Widget Studio**, configure, remove, and back to a canvas.
-  A view opened on its own shows the page without the toolbar.
+  A view opened on its own shows the page without the toolbar. Any widget can
+  go on a page, but one built as a page in Widget Studio (marked **PAGE** in
+  the Widget Library) is the one made to fill it.
 - The address names the tab being shown, so a link opens on that tab and Back
   steps between tabs. A link to the first tab doesn't name it, so it opens
   whichever tab is first.
@@ -166,7 +168,8 @@ to each tab", "an Ask about this button".
 
 Opens from the **Widget Library** button in the sidebar, or by pressing `w`.
 It lists the widgets available to the user, filtered to the domains they can
-view, and is searchable. Widgets certified in production are flagged as such.
+view, and is searchable. Widgets certified in production are flagged as such,
+and widgets built as pages are marked **PAGE**.
 
 ## Widget Studio
 
@@ -228,12 +231,29 @@ description.
    Configuration tab.
    **Problems**, the bar under the preview and the code, lists two things: rule
    checks on the code (an import widgets can't use, a script from a CDN that
-   isn't allowed, a write without the audit trail, text too light to read, and
-   similar) and what happened in the last run. The agent is given both with every
+   isn't allowed, a write without the audit trail, text too light to read, a
+   class the app's stylesheet doesn't have and so does nothing, a font that
+   isn't bundled, and similar) and what happened in the last run. The agent is given both with every
    request. **Fix with agent** asks it to fix everything listed. Rule errors in
    code the agent wrote are fixed automatically, like a failed run; warnings are
    left to you.
-5. **Agent settings** (the sliders icon above the chat) — two options, remembered
+5. **Card or page** — the switch above the preview. A **Card** sits on a
+   canvas with other widgets; a **Page** fills a whole tab of a view, brings its
+   own background and layout, and is what a landing page or hub should be. A
+   new widget whose first request asks for a landing page, hub or full-screen
+   page starts as a page, and the studio says so; anything else starts as a
+   card, and the switch changes it at any time. The agent is told which it is
+   building. A page previews under a stand-in header and three stand-in tabs
+   (Home, Overview, Details), at **Laptop**, **Wide** or **Narrow** width,
+   scaled to fit the pane. Only the frame changes width: classes like `md:` and
+   `lg:` follow the browser window, so a narrow layout is best checked by
+   narrowing the window. Its buttons that go to a tab or open the assistant say
+   what they would do in a view rather than doing it. Attach a picture of the
+   page you want and the agent works from it. Cards on a page that name a part
+   of the view (a persona, a team) open the tab of that name when the view has
+   one, found by name when clicked, and otherwise ask the assistant; so add the
+   tabs, named as the cards are, and the cards start leading to them.
+6. **Agent settings** (the sliders icon above the chat) — two options, remembered
    in that browser rather than set for everyone. *Conduct review after change*
    (off by default) has the agent re-read its own code once it has compiled and
    run in the preview, as a QA pass over behaviour, states, layout and
@@ -248,11 +268,11 @@ description.
    It costs an extra turn. *Ask before large builds* (on by default) is the
    clarifying-question behaviour above, and can be switched off by anyone who
    would rather it always guessed.
-6. **Save / Publish** — saves to the Dev environment and increments the version,
+7. **Save / Publish** — saves to the Dev environment and increments the version,
    and leaves you in the studio to carry on working. The widget is immediately
    available in the Widget Library to users with Dev access. The **X** closes the
    studio.
-7. **Stop** — while the agent works, the send button becomes a red Stop button
+8. **Stop** — while the agent works, the send button becomes a red Stop button
    and Enter does nothing. Stop ends the turn at once: steps that already
    finished stay in the editor (each has a History entry) and nothing else is
    applied. **Stop after this step**, on multi-step builds, lets the current step

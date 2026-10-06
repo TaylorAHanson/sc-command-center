@@ -792,6 +792,15 @@ def init_db(env: str = "dev"):
         conn.rollback()
         pass
 
+    # 'card' (a grid tile) or 'page' (fills a tab). Only a hint for the library
+    # and the studio: any widget may be placed on either kind of tab.
+    try:
+        c.execute("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS layout_kind TEXT DEFAULT 'card'")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        pass
+
     # Who added a widget, not just that it was added. Rows written before this
     # column existed keep a NULL, which the creator leaderboard counts as a run
     # but not as a distinct person.

@@ -266,6 +266,25 @@ def test_a_missing_endpoint_is_told_apart_from_other_failures():
     assert not _endpoint_missing(RuntimeError("reasoning_effort: 'none' is not one of low, medium, high"))
 
 
+def test_a_page_is_told_it_owns_the_tab_and_a_card_is_not():
+    page = _build_system_prompt(GenerateRequest(prompt="a hub", layout_kind="page"))
+    card = _build_system_prompt(GenerateRequest(prompt="a table"))
+    assert "You are building a page" in page
+    assert "'Fraunces Variable'" in page and "goToTab" in page
+    assert "You are building a page" not in card
+
+
+def test_the_review_of_a_page_holds_it_to_the_page_rules():
+    req = GenerateRequest(prompt="a hub", layout_kind="page", current_code=WIDGET)
+    assert "You are building a page" in _build_system_prompt(req)
+
+
+def test_a_page_review_gets_longer_but_never_past_the_admin_timeout():
+    assert widget_studio._review_seconds("page", 300) > widget_studio._review_seconds("card", 300)
+    assert widget_studio._review_seconds("page", 90) == 90
+    assert widget_studio._review_seconds("card", 300) == widget_studio.REVIEW_SECONDS
+
+
 if __name__ == "__main__":
     tests = [
         test_sample_rows_reach_the_prompt_clipped,
@@ -288,6 +307,9 @@ if __name__ == "__main__":
         test_anything_with_a_say_about_the_effort_wins_over_the_default,
         test_a_helper_the_workspace_does_not_serve_falls_back_to_the_generation_model,
         test_a_missing_endpoint_is_told_apart_from_other_failures,
+        test_a_page_is_told_it_owns_the_tab_and_a_card_is_not,
+        test_the_review_of_a_page_holds_it_to_the_page_rules,
+        test_a_page_review_gets_longer_but_never_past_the_admin_timeout,
     ]
     for test in tests:
         test()

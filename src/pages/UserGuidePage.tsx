@@ -488,6 +488,13 @@ export const UserGuidePage: React.FC = () => {
             </div>
 
             <div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">Cards and pages</h3>
+              <p className="text-gray-700">
+                The <strong>Card</strong> / <strong>Page</strong> switch above the preview says what you are building. A card sits on a canvas with other widgets. A page fills a whole tab of a view and brings its own background and layout, for a landing page or hub; attach a picture of the page you want and the agent works from it. If your first request asks for a landing page, hub or full-screen page the studio starts it as a page and says so, and you can switch either way at any time. A page previews under a stand-in header and tabs at <strong>Laptop</strong>, <strong>Wide</strong> or <strong>Narrow</strong> width, scaled to fit. Classes like <code>md:</code> and <code>lg:</code> follow your browser window rather than that frame, so narrow the window to check a small-screen layout. Its buttons say what they would do in a view instead of doing it. Cards that name a part of the view, such as a persona, open the tab with that name when the view has one, so name your tabs to match. Pages are marked <strong>PAGE</strong> in the Widget Library; drag one onto a page tab.
+              </p>
+            </div>
+
+            <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-2">Widgets that steer the view</h3>
               <p className="text-gray-700">
                 A widget can open the view's other tabs and open the assistant with an agent chosen and a question typed in — ask for "tiles that go to each tab" or "an Ask about this button". It never sends the question for you: you read it and press <strong>Send</strong>. It can't open other views or addresses.
@@ -512,7 +519,7 @@ export const UserGuidePage: React.FC = () => {
                 The studio also <strong>watches the preview run</strong>: every request the widget makes and how many rows came back, anything it logs as an error, and errors it throws. When code the agent just wrote fails as it runs — a query rejected as invalid, a crash while handling the data — the agent is sent what happened and fixes it on its own, up to twice. It leaves alone failures that code can't fix: a permission error, a server error, or your configured data source itself failing, which you fix on the Configuration tab.
               </p>
               <p className="text-gray-700 mt-2">
-                <strong>Problems</strong>, the bar under the preview and the code, lists rule checks on the code — an import widgets can't use, a script from a CDN that isn't allowed, a write that skips the audit trail, text too light to read — and what happened when the widget last ran. The agent is given both with every request. <strong>Fix with agent</strong> asks it to fix everything listed. Rule errors in code the agent wrote are fixed automatically; warnings are left for you to decide.
+                <strong>Problems</strong>, the bar under the preview and the code, lists rule checks on the code — an import widgets can't use, a script from a CDN that isn't allowed, a write that skips the audit trail, text too light to read, a class the app's stylesheet doesn't have (so it does nothing), a font that isn't bundled — and what happened when the widget last ran. The agent is given both with every request. <strong>Fix with agent</strong> asks it to fix everything listed. Rule errors in code the agent wrote are fixed automatically; warnings are left for you to decide.
               </p>
             </div>
 

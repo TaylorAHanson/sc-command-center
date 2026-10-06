@@ -1,6 +1,7 @@
 import React from 'react';
 import { useScript } from './hooks/useScript';
 import { brandReady, withBrandColors } from './brand';
+import { loadFontsNamedIn } from './fonts';
 import type { AppApi } from './appApi';
 
 // Define types broadly since we only need component matching
@@ -48,6 +49,8 @@ export interface WidgetDefinition {
   availableVersions?: number[];
   latestVersion?: number;
   createdBy?: string; // Username of whoever published this widget (custom widgets only)
+  /** Built to fill a page tab rather than a card; any widget may go on either. */
+  layoutKind?: 'card' | 'page';
 }
 
 export const widgetRegistry: Record<string, WidgetDefinition> = {};
@@ -183,6 +186,7 @@ const lazyWidget = (key: string, source: () => Promise<string>): React.Component
           const [Babel] = await Promise.all([babelReady(), brandReady()]);
           const tsx = await source();
           if (!tsx) throw new Error('This version has no code stored.');
+          loadFontsNamedIn(tsx);
           const built = compiled.get(key) || build(key, withBrandColors(tsx), Babel);
           compiled.set(key, built);
           if (alive) setComponent(() => built);
@@ -299,6 +303,7 @@ const registerRows = async (url: string) => {
           snapshot: w.snapshot || undefined,
           openInNewTabLink: w.open_in_new_tab_link || undefined,
           createdBy: w.created_by || undefined,
+          layoutKind: w.layout_kind === 'page' ? 'page' as const : 'card' as const,
           accessControl: { mockHasAccess: true }
         };
 

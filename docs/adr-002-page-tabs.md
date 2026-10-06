@@ -29,7 +29,8 @@ studio for pages, no model-written CSS.
 ### 1.1 What the code allows today
 
 - **A widget can already draw that page.** Widgets render in the app's own DOM
-  with the full compiled Tailwind stylesheet; arbitrary values aren't available,
+  with the app's compiled Tailwind stylesheet (only classes the app itself uses,
+  plus a safelist: see the slice 3 entry in the change log); arbitrary values aren't available,
   but inline `style` is, and so are SVG (the connector lines), gradients
   (`bg-gradient-to-*` or inline), and https images. Icons must be inline SVG
   (no `lucide-react` in widget code).
@@ -257,4 +258,5 @@ widget act as a hub page.
 | 2026-10-05 | Redirected: page tabs (a tab is one full-screen widget), page widgets in Widget Studio, `props.app`, per-tab backgrounds and colours. Tokens, dark remapping and App Studio dropped or deferred. |
 | 2026-10-05 | Slice 1 built: `layout` on each tab, page rendering in both shells, the page toolbar, Canvas/Page on Add tab and the switch on the tab being shown. Slice 4 is built before slice 3, since page widgets use its fonts. |
 | 2026-10-05 | Slice 2 built: `props.app` on every widget in both shells; `openAssistant` prefills only and keeps the current agent when the asked-for one can't be opened. |
+| 2026-10-06 | Slice 3 built: `widgets.layout_kind`, the Card/Page switch (a first request asking for a landing page or hub starts as a page), and `page_instructions.md` appended for pages only, rather than as a section of `agent_instructions.md` that every card would pay for. The preview is a mock header and tabs at laptop / wide / narrow width, scaled to fit, with a stand-in `props.app`; Tailwind breakpoints still follow the browser window, not the frame. Lint judges light text against the nearest enclosing background, and adds `missing-class` and `unknown-font`, because widget code is never scanned by Tailwind and the stylesheet lacked most page-sized classes until a safelist added them. A page's review gets 240s, not 120s. Done-when run against the real model: the Kairos image with "Build this hub for our five Genie spaces" built a page, the review finished with real fixes, and all five persona cards opened their tabs in a view. |
 | 2026-10-06 | Slice 4 built: background, font and cards on the app and tab `theme`, six bundled fonts, **Look** / **This tab's look** in View settings, and `POST /api/apps/look` behind **Suggest**. `props.app.theme.font` is the CSS font stack. |

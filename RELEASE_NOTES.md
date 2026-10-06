@@ -30,6 +30,7 @@
 - **Choose a view's agent in its settings.** **Settings → Agent** picks the agent the view opens with, and the assistant button now shows that agent's name.
 - **Views can have tabs.** **Add tab** in the top right starts a tab bar; double-click a tab to rename it, drag to reorder, **×** to delete.
 - **Make a tab a full page.** Choose **Page** when adding a tab, then drag one widget onto it to fill the whole tab, edge to edge.
+- **Build a page in Widget Studio.** Choose **Page** above the preview to build a whole-tab landing page, previewed at full width; the library marks it **PAGE**.
 - **Widgets can open tabs and the assistant.** Ask Widget Studio for tiles that go to each tab, or an **Ask** button that types a question for you to send.
 - **Give a view its own filters.** In **Settings → Filters**, add dropdowns above the canvas; widgets that follow that variable update on every tab.
 - **Tabs down the side.** In **Settings → Tabs**, choose **Down the side** to list a view's tabs on the left.
@@ -48,6 +49,7 @@
 
 ### Fixed
 
+- **A file still being read waits for your next message.** In Widget Studio, pressing Send before an attachment finishes reading no longer drops it.
 - **Agent Studio says when a draft didn't arrive.** If the reply describes an agent but its draft was cut off or unreadable, a note says so instead of leaving the editor silently unchanged.
 - **View Promotion shows when each view last changed.** **Last Modified** and the dates in **Preview** were always blank.
 - **Quick edits to a view all save.** Two changes made close together could collide, and one would be lost on the next reload.

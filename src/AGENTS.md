@@ -83,6 +83,13 @@ Practical consequences for widget code:
 - Arbitrary Tailwind values (`w-[150px]`, `bg-[#ff0000]`) don't work, because only
   standard utility classes exist in the compiled stylesheet — use an inline
   `style={{ ... }}` for exact measurements or colors.
+- **Widget code is compiled at runtime, so Tailwind never scans it.** A class
+  exists only if something in `src/` uses it or `tailwind.config.js` safelists it;
+  anything else silently does nothing. The safelist is the vocabulary pages need
+  (big type, wide spacing, `md:`/`lg:` grids, white/black opacities, `hover:`
+  colours) and costs about 8 KB gzipped, so widen it by pattern with care.
+  `widgetLint.ts`'s `missing-class` rule reads the live stylesheet and names
+  classes that aren't in it; it stays quiet when the stylesheet can't be read.
 - Widgets render on white and are user-resizable, so they need dark text
   (`text-slate-800`, `text-gray-900`) and fluid layout (`w-full`, `h-full`).
 - **Brand colours are `brand-navy` / `brand-blue` / `brand-light`, and older
@@ -253,7 +260,12 @@ Two behaviors there are easy to break by accident:
   that won't work or breaks a platform rule (no default export, an import the
   sandbox can't satisfy, a `useScript` host `isAllowedScriptUrl` refuses, a write
   without `executeAction`); warnings are usually-wrong patterns (unchecked SQL
-  response, light text, arbitrary Tailwind). Only errors trigger an auto-fix, and
+  response, light text, arbitrary Tailwind, a class the stylesheet lacks, a font
+  that isn't bundled). Light text is judged against the nearest enclosing element
+  that sets a background (`backgroundBehind`: an inline `style` or a `bg-*` class,
+  skipping translucent fills like `bg-white/10`), and with none, against the
+  page's first inline background (`layoutKind: 'page'`) or white. It reads JSX as
+  tags, so a `<` in a generic can miscount; keep it a warning. Only errors trigger an auto-fix, and
   only in agent code. A rule that disagrees with `server/routes/agent_instructions.md`
   sends the agent in circles, so change both together. Findings and the runtime
   log go to the agent on every request (`requestContext`) and are shown in
