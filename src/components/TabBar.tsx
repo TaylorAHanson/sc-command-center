@@ -1,10 +1,66 @@
-import React, { useRef, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { FileText, LayoutGrid, Plus, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useDashboardStore } from '../store/dashboardStore';
-import { MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel } from '../store/appSpec';
+import { layoutSwitch, MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel, type TabLayout } from '../store/appSpec';
 
 const NEW_TAB = '\u0000new';
+
+const LAYOUT_CHOICES: { layout: TabLayout; label: string; hint: string; icon: typeof LayoutGrid }[] = [
+  { layout: 'canvas', label: 'Canvas', hint: 'Widgets in cards you arrange on a grid', icon: LayoutGrid },
+  { layout: 'page', label: 'Page', hint: 'One widget that fills the whole tab', icon: FileText },
+];
+
+/** A button that asks which kind of tab to add. */
+export const AddTabMenu: React.FC<{
+  onChoose: (layout: TabLayout) => void;
+  button: (open: (e: React.MouseEvent<HTMLElement>) => void) => React.ReactNode;
+  align?: 'left' | 'right';
+  extra?: React.ReactNode;
+}> = ({ onChoose, button, align = 'left', extra }) => {
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState<React.CSSProperties>({});
+  const box = useRef<HTMLDivElement>(null);
+  // Fixed, because the top tab bar scrolls sideways and would clip the menu.
+  const toggle = (e: React.MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setAt(align === 'right' ? { top: r.bottom + 4, right: window.innerWidth - r.right } : { top: r.bottom + 4, left: r.left });
+    setOpen(o => !o);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', escape); };
+  }, [open]);
+  return (
+    <div ref={box} className="relative shrink-0">
+      {button(toggle)}
+      {open && (
+        <div role="menu" style={at} className="fixed z-50 w-64 bg-white border border-gray-200 rounded-md shadow-lg py-1">
+          {LAYOUT_CHOICES.map(({ layout, label, hint, icon: Icon }) => (
+            <button
+              key={layout}
+              type="button"
+              role="menuitem"
+              onClick={() => { setOpen(false); onChoose(layout); }}
+              className="w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-gray-50"
+            >
+              <Icon className="w-4 h-4 mt-0.5 text-gray-400 shrink-0" />
+              <span>
+                <span className="block text-sm text-brand-navy">{label}</span>
+                <span className="block text-xs text-gray-500">{hint}</span>
+              </span>
+            </button>
+          ))}
+          {extra && <div className="border-t border-gray-100 mt-1 pt-1" onClick={() => setOpen(false)}>{extra}</div>}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /**
  * The tabs of the app on screen. An app with one tab — every view — has no bar:
@@ -15,8 +71,8 @@ const NEW_TAB = '\u0000new';
  * app's nav style asks for draws anything.
  */
 export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) => {
-  const { activeApp, activeAppTab, selectTab, addTab, renameTab, moveTab, removeTab, canEditLayout } = useDashboardStore();
-  const [editing, setEditing] = useState<{ id: string; was: string } | null>(null);
+  const { activeApp, activeAppTab, selectTab, addTab, setTabLayout, renameTab, moveTab, removeTab, canEditLayout } = useDashboardStore();
+  const [editing, setEditing] = useState<{ id: string; was: string; layout?: TabLayout } | null>(null);
   const [draft, setDraft] = useState('');
   const cancelled = useRef(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -29,9 +85,9 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
   const tabs = app.spec.tabs;
   const editable = canEditLayout(app);
 
-  const startEditing = (id: string, was: string) => {
+  const startEditing = (id: string, was: string, layout?: TabLayout) => {
     cancelled.current = false;
-    setEditing({ id, was });
+    setEditing({ id, was, layout });
     setDraft(was);
   };
 
@@ -39,7 +95,7 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
   const finishEditing = () => {
     const name = draft.trim();
     if (editing && !cancelled.current && name) {
-      if (editing.id === NEW_TAB) addTab(app.id, name);
+      if (editing.id === NEW_TAB) addTab(app.id, name, editing.layout);
       else if (name !== editing.was) renameTab(app.id, editing.id, name);
     }
     setEditing(null);
@@ -117,6 +173,33 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
             )}
           >
             <span className={clsx('truncate', !side && 'max-w-[14rem]')}>{label}</span>
+            {/* Only the tab on screen switches layout, but every tab keeps the
+                room for it: selecting a tab mustn't shift the others under the
+                second click of a double-click. */}
+            {editable && (() => {
+              const swap = layoutSwitch(tab);
+              const Icon = swap.to === 'page' ? FileText : LayoutGrid;
+              return (
+                <button
+                  type="button"
+                  aria-disabled={swap.blocked}
+                  aria-hidden={!active}
+                  tabIndex={active ? undefined : -1}
+                  onClick={e => {
+                    e.stopPropagation();
+                    if (active && !swap.blocked) setTabLayout(app.id, tab.id, swap.to);
+                  }}
+                  className={clsx(
+                    'p-0.5 rounded opacity-0 group-hover:opacity-100 focus:opacity-100',
+                    !active && 'invisible',
+                    swap.blocked ? 'text-gray-300 cursor-not-allowed' : 'text-gray-400 hover:text-brand-blue hover:bg-gray-100',
+                  )}
+                  title={swap.title}
+                >
+                  <Icon className="w-3 h-3" />
+                </button>
+              );
+            })()}
             {editable && (
               <button
                 type="button"
@@ -137,17 +220,21 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
       })}
       {editing?.id === NEW_TAB && nameBox(NEW_TAB)}
       {editable && !editing && tabs.length < MAX_TABS && (
-        <button
-          type="button"
-          onClick={() => startEditing(NEW_TAB, `Tab ${tabs.length + 1}`)}
-          className={clsx(
-            'p-1.5 rounded-md text-gray-400 hover:text-brand-blue hover:bg-gray-100',
-            side ? 'mx-2 self-start' : 'mb-1 ml-1',
-          )}
-          title="Add a tab"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
+        <div className={side ? 'mx-2 self-start' : 'mb-1 ml-1'}>
+          <AddTabMenu
+            onChoose={layout => startEditing(NEW_TAB, `Tab ${tabs.length + 1}`, layout)}
+            button={open => (
+              <button
+                type="button"
+                onClick={open}
+                className="p-1.5 rounded-md text-gray-400 hover:text-brand-blue hover:bg-gray-100"
+                title="Add a tab"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            )}
+          />
+        </div>
       )}
     </nav>
   );

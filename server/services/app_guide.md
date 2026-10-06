@@ -40,6 +40,18 @@ per-user unless they are global.
   in a view may change its tabs: not while it is locked, and in a global view
   only an admin. A widget added from the Widget Library goes on the tab being
   shown.
+- A tab is a **canvas** (widgets in cards on a grid, the default) or a **page**
+  (one widget filling the whole tab, with no card around it, for a landing page
+  or hub). **Add tab** and the **+** ask which. The small grid/page icon on the
+  tab being shown switches it; a canvas holding more than one widget can't
+  become a page until the others are removed. On a one-tab view, **Add tab** →
+  **Or make this view itself a page** does the same. Any tab may be a page, in
+  any order.
+- On a page, drag a widget from the Widget Library onto it (dropping another
+  replaces it, after asking). The toolbar in its top-right corner — shown only
+  to whoever may change the tab, inside Command Center — offers **Change
+  widget**, **Edit in Widget Studio**, configure, remove, and back to a canvas.
+  A view opened on its own shows the page without the toolbar.
 - The address names the tab being shown, so a link opens on that tab and Back
   steps between tabs. A link to the first tab doesn't name it, so it opens
   whichever tab is first.

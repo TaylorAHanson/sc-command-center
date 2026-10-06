@@ -60,7 +60,7 @@ export const UserGuidePage: React.FC = () => {
                 Tabs
               </div>
               <p className="text-sm text-gray-600">
-                Click <strong>Add tab</strong> in the top-right corner to give a view a second tab; use the <strong>+</strong> in the tab bar for more. Double-click a tab to rename it, drag it to reorder, or click its <strong>×</strong> to delete it. Widgets you add go on the tab you're looking at, and filters one widget sets apply on every tab of the view.
+                Click <strong>Add tab</strong> in the top-right corner to give a view a second tab; use the <strong>+</strong> in the tab bar for more. Double-click a tab to rename it, drag it to reorder, or click its <strong>×</strong> to delete it. Widgets you add go on the tab you're looking at, and filters one widget sets apply on every tab of the view. Each tab is a <strong>Canvas</strong> of cards or a <strong>Page</strong>: one widget filling the whole tab, for a landing page or hub. Adding a tab asks which; the grid/page icon on the tab you're looking at switches it, and you drag a widget from the library onto a page to fill it.
               </p>
               <p className="text-sm text-gray-600 mt-2">
                 In the view's <strong>Settings</strong>, <strong>Tabs</strong> puts them <strong>Across the top</strong> or <strong>Down the side</strong>, and <strong>Filters</strong> adds dropdowns above the canvas. Each filter has a label, the variable it sets, its options (one per line) and the one it starts on. Anyone who can see the view can use them; widgets that follow that variable update on every tab, and <strong>All</strong> clears it. Choices reset when the view is reopened.

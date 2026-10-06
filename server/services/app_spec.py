@@ -51,6 +51,10 @@ _BRANDING_IMAGES = ("logo", "favicon")
 
 NAV_STYLES = ("tabs", "sidebar")
 
+# A page tab is one widget drawn edge to edge instead of a grid of cards, so it
+# has room for exactly one.
+TAB_LAYOUTS = ("canvas", "page")
+
 # The theme recolours the `brand-blue` and `brand-navy` classes, which the app and
 # generated widgets alike put white text on (buttons, badges, the sidebar), and
 # which widgetLint treats as dark backgrounds. So a theme colour must keep white
@@ -101,6 +105,7 @@ def legacy_spec(app_id: str, widgets: Any) -> Dict[str, Any]:
         "tabs": [{
             "id": app_id,
             "name": "",
+            "layout": "canvas",
             "widgets": list(widgets) if isinstance(widgets, list) else [],
             "pinned_agent_id": None,
         }],
@@ -386,9 +391,22 @@ def _normalize(raw: Dict[str, Any], app_id: str, *, strict: bool, new_id: Callab
         pinned = tab.get("pinned_agent_id")
         pinned = (pinned.strip() or None) if isinstance(pinned, str) else None
 
+        layout = tab.get("layout")
+        if layout is None:
+            layout = TAB_LAYOUTS[0]
+        elif layout not in TAB_LAYOUTS:
+            if strict:
+                raise SpecError(f"Tab {position}'s layout must be one of {', '.join(TAB_LAYOUTS)}.")
+            layout = TAB_LAYOUTS[0]
+        if layout == "page" and len(widgets) > 1:
+            if strict:
+                raise SpecError(f"Tab {position} is a page, which holds one widget.")
+            widgets = widgets[:1]
+
         tabs.append({
             "id": tab_id,
             "name": _text(tab.get("name"), f"Tab {position}'s name", strict),
+            "layout": layout,
             "widgets": copy.deepcopy(widgets),
             "pinned_agent_id": pinned,
         })
@@ -492,6 +510,7 @@ def compose_spec(
                 "id": new_id(),
                 # A view's name lives on the row, not on its only tab.
                 "name": (source.get("name") or "") if single else (tab.get("name") or source.get("name") or ""),
+                "layout": tab.get("layout") or TAB_LAYOUTS[0],
                 "widgets": widgets,
                 # Resolving tab -> app -> default on the source gave this agent,
                 # so the copied tab says so explicitly.

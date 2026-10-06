@@ -108,6 +108,7 @@ App {
       {
         "id": "...",
         "name": "...",
+        "layout": "canvas" | "page",
         "widgets": ["WidgetLayout"],
         "pinned_agent_id": null
       }

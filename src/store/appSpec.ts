@@ -16,10 +16,30 @@ export interface WidgetLayout {
 export interface AppTab {
   id: string;
   name: string;
+  /** A canvas is a grid of cards; a page is one widget drawn edge to edge. */
+  layout?: TabLayout;
   widgets: WidgetLayout[];
   /** Overrides the app's agent on this tab. Null = use the app's. */
   pinned_agent_id?: string | null;
 }
+
+export type TabLayout = 'canvas' | 'page';
+
+export const isPage = (tab?: AppTab | null): boolean => tab?.layout === 'page';
+
+/** Where a page's one widget sits if the tab later becomes a canvas. */
+export const PAGE_WIDGET_PLACE = { x: 0, y: 0, w: 12, h: 10 };
+
+/** Which way a tab's layout switch goes, and why it can't when it can't. */
+export const layoutSwitch = (tab: AppTab): { to: TabLayout; title: string; blocked: boolean } => {
+  if (isPage(tab)) return { to: 'canvas', title: 'Make this tab a canvas of cards', blocked: false };
+  const blocked = tab.widgets.length > 1;
+  return {
+    to: 'page',
+    title: blocked ? 'A page holds one widget; remove the others first to make this tab a page' : 'Make this tab a page: one widget filling the tab',
+    blocked,
+  };
+};
 
 export interface AppBranding {
   title?: string | null;
@@ -81,7 +101,7 @@ export const newAppSpec = (tabId: string): AppSpec => ({
   presentation: 'workspace',
   assistant: 'on',
   branding: null,
-  tabs: [{ id: tabId, name: '', widgets: [], pinned_agent_id: null }],
+  tabs: [{ id: tabId, name: '', layout: 'canvas', widgets: [], pinned_agent_id: null }],
   nav: null,
   theme: null,
   filters: [],

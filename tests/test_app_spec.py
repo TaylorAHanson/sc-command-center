@@ -115,6 +115,30 @@ def test_a_widget_on_two_tabs_is_refused_but_a_repeat_within_one_tab_is_not():
     validate_spec({"tabs": [{"id": "a", "widgets": [{"i": "w"}, {"i": "w"}]}]}, APP)
 
 
+def test_every_tab_is_a_canvas_unless_it_says_page():
+    spec = validate_spec({"tabs": [{"id": "a"}, {"id": "b", "layout": "page"}, {"id": "c", "layout": "canvas"}]}, APP)
+    assert [t["layout"] for t in spec["tabs"]] == ["canvas", "page", "canvas"]
+    assert legacy_spec(APP, [])["tabs"][0]["layout"] == "canvas"
+    refuses({"tabs": [{"id": "a", "layout": "poster"}]}, "layout")
+    assert read_spec(APP, json.dumps({"tabs": [{"id": "a", "layout": "poster"}]}), None)["tabs"][0]["layout"] == "canvas"
+
+
+def test_a_page_holds_one_widget():
+    page = {"id": "p", "layout": "page", "widgets": [{"i": "w-1", "type": "hub"}, {"i": "w-2", "type": "chart"}]}
+    refuses({"tabs": [page]}, "one widget")
+    read = read_spec(APP, json.dumps({"tabs": [page]}), None)
+    assert [w["i"] for w in read["tabs"][0]["widgets"]] == ["w-1"], "reading keeps the first"
+    assert validate_spec(read, APP)["tabs"][0]["layout"] == "page"
+    validate_spec({"tabs": [{"id": "p", "layout": "page", "widgets": []}]}, APP)
+
+
+def test_any_tab_may_be_a_page_in_any_order():
+    tabs = [{"id": "a", "layout": "page"}, {"id": "b"}, {"id": "c", "layout": "page"}]
+    spec = validate_spec({"tabs": tabs}, APP)
+    assert read_spec(APP, dumps(spec), "[]") == spec
+    assert [t["layout"] for t in spec["tabs"]] == ["page", "canvas", "page"]
+
+
 def test_widgets_must_be_objects_on_write():
     refuses({"tabs": [{"id": "a", "widgets": ["w"]}]}, "not an object")
     refuses({"tabs": [{"id": "a", "widgets": "w"}]}, "must be a list")
@@ -272,6 +296,12 @@ def test_composing_an_app_keeps_its_tab_names_and_tab_pins():
     ])
     spec = compose_spec([multi], new_id=ids())
     assert [(t["name"], t["pinned_agent_id"]) for t in spec["tabs"]] == [("Today", "hub-agent"), ("Week", "week-agent")]
+
+
+def test_composing_keeps_each_tabs_layout():
+    multi = source("Hub", [], tabs=[{"id": "x", "name": "Home", "layout": "page", "widgets": []},
+                                    {"id": "y", "name": "Data", "widgets": []}])
+    assert [t["layout"] for t in compose_spec([multi], new_id=ids())["tabs"]] == ["page", "canvas"]
 
 
 def test_composing_re_keys_only_colliding_widget_instances():

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
-import { filterDefaults, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, shownTab, withTab, type App, type AppSpec, type AppTab, type WidgetLayout } from './appSpec';
+import { filterDefaults, isPage, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, PAGE_WIDGET_PLACE, shownTab, withTab, type App, type AppSpec, type AppTab, type TabLayout, type WidgetLayout } from './appSpec';
 import { appHash, appLink, isStandalone, linkTab, parseAppRoute, routeTab, withoutRouteParams, type AppRoute } from './appRoute';
 import { useShell } from '../shell';
 
@@ -48,7 +48,9 @@ interface DashboardContextType {
   /** Show another tab of the app on screen. */
   selectTab: (tabId: string) => void;
   /** Adds an empty tab and shows it; returns its id, or null if it can't. */
-  addTab: (appId: string, name: string) => string | null;
+  addTab: (appId: string, name: string, layout?: TabLayout) => string | null;
+  /** Turns a canvas into a page or back. A canvas with several widgets can't become a page. */
+  setTabLayout: (appId: string, tabId: string, layout: TabLayout) => boolean;
   renameTab: (appId: string, tabId: string, name: string) => void;
   moveTab: (appId: string, fromIndex: number, toIndex: number) => void;
   removeTab: (appId: string, tabId: string) => void;
@@ -468,16 +470,24 @@ export const DashboardProvider: React.FC<{
     return true;
   };
 
-  const addTab = (appId: string, name: string): string | null => {
+  const addTab = (appId: string, name: string, layout: TabLayout = 'canvas'): string | null => {
     const id = uuidv4();
     const added = changeTabs(appId, tabs => (tabs.length >= MAX_TABS ? null : [
       ...tabs,
-      { id, name: name.trim().slice(0, MAX_NAME_LENGTH), widgets: [], pinned_agent_id: null },
+      { id, name: name.trim().slice(0, MAX_NAME_LENGTH), layout, widgets: [], pinned_agent_id: null },
     ]));
     if (!added) return null;
     selectApp(appId, id);
     return id;
   };
+
+  const setTabLayout = (appId: string, tabId: string, layout: TabLayout): boolean => changeTabs(appId, tabs => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (!tab || (tab.layout || 'canvas') === layout) return null;
+    if (layout === 'page' && tab.widgets.length > 1) return null;
+    const widgets = layout === 'page' ? tab.widgets : tab.widgets.map(w => ({ ...w, ...PAGE_WIDGET_PLACE }));
+    return tabs.map(t => (t.id === tabId ? { ...t, layout, widgets } : t));
+  });
 
   const renameTab = (appId: string, tabId: string, name: string) => {
     const next = name.trim().slice(0, MAX_NAME_LENGTH);
@@ -510,7 +520,7 @@ export const DashboardProvider: React.FC<{
 
   // Changes one tab's widgets and saves the app. Shared apps are read-only to
   // their subscribers, so nothing here touches one.
-  const changeWidgets = (appId: string, tabId: string, change: (widgets: WidgetLayout[]) => WidgetLayout[] | null) => {
+  const changeWidgets = (appId: string, tabId: string, change: (widgets: WidgetLayout[], tab: AppTab) => WidgetLayout[] | null) => {
     const app = apps.find(a => a.id === appId);
     if (app?.is_shared) return;
 
@@ -519,7 +529,7 @@ export const DashboardProvider: React.FC<{
       const newApps = prevApps.map(a => {
         if (a.id !== appId) return a;
         const tab = a.spec.tabs.find(t => t.id === tabId);
-        const widgets = tab ? change(tab.widgets) : null;
+        const widgets = tab ? change(tab.widgets, tab) : null;
         if (!widgets) return a;
         updatedApp = withTab(a, tabId, t => ({ ...t, widgets }));
         return updatedApp;
@@ -531,8 +541,9 @@ export const DashboardProvider: React.FC<{
   };
 
   const addWidget = (appId: string, tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => {
-    changeWidgets(appId, tabId, widgets => {
+    changeWidgets(appId, tabId, (widgets, tab) => {
       const def = widgetRegistry[type];
+      if (isPage(tab)) return [{ i: uuidv4(), ...PAGE_WIDGET_PLACE, type, props: props || {} }];
       const newWidget: WidgetLayout = {
         i: uuidv4(),
         x: position?.x ?? (widgets.length * 4) % 12,
@@ -604,7 +615,7 @@ export const DashboardProvider: React.FC<{
       standalone: Boolean(standalone),
       variables, setVariable,
       addApp, removeApp, renameApp, reorderApps, setActiveAppId: selectApp,
-      selectTab, addTab, renameTab, moveTab, removeTab,
+      selectTab, addTab, setTabLayout, renameTab, moveTab, removeTab,
       duplicateApp, addWidget, removeWidget, updateWidget, updateLayout,
       toggleLock, setPinnedAgent, updateAppSpec, canEditApp, canEditLayout, canEditDomain, generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
     }}>

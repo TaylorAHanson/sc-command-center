@@ -1061,7 +1061,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 16
 PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
-PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 34 passed
+PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 38 passed
 PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 31 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed

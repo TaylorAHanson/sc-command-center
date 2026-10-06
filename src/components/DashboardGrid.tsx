@@ -7,6 +7,8 @@ import { useDashboardStore, type WidgetLayout } from '../store/dashboardStore';
 import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { BaseWidget } from './BaseWidget';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
+import { isPage } from '../store/appSpec';
+import { PageTab } from './PageTab';
 
 // Custom WidthProvider since it's missing in RGL v2.1.0 exports
 const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
@@ -345,6 +347,10 @@ export const DashboardGrid: React.FC = () => {
     if (!pendingWidgetId || !activeAppTab) return;
     const target = activeAppTab.widgets.find(w => w.i === pendingWidgetId);
     if (!target) return;
+    if (isPage(activeAppTab)) {
+      clearPendingWidget();
+      return;
+    }
     const def = widgetRegistry[target.type];
     setFullscreenWidget({ id: target.i, type: target.type, title: def?.name || target.type });
     clearPendingWidget();
@@ -375,6 +381,7 @@ export const DashboardGrid: React.FC = () => {
 
   // Early return after all hooks
   if (!activeApp || !activeAppTab) return null;
+  if (isPage(activeAppTab)) return <PageTab app={activeApp} tab={activeAppTab} readOnly={isReadOnly} />;
   const appId = activeApp.id;
   const tabId = activeAppTab.id;
 

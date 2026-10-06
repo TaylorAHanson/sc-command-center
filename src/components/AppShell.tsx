@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Check, Link2, Pencil } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
-import { shownTab, themeVariables, type AppTheme } from '../store/appSpec';
+import { isPage, shownTab, themeVariables, type AppTheme } from '../store/appSpec';
 import { TabBar } from './TabBar';
 import { FilterBar } from './FilterBar';
 import { loadAppWidgets } from '../widgetRegistry';
@@ -177,7 +177,7 @@ export const AppShell: React.FC = () => {
         <div className="flex-1 flex min-h-0">
           <TabBar placement="side" />
           <main className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative">
-            <div className="w-full h-full px-2">
+            <div className={isPage(activeAppTab) ? 'w-full h-full' : 'w-full h-full px-2'}>
               <DashboardGrid />
             </div>
           </main>

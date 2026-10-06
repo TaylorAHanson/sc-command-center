@@ -5,12 +5,13 @@ import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
 import { AgentDrawer } from './AgentDrawer';
 import { AppSettingsModal } from './AppSettingsModal';
-import { TabBar } from './TabBar';
+import { AddTabMenu, TabBar } from './TabBar';
 import { FilterBar } from './FilterBar';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
-import { shownTab, themeVariables } from '../store/appSpec';
+import { isPage, layoutSwitch, shownTab, themeVariables } from '../store/appSpec';
+import { WorkspaceToolsContext, type WorkspaceTools } from '../contexts/WorkspaceTools';
 import { appHash, isStandalone, linkTab, parseAppRoute } from '../store/appRoute';
 import { useShell } from '../shell';
 
@@ -53,7 +54,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [currentPage, setCurrentPage] = useState<string | null>(() => pageOf(window.location.hash));
   // Pages that take over the full screen (no header, no agent drawer).
   const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
-  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp, canEditLayout, addTab } = useDashboardStore();
+  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp, canEditLayout, addTab, setTabLayout } = useDashboardStore();
   const shell = useShell();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
@@ -75,6 +76,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [editWidgetId, setEditWidgetId] = useState<string | null>(null);
   const [cloneWidgetId, setCloneWidgetId] = useState<string | null>(null);
+  const workspaceTools = React.useMemo<WorkspaceTools>(() => ({
+    openLibrary: () => setTrayOpen(true),
+    editWidget: (id: string) => {
+      setEditWidgetId(id);
+      setCloneWidgetId(null);
+      setCurrentPage('studio');
+    },
+  }), []);
 
   // Held at the Layout level so the conversation survives collapsing the panel.
   const agentChat = useAgentChat();
@@ -525,16 +534,36 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <span>Open</span>
                 </button>
               )}
-              {!currentPage && activeApp && activeApp.spec.tabs.length === 1 && canEditLayout(activeApp) && (
-                <button
-                  onClick={() => addTab(activeApp.id, 'Tab 2')}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
-                  title="Give this view a second tab"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add tab</span>
-                </button>
-              )}
+              {!currentPage && activeApp && activeAppTab && activeApp.spec.tabs.length === 1 && canEditLayout(activeApp) && (() => {
+                const swap = layoutSwitch(activeAppTab);
+                return (
+                  <AddTabMenu
+                    align="right"
+                    onChoose={layout => addTab(activeApp.id, 'Tab 2', layout)}
+                    button={open => (
+                      <button
+                        onClick={open}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                        title="Give this view a second tab"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Add tab</span>
+                      </button>
+                    )}
+                    extra={(
+                      <button
+                        type="button"
+                        disabled={swap.blocked}
+                        onClick={() => setTabLayout(activeApp.id, activeAppTab.id, swap.to)}
+                        className="w-full px-3 py-2 text-left text-xs text-gray-600 hover:bg-gray-50 disabled:text-gray-300 disabled:hover:bg-transparent"
+                        title={swap.title}
+                      >
+                        {swap.to === 'page' ? 'Or make this view itself a page' : 'Or make this view a canvas again'}
+                      </button>
+                    )}
+                  />
+                );
+              })()}
               {!currentPage && activeApp && canEditApp(activeApp) && (
                 <button
                   onClick={() => setSettingsOpen(true)}
@@ -650,8 +679,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   }
                 }}
               >
-                <div className="w-full h-full px-2">
-                  {children}
+                <div className={isPage(activeAppTab) ? 'w-full h-full' : 'w-full h-full px-2'}>
+                  <WorkspaceToolsContext.Provider value={workspaceTools}>
+                    {children}
+                  </WorkspaceToolsContext.Provider>
                 </div>
               </main>
             </div>
