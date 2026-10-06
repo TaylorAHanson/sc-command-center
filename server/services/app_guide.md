@@ -136,6 +136,16 @@ records every change its controls make in **Action Logs**, with who made it. The
 is no confirmation prompt: the action runs as soon as it is recorded, and does not
 run at all if it cannot be recorded.
 
+**Widgets that steer the view.** A widget can list its view's tabs and open one
+(a landing page whose tiles lead to the other tabs, say), and can open the
+assistant with a chosen agent and a question already typed. It can't send that
+question: the user reads it and presses Send, because sending is what runs the
+assistant's tools as them. It also can't open another view or any other address.
+If the agent it asks for is one the user can't open, the assistant keeps the
+agent it had. In a view opened on its own with the assistant turned off, the
+button does nothing. Ask Widget Studio for this in plain words — "tiles that go
+to each tab", "an Ask about this button".
+
 ## Widget Library
 
 Opens from the **Widget Library** button in the sidebar, or by pressing `w`.

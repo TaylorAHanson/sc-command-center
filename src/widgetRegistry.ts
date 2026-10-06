@@ -1,6 +1,7 @@
 import React from 'react';
 import { useScript } from './hooks/useScript';
 import { brandReady, withBrandColors } from './brand';
+import type { AppApi } from './appApi';
 
 // Define types broadly since we only need component matching
 export interface WidgetProps {
@@ -9,6 +10,7 @@ export interface WidgetProps {
   executeAction?: (actionName: string, callback: () => void) => void;
   variables?: Record<string, any>;
   setVariable?: (key: string, value: any) => void;
+  app?: AppApi;
 }
 
 export interface ConfigField {

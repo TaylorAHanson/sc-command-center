@@ -3,6 +3,7 @@ import { Check, Link2, Pencil } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
 import { isPage, shownTab, themeVariables, type AppTheme } from '../store/appSpec';
+import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
 import { TabBar } from './TabBar';
 import { FilterBar } from './FilterBar';
 import { loadAppWidgets } from '../widgetRegistry';
@@ -77,6 +78,7 @@ export const AppShell: React.FC = () => {
   const shell = useShell();
   const agentChat = useAgentChat();
   const [isAgentOpen, setAgentOpen] = useState(false);
+  const assistantDoor = useAssistantDoorFor(agentChat.prefill, setAgentOpen, activeApp?.spec.assistant !== 'off');
   const [badge, setBadge] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -178,7 +180,9 @@ export const AppShell: React.FC = () => {
           <TabBar placement="side" />
           <main className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative">
             <div className={isPage(activeAppTab) ? 'w-full h-full' : 'w-full h-full px-2'}>
-              <DashboardGrid />
+              <AssistantDoorContext.Provider value={assistantDoor}>
+                <DashboardGrid />
+              </AssistantDoorContext.Provider>
             </div>
           </main>
         </div>

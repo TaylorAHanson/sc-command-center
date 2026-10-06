@@ -12,6 +12,7 @@ import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
 import { isPage, layoutSwitch, shownTab, themeVariables } from '../store/appSpec';
 import { WorkspaceToolsContext, type WorkspaceTools } from '../contexts/WorkspaceTools';
+import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
 import { appHash, isStandalone, linkTab, parseAppRoute } from '../store/appRoute';
 import { useShell } from '../shell';
 
@@ -87,6 +88,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   // Held at the Layout level so the conversation survives collapsing the panel.
   const agentChat = useAgentChat();
+  const assistantDoor = useAssistantDoorFor(agentChat.prefill, setAgentOpen, true);
 
   // Fetch the pages behind the sidebar buttons once the dashboard has settled.
   // Splitting them out of the bundle is what makes the first load quick; pulling
@@ -681,7 +683,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               >
                 <div className={isPage(activeAppTab) ? 'w-full h-full' : 'w-full h-full px-2'}>
                   <WorkspaceToolsContext.Provider value={workspaceTools}>
-                    {children}
+                    <AssistantDoorContext.Provider value={assistantDoor}>
+                      {children}
+                    </AssistantDoorContext.Provider>
                   </WorkspaceToolsContext.Provider>
                 </div>
               </main>

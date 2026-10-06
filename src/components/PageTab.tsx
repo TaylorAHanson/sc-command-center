@@ -7,6 +7,7 @@ import { useActionLogger } from '../hooks/useActionLogger';
 import { ActionProvider, ExecuteActionPropInjector } from '../contexts/ActionContext';
 import { useWorkspaceTools } from '../contexts/WorkspaceTools';
 import type { App, AppTab } from '../store/appSpec';
+import type { AppApi } from '../appApi';
 
 const WIDGET_DRAG = 'application/widget-type';
 
@@ -15,7 +16,7 @@ const WIDGET_DRAG = 'application/widget-type';
  * widget brings its own background and layout; Command Center adds only a small
  * toolbar for whoever may change the tab, and only inside Command Center.
  */
-export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean }> = ({ app, tab, readOnly }) => {
+export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appApi?: AppApi }> = ({ app, tab, readOnly, appApi }) => {
   const { addWidget, removeWidget, updateWidget, openConfigModal, setTabLayout, activeDomain, username, variables, setVariable, canEditDomain } = useDashboardStore();
   const { loading } = useWidgetRegistry();
   const tools = useWorkspaceTools();
@@ -106,7 +107,7 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean }> = (
         <ActionProvider value={runAction}>
           <React.Suspense fallback={<div className="h-full w-full flex items-center justify-center text-xs text-gray-400">Loading page…</div>}>
             <ExecuteActionPropInjector>
-              <def.component id={widget!.i} data={data} key={widget!.i} />
+              <def.component id={widget!.i} data={data} app={appApi} key={widget!.i} />
             </ExecuteActionPropInjector>
           </React.Suspense>
         </ActionProvider>

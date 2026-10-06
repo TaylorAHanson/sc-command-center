@@ -112,6 +112,8 @@ const newConversationId = (): string =>
 const newTurnId = (): string =>
     'turn-' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
 
+const MAX_PREFILL_CHARS = 4000;
+
 const rememberConversation = (id: string) => {
     try { localStorage.setItem(CONVERSATION_KEY, id); } catch { /* private browsing */ }
 };
@@ -417,23 +419,45 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
     // the drawer re-checks for newly saved profiles, but we never hammer the
     // (UC-scanning) endpoint. Errors reset the clock so the next interaction retries.
     const lastProfileLoadRef = useRef(0);
+    // Within the window a caller gets the last load, still in flight or not, so
+    // whoever needs the list to decide something never decides on an empty one.
+    const profileLoadRef = useRef<Promise<AgentProfile[] | null>>(Promise.resolve(null));
     const PROFILE_REFRESH_MS = 30_000;
-    const loadProfilesOnce = useCallback(async () => {
+    const loadProfilesOnce = useCallback((): Promise<AgentProfile[] | null> => {
         const now = Date.now();
-        if (now - lastProfileLoadRef.current < PROFILE_REFRESH_MS) return;
+        if (now - lastProfileLoadRef.current < PROFILE_REFRESH_MS) return profileLoadRef.current;
         lastProfileLoadRef.current = now;
-        try {
-            const r = await fetch('/api/agent/studio/profiles');
-            if (r.ok) {
-                const d = await r.json();
-                setAvailableProfiles(d.profiles || []);
-            } else {
-                lastProfileLoadRef.current = 0; // allow a retry on next interaction
+        profileLoadRef.current = (async () => {
+            try {
+                const r = await fetch('/api/agent/studio/profiles');
+                if (r.ok) {
+                    const d = await r.json();
+                    const profiles: AgentProfile[] = d.profiles || [];
+                    setAvailableProfiles(profiles);
+                    return profiles;
+                }
+            } catch {
+                // fall through to the retry below
             }
-        } catch {
             lastProfileLoadRef.current = 0; // allow a retry on next interaction
-        }
+            return null;
+        })();
+        return profileLoadRef.current;
     }, []);
+
+    // What a widget may do to the assistant: choose the agent and fill in the
+    // message box. Never send — the user's Send is what runs tools as them.
+    const prefill = useCallback(async ({ agentId, prompt }: { agentId?: unknown; prompt?: unknown }) => {
+        if (typeof prompt === 'string') setInput(prompt.slice(0, MAX_PREFILL_CHARS));
+        if (typeof agentId !== 'string' || !agentId || isLoading) return;
+        const wanted = agentId === DEFAULT_AGENT_PIN ? '' : agentId;
+        if (wanted) {
+            const profiles = await loadProfilesOnce();
+            // An agent this user can't open stays unchosen, as a pin to one does.
+            if (!profiles?.some(p => p.id === wanted)) return;
+        }
+        setSelectedProfileId(wanted);
+    }, [isLoading, loadProfilesOnce]);
 
     const send = useCallback(async (text: string) => {
         const trimmed = text.trim();
@@ -825,6 +849,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         selectedProfileId,
         setSelectedProfileId,
         loadProfilesOnce,
+        prefill,
         pinnedAgentUnavailable,
         // Conversations (empty/no-ops in draft mode, where nothing is persisted)
         persists,

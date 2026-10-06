@@ -488,6 +488,13 @@ export const UserGuidePage: React.FC = () => {
             </div>
 
             <div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">Widgets that steer the view</h3>
+              <p className="text-gray-700">
+                A widget can open the view's other tabs and open the assistant with an agent chosen and a question typed in — ask for "tiles that go to each tab" or "an Ask about this button". It never sends the question for you: you read it and press <strong>Send</strong>. It can't open other views or addresses.
+              </p>
+            </div>
+
+            <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-2">2. AI Generation, Editor & Preview</h3>
               <p className="text-gray-700 mb-2">
                 Switch to the TSX Editor to view the code. Instead of writing everything from scratch, you can use natural language prompts to have the AI generate your widget based on your Data Source schemas.

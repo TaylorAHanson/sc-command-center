@@ -9,6 +9,7 @@ import { BaseWidget } from './BaseWidget';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
 import { isPage } from '../store/appSpec';
 import { PageTab } from './PageTab';
+import { useAppApi } from '../appApi';
 
 // Custom WidthProvider since it's missing in RGL v2.1.0 exports
 const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
@@ -80,6 +81,7 @@ const ShareWidgetButton: React.FC<{ onShare: () => Promise<boolean> }> = ({ onSh
 export const DashboardGrid: React.FC = () => {
   const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, username, variables, setVariable, generateWidgetShareLink, pendingWidgetId, clearPendingWidget, canEditLayout } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
+  const appApi = useAppApi();
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
@@ -381,7 +383,7 @@ export const DashboardGrid: React.FC = () => {
 
   // Early return after all hooks
   if (!activeApp || !activeAppTab) return null;
-  if (isPage(activeAppTab)) return <PageTab app={activeApp} tab={activeAppTab} readOnly={isReadOnly} />;
+  if (isPage(activeAppTab)) return <PageTab app={activeApp} tab={activeAppTab} readOnly={isReadOnly} appApi={appApi} />;
   const appId = activeApp.id;
   const tabId = activeAppTab.id;
 
@@ -571,6 +573,7 @@ export const DashboardGrid: React.FC = () => {
                     <Component
                       id={widget.i}
                       data={dataById[widget.i]}
+                      app={appApi}
                       key={widget.i}
                     />
                   </ExecuteActionPropInjector>

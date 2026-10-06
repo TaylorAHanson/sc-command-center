@@ -108,18 +108,19 @@ The one new capability, available to every widget, used mostly by pages:
 
 ```ts
 props.app = {
-  tabs: { id: string; name: string }[];        // this app's tabs, in order
+  tabs: { id: string; name: string; layout: 'canvas' | 'page' }[];  // in order
   activeTabId: string;
   goToTab(idOrName: string): void;              // within this app only
   openAssistant(opts?: { agentId?: string; prompt?: string }): void;
-  theme: { primary: string; dark: string; background?: string };  // the tab's colours
+  theme: { primary: string; dark: string };     // the view's colours (slice 4 adds the tab's)
 }
 ```
 
 Rules, each a constraint the runtime enforces rather than the contract asks for:
 
 - **No sending on the user's behalf.** `openAssistant` opens the panel, selects the
-  agent if the user can open it (otherwise the default, as a pin does), and
+  agent if the user can open it (otherwise keeps the agent it had, as a pin to an
+  agent they can't open does), and
   *prefills* the prompt. The user presses Send. A widget that could send would run
   OBO tools as the user without their choosing to.
 - **Navigation stays in the app.** `goToTab` moves between this app's tabs and
@@ -250,3 +251,4 @@ widget act as a hub page.
 | 2026-10-05 | Proposed as an App Studio + design-token plan. |
 | 2026-10-05 | Redirected: page tabs (a tab is one full-screen widget), page widgets in Widget Studio, `props.app`, per-tab backgrounds and colours. Tokens, dark remapping and App Studio dropped or deferred. |
 | 2026-10-05 | Slice 1 built: `layout` on each tab, page rendering in both shells, the page toolbar, Canvas/Page on Add tab and the switch on the tab being shown. Slice 4 is built before slice 3, since page widgets use its fonts. |
+| 2026-10-05 | Slice 2 built: `props.app` on every widget in both shells; `openAssistant` prefills only and keeps the current agent when the asked-for one can't be opened. |

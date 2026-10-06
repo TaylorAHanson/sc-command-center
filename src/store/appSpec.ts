@@ -58,6 +58,9 @@ export interface AppTheme {
   dark?: string | null;
 }
 
+/** Command Center's own colours (`--brand-blue` / `--brand-navy` in index.css). */
+export const DEFAULT_THEME = { primary: '#007bff', dark: '#001e3c' };
+
 /** A dropdown in the view's filter bar; its choice is the dashboard variable `key`. */
 export interface AppFilter {
   key: string;

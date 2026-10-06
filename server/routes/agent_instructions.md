@@ -131,6 +131,48 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
   ```
 - Since we only know about the current widget, be clear with the user about names for both Emitters and Receivers being used.
 
+### The app around the widget (`props.app`)
+
+Every widget on a view also receives `props.app`. Use it when the user asks for
+a widget that moves between the view's tabs or hands a question to the
+assistant — a landing page with tiles that open other tabs, an "Ask about this"
+button. It may be absent (an older host, a preview without a view), so always
+reach it with optional chaining.
+
+```ts
+props.app?.tabs          // [{ id, name, layout: 'canvas' | 'page' }], in order
+props.app?.activeTabId   // the tab being shown
+props.app?.goToTab(idOrName)                  // a tab of this view, by id or by name
+props.app?.openAssistant({ agentId?, prompt? }) // open the assistant with this agent, message box filled in
+props.app?.theme         // { primary, dark } — the view's colours as #rrggbb
+```
+
+- **`openAssistant` never sends.** It opens the assistant panel, switches to
+  `agentId` if the user can open that agent (`'default'` is the built-in one),
+  and fills in `prompt`; the user reads it and presses Send. Don't tell the user
+  the question was asked. Where the view has no assistant, it does nothing.
+- **`goToTab` only reaches this view's tabs.** Name tabs by what the user calls
+  them; read `props.app.tabs` to draw a list of them rather than hard-coding one.
+  There is no way to open another view or address, and a widget must not try.
+- `props.app.theme` is for colours the brand classes can't express — an inline
+  gradient, a chart series. Prefer `text-brand-blue` / `bg-brand-navy` otherwise.
+
+```tsx
+const tabs = (props.app?.tabs || []).filter(t => t.id !== props.app?.activeTabId);
+return (
+  <div className="h-full w-full grid grid-cols-3 gap-4 p-6">
+    {tabs.map(t => (
+      <button key={t.id} onClick={() => props.app?.goToTab(t.id)} className="p-4 rounded-lg border border-gray-200 text-left text-slate-800 hover:border-brand-blue">
+        {t.name}
+      </button>
+    ))}
+    <button onClick={() => props.app?.openAssistant({ prompt: 'Summarise this week for me.' })} className="p-4 rounded-lg bg-brand-navy text-white">
+      Ask the assistant
+    </button>
+  </div>
+);
+```
+
 #### Automatic emission to the Assistant
 Beyond the opt-in variable mechanism above, the platform automatically emits a
 broader context snapshot of the active view to the built-in AI Assistant panel:
