@@ -6,8 +6,12 @@ call rather than degrading. These tests pin the shapes and the size rules; the
 bytes come from a stubbed store, so nothing here needs credentials.
 """
 import base64
+import io
 import os
+import random
 import sys
+
+from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
@@ -97,10 +101,66 @@ def test_an_oversized_file_and_an_unreadable_one_are_both_skipped():
     _stub_store()
     max_bytes, _ = native_files.limits()
     assert native_files.parts("databricks-claude-sonnet-4", "dev",
-                              [_image(size_bytes=max_bytes + 1)]) == []
+                              [_pdf(size_bytes=max_bytes + 1)]) == []
 
     upload_store.load_raw = lambda env, upload_id: None  # type: ignore[assignment]
     assert native_files.parts("databricks-claude-sonnet-4", "dev", [_image()]) == []
+
+
+def _png(width, height, noisy=False):
+    img = Image.new("RGB", (width, height), (240, 240, 240))
+    if noisy:
+        rng = random.Random(7)
+        img.putdata([(rng.randrange(256), rng.randrange(256), rng.randrange(256)) for _ in range(width * height)])
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+
+
+def _size(data):
+    with Image.open(io.BytesIO(data)) as img:
+        return img.size
+
+
+def test_a_small_image_is_sent_untouched():
+    raw = _png(800, 600)
+    assert native_files.fit_image(raw, "image/png") == (raw, "image/png")
+
+
+def test_a_retina_screenshot_is_scaled_to_the_long_edge_the_model_uses():
+    data, mime = native_files.fit_image(_png(3456, 2234), "image/png")
+    assert mime == "image/png"
+    assert _size(data) == (native_files.IMAGE_LONG_EDGE, round(2234 * native_files.IMAGE_LONG_EDGE / 3456))
+
+
+def test_an_image_png_cannot_fit_falls_back_to_jpeg_under_the_budget():
+    data, mime = native_files.fit_image(_png(1568, 1200, noisy=True), "image/png")
+    assert mime == "image/jpeg" and len(data) <= native_files.IMAGE_MAX_BYTES
+
+
+def test_an_unreadable_image_is_sent_only_if_already_small_enough():
+    assert native_files.fit_image(RAW, "image/png") == (RAW, "image/png")
+    assert native_files.fit_image(b"x" * (native_files.IMAGE_MAX_BYTES + 1), "image/png") is None
+
+
+def test_an_upload_over_the_file_limit_is_shrunk_rather_than_dropped():
+    max_bytes, _ = native_files.limits()
+    big = _png(4000, 3000)
+    upload_store.load_raw = lambda env, upload_id: big  # type: ignore[assignment]
+    [part] = native_files.parts("databricks-claude-sonnet-4", "dev", [_image(size_bytes=max_bytes + 1)])
+    head, _, data = part["image_url"]["url"].partition(",")
+    assert head == "data:image/png;base64"
+    assert max(_size(base64.b64decode(data))) == native_files.IMAGE_LONG_EDGE
+
+
+def test_a_preview_screenshot_is_shrunk_too():
+    url = "data:image/png;base64," + base64.b64encode(_png(3000, 1000)).decode("ascii")
+    part = native_files.image_part("databricks-claude-sonnet-4", url)
+    head, _, data = part["image_url"]["url"].partition(",")
+    assert head == "data:image/png;base64" and _size(base64.b64decode(data))[0] == native_files.IMAGE_LONG_EDGE
+    small = "data:image/png;base64," + base64.b64encode(_png(400, 300)).decode("ascii")
+    assert native_files.image_part("databricks-claude-sonnet-4", small)["image_url"]["url"] == small
+    assert native_files.image_part("databricks-claude-sonnet-4", "data:image/png;base64,not base64!") is None
 
 
 def test_a_spreadsheet_is_left_to_extraction():
@@ -132,6 +192,12 @@ if __name__ == "__main__":
         test_a_long_text_bearing_pdf_stays_on_the_tool_path,
         test_a_scan_goes_over_however_long_it_is,
         test_an_oversized_file_and_an_unreadable_one_are_both_skipped,
+        test_a_small_image_is_sent_untouched,
+        test_a_retina_screenshot_is_scaled_to_the_long_edge_the_model_uses,
+        test_an_image_png_cannot_fit_falls_back_to_jpeg_under_the_budget,
+        test_an_unreadable_image_is_sent_only_if_already_small_enough,
+        test_an_upload_over_the_file_limit_is_shrunk_rather_than_dropped,
+        test_a_preview_screenshot_is_shrunk_too,
         test_a_spreadsheet_is_left_to_extraction,
         test_limits_survive_a_malformed_override,
     ]

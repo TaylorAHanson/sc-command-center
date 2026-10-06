@@ -15,8 +15,12 @@ and the flavor table is not worth writing twice.
 from __future__ import annotations
 
 import base64
+import io
+import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 ANTHROPIC = "anthropic"
 OPENAI = "openai"
@@ -34,6 +38,48 @@ def flavor(model: str) -> Optional[str]:
         return ANTHROPIC
     if "gpt" in name or name.startswith("system.ai.o"):
         return OPENAI
+    return None
+
+
+# Anthropic refuses an image whose base64 exceeds 5 MB, and scales anything
+# past 1568 px on its long edge down anyway, so a full-resolution screenshot
+# costs a failed call for pixels the model never sees. The byte budget leaves
+# room for base64's four-for-three growth.
+IMAGE_LONG_EDGE = 1568
+IMAGE_MAX_BYTES = 3_500_000
+
+
+def fit_image(raw: bytes, media_type: str) -> Optional[Tuple[bytes, str]]:
+    """`raw` as an image a model will accept, as (bytes, media type), or None.
+
+    Left alone when it is already small enough on both counts. Otherwise it is
+    scaled to `IMAGE_LONG_EDGE` and saved as PNG, which keeps screenshot text
+    crisp, falling back to JPEG for a photo PNG can't fit in the budget.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return (raw, media_type) if len(raw) <= IMAGE_MAX_BYTES else None
+    try:
+        with Image.open(io.BytesIO(raw)) as img:
+            if len(raw) <= IMAGE_MAX_BYTES and max(img.size) <= IMAGE_LONG_EDGE:
+                return raw, media_type
+            img.seek(0)
+            frame = img.convert("RGBA" if "A" in img.getbands() or "transparency" in img.info else "RGB")
+    except Exception as e:  # noqa: BLE001
+        logger.info("Image could not be read for resizing: %s", e)
+        return (raw, media_type) if len(raw) <= IMAGE_MAX_BYTES else None
+
+    frame.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE), Image.LANCZOS)
+    out = io.BytesIO()
+    frame.save(out, format="PNG", optimize=True)
+    if out.tell() <= IMAGE_MAX_BYTES:
+        return out.getvalue(), "image/png"
+    for quality in (85, 70):
+        out = io.BytesIO()
+        frame.convert("RGB").save(out, format="JPEG", quality=quality)
+        if out.tell() <= IMAGE_MAX_BYTES:
+            return out.getvalue(), "image/jpeg"
     return None
 
 
@@ -72,6 +118,16 @@ def image_part(model: str, data_url: Optional[str]) -> Optional[Dict[str, Any]]:
     # base64 is four characters per three bytes.
     if (len(url) - url.index(",") - 1) * 3 // 4 > max_bytes:
         return None
+    head, _, data = url.partition(",")
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except ValueError:
+        return None
+    fitted = fit_image(raw, head[len("data:"):-len(";base64")])
+    if not fitted:
+        return None
+    if fitted[0] is not raw:
+        url = f"data:{fitted[1]};base64,{base64.b64encode(fitted[0]).decode('ascii')}"
     try:
         from services.settings_store import get_bool_setting
 
@@ -114,7 +170,8 @@ def parts(model: str, env: str, attachments: List[Dict[str, Any]]) -> List[Dict[
     for meta in attachments:
         kind = meta.get("kind") or ""
         size = int(meta.get("size_bytes") or 0)
-        if size > max_bytes:
+        # An image of any size is shrunk to fit below; only a PDF is too big to send.
+        if size > max_bytes and kind != "image":
             continue
 
         mime = (meta.get("mime") or "").lower()
@@ -134,6 +191,12 @@ def parts(model: str, env: str, attachments: List[Dict[str, Any]]) -> List[Dict[
         raw = upload_store.load_raw(env, meta["id"])
         if not raw:
             continue
+        if kind == "image":
+            fitted = fit_image(raw, media_type)
+            if not fitted:
+                logger.info("Image %s left out: too large to send even when shrunk", filename)
+                continue
+            raw, media_type = fitted
         encoded = base64.b64encode(raw).decode("ascii")
 
         if kind == "image":

@@ -22,6 +22,9 @@ pyarrow
 openpyxl
 pypdf
 python-docx
+# Shrinking attached images to what the model accepts. Only matplotlib brings
+# it in locally, for the same reason as above.
+pillow
 # Capped because `requests` validates the chardet version it finds and warns on
 # every import when it is newer than it knows about.
 chardet<6

@@ -50,6 +50,7 @@
 
 ### Fixed
 
+- **Big screenshots attach.** Full-resolution screenshots and other large images are scaled down before the model sees them, instead of failing with an error.
 - **A file still being read waits for your next message.** In Widget Studio, pressing Send before an attachment finishes reading no longer drops it.
 - **Agent Studio says when a draft didn't arrive.** If the reply describes an agent but its draft was cut off or unreadable, a note says so instead of leaving the editor silently unchanged.
 - **View Promotion shows when each view last changed.** **Last Modified** and the dates in **Preview** were always blank.

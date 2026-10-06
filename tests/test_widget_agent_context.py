@@ -38,7 +38,7 @@ except Exception as e:  # pragma: no cover - needs the backend venv (langchain, 
     sys.exit(0)
 
 WIDGET = "export default function Widget(props) {\n  return <div className=\"p-4\" />;\n}"
-PNG = "data:image/png;base64," + "iVBORw0KGgo" * 10
+PNG = "data:image/png;base64," + "iVBORw0KGgoA" * 10
 
 
 def req(**fields):

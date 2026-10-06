@@ -412,6 +412,14 @@ services. The load-bearing decisions:
   pushing 300 pages through the context window to answer one question is the thing
   this design exists to avoid. Native files ride on the current turn's user
   message only, so re-sending never compounds across a conversation.
+- **Images are shrunk to fit before they go** (`native_files.fit_image`, both for
+  uploads and Widget Studio's preview capture). Anthropic refuses an image whose
+  base64 passes 5 MB, which a full-resolution Retina screenshot does, and scales
+  past 1568 px anyway; so anything larger on either count is resized to that long
+  edge, as PNG, or JPEG when PNG still won't fit. That is why images skip the
+  `AGENT_RUNTIME_NATIVE_FILE_MB` cap. One that can't be made to fit is left out
+  rather than failing the call. Needs `pillow`, listed in `requirements.txt`
+  because locally only matplotlib brings it.
 - **Nothing lives in process memory.** Two uvicorn workers mean an upload handled
   by one is invisible to the other, so every tool call re-reads from Postgres.
   Spreadsheets are normalized to Parquet (one member per sheet in a zip, described
@@ -1069,7 +1077,7 @@ PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 15
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_helper.py  # 24 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_context.py # 23 passed
 PYTHONPATH=server server/venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
-PYTHONPATH=server server/venv/bin/python tests/test_native_files.py         # 10 passed
+PYTHONPATH=server server/venv/bin/python tests/test_native_files.py         # 16 passed
 PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server server/venv/bin/python tests/test_caller_identity.py      # 11 passed
 PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed
