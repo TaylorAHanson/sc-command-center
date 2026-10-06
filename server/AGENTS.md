@@ -188,6 +188,11 @@ that keep the deployment already running intact:
 - **`POST /api/apps/compose`** copies existing views/apps into a new personal
   app, a tab each. Sources are untouched (copy, not move) so their links and
   subscriptions keep working.
+- **`POST /api/apps/look`** turns a description into a `theme` for View
+  settings to show (`services/look_helper.py` prompts and validates; the call
+  is `widget_studio.quick_helper_reply`, signed by the service principal like
+  every studio inference). It saves nothing, so it needs only a signed-in caller;
+  the save that follows is checked like any other.
 - **`GET /api/apps/{id}/widgets`** is the app's widget bundle: the rows
   `/api/widgets/custom` would send, for only the widgets the app's tabs place,
   plus the source of any version a tab pins (`props._version`). Both go through
@@ -1061,7 +1066,8 @@ PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 16
 PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
-PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 38 passed
+PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 42 passed
+PYTHONPATH=server server/venv/bin/python tests/test_look_helper.py          # 5 passed
 PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 31 passed
 PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
 server/venv/bin/python tests/test_file_extract.py                           # 22 passed

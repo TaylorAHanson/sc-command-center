@@ -1,11 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { X, Settings2, Upload, Trash2, Plus } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, Settings2, Trash2, Plus } from 'lucide-react';
 import clsx from 'clsx';
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
 import {
-  colourProblem, DEFAULT_AGENT_NAME, filtersProblem, imageProblem, MAX_FILTERS, MAX_NAME_LENGTH, navStyle, pinnedAgentOf,
-  type App, type AppFilter, type AppNav, type AppSpec,
+  DEFAULT_AGENT_NAME, filtersProblem, imageProblem, isPage, lookProblem, MAX_FILTERS, MAX_NAME_LENGTH, navStyle, pinnedAgentOf,
+  savedLook, type App, type AppFilter, type AppNav, type AppSpec, type AppTheme,
 } from '../store/appSpec';
+import { ImageField } from './SettingsFields';
+import { LookEditor } from './LookEditor';
 import type { AgentProfile } from '../hooks/useAgentChat';
 
 interface FilterDraft {
@@ -42,122 +44,6 @@ const filterOf = (draft: FilterDraft): AppFilter => {
   };
 };
 
-const ColourField: React.FC<{
-  label: string;
-  fallback: string;
-  value: string;
-  onChange: (value: string) => void;
-}> = ({ label, fallback, value, onChange }) => {
-  const problem = colourProblem(value);
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={value && !problem ? value : fallback}
-          onChange={e => onChange(e.target.value)}
-          className="w-8 h-8 p-0.5 border border-gray-300 rounded cursor-pointer shrink-0"
-          aria-label={`${label} picker`}
-        />
-        <input
-          type="text"
-          value={value}
-          onChange={e => onChange(e.target.value.trim())}
-          placeholder={fallback}
-          maxLength={7}
-          className="w-28 px-3 py-1.5 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
-        />
-        {value && (
-          <button
-            type="button"
-            onClick={() => onChange('')}
-            className="text-xs text-gray-500 hover:text-brand-blue"
-          >
-            Use Command Center’s
-          </button>
-        )}
-      </div>
-      {problem && <p className="text-xs mt-1 text-red-600">{problem}</p>}
-    </div>
-  );
-};
-
-const readAsDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-
-const ImageField: React.FC<{
-  label: string;
-  hint: string;
-  value: string;
-  onChange: (value: string) => void;
-}> = ({ label, hint, value, onChange }) => {
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [readError, setReadError] = useState<string | null>(null);
-  const problem = readError || imageProblem(value);
-  const isUpload = value.startsWith('data:');
-
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <div className="flex items-center gap-2">
-        {value && !problem && (
-          <img src={value} alt="" className="w-8 h-8 object-contain rounded border border-gray-200 bg-white shrink-0" />
-        )}
-        <input
-          type="text"
-          value={isUpload ? 'Uploaded image' : value}
-          readOnly={isUpload}
-          onChange={e => { setReadError(null); onChange(e.target.value.trim()); }}
-          placeholder="https://…"
-          className="flex-1 min-w-0 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40 read-only:bg-gray-50 read-only:text-gray-500"
-        />
-        <button
-          type="button"
-          onClick={() => fileInput.current?.click()}
-          className="p-1.5 text-gray-500 hover:text-brand-blue hover:bg-gray-100 rounded-md"
-          title="Upload an image"
-        >
-          <Upload className="w-4 h-4" />
-        </button>
-        {value && (
-          <button
-            type="button"
-            onClick={() => { setReadError(null); onChange(''); }}
-            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-gray-100 rounded-md"
-            title={`Remove the ${label.toLowerCase()}`}
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        )}
-        <input
-          ref={fileInput}
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/x-icon,.ico"
-          className="hidden"
-          onChange={async e => {
-            const file = e.target.files?.[0];
-            e.target.value = '';
-            if (!file) return;
-            try {
-              setReadError(null);
-              onChange(await readAsDataUrl(file));
-            } catch {
-              setReadError('That file could not be read.');
-            }
-          }}
-        />
-      </div>
-      <p className={clsx('text-xs mt-1', problem ? 'text-red-600' : 'text-gray-500')}>{problem || hint}</p>
-    </div>
-  );
-};
-
 /**
  * How a view opens from its link, and how it looks and talks when it opens on
  * its own. Changing any of it is the same right as renaming the view.
@@ -188,14 +74,16 @@ export const AppSettingsModal: React.FC<{
   const [favicon, setFavicon] = useState(branding.favicon || '');
   const [assistant, setAssistant] = useState<AppSpec['assistant']>(app.spec.assistant);
   const [nav, setNav] = useState<AppNav['style']>(navStyle(app));
-  const [primary, setPrimary] = useState(app.spec.theme?.primary || '');
-  const [dark, setDark] = useState(app.spec.theme?.dark || '');
+  const [look, setLook] = useState<AppTheme>(app.spec.theme || {});
+  // The tab on screen, when there is more than one; with one, the view's look is the tab's.
+  const lookTab = oneTab ? null : app.spec.tabs.find(t => t.id === activeAppTab?.id) || null;
+  const [tabLook, setTabLook] = useState<AppTheme>(lookTab?.theme || {});
   const [filters, setFilters] = useState<FilterDraft[]>(() => (app.spec.filters || []).map(draftOf));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
 
   const filterProblem = filtersProblem(filters.map(filterOf));
-  const invalid = Boolean(imageProblem(logo) || imageProblem(favicon) || colourProblem(primary) || colourProblem(dark) || filterProblem);
+  const invalid = Boolean(imageProblem(logo) || imageProblem(favicon) || lookProblem(look) || lookProblem(tabLook) || filterProblem);
 
   const changeFilter = (index: number, change: Partial<FilterDraft>) =>
     setFilters(prev => prev.map((f, i) => {
@@ -219,9 +107,11 @@ export const AppSettingsModal: React.FC<{
         favicon: favicon || null,
       },
       nav: nav === 'sidebar' ? { style: 'sidebar' } : null,
-      theme: primary || dark ? { primary: primary || null, dark: dark || null } : null,
+      theme: savedLook(look),
       filters: filters.map(filterOf),
-      tabs: oneTab ? [{ ...app.spec.tabs[0], pinned_agent_id: null }] : app.spec.tabs,
+      tabs: oneTab
+        ? [{ ...app.spec.tabs[0], pinned_agent_id: null }]
+        : app.spec.tabs.map(t => (t.id === lookTab?.id ? { ...t, theme: savedLook(tabLook) } : t)),
     }, agentPin || null);
     setSaving(false);
     if (reason) {
@@ -306,17 +196,24 @@ export const AppSettingsModal: React.FC<{
 
           <section className="space-y-3">
             <div>
-              <h3 className="text-sm font-semibold text-gray-800">Colours</h3>
+              <h3 className="text-sm font-semibold text-gray-800">Look</h3>
               <p className="text-xs text-gray-500">
-                Replace Command Center’s blue and navy on this view’s tabs, filters and widgets; on its own, everywhere.
-                White text sits on both, so each must be dark enough to read it on.
+                Colours, font, background and cards for every tab, wherever the view opens. White text sits on
+                the accent and dark colours, so each must be dark enough to read it on.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <ColourField label="Accent colour" fallback="#007bff" value={primary} onChange={setPrimary} />
-              <ColourField label="Dark colour" fallback="#001e3c" value={dark} onChange={setDark} />
-            </div>
+            <LookEditor name="the view" value={look} onChange={setLook} page={oneTab && isPage(app.spec.tabs[0])} />
           </section>
+
+          {lookTab && (
+            <section className="space-y-3" data-tab-look>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800">This tab’s look: {lookTab.name}</h3>
+                <p className="text-xs text-gray-500">Anything set here wins over the view’s look on this tab only.</p>
+              </div>
+              <LookEditor name="this tab" value={tabLook} onChange={setTabLook} inherited={look} page={isPage(lookTab)} />
+            </section>
+          )}
 
           <section className="space-y-3">
             <div>

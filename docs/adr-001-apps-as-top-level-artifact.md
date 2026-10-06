@@ -516,7 +516,8 @@ the spec: strict on write, and on read a value that can't be used is dropped
 - **`nav`: `{"style": "sidebar"}` or null** (tabs across the top). Applies in
   both shells: the same `TabBar`, with the same editing rules, drawn down the
   left of the canvas instead of above it. A one-tab app shows no tabs either way.
-- **`theme`: `{"primary", "dark"}`, each `#rrggbb` or null.** They replace
+- **`theme`: `{"primary", "dark"}`, each `#rrggbb` or null** (ADR-002 §2.4 adds
+  `background`, `font` and `cards`, and a `theme` on each tab). They replace
   `brand-blue` and `brand-navy`, which are now CSS variables (`rgb(var(--brand-*)
   / <alpha-value>)`, defaults in `index.css`), so opacity variants keep working
   and **generated widgets follow the theme with no generator, lint or runtime

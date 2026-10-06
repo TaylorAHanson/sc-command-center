@@ -202,6 +202,56 @@ def test_theme_colours_are_hex_and_dark_enough_for_white_text():
     refuses(two_tabs(theme="#0f766e"), "`theme`")
 
 
+def test_a_theme_carries_a_background_a_font_and_a_card_style():
+    look = {
+        "dark": "#1e293b",
+        "background": {"kind": "gradient", "from": "#0B1220", "to": "#1e293b", "direction": "to-br"},
+        "font": "space-grotesk",
+        "cards": {"radius": "xl", "depth": "shadow", "header": "minimal"},
+    }
+    spec = validate_spec(two_tabs(theme=look), APP)
+    assert spec["theme"] == {
+        "primary": None, "dark": "#1e293b",
+        "background": {"kind": "gradient", "from": "#0b1220", "to": "#1e293b", "direction": "to-br"},
+        "font": "space-grotesk",
+        "cards": {"radius": "xl", "depth": "shadow", "header": "minimal"},
+    }
+    assert read_spec(APP, dumps(spec), "[]") == spec
+    # A background may be light: it sits behind white cards, not under white text.
+    assert validate_spec(two_tabs(theme={"background": {"kind": "colour", "colour": "#F8FAFC"}}), APP)["theme"]["background"] == {"kind": "colour", "colour": "#f8fafc"}
+    image = validate_spec(two_tabs(theme={"background": {"kind": "image", "url": "https://x/bg.png"}}), APP)["theme"]["background"]
+    assert image == {"kind": "image", "url": "https://x/bg.png", "fit": "cover"}
+    assert validate_spec(two_tabs(theme={"cards": {}}), APP)["theme"] is None, "an empty card style is no style"
+
+
+def test_a_look_that_could_not_be_drawn_is_refused_on_write_and_dropped_on_read():
+    bad_looks = [
+        ({"background": {"kind": "video"}}, "theme.background"),
+        ({"background": {"kind": "colour", "colour": "teal"}}, "theme.background"),
+        ({"background": {"kind": "gradient", "from": "#000000", "to": "#ffffff", "direction": "diagonal"}}, "theme.background"),
+        ({"background": {"kind": "image", "url": "http://x/bg.png"}}, "theme.background"),
+        ({"background": {"kind": "image", "url": "https://x", "fit": "stretch"}}, "theme.background"),
+        ({"font": "Comic Sans MS"}, "theme.font"),
+        ({"cards": {"radius": "huge"}}, "theme.cards"),
+        ({"cards": "rounded"}, "theme.cards"),
+    ]
+    for look, fragment in bad_looks:
+        refuses(two_tabs(theme=look), fragment)
+        assert read_spec(APP, json.dumps(two_tabs(theme=dict(look, dark="#1e293b"))), "[]")["theme"] == {"primary": None, "dark": "#1e293b"}
+
+
+def test_a_tab_may_override_the_apps_look_key_by_key():
+    spec = two_tabs(theme={"dark": "#1e293b", "font": "inter"})
+    spec["tabs"][1]["theme"] = {"background": {"kind": "colour", "colour": "#0b1220"}}
+    spec = validate_spec(spec, APP)
+    assert "theme" not in spec["tabs"][0], "a tab that overrides nothing carries no theme"
+    assert spec["tabs"][1]["theme"] == {"primary": None, "dark": None, "background": {"kind": "colour", "colour": "#0b1220"}}
+    assert read_spec(APP, dumps(spec), "[]") == spec
+    bad = two_tabs()
+    bad["tabs"][1]["theme"] = {"font": "papyrus"}
+    refuses(bad, "Tab 2's theme.font")
+
+
 REGION = {"key": "region", "label": " Region ", "options": ["EMEA", " APAC "], "default": "EMEA"}
 
 
@@ -296,6 +346,19 @@ def test_composing_an_app_keeps_its_tab_names_and_tab_pins():
     ])
     spec = compose_spec([multi], new_id=ids())
     assert [(t["name"], t["pinned_agent_id"]) for t in spec["tabs"]] == [("Today", "hub-agent"), ("Week", "week-agent")]
+
+
+def test_composing_keeps_each_views_look_on_its_tabs():
+    plain = source("Plain", [{"i": "a"}])
+    styled = source("Styled", [], tabs=[
+        {"id": "x", "name": "One", "widgets": [], "theme": {"background": {"kind": "colour", "colour": "#0b1220"}}},
+        {"id": "y", "name": "Two", "widgets": []},
+    ])
+    styled["spec"]["theme"] = {"dark": "#1e293b", "font": "inter"}
+    tabs = compose_spec([plain, styled], new_id=ids())["tabs"]
+    assert "theme" not in tabs[0]
+    assert tabs[1]["theme"] == {"primary": None, "dark": "#1e293b", "font": "inter", "background": {"kind": "colour", "colour": "#0b1220"}}
+    assert tabs[2]["theme"] == {"primary": None, "dark": "#1e293b", "font": "inter"}
 
 
 def test_composing_keeps_each_tabs_layout():

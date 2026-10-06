@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import { useDashboardStore } from './store/dashboardStore';
-import { colourProblem, DEFAULT_THEME, tabLabel, type TabLayout } from './store/appSpec';
+import { colourProblem, DEFAULT_THEME, effectiveTheme, tabLabel, type TabLayout } from './store/appSpec';
+import { fontById } from './fonts';
 
 export interface AssistantRequest {
   agentId?: string;
@@ -18,7 +19,8 @@ export interface AppApi {
   activeTabId: string;
   goToTab: (idOrName: string) => void;
   openAssistant: (request?: AssistantRequest) => void;
-  theme: { primary: string; dark: string };
+  /** The tab's colours, and its font as a CSS font-family (null: Command Center's). */
+  theme: { primary: string; dark: string; font: string | null };
 }
 
 /** How a shell opens its assistant. Absent where the app has none. */
@@ -54,9 +56,10 @@ export const useAppApi = (): AppApi | undefined => {
   // the same object and their effects don't re-run.
   const tabsKey = JSON.stringify(tabs);
   const activeTabId = activeAppTab?.id || '';
-  const theme = activeApp?.spec.theme;
-  const primary = theme?.primary && !colourProblem(theme.primary) ? theme.primary : DEFAULT_THEME.primary;
-  const dark = theme?.dark && !colourProblem(theme.dark) ? theme.dark : DEFAULT_THEME.dark;
+  const theme = effectiveTheme(activeApp, activeAppTab);
+  const primary = theme.primary && !colourProblem(theme.primary) ? theme.primary : DEFAULT_THEME.primary;
+  const dark = theme.dark && !colourProblem(theme.dark) ? theme.dark : DEFAULT_THEME.dark;
+  const font = fontById(theme.font)?.stack || null;
 
   const hasApp = !!activeApp;
 
@@ -75,7 +78,7 @@ export const useAppApi = (): AppApi | undefined => {
       openAssistant: (request?: AssistantRequest) => {
         door?.open({ agentId: request?.agentId, prompt: request?.prompt });
       },
-      theme: { primary, dark },
+      theme: { primary, dark, font },
     };
-  }, [hasApp, tabsKey, activeTabId, primary, dark, door, selectTab]);
+  }, [hasApp, tabsKey, activeTabId, primary, dark, font, door, selectTab]);
 };

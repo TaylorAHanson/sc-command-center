@@ -798,6 +798,35 @@ def _helper_params(model: str, max_tokens: Optional[int] = None) -> Dict[str, An
     return params
 
 
+def quick_helper_reply(db_client: WorkspaceClient, messages: List[Any], max_tokens: int = HELPER_MAX_TOKENS) -> str:
+    """One helper-model call outside a generation (View settings' Describe the look).
+
+    The same model, limits and fallbacks as the studio's side-calls, but it raises
+    rather than returning "": here the reply is the whole job, not an optional step.
+    """
+    api_key, host = _llm_credentials(db_client)
+    budget = _Budget(HELPER_SECONDS + 5)
+    model_name = get_setting("widget_model")
+    name = _helper_model()
+    while True:
+        try:
+            return llm_params.with_adaptation(
+                name,
+                lambda params: reply_text(_widget_llm(api_key, _base_url(host, name), name, budget, params, HELPER_SECONDS).invoke(messages)),
+                max_tokens=max_tokens,
+                params_fn=_helper_params,
+            )
+        except Exception as exc:  # noqa: BLE001 — each recovery once, then surfaced
+            if "reasoning" in str(exc).lower() and name not in _helper_no_effort:
+                _helper_no_effort.add(name)
+                continue
+            if _endpoint_missing(exc) and name != model_name:
+                _helper_missing[name] = time.monotonic() + HELPER_MISSING_SECONDS
+                name = model_name
+                continue
+            raise
+
+
 def _endpoint_missing(exc: Exception) -> bool:
     """Whether a call failed because the model isn't served here at all."""
     if exc.__class__.__name__ == "NotFoundError" or getattr(exc, "status_code", None) == 404:

@@ -144,7 +144,7 @@ props.app?.tabs          // [{ id, name, layout: 'canvas' | 'page' }], in order
 props.app?.activeTabId   // the tab being shown
 props.app?.goToTab(idOrName)                  // a tab of this view, by id or by name
 props.app?.openAssistant({ agentId?, prompt? }) // open the assistant with this agent, message box filled in
-props.app?.theme         // { primary, dark } — the view's colours as #rrggbb
+props.app?.theme         // { primary, dark, font } — the tab's colours as #rrggbb, font as a CSS font-family (or null)
 ```
 
 - **`openAssistant` never sends.** It opens the assistant panel, switches to
@@ -156,6 +156,10 @@ props.app?.theme         // { primary, dark } — the view's colours as #rrggbb
   There is no way to open another view or address, and a widget must not try.
 - `props.app.theme` is for colours the brand classes can't express — an inline
   gradient, a chart series. Prefer `text-brand-blue` / `bg-brand-navy` otherwise.
+  The view's font is already inherited; use `theme.font` only to put it back
+  inside something that sets its own, such as a chart library's labels.
+- A view may draw its canvas dark, but each card's body stays white, so a widget
+  on a card keeps dark text on its own background as before.
 
 ```tsx
 const tabs = (props.app?.tabs || []).filter(t => t.id !== props.app?.activeTabId);

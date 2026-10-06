@@ -7,7 +7,7 @@ import { useDashboardStore, type WidgetLayout } from '../store/dashboardStore';
 import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { BaseWidget } from './BaseWidget';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
-import { isPage } from '../store/appSpec';
+import { cardClasses, effectiveTheme, isPage } from '../store/appSpec';
 import { PageTab } from './PageTab';
 import { useAppApi } from '../appApi';
 
@@ -82,6 +82,7 @@ export const DashboardGrid: React.FC = () => {
   const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, username, variables, setVariable, generateWidgetShareLink, pendingWidgetId, clearPendingWidget, canEditLayout } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const appApi = useAppApi();
+  const cardLook = React.useMemo(() => cardClasses(effectiveTheme(activeApp, activeAppTab).cards), [activeApp, activeAppTab]);
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
@@ -545,6 +546,7 @@ export const DashboardGrid: React.FC = () => {
                     });
                   }}
                   customActions={customActions}
+                  look={cardLook}
                   isFullscreen={fullscreenWidget?.id === widget.i}
                   onRemove={isReadOnly && fullscreenWidget?.id !== widget.i ? undefined : () => removeWidget(appId, tabId, widget.i)}
                   onFullscreen={() => {

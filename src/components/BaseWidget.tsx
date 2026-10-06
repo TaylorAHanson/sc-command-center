@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { X, GripHorizontal, Maximize2, Minimize2, Settings, HelpCircle } from 'lucide-react';
 import { useActionLogger } from '../hooks/useActionLogger';
 import { ActionProvider } from '../contexts/ActionContext';
+import { cardClasses } from '../store/appSpec';
+
+const DEFAULT_LOOK = cardClasses(null);
 
 interface BaseWidgetProps {
   id: string;
@@ -18,6 +21,8 @@ interface BaseWidgetProps {
   helpText?: string;
 
   customActions?: React.ReactNode;
+  /** The view's card style; see `cardClasses`. */
+  look?: { frame: string; header: string; title: string };
   className?: string;
   // react-grid-layout injects these props
   style?: React.CSSProperties;
@@ -43,6 +48,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
   onChangeVersion,
   helpText,
   customActions,
+  look = DEFAULT_LOOK,
   className,
   style,
   className_rgl,
@@ -61,14 +67,14 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
     <div
       ref={ref}
       style={style}
-      className={`${className} ${className_rgl} bg-white text-brand-navy shadow-sm rounded-lg border border-gray-200 flex flex-col overflow-hidden`}
+      className={`${className} ${className_rgl} bg-white text-brand-navy ${look.frame} flex flex-col overflow-hidden`}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
       onTouchEnd={onTouchEnd}
       {...props}
     >
-      <div className={`drag-handle select-none h-8 bg-gray-50 border-b border-gray-100 flex items-center justify-between px-3 ${className?.includes('locked-widget') ? 'cursor-default' : 'cursor-move'}`}>
-        <div className="flex items-center gap-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">
+      <div className={`drag-handle select-none h-8 ${look.header} flex items-center justify-between px-3 ${className?.includes('locked-widget') ? 'cursor-default' : 'cursor-move'}`}>
+        <div className={`flex items-center gap-2 ${look.title}`}>
           <GripHorizontal className="w-4 h-4 text-gray-400" />
           {title}
         </div>

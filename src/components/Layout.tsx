@@ -13,6 +13,7 @@ import { widgetRegistry } from '../widgetRegistry';
 import { isPage, layoutSwitch, shownTab, themeVariables } from '../store/appSpec';
 import { WorkspaceToolsContext, type WorkspaceTools } from '../contexts/WorkspaceTools';
 import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
+import { useCanvasLook } from '../hooks/useCanvasLook';
 import { appHash, isStandalone, linkTab, parseAppRoute } from '../store/appRoute';
 import { useShell } from '../shell';
 
@@ -89,6 +90,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   // Held at the Layout level so the conversation survives collapsing the panel.
   const agentChat = useAgentChat();
   const assistantDoor = useAssistantDoorFor(agentChat.prefill, setAgentOpen, true);
+  const look = useCanvasLook(activeApp, activeAppTab);
 
   // Fetch the pages behind the sidebar buttons once the dashboard has settled.
   // Splitting them out of the bundle is what makes the first load quick; pulling
@@ -659,13 +661,17 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         ) : (
           // The view's theme covers its own tabs, filters and canvas; the sidebar
           // and header are Command Center's, so switching views doesn't repaint them.
-          <div className="flex-1 flex flex-col min-h-0" style={themeVariables(activeApp?.spec.theme) as React.CSSProperties}>
+          <div
+            className="flex-1 flex flex-col min-h-0"
+            style={{ ...themeVariables(look.theme), ...(look.fontStack ? { fontFamily: look.fontStack } : {}) } as React.CSSProperties}
+          >
             <TabBar placement="top" />
             <FilterBar />
             <div className="flex-1 flex min-h-0">
               <TabBar placement="side" />
               <main
                 className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative"
+                style={look.canvasStyle}
                 onDragOver={(e) => {
                   // Allow drops on main content area
                   if (e.dataTransfer.types.includes('application/widget-type')) {

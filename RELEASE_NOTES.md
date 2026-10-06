@@ -33,7 +33,7 @@
 - **Widgets can open tabs and the assistant.** Ask Widget Studio for tiles that go to each tab, or an **Ask** button that types a question for you to send.
 - **Give a view its own filters.** In **Settings → Filters**, add dropdowns above the canvas; widgets that follow that variable update on every tab.
 - **Tabs down the side.** In **Settings → Tabs**, choose **Down the side** to list a view's tabs on the left.
-- **Your colours on a view.** **Settings → Colours** recolours the view and its widgets: its own area inside Command Center, the whole page when it opens on its own.
+- **Give a view its own look.** **Settings → Look** sets its colours, font, background and card style, any tab can override them, and **Suggest** fills them in from a description.
 - **Pin an agent to one tab.** On a view with tabs, the pin beside the agent picker offers **This tab** or **Every tab**.
 - **Promoting a view checks the target first.** View Promotion's confirmation lists widgets and pinned agents the target lacks, and can promote the missing widgets along with it.
 - **Remove a global view.** **Remove** on **View Promotion** archives it for everyone; **Archived** lists it, where you can **Restore** it or **Delete permanently**.

@@ -78,11 +78,27 @@ per-user unless they are global.
 - **Agent** in **Settings** picks the agent the view opens with, inside Command
   Center and on its own; it is the same pin as the pin button in the assistant
   panel (below). The launcher button names whichever agent is selected.
-- **Colours** in **Settings** (**Accent colour**, **Dark colour**) replace
-  Command Center's blue and navy, widgets included. Inside Command Center they
-  cover the view's tabs, filter bar and canvas, while the sidebar and header
-  stay Command Center's; opened on its own, the whole page uses them. Each must
-  be dark enough for white text, and the dialog refuses one that isn't.
+- **Look** in **Settings** styles the view. **Accent colour** and **Dark
+  colour** replace Command Center's blue and navy, widgets included, and each
+  must be dark enough for white text. **Font** is one of Inter, Manrope, Space
+  Grotesk, Fraunces, IBM Plex Sans or JetBrains Mono (no others: fonts are
+  bundled with the app). **Background** is Command Center's light grey, a
+  colour, a two-colour gradient, or an image (an https:// address, or an upload
+  up to 256 KB) that fills or tiles the canvas. **Cards** sets their corners,
+  edges (flat, outlined, shadowed) and title (in a grey bar, or plain); a
+  card's body stays white so widgets stay readable. Inside Command Center the
+  look covers the view's tabs, filter bar and canvas, while the sidebar and
+  header stay Command Center's; opened on its own, the whole page uses it.
+- **This tab's look** appears in **Settings** on a view with more than one tab,
+  for the tab that is open. Anything set there wins over the view's look on
+  that tab only; anything left as **Same as the view** follows the view. A page
+  tab takes only the colours and font, because its widget draws its own
+  background and it has no cards.
+- **Suggest**, beside **Describe the look** in either section, turns a
+  description ("dark navy, like a control room, rounded cards") into those
+  choices. It only fills the fields: nothing is saved until **Save**, **Undo**
+  puts back what was there, and anything the model chose that the app can't
+  draw is named and left out.
 - **Version history.** Changes to a personal view within five minutes of each
   other are kept as one version, so a burst of moving and resizing doesn't fill
   its history. Every save to a global view is still its own version, because

@@ -63,6 +63,17 @@ THEME_COLOURS = ("primary", "dark")
 MIN_WHITE_CONTRAST = 3.0
 _HEX_COLOUR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
+# The rest of a look. Fonts are bundled with the app (the CSP allows no font
+# host), so a theme may only name one of these; `src/fonts.ts` holds the files.
+GRADIENT_DIRECTIONS = ("to-b", "to-r", "to-br", "to-tr")
+BACKGROUND_FITS = ("cover", "tile")
+FONTS = ("inter", "manrope", "space-grotesk", "fraunces", "ibm-plex-sans", "jetbrains-mono")
+CARD_STYLES = {
+    "radius": ("none", "sm", "md", "lg", "xl"),
+    "depth": ("flat", "border", "shadow"),
+    "header": ("bar", "minimal"),
+}
+
 # A filter's choice lands in the dashboard variables under its key, which widget
 # code reads as `data.variables.<key>`, so the key must be a plain identifier.
 MAX_FILTERS = 10
@@ -238,14 +249,71 @@ def white_text_contrast(colour: str) -> float:
     return 1.05 / (0.2126 * r + 0.7152 * g + 0.0722 * b + 0.05)
 
 
-def _theme(value: Any, strict: bool) -> Optional[Dict[str, Optional[str]]]:
+def _hex(value: Any) -> Optional[str]:
+    return value.lower() if isinstance(value, str) and _HEX_COLOUR.match(value) else None
+
+
+def _background(value: Any) -> Optional[Dict[str, str]]:
+    """A canvas background, or None if `value` isn't one. Any colour will do:
+    it is drawn behind white cards, never under white text."""
+    if not isinstance(value, dict):
+        return None
+    kind = value.get("kind")
+    if kind == "colour":
+        colour = _hex(value.get("colour"))
+        return {"kind": "colour", "colour": colour} if colour else None
+    if kind == "gradient":
+        start, end = _hex(value.get("from")), _hex(value.get("to"))
+        direction = value.get("direction") or GRADIENT_DIRECTIONS[0]
+        if start and end and direction in GRADIENT_DIRECTIONS:
+            return {"kind": "gradient", "from": start, "to": end, "direction": direction}
+        return None
+    if kind == "image":
+        url = value.get("url")
+        fit = value.get("fit") or BACKGROUND_FITS[0]
+        ok = (
+            isinstance(url, str)
+            and len(url) <= MAX_IMAGE_CHARS
+            and (url.startswith("https://") or bool(_IMAGE_DATA_URL.match(url)))
+        )
+        return {"kind": "image", "url": url, "fit": fit} if ok and fit in BACKGROUND_FITS else None
+    return None
+
+
+def _cards(value: Any, where: str, strict: bool) -> Optional[Dict[str, str]]:
     if value is None:
         return None
     if not isinstance(value, dict):
         if strict:
-            raise SpecError("`theme` must be an object.")
+            raise SpecError(f"{where}.cards must be an object.")
         return None
-    out: Dict[str, Optional[str]] = {}
+    out: Dict[str, str] = {}
+    for key, allowed in CARD_STYLES.items():
+        choice = value.get(key)
+        if choice in (None, ""):
+            continue
+        if choice in allowed:
+            out[key] = choice
+        elif strict:
+            raise SpecError(f"{where}.cards.{key} must be one of {', '.join(allowed)}.")
+    return out or None
+
+
+def read_theme(value: Any) -> Optional[Dict[str, Any]]:
+    """A theme with whatever couldn't be drawn left out, as a read does."""
+    return _theme(value, strict=False)
+
+
+def _theme(value: Any, strict: bool, where: str = "theme") -> Optional[Dict[str, Any]]:
+    """An app's or a tab's look. `primary` and `dark` are always present, and the
+    rest only when set, so a theme from before backgrounds reads back unchanged."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        if strict:
+            raise SpecError(f"`{where}` must be an object.")
+        return None
+    out: Dict[str, Any] = {}
     for key in THEME_COLOURS:
         colour = value.get(key)
         if colour in (None, ""):
@@ -254,11 +322,34 @@ def _theme(value: Any, strict: bool) -> Optional[Dict[str, Optional[str]]]:
             out[key] = colour.lower()
         elif strict:
             raise SpecError(
-                f"theme.{key} must be a #rrggbb colour dark enough to carry white text "
+                f"{where}.{key} must be a #rrggbb colour dark enough to carry white text "
                 f"(a contrast of at least {MIN_WHITE_CONTRAST:g}:1)."
             )
         else:
             out[key] = None
+
+    raw_background = value.get("background")
+    if raw_background not in (None, ""):
+        background = _background(raw_background)
+        if background:
+            out["background"] = background
+        elif strict:
+            raise SpecError(
+                f"{where}.background must be a colour, a two-colour gradient "
+                f"({', '.join(GRADIENT_DIRECTIONS)}), or an https or base64 image "
+                f"of at most {MAX_IMAGE_CHARS // 1024} KB ({', '.join(BACKGROUND_FITS)})."
+            )
+
+    font = value.get("font")
+    if font not in (None, ""):
+        if font in FONTS:
+            out["font"] = font
+        elif strict:
+            raise SpecError(f"{where}.font must be one of {', '.join(FONTS)}.")
+
+    cards = _cards(value.get("cards"), where, strict)
+    if cards:
+        out["cards"] = cards
     return out if any(out.values()) else None
 
 
@@ -403,13 +494,17 @@ def _normalize(raw: Dict[str, Any], app_id: str, *, strict: bool, new_id: Callab
                 raise SpecError(f"Tab {position} is a page, which holds one widget.")
             widgets = widgets[:1]
 
-        tabs.append({
+        entry = {
             "id": tab_id,
             "name": _text(tab.get("name"), f"Tab {position}'s name", strict),
             "layout": layout,
             "widgets": copy.deepcopy(widgets),
             "pinned_agent_id": pinned,
-        })
+        }
+        theme = _theme(tab.get("theme"), strict, f"Tab {position}'s theme")
+        if theme:
+            entry["theme"] = theme
+        tabs.append(entry)
 
     if not tabs:
         # Only reachable when reading; read_spec falls back to widgets_json.
@@ -494,6 +589,7 @@ def compose_spec(
     for source in sources:
         source_tabs = (source.get("spec") or {}).get("tabs") or []
         single = len(source_tabs) == 1
+        source_theme = (source.get("spec") or {}).get("theme") or {}
         for tab in source_tabs:
             widgets = []
             for widget in tab.get("widgets") or []:
@@ -506,6 +602,9 @@ def compose_spec(
                         widget["i"] = instance = new_id()
                     seen_widgets.add(instance)
                 widgets.append(widget)
+            # The same goes for its look, resolved key by key.
+            tab_theme = tab.get("theme") or {}
+            look = {k: v for k, v in {**source_theme, **{k: v for k, v in tab_theme.items() if v}}.items() if v}
             tabs.append({
                 "id": new_id(),
                 # A view's name lives on the row, not on its only tab.
@@ -515,6 +614,7 @@ def compose_spec(
                 # Resolving tab -> app -> default on the source gave this agent,
                 # so the copied tab says so explicitly.
                 "pinned_agent_id": tab.get("pinned_agent_id") or source.get("pinned_agent_id") or None,
+                "theme": look or None,
             })
     if len(tabs) > MAX_TABS:
         raise SpecError(f"An app may have at most {MAX_TABS} tabs; these views have {len(tabs)} between them.")

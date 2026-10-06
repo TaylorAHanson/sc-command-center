@@ -4,6 +4,7 @@ import { useDashboardStore } from '../store/dashboardStore';
 import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
 import { isPage, shownTab, themeVariables, type AppTheme } from '../store/appSpec';
 import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
+import { useCanvasLook } from '../hooks/useCanvasLook';
 import { TabBar } from './TabBar';
 import { FilterBar } from './FilterBar';
 import { loadAppWidgets } from '../widgetRegistry';
@@ -115,7 +116,8 @@ export const AppShell: React.FC = () => {
   const branding = activeApp?.spec.branding;
   const title = branding?.title || activeApp?.name || 'Command Center';
   useTabIdentity(badge ? `${title} - ${badge}` : title, branding?.favicon);
-  useTheme(activeApp?.spec.theme);
+  const look = useCanvasLook(activeApp, activeAppTab);
+  useTheme(look.theme);
 
   if (!activeApp) return null;
 
@@ -125,7 +127,7 @@ export const AppShell: React.FC = () => {
   const offersAssistant = activeApp.spec.assistant !== 'off';
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    <div className="flex h-screen bg-gray-50 overflow-hidden" style={look.fontStack ? { fontFamily: look.fontStack } : undefined}>
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
           <div className="flex items-center gap-3 min-w-0">
@@ -178,7 +180,7 @@ export const AppShell: React.FC = () => {
 
         <div className="flex-1 flex min-h-0">
           <TabBar placement="side" />
-          <main className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative">
+          <main className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative" style={look.canvasStyle}>
             <div className={isPage(activeAppTab) ? 'w-full h-full' : 'w-full h-full px-2'}>
               <AssistantDoorContext.Provider value={assistantDoor}>
                 <DashboardGrid />

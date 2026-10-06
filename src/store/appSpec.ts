@@ -18,6 +18,8 @@ export interface AppTab {
   name: string;
   /** A canvas is a grid of cards; a page is one widget drawn edge to edge. */
   layout?: TabLayout;
+  /** What this tab changes about the view's look; unset keys keep the view's. */
+  theme?: AppTheme | null;
   widgets: WidgetLayout[];
   /** Overrides the app's agent on this tab. Null = use the app's. */
   pinned_agent_id?: string | null;
@@ -52,11 +54,79 @@ export interface AppNav {
   style: 'tabs' | 'sidebar';
 }
 
-/** Replaces Command Center's blue (`primary`) and navy (`dark`) when the app opens on its own. */
+/**
+ * A view's look, and a tab's override of it. `primary` and `dark` replace
+ * Command Center's blue and navy; the rest styles the canvas around the cards.
+ */
 export interface AppTheme {
   primary?: string | null;
   dark?: string | null;
+  background?: CanvasBackground | null;
+  /** One of `FONTS` in fonts.ts. */
+  font?: string | null;
+  cards?: CardStyle | null;
 }
+
+export type CanvasBackground =
+  | { kind: 'colour'; colour: string }
+  | { kind: 'gradient'; from: string; to: string; direction: GradientDirection }
+  | { kind: 'image'; url: string; fit: 'cover' | 'tile' };
+
+export type GradientDirection = 'to-b' | 'to-r' | 'to-br' | 'to-tr';
+
+export interface CardStyle {
+  radius?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
+  depth?: 'flat' | 'border' | 'shadow';
+  header?: 'bar' | 'minimal';
+}
+
+const THEME_KEYS = ['primary', 'dark', 'background', 'font', 'cards'] as const;
+
+/** The look a tab is drawn with: its own settings, then the view's for whatever it leaves unset. */
+export const effectiveTheme = (app?: App | null, tab?: AppTab | null): AppTheme =>
+  mergeLook(app?.spec?.theme, tab?.theme);
+
+/** `over` wins wherever it sets something, down to each part of the card style. */
+export const mergeLook = (base?: AppTheme | null, over?: AppTheme | null): AppTheme => {
+  const out: AppTheme = {};
+  for (const key of THEME_KEYS) {
+    const value = key === 'cards'
+      ? savedLook({ cards: { ...base?.cards, ...Object.fromEntries(Object.entries(over?.cards || {}).filter(([, v]) => v)) } })?.cards
+      : over?.[key] || base?.[key];
+    if (value) (out as Record<string, unknown>)[key] = value;
+  }
+  return out;
+};
+
+const GRADIENT_CSS: Record<GradientDirection, string> = {
+  'to-b': 'to bottom', 'to-r': 'to right', 'to-br': 'to bottom right', 'to-tr': 'to top right',
+};
+
+/** The canvas's background as inline style; empty for Command Center's own. */
+export const backgroundStyle = (background?: CanvasBackground | null): Record<string, string> => {
+  if (!background) return {};
+  if (background.kind === 'colour') return { background: background.colour };
+  if (background.kind === 'gradient') {
+    return { backgroundImage: `linear-gradient(${GRADIENT_CSS[background.direction] || 'to bottom'}, ${background.from}, ${background.to})` };
+  }
+  return background.fit === 'tile'
+    ? { backgroundImage: `url("${background.url.replace(/"/g, '%22')}")`, backgroundRepeat: 'repeat' }
+    : { backgroundImage: `url("${background.url.replace(/"/g, '%22')}")`, backgroundSize: 'cover', backgroundPosition: 'center' };
+};
+
+const RADIUS: Record<NonNullable<CardStyle['radius']>, string> = {
+  none: 'rounded-none', sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg', xl: 'rounded-xl',
+};
+const DEPTH: Record<NonNullable<CardStyle['depth']>, string> = {
+  flat: 'border border-transparent', border: 'border border-gray-200', shadow: 'border border-transparent shadow-md',
+};
+
+/** The classes a card is drawn with. Unset is Command Center's own card. */
+export const cardClasses = (cards?: CardStyle | null) => ({
+  frame: `${RADIUS[cards?.radius || 'lg']} ${cards?.depth ? DEPTH[cards.depth] : 'border border-gray-200 shadow-sm'}`,
+  header: cards?.header === 'minimal' ? 'bg-white' : 'bg-gray-50 border-b border-gray-100',
+  title: cards?.header === 'minimal' ? 'text-sm font-semibold text-gray-800' : 'text-xs font-semibold text-gray-600 uppercase tracking-wide',
+});
 
 /** Command Center's own colours (`--brand-blue` / `--brand-navy` in index.css). */
 export const DEFAULT_THEME = { primary: '#007bff', dark: '#001e3c' };
@@ -142,6 +212,29 @@ export const imageProblem = (value: string): string | null => {
   }
   if (value.startsWith('https://') || IMAGE_DATA_URL.test(value)) return null;
   return 'Use an https:// address, or upload a PNG, JPEG, GIF, WebP, SVG or ICO file.';
+};
+
+/** Why the server would refuse this look, or null if it would store it. */
+export const lookProblem = (theme: AppTheme): string | null => {
+  const colours = colourProblem(theme.primary || '') || colourProblem(theme.dark || '');
+  if (colours) return colours;
+  const bg = theme.background;
+  if (bg?.kind === 'colour' && !HEX_COLOUR.test(bg.colour)) return 'Use a background colour written as #rrggbb.';
+  if (bg?.kind === 'gradient' && !(HEX_COLOUR.test(bg.from) && HEX_COLOUR.test(bg.to))) return 'Use gradient colours written as #rrggbb.';
+  if (bg?.kind === 'image') return bg.url ? imageProblem(bg.url) : 'Choose a background image, or another kind of background.';
+  return null;
+};
+
+/** A look as it is saved: unset keys left out, and nothing at all if nothing is set. */
+export const savedLook = (theme: AppTheme): AppTheme | null => {
+  const out: AppTheme = {};
+  if (theme.primary) out.primary = theme.primary;
+  if (theme.dark) out.dark = theme.dark;
+  if (theme.background) out.background = theme.background;
+  if (theme.font) out.font = theme.font;
+  const cards = Object.fromEntries(Object.entries(theme.cards || {}).filter(([, v]) => v)) as CardStyle;
+  if (Object.keys(cards).length) out.cards = cards;
+  return Object.keys(out).length ? out : null;
 };
 
 export const navStyle = (app?: App | null): AppNav['style'] => app?.spec?.nav?.style === 'sidebar' ? 'sidebar' : 'tabs';

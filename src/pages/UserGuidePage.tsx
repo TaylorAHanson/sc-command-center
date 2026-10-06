@@ -66,7 +66,7 @@ export const UserGuidePage: React.FC = () => {
                 In the view's <strong>Settings</strong>, <strong>Tabs</strong> puts them <strong>Across the top</strong> or <strong>Down the side</strong>, and <strong>Filters</strong> adds dropdowns above the canvas. Each filter has a label, the variable it sets, its options (one per line) and the one it starts on. Anyone who can see the view can use them; widgets that follow that variable update on every tab, and <strong>All</strong> clears it. Choices reset when the view is reopened.
               </p>
               <p className="text-sm text-gray-600 mt-2">
-                <strong>Colours</strong> in the same dialog replace Command Center's blue and navy with your own, widgets included: on the view's tabs, filters and canvas here, and on the whole page when it opens on its own. Both must be dark enough for white text.
+                <strong>Look</strong> in the same dialog styles the view: an accent and a dark colour in place of Command Center's blue and navy (both dark enough for white text), a font, a background (a colour, a gradient or an image) and how cards are drawn. It covers the view's tabs, filters and canvas here, and the whole page when the view opens on its own. On a view with several tabs, <strong>This tab's look</strong> overrides any of it for the tab that's open; a page tab takes only the colours and font. Type a description beside <strong>Suggest</strong> to have the choices filled in for you; nothing is saved until you press <strong>Save</strong>.
               </p>
             </div>
 

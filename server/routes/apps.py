@@ -11,19 +11,23 @@ Who may read and change an app is exactly who could read and change the view:
 add two reads views never had, `GET /{id}` and `GET /{id}/widgets`; they write
 nothing and do not add or remove anyone's access.
 """
+import logging
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from databricks.sdk import WorkspaceClient
 from fastapi import APIRouter, Depends, HTTPException
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 from database import get_db_connection
-from middleware.auth import get_db_client
+from middleware.auth import get_db_client, get_db_client_sp
 from routes import custom_widgets as widget_routes
+from routes.widget_studio import quick_helper_reply
 from routes.roles import _get_current_username, _get_user_permissions, require_domain_editor
-from services import app_spec, app_store
+from services import app_spec, app_store, look_helper
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _NOT_FOUND = "App not found"
@@ -48,6 +52,11 @@ class AppUpdate(BaseModel):
     pinned_agent_id: Optional[str] = None
     # Absent keeps the spec; present replaces it whole.
     spec: Optional[Dict[str, Any]] = None
+
+
+class LookRequest(BaseModel):
+    description: str
+    current: Optional[Dict[str, Any]] = None
 
 
 class AppCompose(BaseModel):
@@ -195,6 +204,31 @@ def app_history(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: s
     finally:
         conn.close()
     return {"history": [{**r, "timestamp": _timestamp(r.get("timestamp"))} for r in rows], "env": env}
+
+
+@router.post("/look")
+def suggest_look(body: LookRequest, w: WorkspaceClient = Depends(get_db_client),
+                 sp: WorkspaceClient = Depends(get_db_client_sp)):
+    """A look for a view or tab from a description, for View settings to show.
+
+    Saves nothing: the editor fills its fields with the result and the user keeps
+    it with Save, which validates it like any other change. Inference is signed by
+    the service principal as Widget Studio's is; the description and the current
+    look are the whole payload, and no tool runs.
+    """
+    _get_current_username(w)  # signed in, as every other call here requires
+    if not (body.description or "").strip():
+        raise HTTPException(status_code=400, detail="Describe the look you want.")
+    sent = look_helper.messages(body.description, body.current)
+    try:
+        reply = quick_helper_reply(sp, [SystemMessage(content=sent[0][1]), HumanMessage(content=sent[1][1])])
+    except Exception as exc:  # noqa: BLE001 — the model's failure is the user's answer here
+        logger.warning("Describe the look failed: %s", exc)
+        raise HTTPException(status_code=502, detail="The model didn't answer. Try again in a moment.")
+    theme, dropped = look_helper.theme_from_reply(reply)
+    if theme is None:
+        raise HTTPException(status_code=422, detail="That didn't come back as a look. Try describing colours, a font or the cards.")
+    return {"theme": theme, "dropped": dropped}
 
 
 @router.post("/compose")

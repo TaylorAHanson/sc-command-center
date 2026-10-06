@@ -139,15 +139,17 @@ without setting them ten times on a ten-tab app.
 
 - **One shape, two levels.** The app's `theme` (ADR-001 §4.3f) grows to
   `{ primary, dark, background, font, cards }`, and any tab may carry a `theme`
-  of the same shape. A tab's value wins **key by key**: a tab that sets only a
-  background keeps the app's colours, font and cards.
+  of the same shape. A tab's value wins **key by key**, and within `cards` part
+  by part: a tab that sets only a background keeps the app's colours, font and
+  cards, and one that sets only card corners keeps the app's edges and title.
 - `font`: one of the bundled families (§2.5), or none for Command Center's. The
   canvas, its cards and the widgets in them inherit it.
 - `cards`: `{ radius: none|sm|md|lg|xl, depth: flat|border|shadow, header:
   bar|minimal }`. The card title bar stays (it carries the drag handle and the
   card's controls); `minimal` drops its tint and capitals.
-- `background`: a colour, a two-stop gradient (`{from, to, direction}`), or an
-  image (logo rules: https or bounded `data:`). It paints the canvas *behind* the
+- `background`: `{kind: 'colour', colour}`, `{kind: 'gradient', from, to,
+  direction: to-b|to-r|to-br|to-tr}`, or `{kind: 'image', url, fit: cover|tile}`
+  (logo rules for `url`: https or a `data:` image up to 256 KB). It paints the canvas *behind* the
   cards, which stay white — so the widget contract still holds and no remapping
   of widget classes is needed. That is why this plan drops ADR-002-v0's neutral
   remapping and dark mode: a dark canvas with white cards is readable as it is.
@@ -158,7 +160,10 @@ without setting them ten times on a ten-tab app.
 - Edited in **View settings**: the app's look under **Look**, a tab's under
   **This tab's look** (only what it overrides), and by describing it: a "Describe
   the look" box asks the widget helper model for a theme and shows the result
-  before it is applied (validated by the same rules).
+  before it is applied (validated by the same rules). `POST /api/apps/look`
+  saves nothing and runs no tool: inference is signed by the service principal,
+  as Widget Studio's is, and the description and the current look are all it
+  sends.
 
 ### 2.5 Fonts
 
@@ -252,3 +257,4 @@ widget act as a hub page.
 | 2026-10-05 | Redirected: page tabs (a tab is one full-screen widget), page widgets in Widget Studio, `props.app`, per-tab backgrounds and colours. Tokens, dark remapping and App Studio dropped or deferred. |
 | 2026-10-05 | Slice 1 built: `layout` on each tab, page rendering in both shells, the page toolbar, Canvas/Page on Add tab and the switch on the tab being shown. Slice 4 is built before slice 3, since page widgets use its fonts. |
 | 2026-10-05 | Slice 2 built: `props.app` on every widget in both shells; `openAssistant` prefills only and keeps the current agent when the asked-for one can't be opened. |
+| 2026-10-06 | Slice 4 built: background, font and cards on the app and tab `theme`, six bundled fonts, **Look** / **This tab's look** in View settings, and `POST /api/apps/look` behind **Suggest**. `props.app.theme.font` is the CSS font stack. |
