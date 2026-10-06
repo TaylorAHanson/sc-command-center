@@ -89,7 +89,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   // Held at the Layout level so the conversation survives collapsing the panel.
   const agentChat = useAgentChat();
-  const assistantDoor = useAssistantDoorFor(agentChat.prefill, setAgentOpen, true);
+  // A view set to "No agent" has no assistant while it is the page on screen.
+  const viewHasNoAssistant = currentPage === null && activeApp?.spec.assistant === 'off';
+  const assistantDoor = useAssistantDoorFor(agentChat.prefill, setAgentOpen, !viewHasNoAssistant);
   const look = useCanvasLook(activeApp, activeAppTab);
 
   // Fetch the pages behind the sidebar buttons once the dashboard has settled.
@@ -701,7 +703,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       </div>
 
       {/* Agent Assistant (hidden in Studios, which need the full viewport) */}
-      {!isFullScreenStudio && <AgentDrawer chat={agentChat} isOpen={isAgentOpen} onOpenChange={setAgentOpen} />}
+      {!isFullScreenStudio && !viewHasNoAssistant && <AgentDrawer chat={agentChat} isOpen={isAgentOpen} onOpenChange={setAgentOpen} />}
 
       {/* Widget Tray */}
       <WidgetTray

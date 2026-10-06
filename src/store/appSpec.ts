@@ -18,8 +18,6 @@ export interface AppTab {
   name: string;
   /** A canvas is a grid of cards; a page is one widget drawn edge to edge. */
   layout?: TabLayout;
-  /** What this tab changes about the view's look; unset keys keep the view's. */
-  theme?: AppTheme | null;
   widgets: WidgetLayout[];
   /** Overrides the app's agent on this tab. Null = use the app's. */
   pinned_agent_id?: string | null;
@@ -55,7 +53,7 @@ export interface AppNav {
 }
 
 /**
- * A view's look, and a tab's override of it. `primary` and `dark` replace
+ * A view's look, the same on every tab. `primary` and `dark` replace
  * Command Center's blue and navy; the rest styles the canvas around the cards.
  */
 export interface AppTheme {
@@ -77,26 +75,11 @@ export type GradientDirection = 'to-b' | 'to-r' | 'to-br' | 'to-tr';
 export interface CardStyle {
   radius?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
   depth?: 'flat' | 'border' | 'shadow';
-  header?: 'bar' | 'minimal';
+  header?: 'bar' | 'minimal' | 'none';
 }
 
-const THEME_KEYS = ['primary', 'dark', 'background', 'font', 'cards'] as const;
-
-/** The look a tab is drawn with: its own settings, then the view's for whatever it leaves unset. */
-export const effectiveTheme = (app?: App | null, tab?: AppTab | null): AppTheme =>
-  mergeLook(app?.spec?.theme, tab?.theme);
-
-/** `over` wins wherever it sets something, down to each part of the card style. */
-export const mergeLook = (base?: AppTheme | null, over?: AppTheme | null): AppTheme => {
-  const out: AppTheme = {};
-  for (const key of THEME_KEYS) {
-    const value = key === 'cards'
-      ? savedLook({ cards: { ...base?.cards, ...Object.fromEntries(Object.entries(over?.cards || {}).filter(([, v]) => v)) } })?.cards
-      : over?.[key] || base?.[key];
-    if (value) (out as Record<string, unknown>)[key] = value;
-  }
-  return out;
-};
+/** The look every tab of a view is drawn with. */
+export const effectiveTheme = (app?: App | null): AppTheme => app?.spec?.theme || {};
 
 const GRADIENT_CSS: Record<GradientDirection, string> = {
   'to-b': 'to bottom', 'to-r': 'to right', 'to-br': 'to bottom right', 'to-tr': 'to top right',
@@ -124,6 +107,8 @@ const DEPTH: Record<NonNullable<CardStyle['depth']>, string> = {
 /** The classes a card is drawn with. Unset is Command Center's own card. */
 export const cardClasses = (cards?: CardStyle | null) => ({
   frame: `${RADIUS[cards?.radius || 'lg']} ${cards?.depth ? DEPTH[cards.depth] : 'border border-gray-200 shadow-sm'}`,
+  /** No title bar: the card's controls float over its top-right corner instead. */
+  bare: cards?.header === 'none',
   header: cards?.header === 'minimal' ? 'bg-white' : 'bg-gray-50 border-b border-gray-100',
   title: cards?.header === 'minimal' ? 'text-sm font-semibold text-gray-800' : 'text-xs font-semibold text-gray-600 uppercase tracking-wide',
 });
@@ -219,8 +204,8 @@ export const lookProblem = (theme: AppTheme): string | null => {
   const colours = colourProblem(theme.primary || '') || colourProblem(theme.dark || '');
   if (colours) return colours;
   const bg = theme.background;
-  if (bg?.kind === 'colour' && !HEX_COLOUR.test(bg.colour)) return 'Use a background colour written as #rrggbb.';
-  if (bg?.kind === 'gradient' && !(HEX_COLOUR.test(bg.from) && HEX_COLOUR.test(bg.to))) return 'Use gradient colours written as #rrggbb.';
+  if (bg?.kind === 'colour' && !HEX_COLOUR.test(bg.colour)) return 'Use a background color written as #rrggbb.';
+  if (bg?.kind === 'gradient' && !(HEX_COLOUR.test(bg.from) && HEX_COLOUR.test(bg.to))) return 'Use gradient colors written as #rrggbb.';
   if (bg?.kind === 'image') return bg.url ? imageProblem(bg.url) : 'Choose a background image, or another kind of background.';
   return null;
 };
@@ -257,8 +242,8 @@ export const whiteTextContrast = (hex: string): number => {
 /** Why the server would refuse this theme colour, or null if it would store it. */
 export const colourProblem = (value: string): string | null => {
   if (!value) return null;
-  if (!HEX_COLOUR.test(value)) return 'Use a colour written as #rrggbb.';
-  if (whiteTextContrast(value) < MIN_WHITE_CONTRAST) return 'Too light: white text on it would be hard to read. Choose a darker colour.';
+  if (!HEX_COLOUR.test(value)) return 'Use a color written as #rrggbb.';
+  if (whiteTextContrast(value) < MIN_WHITE_CONTRAST) return 'Too light: white text on it would be hard to read. Choose a darker color.';
   return null;
 };
 

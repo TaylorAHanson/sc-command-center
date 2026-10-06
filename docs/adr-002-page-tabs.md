@@ -130,24 +130,26 @@ Rules, each a constraint the runtime enforces rather than the contract asks for:
 - **No new data reach.** Nothing in `props.app` reads data or settings beyond the
   app's own tab names and colours.
 - On a page **inside Command Center**, `openAssistant` opens the workspace's
-  panel; on its own, the app's drawer (absent when the app turns the assistant
-  off — then the call does nothing and returns).
+  panel; on its own, the app's drawer. An app whose agent is **No agent**
+  (`assistant: 'off'`) has no assistant in either shell, so the call does
+  nothing and returns.
 
 ### 2.4 App and tab style
 
 What the brief asks for on canvas tabs: background and theme colours, per tab,
 without setting them ten times on a ten-tab app.
 
-- **One shape, two levels.** The app's `theme` (ADR-001 §4.3f) grows to
-  `{ primary, dark, background, font, cards }`, and any tab may carry a `theme`
-  of the same shape. A tab's value wins **key by key**, and within `cards` part
-  by part: a tab that sets only a background keeps the app's colours, font and
-  cards, and one that sets only card corners keeps the app's edges and title.
+- **One look per app.** The app's `theme` (ADR-001 §4.3f) grows to
+  `{ primary, dark, background, font, cards }` and applies to every tab. Tabs
+  carry no `theme` (a per-tab override was built and then dropped as redundant;
+  a stored one is ignored on read). Composing views takes the first source's
+  look, as it does filters.
 - `font`: one of the bundled families (§2.5), or none for Command Center's. The
   canvas, its cards and the widgets in them inherit it.
 - `cards`: `{ radius: none|sm|md|lg|xl, depth: flat|border|shadow, header:
-  bar|minimal }`. The card title bar stays (it carries the drag handle and the
-  card's controls); `minimal` drops its tint and capitals.
+  bar|minimal|none }`. `minimal` drops the title bar's tint and capitals;
+  `none` drops the title, and the drag handle and the card's controls float
+  over its top-right corner, shown on hover or focus.
 - `background`: `{kind: 'colour', colour}`, `{kind: 'gradient', from, to,
   direction: to-b|to-r|to-br|to-tr}`, or `{kind: 'image', url, fit: cover|tile}`
   (logo rules for `url`: https or a `data:` image up to 256 KB). It paints the canvas *behind* the
@@ -158,8 +160,8 @@ without setting them ten times on a ten-tab app.
 - Page tabs ignore `background` and `cards` (the page draws its own) but still
   pass the colours and font to the widget through `props.app.theme`, so a page
   can match the tabs around it.
-- Edited in **View settings**: the app's look under **Look**, a tab's under
-  **This tab's look** (only what it overrides), and by describing it: a "Describe
+- Edited in **View settings** under **Look**, beside a preview, and by
+  describing it: a "Describe
   the look" box asks the widget helper model for a theme and shows the result
   before it is applied (validated by the same rules). `POST /api/apps/look`
   saves nothing and runs no tool: inference is signed by the service principal,
@@ -260,3 +262,4 @@ widget act as a hub page.
 | 2026-10-05 | Slice 2 built: `props.app` on every widget in both shells; `openAssistant` prefills only and keeps the current agent when the asked-for one can't be opened. |
 | 2026-10-06 | Slice 3 built: `widgets.layout_kind`, the Card/Page switch (a first request asking for a landing page or hub starts as a page), and `page_instructions.md` appended for pages only, rather than as a section of `agent_instructions.md` that every card would pay for. The preview is a mock header and tabs at laptop / wide / narrow width, scaled to fit, with a stand-in `props.app`; Tailwind breakpoints still follow the browser window, not the frame. Lint judges light text against the nearest enclosing background, and adds `missing-class` and `unknown-font`, because widget code is never scanned by Tailwind and the stylesheet lacked most page-sized classes until a safelist added them. A page's review gets 240s, not 120s. Done-when run against the real model: the Kairos image with "Build this hub for our five Genie spaces" built a page, the review finished with real fixes, and all five persona cards opened their tabs in a view. |
 | 2026-10-06 | Slice 4 built: background, font and cards on the app and tab `theme`, six bundled fonts, **Look** / **This tab's look** in View settings, and `POST /api/apps/look` behind **Suggest**. `props.app.theme.font` is the CSS font stack. |
+| 2026-10-06 | After review: tab looks dropped (one look per app; compose takes the first source's), cards gain `header: none`, and **Settings → Agent** gains **No agent**, which sets `assistant: 'off'` and replaces the **Offer the assistant** checkbox. It now hides the assistant inside Command Center too, while that view is shown. **Suggest** deepens a too-light accent instead of dropping it. |

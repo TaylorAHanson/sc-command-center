@@ -35,13 +35,27 @@ def test_a_reply_is_read_with_the_spec_rules():
 
 
 def test_what_could_not_be_drawn_is_named_not_kept():
-    theme, dropped = theme_from_reply('{"primary": "#ffe4e1", "dark": "#1e293b", "font": "comic-sans", "cards": {"radius": "xl", "depth": "glow"}}')
+    theme, dropped = theme_from_reply('{"primary": "pink", "dark": "#1e293b", "font": "comic-sans", "cards": {"radius": "xl", "depth": "glow"}}')
     assert theme == {"primary": None, "dark": "#1e293b", "cards": {"radius": "xl"}}
-    assert dropped == ["accent colour", "font", "part of the card style"]
+    assert dropped == ["accent color", "font", "part of the card style"]
+
+
+def test_a_bright_accent_is_deepened_until_white_text_reads_on_it():
+    theme, dropped = theme_from_reply('{"primary": "#22D3EE", "dark": "#0b1220"}')
+    assert dropped == []
+    accent = theme["primary"]
+    assert app_spec.white_text_contrast(accent) >= app_spec.MIN_WHITE_CONTRAST
+    r, g, b = (int(accent[i:i + 2], 16) for i in (1, 3, 5))
+    assert b > r and g > r, f"{accent} should still be a cyan"
+    assert theme_from_reply('{"primary": "#0f766e"}')[0]["primary"] == "#0f766e", "a readable accent is left alone"
+
+
+def test_the_model_is_told_to_always_give_both_colours():
+    assert 'Always include "primary" and "dark"' in SYSTEM_PROMPT
 
 
 def test_a_reply_with_no_look_in_it_gives_nothing():
-    for reply in ("", "I can't help with that.", "{not json}", "[1, 2]", '{"primary": "#ffffff"}'):
+    for reply in ("", "I can't help with that.", "{not json}", "[1, 2]", '{"primary": "white"}'):
         assert theme_from_reply(reply)[0] is None, reply
 
 

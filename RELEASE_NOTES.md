@@ -27,14 +27,15 @@
 ### Added
 
 - **Share a view as a page of its own.** In the view's **Settings**, choose **On its own**: its link then opens just that view, with your title and logo.
-- **Choose a view's agent in its settings.** **Settings → Agent** picks the agent the view opens with, and the assistant button now shows that agent's name.
+- **Choose a view's agent in its settings.** **Settings → Agent** picks the agent the view opens with; **No agent** leaves the view without an assistant.
 - **Views can have tabs.** **Add tab** in the top right starts a tab bar; double-click a tab to rename it, drag to reorder, **×** to delete.
 - **Make a tab a full page.** Choose **Page** when adding a tab, then drag one widget onto it to fill the whole tab, edge to edge.
 - **Build a page in Widget Studio.** Choose **Page** above the preview to build a whole-tab landing page, previewed at full width; the library marks it **PAGE**.
 - **Widgets can open tabs and the assistant.** Ask Widget Studio for tiles that go to each tab, or an **Ask** button that types a question for you to send.
 - **Give a view its own filters.** In **Settings → Filters**, add dropdowns above the canvas; widgets that follow that variable update on every tab.
 - **Tabs down the side.** In **Settings → Tabs**, choose **Down the side** to list a view's tabs on the left.
-- **Give a view its own look.** **Settings → Look** sets its colours, font, background and card style, any tab can override them, and **Suggest** fills them in from a description.
+- **Every view setting explains itself.** Hover the **?** beside a field in a view's **Settings** to see what it does.
+- **Give a view its own look.** **Settings → Look** sets its colors, font, background and cards, down to **No title**, and **Suggest** fills them in from a description.
 - **Pin an agent to one tab.** On a view with tabs, the pin beside the agent picker offers **This tab** or **Every tab**.
 - **Promoting a view checks the target first.** View Promotion's confirmation lists widgets and pinned agents the target lacks, and can promote the missing widgets along with it.
 - **Remove a global view.** **Remove** on **View Promotion** archives it for everyone; **Archived** lists it, where you can **Restore** it or **Delete permanently**.

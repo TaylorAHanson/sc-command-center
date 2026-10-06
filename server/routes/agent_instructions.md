@@ -145,7 +145,7 @@ props.app?.tabs          // [{ id, name, layout: 'canvas' | 'page' }], in order
 props.app?.activeTabId   // the tab being shown
 props.app?.goToTab(idOrName)                  // a tab of this view, by id or by name
 props.app?.openAssistant({ agentId?, prompt? }) // open the assistant with this agent, message box filled in
-props.app?.theme         // { primary, dark, font } — the tab's colours as #rrggbb, font as a CSS font-family (or null)
+props.app?.theme         // { primary, dark, font } — the view's colors as #rrggbb, font as a CSS font-family (or null)
 ```
 
 - **`openAssistant` never sends.** It opens the assistant panel, switches to

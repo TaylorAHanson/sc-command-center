@@ -24,12 +24,12 @@ _FONT_NOTES = {
 SYSTEM_PROMPT = f"""You choose the look of a dashboard view from a short description.
 The view is a canvas of white cards; you choose what surrounds them.
 
-Reply with one JSON object and nothing else. Every key is optional; leave out
-what the description doesn't ask for:
+Reply with one JSON object and nothing else. Always include "primary" and "dark";
+the other keys are optional, so leave out what the description doesn't ask for:
 
 {{
   "primary": "#rrggbb",   // accent: buttons, links, selected tabs. White text sits on it.
-  "dark": "#rrggbb",      // dark brand colour: headings, dark panels. White text sits on it.
+  "dark": "#rrggbb",      // dark brand color: headings, dark panels. White text sits on it.
   "background": {{"kind": "colour", "colour": "#rrggbb"}}
               | {{"kind": "gradient", "from": "#rrggbb", "to": "#rrggbb", "direction": {" | ".join(f'"{d}"' for d in app_spec.GRADIENT_DIRECTIONS)}}},
   "font": {" | ".join(f'"{f}"' for f in app_spec.FONTS)},
@@ -40,11 +40,14 @@ what the description doesn't ask for:
 
 Rules:
 - "primary" and "dark" must be dark enough for white text on them (a contrast of
-  at least {app_spec.MIN_WHITE_CONTRAST:g}:1). Never pick a pale or pastel accent.
+  at least {app_spec.MIN_WHITE_CONTRAST:g}:1). Where the look's natural accent is bright
+  (cyan on navy, gold on brown), give the deepest shade of it that still carries
+  white text rather than leaving the accent out.
 - The background sits behind white cards, so it may be light or dark.
 - Fonts: {"; ".join(f"{k} — {v}" for k, v in _FONT_NOTES.items())}.
 - Cards: "flat" has no edge, "border" a thin line, "shadow" a soft lift.
-  "minimal" headers drop the grey bar and capitals.
+  "minimal" headers drop the gray bar and capitals; "none" leaves the title off
+  entirely, for cards whose content names itself.
 - If a current look is given, change only what the description asks to change and
   return the whole resulting look.
 - No image backgrounds; no other keys; no comments in the JSON."""
@@ -62,7 +65,25 @@ def messages(description: str, current: Optional[Dict[str, Any]]) -> List[Tuple[
 
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 
-_LABELS = {"primary": "accent colour", "dark": "dark colour", "background": "background", "font": "font", "cards": "card style"}
+_LABELS = {"primary": "accent color", "dark": "dark color", "background": "background", "font": "font", "cards": "card style"}
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def deepened(colour: Any) -> Any:
+    """`colour` darkened, keeping its hue, until white text reads on it.
+
+    Models often answer "bright cyan on navy" with the bright cyan, which a save
+    would refuse; the shade that passes is closer to what was asked for than no
+    accent at all. Anything that isn't a #rrggbb string comes back unchanged.
+    """
+    if not isinstance(colour, str) or not _HEX.match(colour):
+        return colour
+    rgb = [int(colour[i:i + 2], 16) for i in (1, 3, 5)]
+    for step in range(20):
+        shade = "#" + "".join(f"{round(c * (1 - 0.05 * step)):02x}" for c in rgb)
+        if app_spec.white_text_contrast(shade) >= app_spec.MIN_WHITE_CONTRAST:
+            return shade
+    return colour
 
 
 def theme_from_reply(reply: str) -> Tuple[Optional[Dict[str, Any]], List[str]]:
@@ -78,6 +99,7 @@ def theme_from_reply(reply: str) -> Tuple[Optional[Dict[str, Any]], List[str]]:
         raw = None
     if not isinstance(raw, dict):
         return None, []
+    raw = {**raw, **{key: deepened(raw.get(key)) for key in app_spec.THEME_COLOURS if key in raw}}
     theme = app_spec.read_theme(raw) or {}
     dropped = []
     for key, label in _LABELS.items():

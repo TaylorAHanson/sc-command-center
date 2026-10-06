@@ -3,11 +3,11 @@ import { backgroundStyle, cardClasses, effectiveTheme, isPage, type App, type Ap
 import { fontById, loadFont } from '../fonts';
 
 /**
- * How the tab on screen is drawn: its look over the view's, key by key. A page
- * draws its own background and has no cards, so it gets only the colours and font.
+ * How the tab on screen is drawn: the view's look. A page draws its own
+ * background and has no cards, so it gets only the colors and font.
  */
 export const useCanvasLook = (app?: App | null, tab?: AppTab | null) => {
-  const theme = useMemo(() => effectiveTheme(app, tab), [app, tab]);
+  const theme = useMemo(() => effectiveTheme(app), [app]);
   const font = fontById(theme.font);
   useEffect(() => { loadFont(font?.id); }, [font?.id]);
   const page = isPage(tab);

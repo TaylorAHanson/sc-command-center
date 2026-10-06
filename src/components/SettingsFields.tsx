@@ -1,9 +1,77 @@
-import React, { useRef, useState } from 'react';
-import { Upload, Trash2 } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { HelpCircle, Upload, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import { colourProblem, imageProblem } from '../store/appSpec';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
+const HELP_WIDTH = 288;
+
+/**
+ * A "?" that explains a setting on hover or keyboard focus. The tip is portalled
+ * to <body> because the settings dialog scrolls, and would clip it.
+ */
+export const FieldHelp: React.FC<{ text: string; about: string }> = ({ text, about }) => {
+  const icon = useRef<HTMLButtonElement>(null);
+  const id = useId();
+  const [at, setAt] = useState<{ left: number; top: number; above: boolean } | null>(null);
+  const show = () => {
+    const r = icon.current?.getBoundingClientRect();
+    if (!r) return;
+    const above = r.bottom + 140 > window.innerHeight;
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - HELP_WIDTH / 2), window.innerWidth - HELP_WIDTH - 8);
+    setAt({ left, top: above ? r.top - 6 : r.bottom + 6, above });
+  };
+  const hide = () => setAt(null);
+  const open = at !== null;
+  // Focusing an icon scrolls the dialog to it, so the tip follows rather than closing.
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener('scroll', show, true);
+    window.addEventListener('resize', show);
+    return () => {
+      window.removeEventListener('scroll', show, true);
+      window.removeEventListener('resize', show);
+    };
+  }, [open]);
+  return (
+    <>
+      <button
+        ref={icon}
+        type="button"
+        aria-label={`About ${about}`}
+        aria-describedby={at ? id : undefined}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        onKeyDown={e => { if (e.key === 'Escape') hide(); }}
+        className="inline-flex shrink-0 text-gray-400 hover:text-brand-blue focus:text-brand-blue focus:outline-none"
+      >
+        <HelpCircle className="w-3.5 h-3.5" />
+      </button>
+      {at && createPortal(
+        <div
+          id={id}
+          role="tooltip"
+          style={{ left: at.left, top: at.top, width: HELP_WIDTH, transform: at.above ? 'translateY(-100%)' : undefined }}
+          className="fixed z-[100] px-3 py-2 rounded-md bg-gray-900 text-white text-xs font-normal leading-relaxed shadow-lg pointer-events-none"
+        >
+          {text}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+};
+
+/** A field's label with its help beside it; `className` styles the label text. */
+export const FieldLabel: React.FC<{ label: string; help: string; className?: string; about?: string }> = ({ label, help, className, about }) => (
+  <div className={clsx('flex items-center gap-1', className)}>
+    <label>{label}</label>
+    <FieldHelp text={help} about={about || label} />
+  </div>
+);
 
 /**
  * A colour, picked or typed. `onWhite` colours carry white text, so they are
@@ -16,12 +84,15 @@ export const ColourField: React.FC<{
   onChange: (value: string) => void;
   clearLabel?: string;
   onWhite?: boolean;
-}> = ({ label, fallback, value, onChange, clearLabel = 'Use default', onWhite = true }) => {
-  const problem = onWhite ? colourProblem(value) : (value && !HEX.test(value) ? 'Use a colour written as #rrggbb.' : null);
+  help?: string;
+}> = ({ label, fallback, value, onChange, clearLabel = 'Use default', onWhite = true, help }) => {
+  const problem = onWhite ? colourProblem(value) : (value && !HEX.test(value) ? 'Use a color written as #rrggbb.' : null);
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2 mb-1">
-        <label className="text-sm font-medium text-gray-700">{label}</label>
+        {help
+          ? <FieldLabel label={label} help={help} className="text-sm font-medium text-gray-700" />
+          : <label className="text-sm font-medium text-gray-700">{label}</label>}
         {value && clearLabel && (
           <button
             type="button"
@@ -68,7 +139,8 @@ export const ImageField: React.FC<{
   hint: string;
   value: string;
   onChange: (value: string) => void;
-}> = ({ label, hint, value, onChange }) => {
+  help?: string;
+}> = ({ label, hint, value, onChange, help }) => {
   const fileInput = useRef<HTMLInputElement>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const problem = readError || imageProblem(value);
@@ -76,7 +148,9 @@ export const ImageField: React.FC<{
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      {help
+        ? <FieldLabel label={label} help={help} className="text-sm font-medium text-gray-700 mb-1" />
+        : <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
       <div className="flex items-center gap-2">
         {value && !problem && (
           <img src={value} alt="" className="w-8 h-8 object-contain rounded border border-gray-200 bg-white shrink-0" />

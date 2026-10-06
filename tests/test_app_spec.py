@@ -240,16 +240,16 @@ def test_a_look_that_could_not_be_drawn_is_refused_on_write_and_dropped_on_read(
         assert read_spec(APP, json.dumps(two_tabs(theme=dict(look, dark="#1e293b"))), "[]")["theme"] == {"primary": None, "dark": "#1e293b"}
 
 
-def test_a_tab_may_override_the_apps_look_key_by_key():
+def test_a_view_has_one_look_and_a_tab_carries_none():
     spec = two_tabs(theme={"dark": "#1e293b", "font": "inter"})
-    spec["tabs"][1]["theme"] = {"background": {"kind": "colour", "colour": "#0b1220"}}
+    spec["tabs"][1]["theme"] = {"font": "papyrus", "background": {"kind": "colour", "colour": "#0b1220"}}
     spec = validate_spec(spec, APP)
-    assert "theme" not in spec["tabs"][0], "a tab that overrides nothing carries no theme"
-    assert spec["tabs"][1]["theme"] == {"primary": None, "dark": None, "background": {"kind": "colour", "colour": "#0b1220"}}
-    assert read_spec(APP, dumps(spec), "[]") == spec
-    bad = two_tabs()
-    bad["tabs"][1]["theme"] = {"font": "papyrus"}
-    refuses(bad, "Tab 2's theme.font")
+    assert all("theme" not in tab for tab in spec["tabs"]), "a tab's theme is dropped, never refused"
+    assert spec["theme"] == {"primary": None, "dark": "#1e293b", "font": "inter"}
+
+
+def test_a_card_title_can_be_left_off():
+    assert validate_spec(two_tabs(theme={"cards": {"header": "none"}}), APP)["theme"]["cards"] == {"header": "none"}
 
 
 REGION = {"key": "region", "label": " Region ", "options": ["EMEA", " APAC "], "default": "EMEA"}
@@ -348,17 +348,19 @@ def test_composing_an_app_keeps_its_tab_names_and_tab_pins():
     assert [(t["name"], t["pinned_agent_id"]) for t in spec["tabs"]] == [("Today", "hub-agent"), ("Week", "week-agent")]
 
 
-def test_composing_keeps_each_views_look_on_its_tabs():
+def test_composing_takes_the_first_look_among_the_views():
     plain = source("Plain", [{"i": "a"}])
     styled = source("Styled", [], tabs=[
         {"id": "x", "name": "One", "widgets": [], "theme": {"background": {"kind": "colour", "colour": "#0b1220"}}},
         {"id": "y", "name": "Two", "widgets": []},
     ])
     styled["spec"]["theme"] = {"dark": "#1e293b", "font": "inter"}
-    tabs = compose_spec([plain, styled], new_id=ids())["tabs"]
-    assert "theme" not in tabs[0]
-    assert tabs[1]["theme"] == {"primary": None, "dark": "#1e293b", "font": "inter", "background": {"kind": "colour", "colour": "#0b1220"}}
-    assert tabs[2]["theme"] == {"primary": None, "dark": "#1e293b", "font": "inter"}
+    other = source("Other", [])
+    other["spec"]["theme"] = {"dark": "#0f766e"}
+    spec = compose_spec([plain, styled, other], new_id=ids())
+    assert spec["theme"] == {"primary": None, "dark": "#1e293b", "font": "inter"}
+    assert all("theme" not in tab for tab in spec["tabs"])
+    assert compose_spec([plain], new_id=ids())["theme"] is None
 
 
 def test_composing_keeps_each_tabs_layout():

@@ -22,7 +22,7 @@ interface BaseWidgetProps {
 
   customActions?: React.ReactNode;
   /** The view's card style; see `cardClasses`. */
-  look?: { frame: string; header: string; title: string };
+  look?: { frame: string; header: string; title: string; bare?: boolean };
   className?: string;
   // react-grid-layout injects these props
   style?: React.CSSProperties;
@@ -62,21 +62,25 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
     widgetName: title
   });
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const locked = className?.includes('locked-widget');
+  const bar = look.bare
+    ? `drag-handle select-none absolute top-1.5 right-1.5 z-10 flex items-center gap-1.5 px-1.5 py-1 rounded-md bg-white/95 border border-gray-200 shadow-sm opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${locked ? 'cursor-default' : 'cursor-move'}`
+    : `drag-handle select-none h-8 ${look.header} flex items-center justify-between px-3 ${locked ? 'cursor-default' : 'cursor-move'}`;
 
   return (
     <div
       ref={ref}
       style={style}
-      className={`${className} ${className_rgl} bg-white text-brand-navy ${look.frame} flex flex-col overflow-hidden`}
+      className={`${className} ${className_rgl} bg-white text-brand-navy ${look.frame} flex flex-col overflow-hidden${look.bare ? ' relative group' : ''}`}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
       onTouchEnd={onTouchEnd}
       {...props}
     >
-      <div className={`drag-handle select-none h-8 ${look.header} flex items-center justify-between px-3 ${className?.includes('locked-widget') ? 'cursor-default' : 'cursor-move'}`}>
-        <div className={`flex items-center gap-2 ${look.title}`}>
+      <div className={bar}>
+        <div className={`flex items-center gap-2 ${look.title}`} title={look.bare ? title : undefined}>
           <GripHorizontal className="w-4 h-4 text-gray-400" />
-          {title}
+          {!look.bare && title}
         </div>
         <div className="flex items-center gap-1">
           {availableVersions && availableVersions.length > 0 && version !== undefined && (

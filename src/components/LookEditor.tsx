@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Sparkles, Undo2, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 import {
-  backgroundStyle, cardClasses, DEFAULT_THEME, imageProblem, mergeLook,
+  backgroundStyle, cardClasses, DEFAULT_THEME, imageProblem,
   type AppTheme, type CanvasBackground, type CardStyle, type GradientDirection,
 } from '../store/appSpec';
 import { FONTS, fontById, loadFont } from '../fonts';
-import { ColourField, ImageField } from './SettingsFields';
+import { ColourField, FieldHelp, FieldLabel, ImageField } from './SettingsFields';
 
 const BACKGROUND_START: Record<CanvasBackground['kind'], CanvasBackground> = {
   colour: { kind: 'colour', colour: '#0b1220' },
@@ -18,35 +18,26 @@ const DIRECTIONS: [GradientDirection, string][] = [
   ['to-b', 'Top to bottom'], ['to-r', 'Left to right'], ['to-br', 'Diagonal, downwards'], ['to-tr', 'Diagonal, upwards'],
 ];
 
-const CARD_CHOICES: { key: keyof CardStyle; label: string; options: [string, string][] }[] = [
-  { key: 'radius', label: 'Corners', options: [['none', 'Square'], ['sm', 'Slightly rounded'], ['md', 'Rounded'], ['lg', 'More rounded'], ['xl', 'Very rounded']] },
-  { key: 'depth', label: 'Edges', options: [['flat', 'Flat'], ['border', 'Outlined'], ['shadow', 'Shadowed']] },
-  { key: 'header', label: 'Title', options: [['bar', 'In a grey bar'], ['minimal', 'Plain']] },
+const CARD_CHOICES: { key: keyof CardStyle; label: string; help: string; options: [string, string][] }[] = [
+  { key: 'radius', label: 'Corners', help: 'How rounded each card’s corners are, from square to very rounded.', options: [['none', 'Square'], ['sm', 'Slightly rounded'], ['md', 'Rounded'], ['lg', 'More rounded'], ['xl', 'Very rounded']] },
+  { key: 'depth', label: 'Edges', help: 'Flat cards have no edge, Outlined adds a thin line, and Shadowed lifts each card off the canvas.', options: [['flat', 'Flat'], ['border', 'Outlined'], ['shadow', 'Shadowed']] },
+  { key: 'header', label: 'Title', help: 'In a gray bar is Command Center’s usual card header; Plain drops the tint and capitals. With No title, a card’s buttons appear when you hover over it.', options: [['bar', 'In a gray bar'], ['minimal', 'Plain'], ['none', 'No title']] },
 ];
 
 const selectClass = 'w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40';
 
-/**
- * Colours, background, font and cards for a view, or for one tab over its view.
- * With `inherited`, every choice can be left as "Same as the view".
- */
+/** Colors, background, font and cards for a view, the same on every tab. */
 export const LookEditor: React.FC<{
   value: AppTheme;
   onChange: (next: AppTheme) => void;
-  /** The view's look, for a tab: what each unset choice falls back to. */
-  inherited?: AppTheme;
-  /** The tab is a page, which draws its own background and has no cards. */
+  /** The view is one page, which draws its own background and has no cards. */
   page?: boolean;
-  /** Distinguishes the view's editor from the tab's for assistive technology. */
-  name: string;
-}> = ({ value, onChange, inherited, page = false, name }) => {
+}> = ({ value, onChange, page = false }) => {
   const [description, setDescription] = useState('');
   const [asking, setAsking] = useState(false);
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const [before, setBefore] = useState<AppTheme | null>(null);
-  const shown = mergeLook(inherited, value);
-  const sameLabel = inherited ? 'Same as the view' : null;
-  useEffect(() => { loadFont(shown.font); }, [shown.font]);
+  useEffect(() => { loadFont(value.font); }, [value.font]);
 
   const set = (change: Partial<AppTheme>) => onChange({ ...value, ...change });
   const setCard = (key: keyof CardStyle, v: string) => set({ cards: { ...value.cards, [key]: v || undefined } });
@@ -58,7 +49,7 @@ export const LookEditor: React.FC<{
       const res = await fetch('/api/apps/look', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, current: shown }),
+        body: JSON.stringify({ description, current: value }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -83,7 +74,7 @@ export const LookEditor: React.FC<{
 
   const bg = value.background;
   return (
-    <div className="space-y-3" aria-label={name} role="group">
+    <div className="space-y-3">
       <div>
         <div className="flex gap-2">
           <input
@@ -93,7 +84,7 @@ export const LookEditor: React.FC<{
             onChange={e => setDescription(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && description.trim() && !asking) { e.preventDefault(); describe(); } }}
             placeholder="Describe the look: “dark navy, like a control room, rounded cards”"
-            aria-label={`Describe the look (${name})`}
+            aria-label="Describe the look"
             className="flex-1 min-w-0 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
           />
           <button
@@ -105,6 +96,12 @@ export const LookEditor: React.FC<{
             {asking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             Suggest
           </button>
+          <span className="self-center">
+            <FieldHelp
+              about="Describe the look"
+              text="Describe the style you want in your own words and Suggest fills in the choices below. Nothing is saved until you press Save, and Undo puts back what was there."
+            />
+          </span>
         </div>
         {note && (
           <p className={clsx('text-xs mt-1 flex items-center gap-2', note.error ? 'text-red-600' : 'text-gray-500')}>
@@ -122,115 +119,134 @@ export const LookEditor: React.FC<{
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <ColourField
-          label="Accent colour"
-          fallback={inherited?.primary || DEFAULT_THEME.primary}
-          value={value.primary || ''}
-          onChange={v => set({ primary: v || undefined })}
-          clearLabel={inherited ? 'As the view' : undefined}
-        />
-        <ColourField
-          label="Dark colour"
-          fallback={inherited?.dark || DEFAULT_THEME.dark}
-          value={value.dark || ''}
-          onChange={v => set({ dark: v || undefined })}
-          clearLabel={inherited ? 'As the view' : undefined}
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Font</label>
-        <select
-          value={value.font || ''}
-          onChange={e => set({ font: e.target.value || undefined })}
-          aria-label={`Font (${name})`}
-          className={selectClass}
-        >
-          <option value="">{sameLabel || 'Command Center’s'}</option>
-          {FONTS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-        </select>
-      </div>
-
-      {page ? (
-        <p className="text-xs text-gray-500">This tab is a page: its widget draws its own background, so only the colours and font apply.</p>
-      ) : (
-        <>
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">Background</label>
-            <select
-              value={bg?.kind || ''}
-              onChange={e => set({ background: e.target.value ? BACKGROUND_START[e.target.value as CanvasBackground['kind']] : undefined })}
-              aria-label={`Background (${name})`}
-              className={selectClass}
-            >
-              <option value="">{sameLabel || 'Command Center’s light grey'}</option>
-              <option value="colour">A colour</option>
-              <option value="gradient">A gradient</option>
-              <option value="image">An image</option>
-            </select>
-            {bg?.kind === 'colour' && (
-              <ColourField label="Background colour" fallback="#0b1220" value={bg.colour} onWhite={false} clearLabel=""
-                onChange={v => set({ background: { ...bg, colour: v } })} />
-            )}
-            {bg?.kind === 'gradient' && (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <ColourField label="From" fallback="#0b1220" value={bg.from} onWhite={false} clearLabel=""
-                    onChange={v => set({ background: { ...bg, from: v } })} />
-                  <ColourField label="To" fallback="#1e3a8a" value={bg.to} onWhite={false} clearLabel=""
-                    onChange={v => set({ background: { ...bg, to: v } })} />
-                </div>
-                <select
-                  value={bg.direction}
-                  onChange={e => set({ background: { ...bg, direction: e.target.value as GradientDirection } })}
-                  aria-label={`Gradient direction (${name})`}
-                  className={selectClass}
-                >
-                  {DIRECTIONS.map(([d, label]) => <option key={d} value={d}>{label}</option>)}
-                </select>
-              </>
-            )}
-            {bg?.kind === 'image' && (
-              <>
-                <ImageField label="Background image" hint="Up to 256 KB uploaded, or an https:// address." value={bg.url}
-                  onChange={v => set({ background: { ...bg, url: v } })} />
-                <select
-                  value={bg.fit}
-                  onChange={e => set({ background: { ...bg, fit: e.target.value as 'cover' | 'tile' } })}
-                  aria-label={`Image fit (${name})`}
-                  className={selectClass}
-                >
-                  <option value="cover">Fill the canvas</option>
-                  <option value="tile">Repeat as tiles</option>
-                </select>
-              </>
-            )}
+      <div className="grid grid-cols-[minmax(0,1fr)_16rem] gap-5 items-start">
+        <div className="space-y-3 min-w-0">
+          <div className="grid grid-cols-2 gap-3">
+            <ColourField
+              label="Accent color"
+              help="Takes the place of Command Center’s blue on this view: the selected tab, buttons, links and highlights in widgets. White text sits on it, so it must be dark enough to read."
+              fallback={DEFAULT_THEME.primary}
+              value={value.primary || ''}
+              onChange={v => set({ primary: v || undefined })}
+            />
+            <ColourField
+              label="Dark color"
+              help="Takes the place of Command Center’s navy on this view: the title, headings, dark buttons and panels in widgets. It must be dark enough for white text."
+              fallback={DEFAULT_THEME.dark}
+              value={value.dark || ''}
+              onChange={v => set({ dark: v || undefined })}
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Cards</label>
-            <div className="grid grid-cols-3 gap-2">
-              {CARD_CHOICES.map(choice => (
-                <div key={choice.key}>
-                  <span className="block text-xs text-gray-500 mb-0.5">{choice.label}</span>
-                  <select
-                    value={value.cards?.[choice.key] || ''}
-                    onChange={e => setCard(choice.key, e.target.value)}
-                    aria-label={`Card ${choice.label.toLowerCase()} (${name})`}
-                    className={selectClass}
-                  >
-                    <option value="">{sameLabel ? 'As the view' : 'Standard'}</option>
-                    {choice.options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                  </select>
-                </div>
-              ))}
-            </div>
+            <FieldLabel
+              label="Font"
+              help="The typeface for the view’s tabs, filters and cards, and the widgets in them. Only fonts bundled with the app are offered."
+              className="text-sm font-medium text-gray-700 mb-1"
+            />
+            <select
+              value={value.font || ''}
+              onChange={e => set({ font: e.target.value || undefined })}
+              aria-label="Font"
+              className={selectClass}
+            >
+              <option value="">Command Center’s</option>
+              {FONTS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
           </div>
-        </>
-      )}
 
-      <LookPreview look={shown} page={page} />
+          {page ? (
+            <p className="text-xs text-gray-500">This view is a page: its widget draws its own background, so only the colors and font apply.</p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <FieldLabel
+                  label="Background"
+                  help="What’s drawn behind the cards on canvas tabs. Cards stay white, so widgets stay readable on any background."
+                  className="text-sm font-medium text-gray-700"
+                />
+                <select
+                  value={bg?.kind || ''}
+                  onChange={e => set({ background: e.target.value ? BACKGROUND_START[e.target.value as CanvasBackground['kind']] : undefined })}
+                  aria-label="Background"
+                  className={selectClass}
+                >
+                  <option value="">Command Center’s light gray</option>
+                  <option value="colour">A color</option>
+                  <option value="gradient">A gradient</option>
+                  <option value="image">An image</option>
+                </select>
+                {bg?.kind === 'colour' && (
+                  <ColourField label="Background color" fallback="#0b1220" value={bg.colour} onWhite={false} clearLabel=""
+                    help="The canvas color behind the cards. Light or dark both work."
+                    onChange={v => set({ background: { ...bg, colour: v } })} />
+                )}
+                {bg?.kind === 'gradient' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <ColourField label="From" fallback="#0b1220" value={bg.from} onWhite={false} clearLabel=""
+                        help="The color the gradient starts with, on the side the direction below starts from."
+                        onChange={v => set({ background: { ...bg, from: v } })} />
+                      <ColourField label="To" fallback="#1e3a8a" value={bg.to} onWhite={false} clearLabel=""
+                        help="The color the gradient ends with."
+                        onChange={v => set({ background: { ...bg, to: v } })} />
+                    </div>
+                    <select
+                      value={bg.direction}
+                      onChange={e => set({ background: { ...bg, direction: e.target.value as GradientDirection } })}
+                      aria-label="Gradient direction"
+                      className={selectClass}
+                    >
+                      {DIRECTIONS.map(([d, label]) => <option key={d} value={d}>{label}</option>)}
+                    </select>
+                  </>
+                )}
+                {bg?.kind === 'image' && (
+                  <>
+                    <ImageField label="Background image" hint="Up to 256 KB uploaded, or an https:// address." value={bg.url}
+                      help="A picture that fills or tiles the canvas behind the cards. Upload one, or paste an https:// address."
+                      onChange={v => set({ background: { ...bg, url: v } })} />
+                    <select
+                      value={bg.fit}
+                      onChange={e => set({ background: { ...bg, fit: e.target.value as 'cover' | 'tile' } })}
+                      aria-label="Image fit"
+                      className={selectClass}
+                    >
+                      <option value="cover">Fill the canvas</option>
+                      <option value="tile">Repeat as tiles</option>
+                    </select>
+                  </>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cards</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {CARD_CHOICES.map(choice => (
+                    <div key={choice.key}>
+                      <FieldLabel label={choice.label} help={choice.help} about={`card ${choice.label.toLowerCase()}`} className="text-xs text-gray-500 mb-0.5" />
+                      <select
+                        value={value.cards?.[choice.key] || ''}
+                        onChange={e => setCard(choice.key, e.target.value)}
+                        aria-label={`Card ${choice.label.toLowerCase()}`}
+                        className={selectClass}
+                      >
+                        <option value="">Standard</option>
+                        {choice.options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="sticky top-0">
+          <span className="block text-xs text-gray-500 mb-1">Preview</span>
+          <LookPreview look={value} page={page} />
+        </div>
+      </div>
     </div>
   );
 };
@@ -249,15 +265,15 @@ const LookPreview: React.FC<{ look: AppTheme; page: boolean }> = ({ look, page }
       aria-hidden
     >
       <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-white" style={{ background: dark }}>
-        <span className="font-semibold">Preview</span>
+        <span className="font-semibold">Your view</span>
         <span className="ml-auto px-2 py-0.5 rounded" style={{ background: primary }}>Tab</span>
       </div>
       <div className={clsx('p-3', !background && 'bg-gray-50')} style={backgroundStyle(background)}>
         {page ? (
           <p className="text-sm text-gray-500">The page’s widget fills this space.</p>
         ) : (
-          <div className={clsx('bg-white overflow-hidden w-2/3', cards.frame)}>
-            <div className={clsx('px-3 py-1.5', cards.header)}><span className={cards.title}>A card</span></div>
+          <div className={clsx('bg-white overflow-hidden', cards.frame)}>
+            {!cards.bare && <div className={clsx('px-3 py-1.5', cards.header)}><span className={cards.title}>A card</span></div>}
             <div className="px-3 py-2 text-sm text-gray-700">
               Revenue <span className="font-semibold" style={{ color: primary }}>$1.2M</span>
             </div>

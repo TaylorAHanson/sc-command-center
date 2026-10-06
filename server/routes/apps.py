@@ -227,7 +227,7 @@ def suggest_look(body: LookRequest, w: WorkspaceClient = Depends(get_db_client),
         raise HTTPException(status_code=502, detail="The model didn't answer. Try again in a moment.")
     theme, dropped = look_helper.theme_from_reply(reply)
     if theme is None:
-        raise HTTPException(status_code=422, detail="That didn't come back as a look. Try describing colours, a font or the cards.")
+        raise HTTPException(status_code=422, detail="That didn't come back as a look. Try describing colors, a font or the cards.")
     return {"theme": theme, "dropped": dropped}
 
 

@@ -6,7 +6,7 @@ import {
   DEFAULT_AGENT_NAME, filtersProblem, imageProblem, isPage, lookProblem, MAX_FILTERS, MAX_NAME_LENGTH, navStyle, pinnedAgentOf,
   savedLook, type App, type AppFilter, type AppNav, type AppSpec, type AppTheme,
 } from '../store/appSpec';
-import { ImageField } from './SettingsFields';
+import { FieldHelp, FieldLabel, ImageField } from './SettingsFields';
 import { LookEditor } from './LookEditor';
 import type { AgentProfile } from '../hooks/useAgentChat';
 
@@ -18,6 +18,9 @@ interface FilterDraft {
   options: string;
   default: string;
 }
+
+/** The agent picker's "No agent": the view offers no assistant, wherever it opens. */
+const NO_AGENT = '__none__';
 
 const keyFromLabel = (label: string): string => {
   const key = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -63,27 +66,24 @@ export const AppSettingsModal: React.FC<{
   // agent panel edits whichever is set; here the choice is saved as the view's.
   const oneTab = app.spec.tabs.length === 1;
   const [initialPin] = useState(oneTab ? pinnedAgentOf(app, app.spec.tabs[0]) : app.pinned_agent_id || '');
-  const [agentPin, setAgentPin] = useState(initialPin);
+  const [agentPin, setAgentPin] = useState(app.spec.assistant === 'off' ? NO_AGENT : initialPin);
+  const noAgent = agentPin === NO_AGENT;
   const pinnedAgent = agents.find(a => a.id === agentPin);
-  const agentUnknown = Boolean(agentPin && agentPin !== DEFAULT_AGENT_PIN && !pinnedAgent);
+  const agentUnknown = Boolean(agentPin && !noAgent && agentPin !== DEFAULT_AGENT_PIN && !pinnedAgent);
   const tabsPinnedOwn = oneTab ? 0 : app.spec.tabs.filter(t => t.pinned_agent_id).length;
   const branding = app.spec.branding || {};
   const [presentation, setPresentation] = useState<AppSpec['presentation']>(app.spec.presentation);
   const [title, setTitle] = useState(branding.title || '');
   const [logo, setLogo] = useState(branding.logo || '');
   const [favicon, setFavicon] = useState(branding.favicon || '');
-  const [assistant, setAssistant] = useState<AppSpec['assistant']>(app.spec.assistant);
   const [nav, setNav] = useState<AppNav['style']>(navStyle(app));
   const [look, setLook] = useState<AppTheme>(app.spec.theme || {});
-  // The tab on screen, when there is more than one; with one, the view's look is the tab's.
-  const lookTab = oneTab ? null : app.spec.tabs.find(t => t.id === activeAppTab?.id) || null;
-  const [tabLook, setTabLook] = useState<AppTheme>(lookTab?.theme || {});
   const [filters, setFilters] = useState<FilterDraft[]>(() => (app.spec.filters || []).map(draftOf));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
 
   const filterProblem = filtersProblem(filters.map(filterOf));
-  const invalid = Boolean(imageProblem(logo) || imageProblem(favicon) || lookProblem(look) || lookProblem(tabLook) || filterProblem);
+  const invalid = Boolean(imageProblem(logo) || imageProblem(favicon) || lookProblem(look) || filterProblem);
 
   const changeFilter = (index: number, change: Partial<FilterDraft>) =>
     setFilters(prev => prev.map((f, i) => {
@@ -100,7 +100,7 @@ export const AppSettingsModal: React.FC<{
     const reason = await updateAppSpec(app.id, {
       ...app.spec,
       presentation,
-      assistant,
+      assistant: noAgent ? 'off' : 'on',
       branding: {
         title: title.trim() || null,
         logo: logo || null,
@@ -109,10 +109,8 @@ export const AppSettingsModal: React.FC<{
       nav: nav === 'sidebar' ? { style: 'sidebar' } : null,
       theme: savedLook(look),
       filters: filters.map(filterOf),
-      tabs: oneTab
-        ? [{ ...app.spec.tabs[0], pinned_agent_id: null }]
-        : app.spec.tabs.map(t => (t.id === lookTab?.id ? { ...t, theme: savedLook(tabLook) } : t)),
-    }, agentPin || null);
+      tabs: oneTab ? [{ ...app.spec.tabs[0], pinned_agent_id: null }] : app.spec.tabs,
+    }, noAgent ? null : agentPin || null);
     setSaving(false);
     if (reason) {
       setRefusal(reason);
@@ -121,7 +119,7 @@ export const AppSettingsModal: React.FC<{
     // A pin is otherwise applied only on arriving at a tab, so a choice made
     // here would not show until the editor left and came back.
     const inForceHere = oneTab || !activeAppTab?.pinned_agent_id;
-    if (agentPin !== initialPin && inForceHere && (agentPin === DEFAULT_AGENT_PIN || pinnedAgent)) {
+    if (!noAgent && agentPin !== initialPin && inForceHere && (agentPin === DEFAULT_AGENT_PIN || pinnedAgent)) {
       selectAgent(agentPin === DEFAULT_AGENT_PIN ? '' : agentPin);
     }
     onClose();
@@ -151,7 +149,7 @@ export const AppSettingsModal: React.FC<{
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]"
+        className="bg-white rounded-lg shadow-xl w-full max-w-4xl flex flex-col max-h-[90vh]"
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-label="View settings"
@@ -166,11 +164,13 @@ export const AppSettingsModal: React.FC<{
           </button>
         </div>
 
-        <div className="p-4 space-y-5 overflow-y-auto">
+        <div className="px-6 py-5 space-y-6 overflow-y-auto">
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-gray-800">When someone opens this view’s link</h3>
-            {choice('workspace', 'Inside Command Center', 'With the sidebar, the widget library and the studios, as views have always opened.')}
-            {choice('standalone', 'On its own', 'Just this view, under its own title and logo. Its editors still build it here.')}
+            <div className="grid grid-cols-2 gap-3">
+              {choice('workspace', 'Inside Command Center', 'With the sidebar, the widget library and the studios, as views have always opened.')}
+              {choice('standalone', 'On its own', 'Just this view, under its own title and logo. Its editors still build it here.')}
+            </div>
           </section>
 
           <section className="space-y-2">
@@ -198,22 +198,12 @@ export const AppSettingsModal: React.FC<{
             <div>
               <h3 className="text-sm font-semibold text-gray-800">Look</h3>
               <p className="text-xs text-gray-500">
-                Colours, font, background and cards for every tab, wherever the view opens. White text sits on
-                the accent and dark colours, so each must be dark enough to read it on.
+                Colors, font, background and cards for every tab, wherever the view opens. White text sits on
+                the accent and dark colors, so each must be dark enough to read it on.
               </p>
             </div>
-            <LookEditor name="the view" value={look} onChange={setLook} page={oneTab && isPage(app.spec.tabs[0])} />
+            <LookEditor value={look} onChange={setLook} page={oneTab && isPage(app.spec.tabs[0])} />
           </section>
-
-          {lookTab && (
-            <section className="space-y-3" data-tab-look>
-              <div>
-                <h3 className="text-sm font-semibold text-gray-800">This tab’s look: {lookTab.name}</h3>
-                <p className="text-xs text-gray-500">Anything set here wins over the view’s look on this tab only.</p>
-              </div>
-              <LookEditor name="this tab" value={tabLook} onChange={setTabLook} inherited={look} page={isPage(lookTab)} />
-            </section>
-          )}
 
           <section className="space-y-3">
             <div>
@@ -223,63 +213,83 @@ export const AppSettingsModal: React.FC<{
                 which widgets that follow that variable then use, on every tab.
               </p>
             </div>
-            {filters.map((filter, index) => (
-              <div key={index} className="p-3 border border-gray-200 rounded-md space-y-2">
-                <div className="flex items-start gap-2">
-                  <div className="flex-1 min-w-0">
-                    <label className="block text-xs font-medium text-gray-600 mb-0.5">Label</label>
-                    <input
-                      type="text"
-                      value={filter.label}
-                      maxLength={MAX_NAME_LENGTH}
-                      onChange={e => changeFilter(index, { label: e.target.value })}
-                      placeholder="Region"
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
-                    />
+            {filters.length > 0 && (
+              <div className="grid grid-cols-2 gap-3">
+                {filters.map((filter, index) => (
+                  <div key={index} className="p-3 border border-gray-200 rounded-md space-y-2">
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <FieldLabel
+                          label="Label"
+                          help="The name shown on the dropdown above the canvas."
+                          className="text-xs font-medium text-gray-600 mb-0.5"
+                        />
+                        <input
+                          type="text"
+                          value={filter.label}
+                          maxLength={MAX_NAME_LENGTH}
+                          onChange={e => changeFilter(index, { label: e.target.value })}
+                          placeholder="Region"
+                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <FieldLabel
+                          label="Variable"
+                          help="The dashboard variable a choice sets. Only widgets written to follow it change. It is filled in from the label until you edit it."
+                          className="text-xs font-medium text-gray-600 mb-0.5"
+                        />
+                        <input
+                          type="text"
+                          value={filter.key}
+                          maxLength={64}
+                          onChange={e => changeFilter(index, { key: e.target.value.trim() })}
+                          placeholder="region"
+                          className="w-full px-2 py-1 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFilters(prev => prev.filter((_, i) => i !== index))}
+                        className="mt-5 p-1 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-md"
+                        title="Remove this filter"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div>
+                      <FieldLabel
+                        label="Options, one per line"
+                        help="The choices in the dropdown. People can also pick All, which clears the variable."
+                        className="text-xs font-medium text-gray-600 mb-0.5"
+                      />
+                      <textarea
+                        value={filter.options}
+                        rows={3}
+                        onChange={e => changeFilter(index, { options: e.target.value })}
+                        placeholder={'EMEA\nAPAC\nAmericas'}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <FieldLabel
+                        label="Starts on"
+                        help="The option chosen when the view opens. Choices aren’t saved, so each visit starts here."
+                        className="text-xs font-medium text-gray-600"
+                      />
+                      <select
+                        value={optionsOf(filter.options).includes(filter.default) ? filter.default : ''}
+                        onChange={e => changeFilter(index, { default: e.target.value })}
+                        className="px-2 py-1 text-sm border border-gray-300 rounded-md bg-white"
+                      >
+                        <option value="">All</option>
+                        {optionsOf(filter.options).map(option => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <label className="block text-xs font-medium text-gray-600 mb-0.5">Variable</label>
-                    <input
-                      type="text"
-                      value={filter.key}
-                      maxLength={64}
-                      onChange={e => changeFilter(index, { key: e.target.value.trim() })}
-                      placeholder="region"
-                      className="w-full px-2 py-1 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setFilters(prev => prev.filter((_, i) => i !== index))}
-                    className="mt-5 p-1 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-md"
-                    title="Remove this filter"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-0.5">Options, one per line</label>
-                  <textarea
-                    value={filter.options}
-                    rows={3}
-                    onChange={e => changeFilter(index, { options: e.target.value })}
-                    placeholder={'EMEA\nAPAC\nAmericas'}
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-gray-600">Starts on</label>
-                  <select
-                    value={optionsOf(filter.options).includes(filter.default) ? filter.default : ''}
-                    onChange={e => changeFilter(index, { default: e.target.value })}
-                    className="px-2 py-1 text-sm border border-gray-300 rounded-md bg-white"
-                  >
-                    <option value="">All</option>
-                    {optionsOf(filter.options).map(option => <option key={option} value={option}>{option}</option>)}
-                  </select>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
             {filterProblem && <p className="text-xs text-red-600">{filterProblem}</p>}
             {filters.length < MAX_FILTERS && (
               <button
@@ -294,9 +304,16 @@ export const AppSettingsModal: React.FC<{
 
           <section className="space-y-2">
             <div>
-              <h3 className="text-sm font-semibold text-gray-800">Agent</h3>
+              <div className="flex items-center gap-1">
+                <h3 className="text-sm font-semibold text-gray-800">Agent</h3>
+                <FieldHelp
+                  about="Agent"
+                  text="The agent the assistant starts with on this view, inside Command Center and on its own. Not pinned keeps whichever agent someone already has open; No agent removes the assistant from this view."
+                />
+              </div>
               <p className="text-xs text-gray-500">
                 The agent this view opens with, wherever it opens. Anyone can still switch agents in the panel.
+                With <strong className="font-medium">No agent</strong>, the view has no assistant at all.
               </p>
             </div>
             <select
@@ -306,6 +323,7 @@ export const AppSettingsModal: React.FC<{
               className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
             >
               <option value="">Not pinned: keep the agent that’s open</option>
+              <option value={NO_AGENT}>No agent: no assistant on this view</option>
               <option value={DEFAULT_AGENT_PIN}>{DEFAULT_AGENT_NAME}</option>
               {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               {agentUnknown && (
@@ -315,7 +333,7 @@ export const AppSettingsModal: React.FC<{
             {app.is_global && pinnedAgent?.visibility === 'personal' && (
               <p className="text-xs text-amber-600">This agent is private, so others on this view get the {DEFAULT_AGENT_NAME}.</p>
             )}
-            {tabsPinnedOwn > 0 && (
+            {tabsPinnedOwn > 0 && !noAgent && (
               <p className="text-xs text-gray-500">
                 {tabsPinnedOwn === 1 ? 'One tab pins its own agent' : `${tabsPinnedOwn} tabs pin their own agent`}, which wins there.
               </p>
@@ -325,10 +343,14 @@ export const AppSettingsModal: React.FC<{
           <section className="space-y-3">
             <div>
               <h3 className="text-sm font-semibold text-gray-800">When it opens on its own</h3>
-              <p className="text-xs text-gray-500">Inside Command Center the view keeps its name, and the assistant is always there.</p>
+              <p className="text-xs text-gray-500">Inside Command Center the view keeps its name.</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+              <FieldLabel
+                label="Title"
+                help="The name in the header and on the browser tab when the view opens on its own. Left empty, the view’s own name is used."
+                className="text-sm font-medium text-gray-700 mb-1"
+              />
               <input
                 type="text"
                 value={title}
@@ -338,12 +360,12 @@ export const AppSettingsModal: React.FC<{
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
               />
             </div>
-            <ImageField label="Logo" hint="Shown beside the title." value={logo} onChange={setLogo} />
-            <ImageField label="Browser tab icon" hint="Shown on the browser tab." value={favicon} onChange={setFavicon} />
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input type="checkbox" checked={assistant === 'on'} onChange={e => setAssistant(e.target.checked ? 'on' : 'off')} />
-              Offer the assistant
-            </label>
+            <div className="grid grid-cols-2 gap-4">
+              <ImageField label="Logo" hint="Shown beside the title." value={logo} onChange={setLogo}
+                help="An image beside the title in the header when the view opens on its own. Upload one up to 256 KB, or paste an https:// address." />
+              <ImageField label="Browser tab icon" hint="Shown on the browser tab." value={favicon} onChange={setFavicon}
+                help="The small icon on the browser tab when the view opens on its own, in place of Command Center’s." />
+            </div>
           </section>
 
           {refusal && <p className="text-sm text-red-600">{refusal}</p>}

@@ -71,7 +71,7 @@ FONTS = ("inter", "manrope", "space-grotesk", "fraunces", "ibm-plex-sans", "jetb
 CARD_STYLES = {
     "radius": ("none", "sm", "md", "lg", "xl"),
     "depth": ("flat", "border", "shadow"),
-    "header": ("bar", "minimal"),
+    "header": ("bar", "minimal", "none"),
 }
 
 # A filter's choice lands in the dashboard variables under its key, which widget
@@ -305,7 +305,7 @@ def read_theme(value: Any) -> Optional[Dict[str, Any]]:
 
 
 def _theme(value: Any, strict: bool, where: str = "theme") -> Optional[Dict[str, Any]]:
-    """An app's or a tab's look. `primary` and `dark` are always present, and the
+    """An app's look. `primary` and `dark` are always present, and the
     rest only when set, so a theme from before backgrounds reads back unchanged."""
     if value is None:
         return None
@@ -322,7 +322,7 @@ def _theme(value: Any, strict: bool, where: str = "theme") -> Optional[Dict[str,
             out[key] = colour.lower()
         elif strict:
             raise SpecError(
-                f"{where}.{key} must be a #rrggbb colour dark enough to carry white text "
+                f"{where}.{key} must be a #rrggbb color dark enough to carry white text "
                 f"(a contrast of at least {MIN_WHITE_CONTRAST:g}:1)."
             )
         else:
@@ -335,7 +335,7 @@ def _theme(value: Any, strict: bool, where: str = "theme") -> Optional[Dict[str,
             out["background"] = background
         elif strict:
             raise SpecError(
-                f"{where}.background must be a colour, a two-colour gradient "
+                f"{where}.background must be a color, a two-color gradient "
                 f"({', '.join(GRADIENT_DIRECTIONS)}), or an https or base64 image "
                 f"of at most {MAX_IMAGE_CHARS // 1024} KB ({', '.join(BACKGROUND_FITS)})."
             )
@@ -501,9 +501,6 @@ def _normalize(raw: Dict[str, Any], app_id: str, *, strict: bool, new_id: Callab
             "widgets": copy.deepcopy(widgets),
             "pinned_agent_id": pinned,
         }
-        theme = _theme(tab.get("theme"), strict, f"Tab {position}'s theme")
-        if theme:
-            entry["theme"] = theme
         tabs.append(entry)
 
     if not tabs:
@@ -589,7 +586,6 @@ def compose_spec(
     for source in sources:
         source_tabs = (source.get("spec") or {}).get("tabs") or []
         single = len(source_tabs) == 1
-        source_theme = (source.get("spec") or {}).get("theme") or {}
         for tab in source_tabs:
             widgets = []
             for widget in tab.get("widgets") or []:
@@ -602,9 +598,6 @@ def compose_spec(
                         widget["i"] = instance = new_id()
                     seen_widgets.add(instance)
                 widgets.append(widget)
-            # The same goes for its look, resolved key by key.
-            tab_theme = tab.get("theme") or {}
-            look = {k: v for k, v in {**source_theme, **{k: v for k, v in tab_theme.items() if v}}.items() if v}
             tabs.append({
                 "id": new_id(),
                 # A view's name lives on the row, not on its only tab.
@@ -614,7 +607,6 @@ def compose_spec(
                 # Resolving tab -> app -> default on the source gave this agent,
                 # so the copied tab says so explicitly.
                 "pinned_agent_id": tab.get("pinned_agent_id") or source.get("pinned_agent_id") or None,
-                "theme": look or None,
             })
     if len(tabs) > MAX_TABS:
         raise SpecError(f"An app may have at most {MAX_TABS} tabs; these views have {len(tabs)} between them.")
@@ -630,6 +622,8 @@ def compose_spec(
     spec = legacy_spec("", [])
     spec["tabs"] = tabs
     spec["filters"] = filters
+    # A view has one look, so the app takes the first source's that has one.
+    spec["theme"] = next((read_theme(s["spec"]["theme"]) for s in sources if (s.get("spec") or {}).get("theme")), None)
     if presentation is not None:
         spec["presentation"] = presentation
     return validate_spec(spec, "", new_id=new_id)

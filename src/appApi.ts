@@ -19,7 +19,7 @@ export interface AppApi {
   activeTabId: string;
   goToTab: (idOrName: string) => void;
   openAssistant: (request?: AssistantRequest) => void;
-  /** The tab's colours, and its font as a CSS font-family (null: Command Center's). */
+  /** The view's colors, and its font as a CSS font-family (null: Command Center's). */
   theme: { primary: string; dark: string; font: string | null };
 }
 
@@ -56,7 +56,7 @@ export const useAppApi = (): AppApi | undefined => {
   // the same object and their effects don't re-run.
   const tabsKey = JSON.stringify(tabs);
   const activeTabId = activeAppTab?.id || '';
-  const theme = effectiveTheme(activeApp, activeAppTab);
+  const theme = effectiveTheme(activeApp);
   const primary = theme.primary && !colourProblem(theme.primary) ? theme.primary : DEFAULT_THEME.primary;
   const dark = theme.dark && !colourProblem(theme.dark) ? theme.dark : DEFAULT_THEME.dark;
   const font = fontById(theme.font)?.stack || null;

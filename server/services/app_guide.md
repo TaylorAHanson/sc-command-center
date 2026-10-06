@@ -75,28 +75,32 @@ per-user unless they are global.
   link opens. **Inside Command Center** is the default and how every view has
   always opened. **On its own** opens just that view: no sidebar, no Widget
   Library, no studios, under the title, logo and browser-tab icon set there. The
-  assistant appears too, unless **Offer the assistant** is off. Branding is only
-  used on its own; inside Command Center the view keeps its name.
+  assistant appears too, unless the view's agent is **No agent**. Branding is
+  only used on its own; inside Command Center the view keeps its name.
+- Each field in **Settings** has a **?** beside it; hovering it (or tabbing to
+  it) explains what the field does.
 - **Agent** in **Settings** picks the agent the view opens with, inside Command
   Center and on its own; it is the same pin as the pin button in the assistant
   panel (below). The launcher button names whichever agent is selected.
-- **Look** in **Settings** styles the view. **Accent colour** and **Dark
-  colour** replace Command Center's blue and navy, widgets included, and each
+  **No agent** removes the assistant from the view everywhere: on its own there
+  is no assistant, and inside Command Center the launcher and panel disappear
+  while that view is on screen (they come back on other views, studios and
+  pages). Picking any agent again brings it back.
+- **Look** in **Settings** styles the view, the same on every tab. **Accent
+  color** and **Dark color** replace Command Center's blue and navy, widgets included, and each
   must be dark enough for white text. **Font** is one of Inter, Manrope, Space
   Grotesk, Fraunces, IBM Plex Sans or JetBrains Mono (no others: fonts are
-  bundled with the app). **Background** is Command Center's light grey, a
-  colour, a two-colour gradient, or an image (an https:// address, or an upload
+  bundled with the app). **Background** is Command Center's light gray, a
+  color, a two-color gradient, or an image (an https:// address, or an upload
   up to 256 KB) that fills or tiles the canvas. **Cards** sets their corners,
-  edges (flat, outlined, shadowed) and title (in a grey bar, or plain); a
-  card's body stays white so widgets stay readable. Inside Command Center the
+  edges (flat, outlined, shadowed) and title (in a gray bar, plain, or **No title**, which
+  leaves the title off and shows the card's buttons only on hover); a card's
+  body stays white so widgets stay readable. Inside Command Center the
   look covers the view's tabs, filter bar and canvas, while the sidebar and
-  header stay Command Center's; opened on its own, the whole page uses it.
-- **This tab's look** appears in **Settings** on a view with more than one tab,
-  for the tab that is open. Anything set there wins over the view's look on
-  that tab only; anything left as **Same as the view** follows the view. A page
-  tab takes only the colours and font, because its widget draws its own
-  background and it has no cards.
-- **Suggest**, beside **Describe the look** in either section, turns a
+  header stay Command Center's; opened on its own, the whole page uses it. A
+  page tab takes only the colors and font, because its widget draws its own
+  background and it has no cards. A preview beside the choices shows the result.
+- **Suggest**, beside **Describe the look**, turns a
   description ("dark navy, like a control room, rounded cards") into those
   choices. It only fills the fields: nothing is saved until **Save**, **Undo**
   puts back what was there, and anything the model chose that the app can't
@@ -160,8 +164,7 @@ assistant with a chosen agent and a question already typed. It can't send that
 question: the user reads it and presses Send, because sending is what runs the
 assistant's tools as them. It also can't open another view or any other address.
 If the agent it asks for is one the user can't open, the assistant keeps the
-agent it had. In a view opened on its own with the assistant turned off, the
-button does nothing. Ask Widget Studio for this in plain words — "tiles that go
+agent it had. In a view whose agent is **No agent**, the button does nothing. Ask Widget Studio for this in plain words — "tiles that go
 to each tab", "an Ask about this button".
 
 ## Widget Library
