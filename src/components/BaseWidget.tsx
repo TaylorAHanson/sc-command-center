@@ -21,6 +21,8 @@ interface BaseWidgetProps {
   helpText?: string;
 
   customActions?: React.ReactNode;
+  /** A line above the widget for whoever can fix what it says. */
+  notice?: React.ReactNode;
   /** The view's card style; see `cardClasses`. */
   look?: { frame: string; header: string; title: string; bare?: boolean };
   className?: string;
@@ -48,6 +50,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
   onChangeVersion,
   helpText,
   customActions,
+  notice,
   look = DEFAULT_LOOK,
   className,
   style,
@@ -78,24 +81,22 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
       {...props}
     >
       <div className={bar}>
-        <div className={`flex items-center gap-2 ${look.title}`} title={look.bare ? title : undefined}>
-          <GripHorizontal className="w-4 h-4 text-gray-400" />
-          {!look.bare && title}
+        <div className={`flex items-center gap-2 min-w-0 ${look.title}`} title={title}>
+          {!locked && <GripHorizontal className="w-4 h-4 text-gray-400 shrink-0" />}
+          {!look.bare && <span className="truncate">{title}</span>}
         </div>
-        <div className="flex items-center gap-1">
-          {availableVersions && availableVersions.length > 0 && version !== undefined && (
+        <div className="flex items-center gap-1 shrink-0">
+          {onChangeVersion && availableVersions && availableVersions.length > 0 && version !== undefined && (
             <div className="relative mr-1 flex items-center bg-gray-100 rounded px-1" title={latestVersion && latestVersion > version ? `Update available: v${latestVersion}` : "Widget Version"}>
               <select
                 value={version}
                 onChange={(e) => {
                   e.stopPropagation();
-                  onChangeVersion?.(Number(e.target.value));
+                  onChangeVersion(Number(e.target.value));
                 }}
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
-                disabled={!onChangeVersion}
-                className={`text-[10px] font-medium bg-transparent border-none text-gray-500 py-0.5 pl-1 pr-4 focus:ring-0 cursor-pointer ${!onChangeVersion ? 'appearance-none pr-1' : ''}`}
-                style={!onChangeVersion ? { WebkitAppearance: 'none', MozAppearance: 'none' } : {}}
+                className="text-[10px] font-medium bg-transparent border-none text-gray-500 py-0.5 pl-1 pr-4 focus:ring-0 cursor-pointer"
               >
                 {availableVersions.map((v: number) => (
                   <option key={v} value={v}>v{v}</option>
@@ -133,7 +134,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
                 onConfigure();
               }}
               className="text-gray-400 hover:text-brand-blue transition-colors"
-              title="Configure Widget"
+              title="Widget settings"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -168,6 +169,9 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
           )}
         </div>
       </div>
+      {notice && (
+        <div role="note" className="shrink-0 px-3 py-1.5 text-xs text-amber-800 bg-amber-50 border-b border-amber-200">{notice}</div>
+      )}
       <div 
         className="flex-1 p-4 overflow-auto relative min-h-0 min-w-0"
         onDoubleClick={(e) => {

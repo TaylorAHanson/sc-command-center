@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
+import { rememberedFilters, rememberFilters } from './rememberedFilters';
 import { filterDefaults, isPage, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, PAGE_WIDGET_PLACE, shownTab, withTab, type App, type AppSpec, type AppTab, type TabLayout, type WidgetLayout } from './appSpec';
 import { appHash, appLink, isStandalone, linkTab, parseAppRoute, routeTab, withoutRouteParams, type AppRoute } from './appRoute';
 import { useShell } from '../shell';
@@ -48,7 +49,8 @@ interface DashboardContextType {
   /** Show another tab of the app on screen. */
   selectTab: (tabId: string) => void;
   /** Adds an empty tab and shows it; returns its id, or null if it can't. */
-  addTab: (appId: string, name: string, layout?: TabLayout) => string | null;
+  /** `firstName` names the existing first tab in the same save, when it has no name yet. */
+  addTab: (appId: string, name: string, layout?: TabLayout, firstName?: string) => string | null;
   /** Turns a canvas into a page or back. A canvas with several widgets can't become a page. */
   setTabLayout: (appId: string, tabId: string, layout: TabLayout) => boolean;
   renameTab: (appId: string, tabId: string, name: string) => void;
@@ -74,7 +76,9 @@ interface DashboardContextType {
   generateShareLink: () => string;
   generateWidgetShareLink: (widgetId: string) => string;
 
-  configModal: { isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null };
+  /** `editing`: changing a placed widget's settings, rather than placing it. */
+  configModal: { isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null; editing: boolean };
+  /** Pass `initialConfig` (even `{}`) when changing a placed widget; leave it out when placing one. */
   openConfigModal: (widgetId: string, onSave: (config: any) => void, initialConfig?: any) => void;
   closeConfigModal: () => void;
 }
@@ -110,11 +114,16 @@ export const DashboardProvider: React.FC<{
   const activeAppTab = shownTab(activeApp, activeTabId);
   // A filter's default is what its variable holds until someone chooses; "All"
   // is a choice too (an empty string), so it is not overridden by the default.
+  // The choice someone last left this view on outranks the default.
   const filters = activeApp?.spec.filters;
+  const me = username === 'unknown' ? null : username;
   const variables = useMemo(() => {
-    const defaults = filterDefaults(filters);
-    return Object.keys(defaults).length ? { ...defaults, ...chosen } : chosen;
-  }, [filters, chosen]);
+    const start = { ...filterDefaults(filters), ...rememberedFilters(me, activeAppId, filters) };
+    return Object.keys(start).length ? { ...start, ...chosen } : chosen;
+  }, [filters, chosen, me, activeAppId]);
+  useEffect(() => {
+    if (appVariables.appId) rememberFilters(me, appVariables.appId, apps.find(a => a.id === appVariables.appId)?.spec.filters, appVariables.values);
+  }, [appVariables, me, apps]);
   const appsRef = useRef(apps);
   useEffect(() => { appsRef.current = apps; }, [apps]);
 
@@ -470,10 +479,11 @@ export const DashboardProvider: React.FC<{
     return true;
   };
 
-  const addTab = (appId: string, name: string, layout: TabLayout = 'canvas'): string | null => {
+  const addTab = (appId: string, name: string, layout: TabLayout = 'canvas', firstName?: string): string | null => {
     const id = uuidv4();
+    const first = firstName?.trim().slice(0, MAX_NAME_LENGTH);
     const added = changeTabs(appId, tabs => (tabs.length >= MAX_TABS ? null : [
-      ...tabs,
+      ...tabs.map((t, i) => (i === 0 && first && !t.name ? { ...t, name: first } : t)),
       { id, name: name.trim().slice(0, MAX_NAME_LENGTH), layout, widgets: [], pinned_agent_id: null },
     ]));
     if (!added) return null;
@@ -597,16 +607,16 @@ export const DashboardProvider: React.FC<{
 
   const clearPendingWidget = useCallback(() => setPendingWidgetId(null), []);
 
-  const [configModal, setConfigModal] = useState<{ isOpen: boolean; widgetId: string | null; initialConfig: any; onSave: ((config: any) => void) | null }>({
-    isOpen: false, widgetId: null, initialConfig: {}, onSave: null
+  const [configModal, setConfigModal] = useState<DashboardContextType['configModal']>({
+    isOpen: false, widgetId: null, initialConfig: {}, onSave: null, editing: false
   });
 
-  const openConfigModal = (widgetId: string, onSave: (config: any) => void, initialConfig: any = {}) => {
-    setConfigModal({ isOpen: true, widgetId, initialConfig, onSave });
+  const openConfigModal = (widgetId: string, onSave: (config: any) => void, initialConfig?: any) => {
+    setConfigModal({ isOpen: true, widgetId, initialConfig: initialConfig ?? {}, onSave, editing: initialConfig !== undefined });
   };
 
   const closeConfigModal = () => {
-    setConfigModal({ isOpen: false, widgetId: null, initialConfig: {}, onSave: null });
+    setConfigModal({ isOpen: false, widgetId: null, initialConfig: {}, onSave: null, editing: false });
   };
 
   return (

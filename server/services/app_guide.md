@@ -33,24 +33,29 @@ A view is a named set of widgets, laid out on one or more tabs. Views are
 per-user unless they are global.
 
 - **New View** in the sidebar creates a blank one. The pencil icon renames it.
-- **Add tab** (top right) gives a one-tab view a second tab; a tab bar then
-  appears under the header with a **+** for more (up to 50). Double-click a tab
-  to rename it, drag it to reorder, and use its **×** to delete it (asking first
-  if it holds widgets; the last tab can't be deleted). Whoever may move widgets
+- **Add tab** (top right) gives a one-tab view a second tab, asking what to
+  call the new tab and the one already there (left empty, that one becomes
+  "Overview"); a tab bar then appears under the header with a **+** for more (up
+  to 50). Double-click a tab, or select it and press F2, to rename it; drag it to
+  reorder, and use its **×** to delete it (asking first in a dialog if it holds
+  widgets; the last tab can't be deleted). From the keyboard, Tab reaches the
+  tab bar, the arrow keys and Home/End move along it, and Enter or Space opens
+  a tab. Whoever may move widgets
   in a view may change its tabs: not while it is locked, and in a global view
   only an admin. A widget added from the Widget Library goes on the tab being
   shown.
-- A tab is a **canvas** (widgets in cards on a grid, the default) or a **page**
-  (one widget filling the whole tab, with no card around it, for a landing page
-  or hub). **Add tab** and the **+** ask which. The small grid/page icon on the
-  tab being shown switches it; a canvas holding more than one widget can't
-  become a page until the others are removed. On a one-tab view, **Add tab** →
-  **Or make this view itself a page** does the same. Any tab may be a page, in
+- A tab is **Cards on a grid** (several widgets, each in a card; the default)
+  or a **Full page** (one widget filling the whole tab, with no card around it,
+  for a landing page or hub). **Add tab** and the **+** ask which. The small grid/page icon on the
+  tab being shown switches it; a grid holding more than one widget can't
+  become a full page until the others are removed. On a one-tab view, **Add
+  tab** → **Or make this whole view one full page** does the same. Any tab may be a page, in
   any order.
 - On a page, drag a widget from the Widget Library onto it (dropping another
   replaces it, after asking). The toolbar in its top-right corner — shown only
   to whoever may change the tab, inside Command Center — offers **Change
-  widget**, **Edit in Widget Studio**, configure, remove, and back to a canvas.
+  widget**, **Edit in Widget Studio**, its settings, remove (after asking), and
+  back to cards on a grid.
   A view opened on its own shows the page without the toolbar. Any widget can
   go on a page, but one built as a page in Widget Studio (marked **PAGE** in
   the Widget Library) is the one made to fill it.
@@ -60,10 +65,10 @@ per-user unless they are global.
 - **Global Views** are shared templates. A user only sees the global views whose
   domain they have at least Viewer access to. Hovering one and clicking the copy
   icon duplicates it into My Views, where it becomes editable.
-- **Lock** (top right) freezes the layout so widgets cannot be dragged or
+- **Lock** (top right, on a view; not on the Admin Panel, guides or studios) freezes the layout so widgets cannot be dragged or
   resized by accident; **Unlock** reverses it. A global view is read-only for
   anyone who is not an admin.
-- **Share** (top right) copies a link to the current view. The share icon on an
+- **Share** (top right, on a view) copies a link to the current view. The share icon on an
   individual widget copies a link that opens that widget full-screen. The address
   in the browser is the same link, so copying it from there works too.
 - Opening a link to someone else's personal view adds it to the opener's
@@ -71,17 +76,23 @@ per-user unless they are global.
   the usual sign-in, and a global view opens only for people with access to its
   domain. Links copied before the link format changed (`?shared_view=…`,
   `#/view/…`) keep working; new ones look like `#/app/…`.
-- **Settings** (top right, for anyone who may rename the view) decides how its
-  link opens. **Inside Command Center** is the default and how every view has
+- **Settings** (top right, for anyone who may rename the view) has four
+  sections listed down its left side: **Opening**, **Look**, **Filters** and
+  **Assistant**. A red dot marks a section with something to fix, and the
+  footer names it, because **Save** stays off until it is fixed.
+- **Opening** decides how the view's link opens. **Inside Command Center** is the default and how every view has
   always opened. **On its own** opens just that view: no sidebar, no Widget
-  Library, no studios, under the title, logo and browser-tab icon set there. The
-  assistant appears too, unless the view's agent is **No agent**. Branding is
-  only used on its own; inside Command Center the view keeps its name.
+  Library, no studios, under the title, logo and browser-tab icon set there; those
+  three fields only appear once **On its own** is chosen. The assistant appears
+  too, unless the view's agent is **No agent**. Branding is only used on its
+  own; inside Command Center the view keeps its name.
 - Each field in **Settings** has a **?** beside it; hovering it (or tabbing to
   it) explains what the field does.
-- **Agent** in **Settings** picks the agent the view opens with, inside Command
-  Center and on its own; it is the same pin as the pin button in the assistant
-  panel (below). The launcher button names whichever agent is selected.
+- **Assistant** in **Settings** has the **Agent** picker: the agent the view
+  opens with, inside Command Center and on its own; it is the same pin as the
+  pin button in the assistant panel (below). **Whichever agent is open** pins
+  nothing, so people keep the agent they had. The launcher button names
+  whichever agent is selected.
   **No agent** removes the assistant from the view everywhere: on its own there
   is no assistant, and inside Command Center the launcher and panel disappear
   while that view is on screen (they come back on other views, studios and
@@ -92,11 +103,11 @@ per-user unless they are global.
   Grotesk, Fraunces, IBM Plex Sans or JetBrains Mono (no others: fonts are
   bundled with the app). **Background** is Command Center's light gray, a
   color, a two-color gradient, or an image (an https:// address, or an upload
-  up to 256 KB) that fills or tiles the canvas. **Cards** sets their corners,
+  up to 256 KB) that fills or tiles the area behind the cards. **Cards** sets their corners,
   edges (flat, outlined, shadowed) and title (in a gray bar, plain, or **No title**, which
   leaves the title off and shows the card's buttons only on hover); a card's
   body stays white so widgets stay readable. Inside Command Center the
-  look covers the view's tabs, filter bar and canvas, while the sidebar and
+  look covers the view's tabs, filter bar and background, while the sidebar and
   header stay Command Center's; opened on its own, the whole page uses it. A
   page tab takes only the colors and font, because its widget draws its own
   background and it has no cards. A preview beside the choices shows the result.
@@ -109,21 +120,24 @@ per-user unless they are global.
   other are kept as one version, so a burst of moving and resizing doesn't fill
   its history. Every save to a global view is still its own version, because
   promotion copies and rolls back to those.
-- Two more choices in **Settings** apply wherever the view opens. **Tabs**:
-  **Across the top** (the default) or **Down the side**; a view with one tab
-  shows no tabs either way. **Filters**: dropdowns under the header, each with a
+- Two more choices in **Settings** apply wherever the view opens. **Tabs**,
+  under **Look**: **Across the top** (the default) or **Down the side**; a view
+  with one tab shows no tabs either way. **Filters**: dropdowns under the header, each with a
   label, a variable name, its options (one per line) and the option it starts
   on. Anyone who can see the view can use them. A choice sets that dashboard
   variable for every widget on every tab, exactly as a widget passing a value to
   others does, so only widgets written to follow that variable change. **All**
-  clears it. Choices aren't saved: reopening the view starts from the defaults.
+  clears it. Each person comes back to the choices they last made on that view,
+  remembered in their browser (a different browser or computer starts from the
+  defaults); a remembered option the filter no longer offers falls back to its
+  default.
   A view built from several views keeps their filters.
 - A view opened on its own is read-only for everyone, including its owner; its
   tabs can be switched but not changed.
   **Copy link** there goes to the same people who get **Share** in Command
   Center, and **Edit** goes to anyone who may change the view's settings.
   **Edit** reopens it inside Command Center at an address starting
-  `#/workspace/…`, which keeps it there on reload; **Open** in the header goes
+  `#/workspace/…`, which keeps it there on reload; **Preview** in the header goes
   back to seeing it on its own. Who can open the link is unchanged, and opening
   someone else's personal view on its own still adds it to **Shared Views**.
 
@@ -138,9 +152,12 @@ pages, or buttons that perform an action.
   widgets flow out of the way. Resize from the bottom-right corner.
 - The widget header carries per-widget controls: full-screen, copy link, remove,
   and — when the widget was built to accept runtime inputs — a gear that opens
-  its configuration.
+  its settings. On a view someone can't change (locked, global, shared) a card
+  shows only its title and full-screen, plus copy link; on its own, not even
+  that. Long titles are cut short with "…"; hover for the whole name.
 - Widgets that exist in more than one version have a version picker in the
-  header, so a user can pin an older version on their own view.
+  header, so a user can pin an older version on their own view. Saving a
+  widget's settings keeps that pin.
 
 **What a widget is allowed to contain.** Saving a widget — in Widget Studio or by
 importing one — is refused if its code uses `eval`, `new Function`,
@@ -166,6 +183,21 @@ assistant's tools as them. It also can't open another view or any other address.
 If the agent it asks for is one the user can't open, the assistant keeps the
 agent it had. In a view whose agent is **No agent**, the button does nothing. Ask Widget Studio for this in plain words — "tiles that go
 to each tab", "an Ask about this button".
+
+**Tab links** is a widget that comes with Command Center rather than one someone
+built, so it is in every Widget Library, marked certified, and can't be edited,
+deleted or claimed. It draws a tile (or, under **Show as**, a list line) for
+each tab of the view and opens that tab when clicked. With no settings it shows
+every other tab, including ones added later; its gear sets a **Heading** and
+**Links to** → **Only the tabs I pick**. Picked tabs are kept by the tab itself,
+not its name, so renaming a tab keeps its link and deleting one drops its tile.
+It reads no data, so it needs no access beyond seeing the view. Suggest it when
+someone just wants tiles to each tab; Widget Studio is for anything more.
+
+A widget that opens a tab by name — `goToTab('Sales')` in its code — shows a
+note to whoever can change the view when the view has no tab of that name
+(names match ignoring case). The fix is to name a tab to match, or to change
+the widget. Viewers never see the note.
 
 ## Widget Library
 
@@ -241,7 +273,7 @@ description.
    code the agent wrote are fixed automatically, like a failed run; warnings are
    left to you.
 5. **Card or page** — the switch above the preview. A **Card** sits on a
-   canvas with other widgets; a **Page** fills a whole tab of a view, brings its
+   tab with other widgets; a **Page** fills a whole tab of a view, brings its
    own background and layout, and is what a landing page or hub should be. A
    new widget whose first request asks for a landing page, hub or full-screen
    page starts as a page, and the studio says so; anything else starts as a
@@ -255,7 +287,9 @@ description.
    page you want and the agent works from it. Cards on a page that name a part
    of the view (a persona, a team) open the tab of that name when the view has
    one, found by name when clicked, and otherwise ask the assistant; so add the
-   tabs, named as the cards are, and the cards start leading to them.
+   tabs, named as the cards are, and the cards start leading to them. Until
+   then, editors of the view see a note on the page naming the tabs it is
+   missing.
 6. **Agent settings** (the sliders icon above the chat) — two options, remembered
    in that browser rather than set for everyone. *Conduct review after change*
    (off by default) has the agent re-read its own code once it has compiled and
@@ -487,7 +521,7 @@ The **pin** button beside the agent picker makes a view open the assistant with
 the agent selected there (for anyone who may change the view's settings). On a
 view with several tabs it asks where: **This tab** or **Every tab** of the view;
 a tab's own pin wins over the view's on that tab. Clicking a ticked choice
-unpins it. **Settings → Agent** sets the view's pin too, and shows how many tabs
+unpins it. **Settings → Assistant** sets the view's pin too, and shows how many tabs
 pin their own. A pin is a starting point, not a lock: anyone can pick another agent
 while they're on the view.
 

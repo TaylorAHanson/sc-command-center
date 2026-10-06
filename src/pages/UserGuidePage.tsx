@@ -50,7 +50,7 @@ export const UserGuidePage: React.FC = () => {
                 Creating a View
               </div>
               <p className="text-sm text-gray-600">
-                Click <strong>New View</strong> in the left sidebar to create a fresh, blank canvas. You can rename your view by clicking the pencil icon next to its name.
+                Click <strong>New View</strong> in the left sidebar to create a fresh, blank view. You can rename your view by clicking the pencil icon next to its name.
               </p>
             </div>
 
@@ -60,13 +60,13 @@ export const UserGuidePage: React.FC = () => {
                 Tabs
               </div>
               <p className="text-sm text-gray-600">
-                Click <strong>Add tab</strong> in the top-right corner to give a view a second tab; use the <strong>+</strong> in the tab bar for more. Double-click a tab to rename it, drag it to reorder, or click its <strong>×</strong> to delete it. Widgets you add go on the tab you're looking at, and filters one widget sets apply on every tab of the view. Each tab is a <strong>Canvas</strong> of cards or a <strong>Page</strong>: one widget filling the whole tab, for a landing page or hub. Adding a tab asks which; the grid/page icon on the tab you're looking at switches it, and you drag a widget from the library onto a page to fill it.
+                Click <strong>Add tab</strong> in the top-right corner to give a view a second tab; it asks what to call the new tab and the one you're on. Use the <strong>+</strong> in the tab bar for more. Double-click a tab (or select it and press <strong>F2</strong>) to rename it, drag it to reorder, or click its <strong>×</strong> to delete it; a tab with widgets asks first. The arrow keys move between tabs and Enter opens one. Widgets you add go on the tab you're looking at, and filters one widget sets apply on every tab of the view. Each tab is <strong>Cards on a grid</strong> or a <strong>Full page</strong>: one widget filling the whole tab, for a landing page or hub. Adding a tab asks which; the grid/page icon on the tab you're looking at switches it, and you drag a widget from the library onto a page to fill it. For tiles that open the other tabs, drag in <strong>Tab links</strong> and pick the tabs from its gear; renaming a tab keeps its link.
               </p>
               <p className="text-sm text-gray-600 mt-2">
-                In the view's <strong>Settings</strong>, <strong>Tabs</strong> puts them <strong>Across the top</strong> or <strong>Down the side</strong>, and <strong>Filters</strong> adds dropdowns above the canvas. Each filter has a label, the variable it sets, its options (one per line) and the one it starts on. Anyone who can see the view can use them; widgets that follow that variable update on every tab, and <strong>All</strong> clears it. Choices reset when the view is reopened.
+                The view's <strong>Settings</strong> has four sections down its left side: <strong>Opening</strong>, <strong>Look</strong>, <strong>Filters</strong> and <strong>Assistant</strong>. A red dot marks a section with something to fix before you can save. <strong>Look</strong> also puts the tabs <strong>Across the top</strong> or <strong>Down the side</strong>, and <strong>Filters</strong> adds dropdowns above the widgets. Each filter has a label, the variable it sets, its options (one per line) and the one it starts on. Anyone who can see the view can use them; widgets that follow that variable update on every tab, and <strong>All</strong> clears it. Each person comes back to the choices they last made, in that browser.
               </p>
               <p className="text-sm text-gray-600 mt-2">
-                <strong>Look</strong> in the same dialog styles the view: an accent and a dark color in place of Command Center's blue and navy (both dark enough for white text), a font, a background (a color, a gradient or an image) and how cards are drawn, down to leaving their titles off with <strong>No title</strong>. It is the same on every tab, covering the view's tabs, filters and canvas here and the whole page when the view opens on its own; a page tab takes only the colors and font. Type a description beside <strong>Suggest</strong> to have the choices filled in for you; nothing is saved until you press <strong>Save</strong>.
+                <strong>Look</strong> in the same dialog styles the view: an accent and a dark color in place of Command Center's blue and navy (both dark enough for white text), a font, a background (a color, a gradient or an image) and how cards are drawn, down to leaving their titles off with <strong>No title</strong>. It is the same on every tab, covering the view's tabs, filters and background here and the whole page when the view opens on its own; a page tab takes only the colors and font. Type a description beside <strong>Suggest</strong> to have the choices filled in for you; nothing is saved until you press <strong>Save</strong>.
               </p>
             </div>
 
@@ -99,7 +99,7 @@ export const UserGuidePage: React.FC = () => {
                 Want to show someone your setup? Click the <strong>Share</strong> button in the top-right corner to copy a direct link to your current view, or copy the address from your browser. Anyone you send it to finds your view under <strong>Shared Views</strong>, read-only.
               </p>
               <p className="text-sm text-gray-600 mt-2">
-                To share it as a page of its own, open <strong>Settings</strong> and choose <strong>On its own</strong>. The link then opens just that view, read-only, under the title and logo you set. <strong>Agent</strong> in the same dialog picks the agent the view opens with, wherever it opens; <strong>No agent</strong> leaves the view without an assistant. Hover the <strong>?</strong> beside any field in the dialog to see what it does. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center.
+                To share it as a page of its own, open <strong>Settings → Opening</strong> and choose <strong>On its own</strong>; the title, logo and browser tab icon to show appear below it. The link then opens just that view, read-only, under the title and logo you set, and <strong>Preview</strong> in the header shows it that way. <strong>Assistant</strong> in the same dialog picks the agent the view opens with, wherever it opens; <strong>No agent</strong> leaves the view without an assistant. Hover the <strong>?</strong> beside any field in the dialog to see what it does. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center.
               </p>
             </div>
           </div>
@@ -190,7 +190,7 @@ export const UserGuidePage: React.FC = () => {
               Your conversations are private; nobody else sees them in the app. The 50 most recent are kept. Picking a different agent from the dropdown starts a new conversation and leaves the old one in your history.
             </p>
             <p className="text-sm text-gray-600 mt-3">
-              The <strong>pin</strong> beside the agent dropdown makes your view open with the agent selected. On a view with tabs it asks whether to pin it to <strong>This tab</strong> or <strong>Every tab</strong>; a tab's own pin wins on that tab. Click a ticked choice to unpin. <strong>Settings → Agent</strong> sets the view's pin too. Anyone can still switch agents while they're on the view.
+              The <strong>pin</strong> beside the agent dropdown makes your view open with the agent selected. On a view with tabs it asks whether to pin it to <strong>This tab</strong> or <strong>Every tab</strong>; a tab's own pin wins on that tab. Click a ticked choice to unpin. <strong>Settings → Assistant</strong> sets the view's pin too. Anyone can still switch agents while they're on the view.
             </p>
             <p className="text-sm text-gray-600 mt-3">
               <strong>Delete all my conversations</strong>, at the bottom of that list, removes every conversation you own along with its attached files. It asks once and can't be undone. Your administrator may also set a retention period, after which untouched conversations are deleted automatically.
@@ -490,14 +490,14 @@ export const UserGuidePage: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-2">Cards and pages</h3>
               <p className="text-gray-700">
-                The <strong>Card</strong> / <strong>Page</strong> switch above the preview says what you are building. A card sits on a canvas with other widgets. A page fills a whole tab of a view and brings its own background and layout, for a landing page or hub; attach a picture of the page you want and the agent works from it. If your first request asks for a landing page, hub or full-screen page the studio starts it as a page and says so, and you can switch either way at any time. A page previews under a stand-in header and tabs at <strong>Laptop</strong>, <strong>Wide</strong> or <strong>Narrow</strong> width, scaled to fit. Classes like <code>md:</code> and <code>lg:</code> follow your browser window rather than that frame, so narrow the window to check a small-screen layout. Its buttons say what they would do in a view instead of doing it. Cards that name a part of the view, such as a persona, open the tab with that name when the view has one, so name your tabs to match. Pages are marked <strong>PAGE</strong> in the Widget Library; drag one onto a page tab.
+                The <strong>Card</strong> / <strong>Page</strong> switch above the preview says what you are building. A card sits on a tab with other widgets. A page fills a whole tab of a view and brings its own background and layout, for a landing page or hub; attach a picture of the page you want and the agent works from it. If your first request asks for a landing page, hub or full-screen page the studio starts it as a page and says so, and you can switch either way at any time. A page previews under a stand-in header and tabs at <strong>Laptop</strong>, <strong>Wide</strong> or <strong>Narrow</strong> width, scaled to fit. Classes like <code>md:</code> and <code>lg:</code> follow your browser window rather than that frame, so narrow the window to check a small-screen layout. Its buttons say what they would do in a view instead of doing it. Cards that name a part of the view, such as a persona, open the tab with that name when the view has one, so name your tabs to match. Pages are marked <strong>PAGE</strong> in the Widget Library; drag one onto a page tab.
               </p>
             </div>
 
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-2">Widgets that steer the view</h3>
               <p className="text-gray-700">
-                A widget can open the view's other tabs and open the assistant with an agent chosen and a question typed in — ask for "tiles that go to each tab" or "an Ask about this button". It never sends the question for you: you read it and press <strong>Send</strong>. It can't open other views or addresses.
+                A widget can open the view's other tabs and open the assistant with an agent chosen and a question typed in — ask for "tiles that go to each tab" or "an Ask about this button". For plain tiles to each tab, the built-in <strong>Tab links</strong> widget needs no Studio at all. If a widget opens a tab by a name the view doesn't have, its editors see a note on it; rename a tab to match or change the widget. It never sends the question for you: you read it and press <strong>Send</strong>. It can't open other views or addresses.
               </p>
             </div>
 

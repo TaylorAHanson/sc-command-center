@@ -26,14 +26,17 @@
 
 ### Added
 
-- **Share a view as a page of its own.** In the view's **Settings**, choose **On its own**: its link then opens just that view, with your title and logo.
-- **Choose a view's agent in its settings.** **Settings → Agent** picks the agent the view opens with; **No agent** leaves the view without an assistant.
-- **Views can have tabs.** **Add tab** in the top right starts a tab bar; double-click a tab to rename it, drag to reorder, **×** to delete.
-- **Make a tab a full page.** Choose **Page** when adding a tab, then drag one widget onto it to fill the whole tab, edge to edge.
+- **Share a view as a page of its own.** In **Settings → Opening**, choose **On its own**: its link opens just that view, with your title and logo; **Preview** shows it.
+- **Choose a view's agent in its settings.** **Settings → Assistant** picks the agent the view opens with; **No agent** leaves the view without an assistant.
+- **Views can have tabs.** **Add tab** in the top right asks what to call both tabs; double-click a tab or press F2 to rename it, drag to reorder.
+- **Make a tab a full page.** Choose **Full page** when adding a tab, then drag one widget onto it to fill the whole tab, edge to edge.
 - **Build a page in Widget Studio.** Choose **Page** above the preview to build a whole-tab landing page, previewed at full width; the library marks it **PAGE**.
 - **Widgets can open tabs and the assistant.** Ask Widget Studio for tiles that go to each tab, or an **Ask** button that types a question for you to send.
-- **Give a view its own filters.** In **Settings → Filters**, add dropdowns above the canvas; widgets that follow that variable update on every tab.
-- **Tabs down the side.** In **Settings → Tabs**, choose **Down the side** to list a view's tabs on the left.
+- **Tab links.** Drag **Tab links** from the Widget Library for a tile per tab; its gear picks which tabs, and renaming a tab keeps its link.
+- **Links to missing tabs are flagged.** A widget that opens a tab the view doesn't have shows a note to whoever can edit the view.
+- **Move between tabs with the keyboard.** Tab to the tab bar, then use the arrow keys, Enter to open a tab and F2 to rename it.
+- **Give a view its own filters.** In **Settings → Filters**, add dropdowns above the widgets; each person comes back to the choice they last made.
+- **Tabs down the side.** In **Settings → Look**, choose **Down the side** to list a view's tabs on the left.
 - **Every view setting explains itself.** Hover the **?** beside a field in a view's **Settings** to see what it does.
 - **Give a view its own look.** **Settings → Look** sets its colors, font, background and cards, down to **No title**, and **Suggest** fills them in from a description.
 - **Pin an agent to one tab.** On a view with tabs, the pin beside the agent picker offers **This tab** or **Every tab**.
@@ -43,6 +46,8 @@
 
 ### Changed
 
+- **Tidier read-only cards.** On a locked or shared view, cards drop the drag dots and version; on its own they drop the widget link too.
+- **Removing asks first, in the app.** Deleting a tab with widgets, replacing a page's widget or taking it off now confirms in Command Center's own dialog.
 - **Tidier view history.** Changes to a personal view within five minutes of each other are saved as one version.
 - **Your browser's address is a share link.** Copy it, or use **Share**; links copied before this release still open the same view.
 - **Filters belong to their view.** A choice one widget passes to others applies across that view's tabs, and another view starts fresh.
@@ -50,6 +55,8 @@
 
 ### Fixed
 
+- **Lock and Share stay on views.** They no longer show on the Admin Panel, User Guide and other pages.
+- **A card's settings keep its version.** Saving a widget's settings no longer drops the version it was pinned to.
 - **Big screenshots attach.** Full-resolution screenshots and other large images are scaled down before the model sees them, instead of failing with an error.
 - **A file still being read waits for your next message.** In Widget Studio, pressing Send before an attachment finishes reading no longer drops it.
 - **Agent Studio says when a draft didn't arrive.** If the reply describes an agent but its draft was cut off or unreadable, a note says so instead of leaving the editor silently unchanged.

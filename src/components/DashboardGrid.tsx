@@ -7,7 +7,7 @@ import { useDashboardStore, type WidgetLayout } from '../store/dashboardStore';
 import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { BaseWidget } from './BaseWidget';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
-import { cardClasses, effectiveTheme, isPage } from '../store/appSpec';
+import { cardClasses, effectiveTheme, isPage, missingTabsNotice } from '../store/appSpec';
 import { PageTab } from './PageTab';
 import { useAppApi } from '../appApi';
 
@@ -79,7 +79,7 @@ const ShareWidgetButton: React.FC<{ onShare: () => Promise<boolean> }> = ({ onSh
 };
 
 export const DashboardGrid: React.FC = () => {
-  const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, username, variables, setVariable, generateWidgetShareLink, pendingWidgetId, clearPendingWidget, canEditLayout } = useDashboardStore();
+  const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, username, variables, setVariable, generateWidgetShareLink, pendingWidgetId, clearPendingWidget, canEditLayout, standalone } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const appApi = useAppApi();
   const cardLook = React.useMemo(() => cardClasses(effectiveTheme(activeApp).cards), [activeApp]);
@@ -440,11 +440,11 @@ export const DashboardGrid: React.FC = () => {
       {visibleWidgets.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">
           <div className="text-center">
-            <p className="text-lg mb-2">Empty Dashboard</p>
+            <p className="text-lg mb-2">This tab is empty</p>
             <p className="text-sm">
               {isReadOnly
-                ? "Dashboard is read-only."
-                : "Drag widgets from the library to get started"}
+                ? "Nothing has been placed here yet."
+                : "Drag widgets here from the Widget Library to get started."}
             </p>
           </div>
         </div>
@@ -505,7 +505,8 @@ export const DashboardGrid: React.FC = () => {
               );
             }
           }
-          extraActions.push(
+          // A view on its own has no workspace to open a shared widget in.
+          if (!standalone) extraActions.push(
             <ShareWidgetButton
               key="share-widget"
               onShare={async () => {
@@ -546,6 +547,7 @@ export const DashboardGrid: React.FC = () => {
                     });
                   }}
                   customActions={customActions}
+                  notice={isReadOnly || !activeApp ? undefined : missingTabsNotice(activeApp, def.tabTargets)}
                   look={cardLook}
                   isFullscreen={fullscreenWidget?.id === widget.i}
                   onRemove={isReadOnly && fullscreenWidget?.id !== widget.i ? undefined : () => removeWidget(appId, tabId, widget.i)}
@@ -558,7 +560,7 @@ export const DashboardGrid: React.FC = () => {
                   }}
                   onConfigure={
                   (def.configurationMode === 'config_required' || def.configurationMode === 'config_allowed') && !isReadOnly
-                    ? () => openConfigModal(widget.type, (config) => updateWidget(appId, tabId, widget.i, { props: config }), widget.props)
+                    ? () => openConfigModal(widget.type, (config) => updateWidget(appId, tabId, widget.i, { props: config }), widget.props || {})
                     : undefined
                 }
                 className={`h-full w-full ${isReadOnly ? 'locked-widget' : ''}`}

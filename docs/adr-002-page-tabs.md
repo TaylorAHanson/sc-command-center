@@ -111,7 +111,7 @@ The one new capability, available to every widget, used mostly by pages:
 props.app = {
   tabs: { id: string; name: string; layout: 'canvas' | 'page' }[];  // in order
   activeTabId: string;
-  goToTab(idOrName: string): void;              // within this app only
+  goToTab(idOrName: string): boolean;           // within this app only; false: no such tab
   openAssistant(opts?: { agentId?: string; prompt?: string }): void;
   theme: { primary: string; dark: string };     // the view's colours (slice 4 adds the tab's)
 }
@@ -263,3 +263,4 @@ widget act as a hub page.
 | 2026-10-06 | Slice 3 built: `widgets.layout_kind`, the Card/Page switch (a first request asking for a landing page or hub starts as a page), and `page_instructions.md` appended for pages only, rather than as a section of `agent_instructions.md` that every card would pay for. The preview is a mock header and tabs at laptop / wide / narrow width, scaled to fit, with a stand-in `props.app`; Tailwind breakpoints still follow the browser window, not the frame. Lint judges light text against the nearest enclosing background, and adds `missing-class` and `unknown-font`, because widget code is never scanned by Tailwind and the stylesheet lacked most page-sized classes until a safelist added them. A page's review gets 240s, not 120s. Done-when run against the real model: the Kairos image with "Build this hub for our five Genie spaces" built a page, the review finished with real fixes, and all five persona cards opened their tabs in a view. |
 | 2026-10-06 | Slice 4 built: background, font and cards on the app and tab `theme`, six bundled fonts, **Look** / **This tab's look** in View settings, and `POST /api/apps/look` behind **Suggest**. `props.app.theme.font` is the CSS font stack. |
 | 2026-10-06 | After review: tab looks dropped (one look per app; compose takes the first source's), cards gain `header: none`, and **Settings → Agent** gains **No agent**, which sets `assistant: 'off'` and replaces the **Offer the assistant** checkbox. It now hides the assistant inside Command Center too, while that view is shown. **Suggest** deepens a too-light accent instead of dropping it. |
+| 2026-10-06 | UX review: View settings split into Opening / Look / Filters / Assistant, branding shown only for **On its own**; plainer words (**Cards on a grid** / **Full page**, **Preview**, **Whichever agent is open**); the header's **Add tab** names both tabs; keyboard tabs; in-app confirmations; filter choices remembered per person in `localStorage`. `goToTab` now returns whether the tab exists, and string literals passed to it are checked against the view's tabs to warn editors. **Tab links** is a built-in widget (`cc-tab-links`, code-defined, not a `widgets` row) whose targets are tab ids. |

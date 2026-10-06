@@ -1462,7 +1462,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 setLayoutKind(page ? 'page' : layoutKindRef.current);
                 if (page) newMessages.push({
                     role: 'system',
-                    content: 'Building this as a **page**: it fills a whole tab of a view. Choose **Card** above the preview if you meant a card on a canvas.',
+                    content: 'Building this as a **page**: it fills a whole tab of a view. Choose **Card** above the preview if you meant a card among others on a tab.',
                 });
             }
             setMessages(newMessages);
@@ -2353,7 +2353,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                 ))}
                             </div>
                             <span className="text-slate-500 truncate">
-                                {layoutKind === 'page' ? 'Fills a whole tab of a view, under its header and tabs.' : 'A card on a view’s canvas.'}
+                                {layoutKind === 'page' ? 'Fills a whole tab of a view, under its header and tabs.' : 'A card on a tab, alongside other widgets.'}
                             </span>
                             {layoutKind === 'page' && (
                                 <div role="radiogroup" aria-label="Preview width" className="ml-auto flex rounded-md border border-slate-700 overflow-hidden shrink-0">

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { AlertTriangle, Info } from 'lucide-react';
 
 interface ConfirmModalProps {
@@ -41,9 +41,15 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
     const Icon = variant === 'danger' ? AlertTriangle : Info;
 
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [onCancel]);
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div role="alertdialog" aria-label={title} className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                 <div className="p-6">
                     <div className="flex items-start gap-4">
                         <div className={`flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full ${iconCls}`}>

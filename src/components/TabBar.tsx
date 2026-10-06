@@ -1,32 +1,57 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FileText, LayoutGrid, Plus, X } from 'lucide-react';
 import clsx from 'clsx';
+import { ConfirmModal } from './ConfirmModal';
 import { useDashboardStore } from '../store/dashboardStore';
 import { layoutSwitch, MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel, type TabLayout } from '../store/appSpec';
 
 const NEW_TAB = '\u0000new';
 
 const LAYOUT_CHOICES: { layout: TabLayout; label: string; hint: string; icon: typeof LayoutGrid }[] = [
-  { layout: 'canvas', label: 'Canvas', hint: 'Widgets in cards you arrange on a grid', icon: LayoutGrid },
-  { layout: 'page', label: 'Page', hint: 'One widget that fills the whole tab', icon: FileText },
+  { layout: 'canvas', label: 'Cards on a grid', hint: 'Several widgets, each in a card you can move and resize', icon: LayoutGrid },
+  { layout: 'page', label: 'Full page', hint: 'One widget that fills the whole tab', icon: FileText },
 ];
 
-/** A button that asks which kind of tab to add. */
+/** The names a view's tabs get when it first has two: what the view was, and what was added. */
+export interface NewTabNames { name: string; first?: string }
+
+/**
+ * A button that asks which kind of tab to add. With `naming`, it then asks for
+ * the new tab's name in the same menu, and for the existing tab's too when it has
+ * none yet: a view's first two tabs appear at once, so both are named at once.
+ */
 export const AddTabMenu: React.FC<{
-  onChoose: (layout: TabLayout) => void;
+  onChoose: (layout: TabLayout, names?: NewTabNames) => void;
   button: (open: (e: React.MouseEvent<HTMLElement>) => void) => React.ReactNode;
   align?: 'left' | 'right';
   extra?: React.ReactNode;
-}> = ({ onChoose, button, align = 'left', extra }) => {
+  naming?: { suggested: string; first?: string };
+}> = ({ onChoose, button, align = 'left', extra, naming }) => {
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState<React.CSSProperties>({});
+  const [chosen, setChosen] = useState<TabLayout | null>(null);
+  const [name, setName] = useState('');
+  const [first, setFirst] = useState('');
   const box = useRef<HTMLDivElement>(null);
   // Fixed, because the top tab bar scrolls sideways and would clip the menu.
   const toggle = (e: React.MouseEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     setAt(align === 'right' ? { top: r.bottom + 4, right: window.innerWidth - r.right } : { top: r.bottom + 4, left: r.left });
+    setChosen(null);
     setOpen(o => !o);
   };
+  const choose = (layout: TabLayout) => {
+    if (!naming) { setOpen(false); onChoose(layout); return; }
+    setChosen(layout);
+    setName(naming.suggested);
+    setFirst(naming.first ?? '');
+  };
+  const finish = () => {
+    if (!chosen || !name.trim()) return;
+    setOpen(false);
+    onChoose(chosen, { name: name.trim(), first: naming?.first !== undefined ? first.trim() || naming.first : undefined });
+  };
+  const field = 'w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand-blue/30';
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
@@ -38,14 +63,37 @@ export const AddTabMenu: React.FC<{
   return (
     <div ref={box} className="relative shrink-0">
       {button(toggle)}
-      {open && (
+      {open && chosen && (
+        <form
+          style={at}
+          className="fixed z-50 w-72 bg-white border border-gray-200 rounded-md shadow-lg p-3 space-y-2"
+          onSubmit={e => { e.preventDefault(); finish(); }}
+          aria-label="Name the tabs"
+        >
+          {naming?.first !== undefined && (
+            <label className="block">
+              <span className="block text-xs text-gray-500 mb-0.5">This tab, the one you’re on</span>
+              <input value={first} maxLength={MAX_NAME_LENGTH} onChange={e => setFirst(e.target.value)} placeholder={naming.first} className={field} />
+            </label>
+          )}
+          <label className="block">
+            <span className="block text-xs text-gray-500 mb-0.5">The new tab</span>
+            <input autoFocus value={name} maxLength={MAX_NAME_LENGTH} onChange={e => setName(e.target.value)} onFocus={e => e.currentTarget.select()} className={field} />
+          </label>
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={() => setChosen(null)} className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded">Back</button>
+            <button type="submit" disabled={!name.trim()} className="px-3 py-1 text-xs text-white bg-brand-blue rounded hover:bg-brand-navy disabled:opacity-50">Add tab</button>
+          </div>
+        </form>
+      )}
+      {open && !chosen && (
         <div role="menu" style={at} className="fixed z-50 w-64 bg-white border border-gray-200 rounded-md shadow-lg py-1">
           {LAYOUT_CHOICES.map(({ layout, label, hint, icon: Icon }) => (
             <button
               key={layout}
               type="button"
               role="menuitem"
-              onClick={() => { setOpen(false); onChoose(layout); }}
+              onClick={() => choose(layout)}
               className="w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-gray-50"
             >
               <Icon className="w-4 h-4 mt-0.5 text-gray-400 shrink-0" />
@@ -77,6 +125,17 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
   const cancelled = useRef(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<{ id: string; label: string; count: number } | null>(null);
+  const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [focusIndex, setFocusIndex] = useState<number | null>(null);
+  const refocus = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!refocus.current || editing) return;
+    const index = activeApp?.spec.tabs.findIndex(t => t.id === refocus.current) ?? -1;
+    refocus.current = null;
+    tabRefs.current[index]?.focus();
+  });
 
   if (!activeApp || activeApp.spec.tabs.length < 2) return null;
   const side = navStyle(activeApp) === 'sidebar';
@@ -84,6 +143,30 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
   const app = activeApp;
   const tabs = app.spec.tabs;
   const editable = canEditLayout(app);
+  // Roving focus: one tab is in the Tab order, the arrow keys move between them.
+  const activeIndex = tabs.findIndex(t => t.id === activeAppTab?.id);
+  const rovingIndex = focusIndex !== null && focusIndex < tabs.length ? focusIndex : Math.max(0, activeIndex);
+
+  const onTabKey = (e: React.KeyboardEvent<HTMLDivElement>, index: number, id: string, label: string) => {
+    if (e.target !== e.currentTarget) return;
+    const last = tabs.length - 1;
+    const to = {
+      ArrowRight: index === last ? 0 : index + 1, ArrowDown: index === last ? 0 : index + 1,
+      ArrowLeft: index === 0 ? last : index - 1, ArrowUp: index === 0 ? last : index - 1,
+      Home: 0, End: last,
+    }[e.key];
+    if (to !== undefined) {
+      e.preventDefault();
+      tabRefs.current[to]?.focus();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      selectTab(id);
+    } else if (e.key === 'F2' && editable) {
+      e.preventDefault();
+      refocus.current = id;
+      startEditing(id, label);
+    }
+  };
 
   const startEditing = (id: string, was: string, layout?: TabLayout) => {
     cancelled.current = false;
@@ -131,6 +214,13 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
       )}
       aria-label="Tabs"
     >
+      <div
+        role="tablist"
+        aria-label="Tabs"
+        aria-orientation={side ? 'vertical' : 'horizontal'}
+        className="contents"
+        onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusIndex(null); }}
+      >
       {tabs.map((tab, index) => {
         const label = tabLabel(app, tab, index);
         const active = tab.id === activeAppTab?.id;
@@ -139,8 +229,12 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
         return (
           <div
             key={tab.id}
+            ref={el => { tabRefs.current[index] = el; }}
             role="tab"
             aria-selected={active}
+            tabIndex={index === rovingIndex ? 0 : -1}
+            onFocus={e => { if (e.target === e.currentTarget) setFocusIndex(index); }}
+            onKeyDown={e => onTabKey(e, index, tab.id, label)}
             draggable={editable}
             onDragStart={e => {
               setDragIndex(index);
@@ -162,9 +256,9 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
             onDragEnd={() => { setDragIndex(null); setOverIndex(null); }}
             onClick={() => selectTab(tab.id)}
             onDoubleClick={() => editable && startEditing(tab.id, label)}
-            title={editable ? `${label} — double-click to rename, drag to reorder` : label}
+            title={editable ? `${label} — double-click or press F2 to rename, drag to reorder` : label}
             className={clsx(
-              'group flex items-center gap-1 px-3 py-2 text-sm cursor-pointer select-none whitespace-nowrap transition-colors',
+              'group flex items-center gap-1 px-3 py-2 text-sm cursor-pointer select-none whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-inset',
               side ? 'border-l-2 justify-between' : 'border-b-2',
               active ? 'border-brand-blue text-brand-navy font-medium' : 'border-transparent text-gray-500 hover:text-gray-800',
               side && active && 'bg-brand-blue/5',
@@ -206,8 +300,8 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
                 onClick={e => {
                   e.stopPropagation();
                   const count = tab.widgets.length;
-                  if (count && !window.confirm(`Delete the tab “${label}” and the ${count} widget${count === 1 ? '' : 's'} on it?`)) return;
-                  removeTab(app.id, tab.id);
+                  if (count) setDeleting({ id: tab.id, label, count });
+                  else removeTab(app.id, tab.id);
                 }}
                 className="p-0.5 rounded text-gray-400 hover:text-red-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100 focus:opacity-100"
                 title={`Delete the tab “${label}”`}
@@ -218,6 +312,7 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
           </div>
         );
       })}
+      </div>
       {editing?.id === NEW_TAB && nameBox(NEW_TAB)}
       {editable && !editing && tabs.length < MAX_TABS && (
         <div className={side ? 'mx-2 self-start' : 'mb-1 ml-1'}>
@@ -235,6 +330,17 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
             )}
           />
         </div>
+      )}
+      {deleting && (
+        <ConfirmModal
+          title="Delete this tab?"
+          message={`“${deleting.label}” and the ${deleting.count === 1 ? 'widget' : `${deleting.count} widgets`} on it will be removed from this view.`}
+          detail="The widgets stay in the Widget Library, so you can place them again."
+          confirmLabel="Delete tab"
+          variant="danger"
+          onConfirm={() => { removeTab(app.id, deleting.id); setDeleting(null); }}
+          onCancel={() => setDeleting(null)}
+        />
       )}
     </nav>
   );

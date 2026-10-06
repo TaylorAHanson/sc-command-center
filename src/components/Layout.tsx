@@ -537,7 +537,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   title="See this view on its own, as people with its link do"
                 >
                   <AppWindow className="w-4 h-4" />
-                  <span>Open</span>
+                  <span>Preview</span>
                 </button>
               )}
               {!currentPage && activeApp && activeAppTab && activeApp.spec.tabs.length === 1 && canEditLayout(activeApp) && (() => {
@@ -545,7 +545,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 return (
                   <AddTabMenu
                     align="right"
-                    onChoose={layout => addTab(activeApp.id, 'Tab 2', layout)}
+                    naming={{ suggested: 'Tab 2', first: activeAppTab.name ? undefined : 'Overview' }}
+                    onChoose={(layout, names) => addTab(activeApp.id, names?.name || 'Tab 2', layout, names?.first)}
                     button={open => (
                       <button
                         onClick={open}
@@ -564,7 +565,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         className="w-full px-3 py-2 text-left text-xs text-gray-600 hover:bg-gray-50 disabled:text-gray-300 disabled:hover:bg-transparent"
                         title={swap.title}
                       >
-                        {swap.to === 'page' ? 'Or make this view itself a page' : 'Or make this view a canvas again'}
+                        {swap.to === 'page' ? 'Or make this whole view one full page' : 'Or put this view back on a grid of cards'}
                       </button>
                     )}
                   />
@@ -580,7 +581,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <span>Settings</span>
                 </button>
               )}
-              {(!activeApp?.is_global || isAdmin) && !activeApp?.is_shared && (
+              {!currentPage && activeApp && (!activeApp.is_global || isAdmin) && !activeApp.is_shared && (
                 <>
                   <button
                     onClick={() => {
@@ -722,7 +723,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       />
 
       {/* Config Modal */}
-      {/* Config Modal */}
       <ConfigModal
         isOpen={configModal.isOpen}
         onClose={closeConfigModal}
@@ -734,6 +734,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         }}
         widget={configModal.widgetId ? widgetRegistry[configModal.widgetId] : null}
         initialConfig={configModal.initialConfig}
+        editing={configModal.editing}
       />
 
       {settingsOpen && activeApp && (

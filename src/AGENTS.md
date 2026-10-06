@@ -28,6 +28,24 @@ Widgets are **not** files in this repo. They're TSX strings in the database,
 compiled in the browser by `widgetRegistry.ts`, which also holds the type
 contracts (`WidgetProps`, `WidgetDefinition`, `ConfigField`).
 
+**Built-ins are the exception, and stay rare.** `widgetRegistry` starts with
+**Tab links** (`cc-tab-links`, `components/TabLinksWidget.tsx`) already in it:
+a compiled React component flagged `builtIn`, so the Widget Library offers no
+Edit, Delete, Clone, Claim or thumbnail capture for it. It must be registered
+at module load, because a placed widget the registry doesn't know once loading
+ends is dropped from the view. Its id is not a UUID, which is how the server's
+`app_store.is_custom_widget` (and promotion's widget list) know to leave it
+alone: there is no `widgets` row to check, copy or promote. A built-in earns
+its place only by being a control of the app itself that reads no data and
+talks to nothing but `props.app`; anything touching data is authored in Widget
+Studio like every other widget.
+
+`tabTargetsIn` reads the string literals a widget's current source passes to
+`goToTab('…')` into `def.tabTargets`; `missingTabsNotice` (`store/appSpec.ts`)
+turns the ones the view has no tab for into the amber note editors see on the
+card or page. Names built at run time can't be checked, which is why the
+generation contract asks for literals.
+
 Read that file before touching anything widget-related. `build()` does a
 deliberately ordered two-pass `@babel/standalone` transform — pass 1
 (`react` + `typescript` presets) compiles JSX and elides *type-only* imports,

@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { LayoutGrid, Pencil, Replace, Settings, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
+import { ConfirmModal } from './ConfirmModal';
 import { useDashboardStore } from '../store/dashboardStore';
 import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { useActionLogger } from '../hooks/useActionLogger';
 import { ActionProvider, ExecuteActionPropInjector } from '../contexts/ActionContext';
 import { useWorkspaceTools } from '../contexts/WorkspaceTools';
-import type { App, AppTab } from '../store/appSpec';
+import { missingTabsNotice, type App, type AppTab } from '../store/appSpec';
 import type { AppApi } from '../appApi';
 
 const WIDGET_DRAG = 'application/widget-type';
@@ -21,6 +22,7 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
   const { loading } = useWidgetRegistry();
   const tools = useWorkspaceTools();
   const [dropping, setDropping] = useState(false);
+  const [confirming, setConfirming] = useState<{ kind: 'remove' } | { kind: 'replace'; type: string } | null>(null);
 
   const widget = tab.widgets[0];
   const versioned = widget?.props?._version ? `${widget.type}@${widget.props._version}` : widget?.type;
@@ -34,10 +36,10 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
     [widget?.props, username, variables, setVariable],
   );
 
-  const place = (type: string) => {
+  const place = (type: string, confirmed = false) => {
     const next = widgetRegistry[type];
     if (!next) return;
-    if (widget && !window.confirm(`Replace “${def?.name || widget.type}” on this page with “${next.name}”?`)) return;
+    if (widget && !confirmed) { setConfirming({ kind: 'replace', type }); return; }
     const config: Record<string, unknown> = { ...(next.defaultProps || {}) };
     next.configSchema?.forEach(f => { if (f.defaultValue !== undefined) config[f.key] = f.defaultValue; });
     if (next.configurationMode === 'config_required') openConfigModal(type, c => addWidget(app.id, tab.id, type, undefined, c));
@@ -65,6 +67,7 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
     },
   } : {};
 
+  const notice = editable && def ? missingTabsNotice(app, def.tabTargets) : null;
   const configurable = def && (def.configurationMode === 'config_required' || def.configurationMode === 'config_allowed');
   const button = 'flex items-center gap-1.5 px-2 py-1 rounded text-xs text-gray-600 hover:text-brand-blue hover:bg-gray-100';
 
@@ -76,7 +79,7 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
             <Replace className="w-3.5 h-3.5" />
             <span>{widget ? 'Change widget' : 'Choose a widget'}</span>
           </button>
-          {def && canEditDomain(def.domain) && (
+          {def && !def.builtIn && canEditDomain(def.domain) && (
             <button type="button" className={button} onClick={() => tools!.editWidget(widget!.type)} title="Edit this page's widget in Widget Studio">
               <Pencil className="w-3.5 h-3.5" />
               <span>Edit in Widget Studio</span>
@@ -86,21 +89,25 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
             <button
               type="button"
               className={button}
-              onClick={() => openConfigModal(widget!.type, c => updateWidget(app.id, tab.id, widget!.i, { props: c }), widget!.props)}
-              title="Configure this page's widget"
+              onClick={() => openConfigModal(widget!.type, c => updateWidget(app.id, tab.id, widget!.i, { props: c }), widget!.props || {})}
+              title="This widget's settings"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
           )}
           {widget && (
-            <button type="button" className={clsx(button, 'hover:text-red-600')} onClick={() => removeWidget(app.id, tab.id, widget.i)} title="Take the widget off this page">
+            <button type="button" className={clsx(button, 'hover:text-red-600')} onClick={() => setConfirming({ kind: 'remove' })} title="Take the widget off this page">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
-          <button type="button" className={button} onClick={() => setTabLayout(app.id, tab.id, 'canvas')} title="Make this tab a canvas of cards">
+          <button type="button" className={button} onClick={() => setTabLayout(app.id, tab.id, 'canvas')} title="Make this tab cards on a grid">
             <LayoutGrid className="w-3.5 h-3.5" />
           </button>
         </div>
+      )}
+
+      {notice && (
+        <div role="note" className="absolute top-2 left-2 z-20 max-w-md px-3 py-1.5 rounded-md text-xs text-amber-800 bg-amber-50 border border-amber-200 shadow-sm">{notice}</div>
       )}
 
       {def ? (
@@ -117,15 +124,33 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
             <span className="text-xs">Loading page…</span>
           ) : (
             <div>
-              <p className="text-lg mb-2">{widget ? 'This page’s widget isn’t available' : 'An empty page'}</p>
+              <p className="text-lg mb-2">{widget ? 'This page’s widget isn’t available' : 'This tab is empty'}</p>
               <p className="text-sm">
                 {editable
-                  ? 'Drag a widget here from the library. It fills the whole tab.'
+                  ? 'Drag one widget here from the Widget Library. It fills the whole tab.'
                   : widget ? 'It may have been deleted, or belong to another domain.' : 'Nothing has been placed on this page yet.'}
               </p>
             </div>
           )}
         </div>
+      )}
+
+      {confirming && widget && (
+        <ConfirmModal
+          title={confirming.kind === 'remove' ? 'Take this widget off the page?' : 'Replace this page’s widget?'}
+          message={confirming.kind === 'remove'
+            ? `“${def?.name || 'This widget'}” will be removed from this tab, leaving it empty.`
+            : `“${def?.name || 'The current widget'}” will be swapped for “${widgetRegistry[confirming.type]?.name || 'the new one'}”.`}
+          detail="It stays in the Widget Library, so you can place it again."
+          confirmLabel={confirming.kind === 'remove' ? 'Remove' : 'Replace'}
+          variant={confirming.kind === 'remove' ? 'danger' : 'primary'}
+          onConfirm={() => {
+            if (confirming.kind === 'remove') removeWidget(app.id, tab.id, widget.i);
+            else place(confirming.type, true);
+            setConfirming(null);
+          }}
+          onCancel={() => setConfirming(null)}
+        />
       )}
 
       {dropping && (

@@ -143,7 +143,7 @@ reach it with optional chaining.
 ```ts
 props.app?.tabs          // [{ id, name, layout: 'canvas' | 'page' }], in order
 props.app?.activeTabId   // the tab being shown
-props.app?.goToTab(idOrName)                  // a tab of this view, by id or by name
+props.app?.goToTab(idOrName)                  // a tab of this view, by id or by name; false if it has none
 props.app?.openAssistant({ agentId?, prompt? }) // open the assistant with this agent, message box filled in
 props.app?.theme         // { primary, dark, font } — the view's colors as #rrggbb, font as a CSS font-family (or null)
 ```
@@ -153,8 +153,16 @@ props.app?.theme         // { primary, dark, font } — the view's colors as #rr
   and fills in `prompt`; the user reads it and presses Send. Don't tell the user
   the question was asked. Where the view has no assistant, it does nothing.
 - **`goToTab` only reaches this view's tabs.** Name tabs by what the user calls
-  them; read `props.app.tabs` to draw a list of them rather than hard-coding one.
-  There is no way to open another view or address, and a widget must not try.
+  them, written out as a plain string — `goToTab('Sales')`, not a name built at
+  run time — because Command Center checks those strings against the view's tabs
+  and warns its editors when one is missing. It returns `false` when the view
+  has no such tab, so fall back on that (to `openAssistant`, or nothing). Read
+  `props.app.tabs` to draw a list of them rather than hard-coding one. There is
+  no way to open another view or address, and a widget must not try.
+- **A widget that is only links to tabs already exists.** The built-in **Tab
+  links** widget in the Widget Library draws a tile per tab, and whoever edits
+  the view picks the tabs from its settings with no code. When that is all the
+  user asks for, tell them about it instead of generating one.
 - `props.app.theme` is for colours the brand classes can't express — an inline
   gradient, a chart series. Prefer `text-brand-blue` / `bg-brand-navy` otherwise.
   The view's font is already inherited; use `theme.font` only to put it back

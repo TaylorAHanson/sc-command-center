@@ -20,7 +20,7 @@ const DIRECTIONS: [GradientDirection, string][] = [
 
 const CARD_CHOICES: { key: keyof CardStyle; label: string; help: string; options: [string, string][] }[] = [
   { key: 'radius', label: 'Corners', help: 'How rounded each card’s corners are, from square to very rounded.', options: [['none', 'Square'], ['sm', 'Slightly rounded'], ['md', 'Rounded'], ['lg', 'More rounded'], ['xl', 'Very rounded']] },
-  { key: 'depth', label: 'Edges', help: 'Flat cards have no edge, Outlined adds a thin line, and Shadowed lifts each card off the canvas.', options: [['flat', 'Flat'], ['border', 'Outlined'], ['shadow', 'Shadowed']] },
+  { key: 'depth', label: 'Edges', help: 'Flat cards have no edge, Outlined adds a thin line, and Shadowed lifts each card off the background.', options: [['flat', 'Flat'], ['border', 'Outlined'], ['shadow', 'Shadowed']] },
   { key: 'header', label: 'Title', help: 'In a gray bar is Command Center’s usual card header; Plain drops the tint and capitals. With No title, a card’s buttons appear when you hover over it.', options: [['bar', 'In a gray bar'], ['minimal', 'Plain'], ['none', 'No title']] },
 ];
 
@@ -162,7 +162,7 @@ export const LookEditor: React.FC<{
               <div className="space-y-2">
                 <FieldLabel
                   label="Background"
-                  help="What’s drawn behind the cards on canvas tabs. Cards stay white, so widgets stay readable on any background."
+                  help="What’s drawn behind the cards on tabs of cards. Cards stay white, so widgets stay readable on any background."
                   className="text-sm font-medium text-gray-700"
                 />
                 <select
@@ -178,7 +178,7 @@ export const LookEditor: React.FC<{
                 </select>
                 {bg?.kind === 'colour' && (
                   <ColourField label="Background color" fallback="#0b1220" value={bg.colour} onWhite={false} clearLabel=""
-                    help="The canvas color behind the cards. Light or dark both work."
+                    help="The color behind the cards. Light or dark both work."
                     onChange={v => set({ background: { ...bg, colour: v } })} />
                 )}
                 {bg?.kind === 'gradient' && (
@@ -204,7 +204,7 @@ export const LookEditor: React.FC<{
                 {bg?.kind === 'image' && (
                   <>
                     <ImageField label="Background image" hint="Up to 256 KB uploaded, or an https:// address." value={bg.url}
-                      help="A picture that fills or tiles the canvas behind the cards. Upload one, or paste an https:// address."
+                      help="A picture that fills or tiles the area behind the cards. Upload one, or paste an https:// address."
                       onChange={v => set({ background: { ...bg, url: v } })} />
                     <select
                       value={bg.fit}
@@ -212,7 +212,7 @@ export const LookEditor: React.FC<{
                       aria-label="Image fit"
                       className={selectClass}
                     >
-                      <option value="cover">Fill the canvas</option>
+                      <option value="cover">Fill the background</option>
                       <option value="tile">Repeat as tiles</option>
                     </select>
                   </>

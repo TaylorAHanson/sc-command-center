@@ -17,7 +17,8 @@ export interface AssistantRequest {
 export interface AppApi {
   tabs: { id: string; name: string; layout: TabLayout }[];
   activeTabId: string;
-  goToTab: (idOrName: string) => void;
+  /** Whether the view has that tab, so a widget can fall back when it doesn't. */
+  goToTab: (idOrName: string) => boolean;
   openAssistant: (request?: AssistantRequest) => void;
   /** The view's colors, and its font as a CSS font-family (null: Command Center's). */
   theme: { primary: string; dark: string; font: string | null };
@@ -70,10 +71,11 @@ export const useAppApi = (): AppApi | undefined => {
       tabs: list,
       activeTabId,
       goToTab: (idOrName: string) => {
-        if (typeof idOrName !== 'string') return;
+        if (typeof idOrName !== 'string') return false;
         const wanted = idOrName.trim().toLowerCase();
         const tab = list.find(t => t.id === idOrName) || list.find(t => t.name.trim().toLowerCase() === wanted);
         if (tab && tab.id !== activeTabId) selectTab(tab.id);
+        return !!tab;
       },
       openAssistant: (request?: AssistantRequest) => {
         door?.open({ agentId: request?.agentId, prompt: request?.prompt });
