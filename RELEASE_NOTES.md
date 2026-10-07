@@ -32,6 +32,7 @@
 - **Make a tab a full page.** Choose **Full page** when adding a tab, then drag one widget onto it to fill the whole tab, edge to edge.
 - **Build a page in Widget Studio.** Choose **Page** above the preview to build a whole-tab landing page, previewed at full width; the library marks it **PAGE**.
 - **Widgets can open tabs and the assistant.** Ask Widget Studio for tiles that go to each tab, or an **Ask** button that types a question for you to send.
+- **Choose where a widget's links go.** A widget's gear lists its named links; point each at a tab of your view or a web address.
 - **Move between tabs with the keyboard.** Tab to the tab bar, then use the arrow keys, Enter to open a tab and F2 to rename it.
 - **Give a view its own filters.** In **Settings → Filters**, add dropdowns above the widgets; each person comes back to the choice they last made.
 - **Tabs down the side.** In **Settings → Look**, choose **Down the side** to list a view's tabs on the left.

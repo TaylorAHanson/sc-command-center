@@ -28,6 +28,11 @@ Widgets are **not** files in this repo. They're TSX strings in the database,
 compiled in the browser by `widgetRegistry.ts`, which also holds the type
 contracts (`WidgetProps`, `WidgetDefinition`, `ConfigField`).
 
+A `link` settings field holds where one of a widget's links goes on that card:
+`{tab: id}` or `{url}` (`LinkTarget` in `store/appSpec.ts`). Anything that copies
+a view's tabs under new ids must pass each widget's props through
+`retargetLinks` (`retarget_links` on the server), or its links go nowhere.
+
 Read that file before touching anything widget-related. `build()` does a
 deliberately ordered two-pass `@babel/standalone` transform — pass 1
 (`react` + `typescript` presets) compiles JSX and elides *type-only* imports,

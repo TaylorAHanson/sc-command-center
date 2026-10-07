@@ -380,6 +380,22 @@ def test_composing_re_keys_only_colliding_widget_instances():
     assert copy_of_it == before, "the source is copied, never changed"
 
 
+def test_composing_moves_each_views_tab_links_onto_its_copied_tabs():
+    hub = source("Hub", [], tabs=[
+        {"id": "home", "name": "Home", "widgets": [{"i": "w", "type": "t", "props": {
+            "sales": {"tab": "data"}, "docs": {"url": "https://example.com"}, "other": {"tab": "elsewhere"}, "title": "Hi"}}]},
+        {"id": "data", "name": "Data", "widgets": []},
+    ])
+    other = source("Other", [], tabs=[{"id": "data", "name": "Data", "widgets": []}])
+    before = copy.deepcopy(hub)
+    spec = compose_spec([hub, other], new_id=ids())
+    props = spec["tabs"][0]["widgets"][0]["props"]
+    assert props["sales"] == {"tab": spec["tabs"][1]["id"]}, "the link follows its own view's tab, not the other view's"
+    assert props["docs"] == {"url": "https://example.com"} and props["title"] == "Hi"
+    assert props["other"] == {"tab": "elsewhere"}, "a link to a tab the view doesn't have is left as it was"
+    assert hub == before, "the source is copied, never changed"
+
+
 def test_composing_refuses_nothing_and_too_much():
     try:
         compose_spec([])

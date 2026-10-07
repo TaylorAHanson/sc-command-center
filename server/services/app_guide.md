@@ -175,14 +175,28 @@ records every change its controls make in **Action Logs**, with who made it. The
 is no confirmation prompt: the action runs as soon as it is recorded, and does not
 run at all if it cannot be recorded.
 
-**Widgets that steer the view.** A widget can list its view's tabs and open one
-(a landing page whose tiles lead to the other tabs, say), and can open the
-assistant with a chosen agent and a question already typed. It can't send that
-question: the user reads it and presses Send, because sending is what runs the
-assistant's tools as them. It also can't open another view or any other address.
-If the agent it asks for is one the user can't open, the assistant keeps the
-agent it had. In a view whose agent is **No agent**, the button does nothing. Ask Widget Studio for this in plain words — "tiles that go
-to each tab", "an Ask about this button".
+**Widgets that steer the view.** A widget can list its view's tabs and open one,
+and can open the assistant with a chosen agent and a question already typed. It
+can't send that question: the user reads it and presses Send, because sending is
+what runs the assistant's tools as them. If the agent it asks for is one the user
+can't open, the assistant keeps the agent it had. In a view whose agent is **No
+agent**, the button does nothing. Ask Widget Studio for this in plain words —
+"tiles that go to each tab", "an Ask about this button".
+
+**Links.** A widget whose buttons or tiles go somewhere specific (a hub page's
+"Sales" and "Operations" tiles, a "Supplier portal" button) names those links,
+and whoever places it decides where each goes: the widget's gear lists each link
+with a choice of the view's tabs, **Not set**, or **Web address…** (http or https
+only). The choice belongs to that card on that view, so the same widget can go to
+different tabs on different views. A tab link survives renaming the tab; if the
+tab is deleted the tile goes nowhere and the gear says "The tab this went to was
+deleted". A web address opens in a new browser tab, never in place of Command
+Center. Until a link is set its tile looks muted and does nothing. Widget Studio
+adds the links itself when it builds such a widget; an author can also add one by
+hand as a settings field of type **Link**. Duplicating a view or building an app
+from views keeps each link on the copied tab. A widget can't open another view,
+and its code still can't contain an address: an address is only ever a card's
+setting.
 
 ## Widget Library
 

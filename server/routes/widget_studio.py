@@ -189,6 +189,31 @@ def _extract_next(content: str) -> tuple[List[Dict[str, str]], str]:
 # listed here is dropped rather than trusted.
 _META_TEXT_LIMITS = {"name": 120, "description": 600, "helpText": 2000}
 
+# A link's key becomes a `props.data` key and a settings field id.
+_LINK_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
+MAX_PROPOSED_LINKS = 12
+
+
+def _proposed_links(value: Any) -> List[Dict[str, str]]:
+    """The widget's named links the model declared, as `link` settings fields."""
+    if not isinstance(value, list):
+        return []
+    out: List[Dict[str, str]] = []
+    seen: set = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        key, label = item.get("key"), item.get("label")
+        if not isinstance(key, str) or not _LINK_KEY_RE.match(key) or key in seen:
+            continue
+        if not isinstance(label, str) or not label.strip():
+            continue
+        seen.add(key)
+        out.append({"key": key, "label": label.strip()[:60]})
+        if len(out) == MAX_PROPOSED_LINKS:
+            break
+    return out
+
 
 def _extract_meta(content: str, req: GenerateRequest) -> tuple[Dict[str, Any], str]:
     """Pull the proposed widget settings out of a response.
@@ -246,6 +271,10 @@ def _extract_meta(content: str, req: GenerateRequest) -> tuple[Dict[str, Any], s
 
     if isinstance(raw.get("isExecutable"), bool):
         meta["isExecutable"] = raw["isExecutable"]
+
+    links = _proposed_links(raw.get("links"))
+    if links:
+        meta["links"] = links
 
     # The user's own choices win; don't even return a competing suggestion.
     for key in req.locked_settings:

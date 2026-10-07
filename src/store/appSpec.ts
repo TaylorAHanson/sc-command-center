@@ -177,6 +177,46 @@ export const shownTab = (app?: App | null, tabId?: string | null): AppTab | null
 export const tabLabel = (app: App, tab: AppTab, index: number): string =>
   tab.name || (index === 0 || tab.id === app.id ? app.name : `Tab ${index + 1}`);
 
+/**
+ * What a widget's `link` setting holds once someone picks where it goes: one of
+ * the view's tabs, by id so a rename keeps it, or a web address.
+ */
+export type LinkTarget = { tab: string } | { url: string };
+
+/**
+ * The address as typed if it is http(s), else null. A setting is saved as
+ * typed, so this is checked where the link opens, not only in the form.
+ */
+export const webAddress = (raw: unknown): string | null => {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    const url = new URL(raw.trim());
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+  } catch {
+    return null;
+  }
+};
+
+export const isTabLink = (value: unknown): value is { tab: string } =>
+  !!value && typeof value === 'object' && typeof (value as { tab?: unknown }).tab === 'string';
+
+/**
+ * A placed widget's settings with its tab links moved onto a copy's tab ids.
+ * A copy gets new tab ids, and a link still naming the original's would go
+ * nowhere.
+ */
+export const retargetLinks = (props: Record<string, unknown> | undefined, tabIds: Map<string, string>): Record<string, unknown> | undefined => {
+  if (!props) return props;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(props)) {
+    const moved = isTabLink(value) ? tabIds.get(value.tab) : undefined;
+    next[key] = moved ? { tab: moved } : value;
+    if (moved) changed = true;
+  }
+  return changed ? next : props;
+};
+
 /** The agent the drawer opens with: the tab's own pin, else the app's. */
 export const pinnedAgentOf = (app?: App | null, tab?: AppTab | null): string =>
   tab?.pinned_agent_id || app?.pinned_agent_id || '';

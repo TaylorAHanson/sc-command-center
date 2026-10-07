@@ -17,7 +17,8 @@ export interface WidgetProps {
 export interface ConfigField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'select' | 'textarea';
+  /** `link`: where one of the widget's links goes, picked per card; see `AppApi.link`. */
+  type: 'text' | 'number' | 'select' | 'textarea' | 'link';
   required?: boolean;
   placeholder?: string;
   options?: Array<{ value: string; label: string }>; // For select fields

@@ -962,7 +962,9 @@ never in `detail`, which is rendered verbatim on someone's dashboard.
 A `widget-meta` JSON block carries proposed Configuration-tab values. Backend
 sanitizes: categories/domains must be one of the values the request supplied,
 dimensions are range-checked, and keys listed in `locked_settings` are dropped.
-The frontend applies what's left only to fields the user hasn't touched.
+The frontend applies what's left only to fields the user hasn't touched. `links`
+is the exception: each becomes a `link` settings field if no field has its key
+yet, and existing fields are never renamed or removed.
 
 **The cheap side-calls (`ask_helper`).** Compacting history and deciding whether
 to ask a question run on `widget_helper_model` (default

@@ -144,6 +144,7 @@ reach it with optional chaining.
 props.app?.tabs          // [{ id, name, layout: 'canvas' | 'page' }], in order
 props.app?.activeTabId   // the tab being shown
 props.app?.goToTab(idOrName)                  // a tab of this view, by id or by name
+props.app?.link(props.data.<key>)             // a link setting: { label, external, open() }, or null if not set
 props.app?.openAssistant({ agentId?, prompt? }) // open the assistant with this agent, message box filled in
 props.app?.theme         // { primary, dark, font } — the view's colors as #rrggbb, font as a CSS font-family (or null)
 ```
@@ -152,9 +153,22 @@ props.app?.theme         // { primary, dark, font } — the view's colors as #rr
   `agentId` if the user can open that agent (`'default'` is the built-in one),
   and fills in `prompt`; the user reads it and presses Send. Don't tell the user
   the question was asked. Where the view has no assistant, it does nothing.
-- **`goToTab` only reaches this view's tabs.** Name tabs by what the user calls
-  them; read `props.app.tabs` to draw a list of them rather than hard-coding one.
-  There is no way to open another view or address, and a widget must not try.
+- **A widget's links are settings, not code.** When the widget has buttons or
+  tiles that go somewhere specific ("Sales", "Open the runbook"), declare each as a
+  link in the `widget-meta` block (`"links": [{ "key": "sales", "label": "Sales" }]`)
+  and follow it with `props.app?.link(props.data.sales)`. Whoever places the widget
+  points each link at one of their view's tabs or at a web address from its gear,
+  so the widget never names a tab or holds an address. `link()` returns `null`
+  until someone does: draw that tile muted and inert, never hidden, so the editor
+  can see what still needs setting. Use the returned `label` (the tab's current
+  name, or the site's host) only where the widget has no wording of its own, and
+  mark an `external` link with a small external-link icon.
+- **Never write a web address into the code.** Publishing refuses absolute URLs
+  outside the script CDNs, and `window.open` / `location` changes are not for
+  widgets: an address belongs in a link setting.
+- **`goToTab` is for lists of the view's own tabs.** For "a tile for every tab",
+  read `props.app.tabs` and pass each tab's `id`, as below. There is no way to
+  open another view.
 - `props.app.theme` is for colours the brand classes can't express — an inline
   gradient, a chart series. Prefer `text-brand-blue` / `bg-brand-navy` otherwise.
   The view's font is already inherited; use `theme.font` only to put it back
@@ -174,6 +188,30 @@ return (
     <button onClick={() => props.app?.openAssistant({ prompt: 'Summarise this week for me.' })} className="p-4 rounded-lg bg-brand-navy text-white">
       Ask the assistant
     </button>
+  </div>
+);
+```
+
+With named links instead (declared in `widget-meta` as `sales` and `runbook`):
+
+```tsx
+const tiles = [
+  { key: 'sales', title: 'Sales', blurb: 'Pipeline and bookings' },
+  { key: 'runbook', title: 'Runbook', blurb: 'What to do when an order stalls' },
+];
+return (
+  <div className="h-full w-full grid grid-cols-2 gap-4 p-6">
+    {tiles.map(t => {
+      const link = props.app?.link(props.data?.[t.key]);
+      return (
+        <button key={t.key} disabled={!link} onClick={() => link?.open()}
+          title={link ? undefined : 'Not set yet: choose where this goes in the widget settings'}
+          className="p-4 rounded-lg border border-gray-200 text-left text-slate-800 hover:border-brand-blue disabled:opacity-50 disabled:cursor-default">
+          <span className="font-medium">{t.title}</span>{link?.external && ' ↗'}
+          <p className="text-sm text-slate-500">{t.blurb}</p>
+        </button>
+      );
+    })}
   </div>
 );
 ```
@@ -263,7 +301,8 @@ emit a `widget-meta` block so the Configuration tab is filled in for the user:
   "domain": "Supply Chain",
   "defaultW": 6,
   "defaultH": 6,
-  "isExecutable": false
+  "isExecutable": false,
+  "links": [{ "key": "supplierPortal", "label": "Supplier portal" }]
 }
 ```
 
@@ -276,6 +315,10 @@ emit a `widget-meta` block so the Configuration tab is filled in for the user:
   usually wants 6x6 or wider; a single metric tile 3x3.
 - `isExecutable` is true only if the widget submits, runs, or changes something —
   it drives the audit trail.
+- `links` names each place the widget's buttons go (see `props.app.link`): `key`
+  is the `props.data` key the code reads (letters, digits, underscores), `label`
+  what an editor sees in the settings. Links already on the widget are kept, so
+  list only new ones; omit `links` if nothing in the widget goes anywhere.
 - These are suggestions. Anything the user has already filled in themselves is
   kept, so propose values freely for a new widget.
 

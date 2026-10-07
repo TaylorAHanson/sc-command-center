@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AppApi } from '../appApi';
+import { resolveLink, type AppApi } from '../appApi';
 import { DEFAULT_THEME } from '../store/appSpec';
 
 export type PageWidth = 'laptop' | 'wide' | 'narrow';
@@ -18,6 +18,9 @@ const STAND_IN_TABS: AppApi['tabs'] = [
   { id: 'overview', name: 'Overview', layout: 'canvas' },
   { id: 'details', name: 'Details', layout: 'canvas' },
 ];
+
+/** What the preview hands a `link` setting: the stand-in tabs after Home, in turn. */
+export const standInLink = (index: number) => ({ tab: STAND_IN_TABS[1 + (index % (STAND_IN_TABS.length - 1))].id });
 
 /**
  * A `props.app` for the studio's preview. It has no view to move around, so each
@@ -44,6 +47,19 @@ export const usePreviewApp = () => {
       say(tab
         ? `In a view this opens the “${tab.name}” tab.`
         : `In a view this opens the “${idOrName}” tab, if the view has one. The preview’s stand-in tabs are ${STAND_IN_TABS.map(t => t.name).join(', ')}.`);
+    },
+    link: (value: unknown) => {
+      const link = resolveLink(value, STAND_IN_TABS, id => setActiveTabId(id));
+      if (!link) return null;
+      return {
+        ...link,
+        open: () => {
+          if (!link.external) link.open();
+          say(link.external
+            ? `In a view this opens ${link.label} in a new browser tab.`
+            : `In a view this opens the “${link.label}” tab.`);
+        },
+      };
     },
     openAssistant: (request = {}) => {
       const agent = typeof request.agentId === 'string' && request.agentId ? ` with agent “${request.agentId}”` : '';

@@ -57,6 +57,16 @@ def test_range_checks_dimensions_and_refuses_a_non_boolean_flag():
     assert meta["name"] == "Trimmed"
 
 
+def test_keeps_only_well_formed_links():
+    meta, _ = _extract_meta(_response(
+        '{"links": [{"key": "sales", "label": " Sales "}, {"key": "sales", "label": "Again"},'
+        ' {"key": "has space", "label": "Bad"}, {"key": "ops"}, "docs", {"key": "ops", "label": "Operations"}]}'
+    ), _req())
+    assert meta["links"] == [{"key": "sales", "label": "Sales"}, {"key": "ops", "label": "Operations"}]
+    meta, _ = _extract_meta(_response('{"links": "sales"}'), _req())
+    assert "links" not in meta
+
+
 def test_survives_a_malformed_or_absent_block():
     meta, remainder = _extract_meta(_response("{not json at all"), _req())
     assert meta == {}
@@ -73,6 +83,7 @@ if __name__ == "__main__":
         test_only_accepts_categories_and_domains_the_ui_offers,
         test_drops_settings_the_user_already_owns,
         test_range_checks_dimensions_and_refuses_a_non_boolean_flag,
+        test_keeps_only_well_formed_links,
         test_survives_a_malformed_or_absent_block,
     ]
     for test in tests:

@@ -25,7 +25,7 @@ import { DarkChatImage } from '../components/ChatImage';
 import { withBrandColors } from '../brand';
 import { loadFontsNamedIn } from '../fonts';
 import { PagePreview } from '../components/PagePreview';
-import { PAGE_WIDTHS, usePreviewApp, type PageWidth } from '../components/pagePreviewApp';
+import { PAGE_WIDTHS, standInLink, usePreviewApp, type PageWidth } from '../components/pagePreviewApp';
 import remarkGfm from 'remark-gfm';
 
 const DARK_CHAT_MARKDOWN: Components = { img: DarkChatImage };
@@ -1092,6 +1092,16 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         take('defaultH', 'height', defaultH, defaultH === 6, setDefaultH);
         take('isExecutable', 'executable action', isExecutable, isExecutable === false, setIsExecutable);
 
+        // Links are added, never renamed or removed: the code reads them by key,
+        // and a field the author made stays theirs.
+        const proposedLinks: { key: string; label: string }[] = Array.isArray(settings.links) ? settings.links : [];
+        const newLinks = proposedLinks.filter(l => !configSchema.some(f => f.key === l.key));
+        if (newLinks.length) {
+            setConfigSchema(prev => [...prev, ...newLinks.map(l => ({ key: l.key, label: l.label, type: 'link' as const }))]);
+            if (configMode === 'none') setConfigMode('config_allowed');
+            applied.push(`links (${newLinks.map(l => l.label).join(', ')})`);
+        }
+
         return applied;
     };
 
@@ -1912,7 +1922,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         dataSource: dataSource,
                         dataSourceType: dataSourceType,
                         ...(configSchema || []).reduce((acc, field) => {
-                            if (field.key) {
+                            if (field.key && field.type === 'link') {
+                                acc[field.key] = standInLink(configSchema.filter(f => f.type === 'link').indexOf(field));
+                            } else if (field.key) {
                                 // Attempt to map back to number if type is number, though string will usually suffice for preview
                                 acc[field.key] = field.type === 'number' && field.defaultValue ? Number(field.defaultValue) : field.defaultValue;
                             }
@@ -2738,7 +2750,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                                         value={field.type}
                                                                         onChange={e => {
                                                                             const newSchema = [...configSchema];
-                                                                            newSchema[index] = { ...field, type: e.target.value as any };
+                                                                            const type = e.target.value as ConfigField['type'];
+                                                                            newSchema[index] = type === 'link' ? { ...field, type, defaultValue: undefined } : { ...field, type };
                                                                             setConfigSchema(newSchema);
                                                                         }}
                                                                         className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
@@ -2746,8 +2759,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                                         <option value="text">Text / String</option>
                                                                         <option value="number">Number</option>
                                                                         <option value="textarea">Large Text (Textarea)</option>
+                                                                        <option value="link">Link (a tab or web address)</option>
                                                                     </select>
                                                                 </div>
+                                                                {field.type === 'link' ? (
+                                                                    <p className="text-xs text-slate-500 self-end pb-1.5">Whoever places the widget picks a tab of their view or a web address in its settings. The preview stands in tabs.</p>
+                                                                ) : (
                                                                 <div>
                                                                     <label className="block text-xs font-medium text-slate-400 mb-1">Default Value (Optional)</label>
                                                                     <input
@@ -2761,6 +2778,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                                         placeholder="Default string/num"
                                                                     />
                                                                 </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     ))}

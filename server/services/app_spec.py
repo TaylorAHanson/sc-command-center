@@ -560,6 +560,20 @@ def placed_widgets(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     return list(ids), list(pinned)
 
 
+def retarget_links(props: Dict[str, Any], tab_ids: Dict[Any, str]) -> Dict[str, Any]:
+    """A widget's settings with its tab links (`{"tab": id}`) moved onto a copy's tab ids.
+
+    Mirrors `retargetLinks` in `src/store/appSpec.ts`, which does the same when a
+    view is duplicated in the browser.
+    """
+    out = {}
+    for key, value in props.items():
+        if isinstance(value, dict) and isinstance(value.get("tab"), str) and value["tab"] in tab_ids:
+            value = {"tab": tab_ids[value["tab"]]}
+        out[key] = value
+    return out
+
+
 def compose_spec(
     sources: List[Dict[str, Any]],
     *,
@@ -586,6 +600,8 @@ def compose_spec(
     for source in sources:
         source_tabs = (source.get("spec") or {}).get("tabs") or []
         single = len(source_tabs) == 1
+        # A link reaches only its own view's tabs, so each source maps its own.
+        tab_ids = {t.get("id"): new_id() for t in source_tabs if isinstance(t, dict)}
         for tab in source_tabs:
             widgets = []
             for widget in tab.get("widgets") or []:
@@ -597,9 +613,11 @@ def compose_spec(
                     if instance in seen_widgets:
                         widget["i"] = instance = new_id()
                     seen_widgets.add(instance)
+                if isinstance(widget.get("props"), dict):
+                    widget["props"] = retarget_links(widget["props"], tab_ids)
                 widgets.append(widget)
             tabs.append({
-                "id": new_id(),
+                "id": tab_ids.get(tab.get("id")) or new_id(),
                 # A view's name lives on the row, not on its only tab.
                 "name": (source.get("name") or "") if single else (tab.get("name") or source.get("name") or ""),
                 "layout": tab.get("layout") or TAB_LAYOUTS[0],

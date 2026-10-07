@@ -112,6 +112,7 @@ props.app = {
   tabs: { id: string; name: string; layout: 'canvas' | 'page' }[];  // in order
   activeTabId: string;
   goToTab(idOrName: string): void;              // within this app only
+  link(value: unknown): { label: string; external: boolean; open(): void } | null;  // a link setting, below
   openAssistant(opts?: { agentId?: string; prompt?: string }): void;
   theme: { primary: string; dark: string };     // the view's colours (slice 4 adds the tab's)
 }
@@ -125,8 +126,18 @@ Rules, each a constraint the runtime enforces rather than the contract asks for:
   *prefills* the prompt. The user presses Send. A widget that could send would run
   OBO tools as the user without their choosing to.
 - **Navigation stays in the app.** `goToTab` moves between this app's tabs and
-  updates the address as a tab click does; there is no URL navigation in the API,
-  and the existing lint rules on addresses still apply.
+  updates the address as a tab click does, and the existing lint rules on
+  addresses still apply to widget code.
+- **Where a link goes is the placer's choice, not the code's.** A widget names
+  its links as settings fields of type `link`; the card's gear sets each to
+  `{tab: id}` (one of this view's tabs, so renames keep it) or `{url}` (http(s)
+  only, checked again where it opens), stored in the card's props like any other
+  setting. `link()` resolves it; `open()` takes no arguments, so code can't add
+  to the address, and an address opens in a new browser tab with `noopener`,
+  never in Command Center's own. That is the reach an embed card's `url` already
+  gives whoever can edit the view, so the security model is unchanged.
+  Duplicating a view and composing an app move `{tab}` values onto the copies'
+  tab ids.
 - **No new data reach.** Nothing in `props.app` reads data or settings beyond the
   app's own tab names and colours.
 - On a page **inside Command Center**, `openAssistant` opens the workspace's
@@ -264,3 +275,4 @@ widget act as a hub page.
 | 2026-10-06 | Slice 4 built: background, font and cards on the app and tab `theme`, six bundled fonts, **Look** / **This tab's look** in View settings, and `POST /api/apps/look` behind **Suggest**. `props.app.theme.font` is the CSS font stack. |
 | 2026-10-06 | After review: tab looks dropped (one look per app; compose takes the first source's), cards gain `header: none`, and **Settings → Agent** gains **No agent**, which sets `assistant: 'off'` and replaces the **Offer the assistant** checkbox. It now hides the assistant inside Command Center too, while that view is shown. **Suggest** deepens a too-light accent instead of dropping it. |
 | 2026-10-06 | UX review: View settings split into Opening / Look / Filters / Assistant, branding shown only for **On its own**; plainer words (**Cards on a grid** / **Full page**, **Preview**, **Whichever agent is open**); the header's **Add tab** names both tabs; keyboard tabs; in-app confirmations; filter choices remembered per person in `localStorage`. A built-in **Tab links** widget and a missing-tab warning (from `goToTab('…')` literals) were built and then rolled back to be redesigned. |
+| 2026-10-07 | Links redesigned as per-card settings (§2.3): any widget names its links, the gear points each at a tab or a web address, and Widget Studio's agent declares them in `widget-meta`. No built-in widget and no reading of widget source. |

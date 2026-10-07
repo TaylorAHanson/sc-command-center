@@ -1,6 +1,69 @@
 import React, { useState } from 'react';
 import { X, Settings } from 'lucide-react';
-import type { WidgetDefinition } from '../widgetRegistry';
+import type { ConfigField, WidgetDefinition } from '../widgetRegistry';
+import { useDashboardStore } from '../store/dashboardStore';
+import { isTabLink, tabLabel, webAddress } from '../store/appSpec';
+
+const inputClass = 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-blue focus:border-brand-blue text-sm';
+
+const addressOf = (value: unknown): { url: string } | null =>
+    value && typeof value === 'object' && 'url' in value ? { url: String((value as { url: unknown }).url ?? '') } : null;
+
+/** Why a link setting can't be saved as it stands, or null. */
+const linkProblem = (field: ConfigField, value: unknown, tabIds: string[]): string | null => {
+    const address = addressOf(value);
+    if (address) {
+        return webAddress(address.url) ? null : `${field.label}: enter a web address starting with https:// or http://.`;
+    }
+    const set = isTabLink(value) && tabIds.includes(value.tab);
+    if (field.required && !set) return `${field.label}: pick a tab or enter a web address.`;
+    return null;
+};
+
+/** One of the widget's links: a tab of the view this card is on, or a web address. */
+const LinkField: React.FC<{ field: ConfigField; value: unknown; onChange: (value: unknown) => void }> = ({ field, value, onChange }) => {
+    const { activeApp } = useDashboardStore();
+    const tabs = activeApp ? activeApp.spec.tabs.map((t, i) => ({ id: t.id, name: tabLabel(activeApp, t, i) })) : [];
+    const address = addressOf(value);
+    const lostTab = isTabLink(value) && !tabs.some(t => t.id === value.tab);
+    const choice = address ? 'url' : isTabLink(value) ? `tab:${value.tab}` : '';
+
+    return (
+        <>
+            <select
+                id={`config-${field.key}`}
+                value={choice}
+                onChange={e => {
+                    const next = e.target.value;
+                    onChange(next === 'url' ? { url: '' } : next.startsWith('tab:') ? { tab: next.slice(4) } : '');
+                }}
+                className={inputClass}
+            >
+                <option value="">Not set</option>
+                {lostTab && <option value={choice}>A deleted tab</option>}
+                {tabs.length > 0 && (
+                    <optgroup label="Tabs of this view">
+                        {tabs.map(t => <option key={t.id} value={`tab:${t.id}`}>{t.name}</option>)}
+                    </optgroup>
+                )}
+                <option value="url">Web address…</option>
+            </select>
+            {address && (
+                <input
+                    type="url"
+                    aria-label={`${field.label} web address`}
+                    value={address.url}
+                    onChange={e => onChange({ url: e.target.value })}
+                    placeholder="https://"
+                    className={`${inputClass} mt-2`}
+                    autoFocus
+                />
+            )}
+            {lostTab && <p className="text-xs text-amber-700 mt-1">The tab this went to was deleted. Pick another.</p>}
+            {address && <p className="text-xs text-gray-500 mt-1">Opens in a new browser tab.</p>}
+        </>
+    );
+};
 
 interface ConfigModalProps {
     isOpen: boolean;
@@ -13,6 +76,7 @@ interface ConfigModalProps {
 }
 
 export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSave, widget, initialConfig, editing }) => {
+    const { activeApp } = useDashboardStore();
     // For structured forms
     const [formData, setFormData] = useState<Record<string, any>>({});
     const [problem, setProblem] = useState<string | null>(null);
@@ -51,10 +115,19 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
     const handleSave = () => {
         if (hasSchema) {
             const missingFields = widget.configSchema!
-                .filter(field => field.required && !formData[field.key])
+                .filter(field => field.type !== 'link' && field.required && !formData[field.key])
                 .map(field => field.label);
             if (missingFields.length > 0) {
                 setProblem(`Fill in ${missingFields.join(', ')}.`);
+                return;
+            }
+            const tabIds = activeApp?.spec.tabs.map(t => t.id) || [];
+            const badLink = widget.configSchema!
+                .filter(field => field.type === 'link')
+                .map(field => linkProblem(field, formData[field.key], tabIds))
+                .find(Boolean);
+            if (badLink) {
+                setProblem(badLink);
                 return;
             }
 
@@ -64,6 +137,8 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
                 if (field.type === 'number' && processedData[field.key]) {
                     processedData[field.key] = Number(processedData[field.key]);
                 }
+                const address = field.type === 'link' ? addressOf(processedData[field.key]) : null;
+                if (address) processedData[field.key] = { url: webAddress(address.url) };
             });
 
             // Props the form doesn't show, such as a pinned version, stay as they were.
@@ -114,7 +189,9 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
                                         {field.required && <span className="text-red-500 ml-1">*</span>}
                                     </label>
 
-                                    {field.type === 'select' ? (
+                                    {field.type === 'link' ? (
+                                        <LinkField field={field} value={formData[field.key]} onChange={v => handleFormChange(field.key, v)} />
+                                    ) : field.type === 'select' ? (
                                         <select
                                             id={`config-${field.key}`}
                                             value={formData[field.key] || ''}

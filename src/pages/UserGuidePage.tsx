@@ -497,7 +497,10 @@ export const UserGuidePage: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-2">Widgets that steer the view</h3>
               <p className="text-gray-700">
-                A widget can open the view's other tabs and open the assistant with an agent chosen and a question typed in — ask for "tiles that go to each tab" or "an Ask about this button". It never sends the question for you: you read it and press <strong>Send</strong>. It can't open other views or addresses.
+                A widget can open the view's other tabs and open the assistant with an agent chosen and a question typed in — ask for "tiles that go to each tab" or "an Ask about this button". It never sends the question for you: you read it and press <strong>Send</strong>. It can't open other views.
+              </p>
+              <p className="text-gray-700 mt-2">
+                A widget whose tiles or buttons go somewhere specific, like a hub page's <em>Sales</em> and <em>Operations</em> tiles, has named <strong>links</strong>, and you decide where each one goes. Open the widget's gear on your view: each link has a choice of the view's tabs, <strong>Not set</strong>, or <strong>Web address…</strong> (http or https). That choice belongs to this card, so the same widget can go to different tabs on different views. Renaming a tab keeps its links; deleting it leaves them going nowhere, and the gear says so. A web address opens in a new browser tab. A tile whose link isn't set yet looks muted and does nothing. The studio adds the links when it builds such a widget, or you can add a settings field of type <strong>Link</strong> yourself.
               </p>
             </div>
 

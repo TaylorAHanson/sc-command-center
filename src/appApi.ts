@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import { useDashboardStore } from './store/dashboardStore';
-import { colourProblem, DEFAULT_THEME, effectiveTheme, tabLabel, type TabLayout } from './store/appSpec';
+import { colourProblem, DEFAULT_THEME, effectiveTheme, isTabLink, tabLabel, webAddress, type TabLayout } from './store/appSpec';
 import { fontById } from './fonts';
 
 export interface AssistantRequest {
@@ -18,10 +18,41 @@ export interface AppApi {
   tabs: { id: string; name: string; layout: TabLayout }[];
   activeTabId: string;
   goToTab: (idOrName: string) => void;
+  /**
+   * A `link` setting (`props.data[key]`) made followable: the tab's current name
+   * or the address, and how to open it. Null until someone sets it, or once its
+   * tab is deleted. An address opens in a new browser tab, never this one.
+   */
+  link: (value: unknown) => ResolvedLink | null;
   openAssistant: (request?: AssistantRequest) => void;
   /** The view's colors, and its font as a CSS font-family (null: Command Center's). */
   theme: { primary: string; dark: string; font: string | null };
 }
+
+export interface ResolvedLink {
+  label: string;
+  external: boolean;
+  open: () => void;
+}
+
+/** Resolves a link setting against a list of tabs, so the preview can use it too. */
+export const resolveLink = (
+  value: unknown,
+  tabs: AppApi['tabs'],
+  goToTab: (id: string) => void,
+): ResolvedLink | null => {
+  if (isTabLink(value)) {
+    const tab = tabs.find(t => t.id === value.tab);
+    return tab ? { label: tab.name, external: false, open: () => goToTab(tab.id) } : null;
+  }
+  const href = value && typeof value === 'object' ? webAddress((value as { url?: unknown }).url) : null;
+  if (!href) return null;
+  return {
+    label: new URL(href).host,
+    external: true,
+    open: () => { window.open(href, '_blank', 'noopener,noreferrer'); },
+  };
+};
 
 /** How a shell opens its assistant. Absent where the app has none. */
 export interface AssistantDoor {
@@ -75,6 +106,7 @@ export const useAppApi = (): AppApi | undefined => {
         const tab = list.find(t => t.id === idOrName) || list.find(t => t.name.trim().toLowerCase() === wanted);
         if (tab && tab.id !== activeTabId) selectTab(tab.id);
       },
+      link: (value: unknown) => resolveLink(value, list, id => { if (id !== activeTabId) selectTab(id); }),
       openAssistant: (request?: AssistantRequest) => {
         door?.open({ agentId: request?.agentId, prompt: request?.prompt });
       },

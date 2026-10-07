@@ -32,17 +32,17 @@ replace the ones about the card:
   Always end the stack with a generic family, e.g.
   `fontFamily: "'Fraunces Variable', ui-serif, Georgia, serif"`. With no
   `fontFamily` the page uses the view's font.
-- **Moving around the view.** Pages are how people get around an app. A card or
-  tile that stands for a part of the app (a persona, a team, a topic, "see the
-  details") goes to the tab of that name: look it up in `props.app.tabs` when it
-  is clicked, matching names case-insensitively, and call `props.app.goToTab`
-  with its id. Only when the view has no such tab does it fall back, to
-  `props.app.openAssistant` with the card's question if it has one, or to doing
-  nothing; never invent an address. Do this even when the request doesn't
-  mention tabs: the page is built before the view's tabs are, and the studio's
-  preview has only stand-in tabs (Home, Overview, Details), where these calls say
-  what they would do instead of doing it. Controls that ask something (an "Ask"
-  button, a search box) use `props.app.openAssistant`.
+- **Moving around the view.** Pages are how people get around an app. Every card
+  or tile that stands for a part of the app (a persona, a team, a topic, "see the
+  details") or for an outside site is a **link**: declare it under `links` in the
+  `widget-meta` block and follow it with `props.app.link(props.data.<key>)`, as
+  the widget contract shows. Do this even when the request doesn't mention tabs:
+  the page is built before the view's tabs are, and whoever places it points each
+  link at a tab or a web address from its settings. Until they do, `link()`
+  returns null and the tile is drawn muted. In the studio's preview, links go to
+  stand-in tabs (Overview, Details) and say what they would do instead of doing
+  it. Controls that ask something (an "Ask" button, a search box) use
+  `props.app.openAssistant`. Never write an address into the code.
 - **Connectors and decoration.** Lines joining cards, glows and shapes are inline
   SVG or absolutely positioned elements; keep them `pointer-events-none` and
   `aria-hidden`, and make sure they reflow with the layout (a line drawn for

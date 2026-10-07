@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState,
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
 import { rememberedFilters, rememberFilters } from './rememberedFilters';
-import { filterDefaults, isPage, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, PAGE_WIDGET_PLACE, shownTab, withTab, type App, type AppSpec, type AppTab, type TabLayout, type WidgetLayout } from './appSpec';
+import { filterDefaults, isPage, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, PAGE_WIDGET_PLACE, retargetLinks, shownTab, withTab, type App, type AppSpec, type AppTab, type TabLayout, type WidgetLayout } from './appSpec';
 import { appHash, appLink, isStandalone, linkTab, parseAppRoute, routeTab, withoutRouteParams, type AppRoute } from './appRoute';
 import { useShell } from '../shell';
 
@@ -330,6 +330,7 @@ export const DashboardProvider: React.FC<{
     if (template) {
       const id = uuidv4();
       const single = template.spec.tabs.length === 1;
+      const tabIds = new Map(template.spec.tabs.map(tab => [tab.id, single ? id : uuidv4()]));
       const newApp: App = {
         ...template,
         id,
@@ -340,8 +341,8 @@ export const DashboardProvider: React.FC<{
           ...template.spec,
           tabs: template.spec.tabs.map(tab => ({
             ...tab,
-            id: single ? id : uuidv4(),
-            widgets: tab.widgets.map(w => ({ ...w, i: uuidv4() })),
+            id: tabIds.get(tab.id)!,
+            widgets: tab.widgets.map(w => ({ ...w, i: uuidv4(), props: retargetLinks(w.props, tabIds) })),
           })),
         },
       };
