@@ -36,6 +36,17 @@ html, body, #root {
   border-radius: 8px;
 }
 
+/* A card title bar in a theme color. Its controls come from many places with
+   gray-on-white classes, so they are lightened here rather than one by one. */
+.cc-tinted-bar svg,
+.cc-tinted-bar button {
+  color: rgb(255 255 255 / 0.75);
+}
+.cc-tinted-bar button:hover,
+.cc-tinted-bar button:hover svg {
+  color: #fff;
+}
+
 /* Locked widget styling */
 .locked-widget .drag-handle {
   cursor: default !important;

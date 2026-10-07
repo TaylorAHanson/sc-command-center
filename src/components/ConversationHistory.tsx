@@ -27,7 +27,9 @@ type HistoryChat = Pick<AgentChat,
  * than kept live, since it only changes when a turn completes or the user acts
  * here.
  */
-export const ConversationHistory: React.FC<{ chat: HistoryChat; disabled?: boolean }> = ({ chat, disabled }) => {
+export const ConversationHistory: React.FC<{ chat: HistoryChat; disabled?: boolean; buttonClassName?: string }> = ({
+    chat, disabled, buttonClassName = 'text-gray-400 hover:text-gray-600 hover:bg-gray-100',
+}) => {
     const { conversationId, conversations, refreshConversations, openConversation, renameConversation, deleteConversation, deleteAllConversations } = chat;
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState<string | null>(null);
@@ -67,7 +69,7 @@ export const ConversationHistory: React.FC<{ chat: HistoryChat; disabled?: boole
                 type="button"
                 onClick={() => setOpen(v => !v)}
                 disabled={disabled}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-40"
+                className={`p-1.5 rounded-md transition-colors disabled:opacity-40 ${buttonClassName}`}
                 title="Past conversations"
             >
                 <History className="w-4 h-4" />

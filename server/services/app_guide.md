@@ -105,16 +105,30 @@ per-user unless they are global.
   Grotesk, Fraunces, IBM Plex Sans or JetBrains Mono (no others: fonts are
   bundled with the app). **Background** is Command Center's light gray, a
   color, a two-color gradient, or an image (an https:// address, or an upload
-  up to 256 KB) that fills or tiles the area behind the cards. **Cards** sets their corners,
-  edges (flat, outlined, shadowed) and title (in a gray bar, plain, or **No title**, which
-  leaves the title off and shows the card's buttons only on hover); a card's
-  body stays white so widgets stay readable. Inside Command Center the
-  look covers the view's tabs, filter bar, background and the assistant panel,
-  while the sidebar and header stay Command Center's; opened on its own, the
-  whole page uses it. A view with no look, and every page that isn't a view
-  (studios, User Guide, Admin Panel), keeps Command Center's colors. A
-  page tab takes only the colors and font, because its widget draws its own
-  background and it has no cards. A preview beside the choices shows the result.
+  up to 256 KB) that fills or tiles it. The background covers everything under
+  the header as one surface: the tab bar and filter bar sit on it rather than
+  on white bands of their own, and so do the cards, a page tab's widget and the
+  assistant's messages and message box. Text drawn straight on a dark
+  background (tab names, filter labels, "This tab is empty", the assistant's
+  small print) turns light by itself. **Header** (White or The dark color) colors
+  the bar along the top when the view is opened on its own, and the assistant's
+  header beside it, which is always the same height so the two make one line;
+  inside Command Center, Command Center's header is used. **Cards** sets their
+  corners, edges (flat, outlined, shadowed), title (in a gray bar, in an
+  accent-color or dark-color bar with a white title, plain, or **No title**,
+  which leaves the title off and shows the card's buttons only on hover) and
+  **Spacing** between them (compact, standard, roomy); a card's body stays
+  white so widgets stay readable. Inside Command Center the look covers the
+  view's tabs, filter bar, background and the assistant panel, while the
+  sidebar and header stay Command Center's; opened on its own, the whole page
+  uses it. A view with no look, and every page that isn't a view (studios, User
+  Guide, Admin Panel), keeps Command Center's colors. A page tab has no cards,
+  and its widget usually paints over the background. A preview beside the
+  choices shows the result.
+- The assistant's header holds just the agent picker, the pin and the history,
+  new-conversation and collapse buttons. How many widgets it can see is in the
+  small print under the message box, and notes about a pinned agent show at the
+  top of the conversation.
 - **Suggest**, beside **Describe the look**, turns a
   description ("dark navy, like a control room, rounded cards") into those
   choices. It only fills the fields: nothing is saved until **Save**, **Undo**

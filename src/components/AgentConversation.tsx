@@ -9,6 +9,7 @@ import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { SendStopButton } from './SendStopButton';
 import { VegaChart, CHART_FENCE_MODES } from './VegaChart';
 import { ChatImage } from './ChatImage';
+import { backgroundStyle, canvasTone, type CanvasBackground } from '../store/appSpec';
 
 const TypingDots: React.FC = () => (
     <div className="flex items-center space-x-1.5 h-5 px-1">
@@ -63,10 +64,25 @@ type ConversationChat = Pick<AgentChat, 'messages' | 'input' | 'setInput' | 'isL
  * stream identically — including reasoning disclosures, tool pills, live
  * "Thinking…" progress, and (via the hook) async Genie poll draining.
  */
-export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?: string }> = ({
+export const AgentConversation: React.FC<{
+    chat: ConversationChat;
+    placeholder?: string;
+    /** Drawn behind the messages, as a view's background is behind its cards. */
+    backdrop?: CanvasBackground | null;
+    /** A line kept at the top of the messages. */
+    notice?: { text: string; warn: boolean } | null;
+    /** Said first in the small print under the composer. */
+    footnote?: string;
+}> = ({
     chat,
     placeholder = 'Ask about your dashboard…',
+    backdrop,
+    notice,
+    footnote,
 }) => {
+    const tone = canvasTone(backdrop);
+    // Text drawn straight on the backdrop; anything in a white box keeps its gray.
+    const loose = tone === 'dark' ? 'text-white/70' : tone === 'image' ? 'w-fit px-1.5 rounded bg-white/90 text-gray-600' : 'text-gray-400';
     const {
         messages, input, setInput, isLoading, send, stop,
         attachments = [], attachFiles, removeAttachment, isUploading, uploadError, clearUploadError,
@@ -97,7 +113,9 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
 
     return (
         <div
-            className="flex flex-col h-full min-h-0 bg-white relative"
+            className={`flex flex-col h-full min-h-0 relative ${backdrop ? '' : 'bg-white'}`}
+            style={backgroundStyle(backdrop)}
+            data-chat-backdrop
             onDragOver={e => { if (canAttach) { e.preventDefault(); setIsDragging(true); } }}
             onDragLeave={e => {
                 // Only clear when the pointer actually leaves the panel, not when it
@@ -113,10 +131,20 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
             )}
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                {notice && (
+                    <div
+                        role="status"
+                        className={`sticky top-0 z-10 rounded-md border px-2.5 py-1.5 text-[11px] leading-snug shadow-sm ${
+                            notice.warn ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-white border-gray-200 text-gray-600'
+                        }`}
+                    >
+                        {notice.text}
+                    </div>
+                )}
                 {/* Reopening the last conversation is a round trip, and without this
                     the greeting sits there looking like a new chat until it lands. */}
                 {chat.isRestoring && (
-                    <div className="flex items-center justify-center gap-2 py-1 text-xs text-gray-400">
+                    <div className={`mx-auto flex items-center justify-center gap-2 py-1 text-xs ${loose}`}>
                         <Loader2 className="w-3 h-3 animate-spin" />
                         Reopening your last conversation…
                     </div>
@@ -129,7 +157,7 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                                     ? 'bg-brand-blue text-white'
                                     : msg.isError
                                         ? 'bg-rose-50 border border-rose-200 text-rose-700'
-                                        : 'bg-gray-50 border border-gray-200 text-gray-800'
+                                        : `${backdrop ? 'bg-white' : 'bg-gray-50'} border border-gray-200 text-gray-800`
                             }`}
                         >
                             {msg.role === 'user' ? (
@@ -193,7 +221,7 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
             </div>
 
             {/* Input */}
-            <form onSubmit={handleSubmit} className="border-t border-gray-200 p-3 shrink-0">
+            <form onSubmit={handleSubmit} className={`p-3 shrink-0 ${backdrop ? '' : 'border-t border-gray-200'}`}>
                 {uploadError && (
                     <div className="mb-2 flex items-start gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">
                         <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
@@ -229,7 +257,11 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                                 type="button"
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={isUploading}
-                                className="p-2 text-gray-400 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors shrink-0 disabled:opacity-40"
+                                className={`p-2 rounded-md transition-colors shrink-0 disabled:opacity-40 ${
+                                    tone === 'dark' ? 'text-white/70 hover:text-white hover:bg-white/10'
+                                        : tone === 'image' ? 'bg-white/90 text-gray-500 hover:text-brand-blue'
+                                            : 'text-gray-400 hover:text-brand-blue hover:bg-gray-100'
+                                }`}
                                 title="Attach a spreadsheet, document, or image"
                             >
                                 {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
@@ -247,7 +279,7 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                         }}
                         rows={1}
                         placeholder={placeholder}
-                        className="flex-1 resize-none rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue max-h-32"
+                        className="flex-1 resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue max-h-32"
                     />
                     <SendStopButton
                         running={isLoading}
@@ -261,7 +293,8 @@ export const AgentConversation: React.FC<{ chat: ConversationChat; placeholder?:
                     the two things someone needs to know before typing are that the
                     answer is generated and may be wrong, and that what they type is
                     kept. Both are also in the User Guide and app_guide.md. */}
-                <p className="mt-1.5 px-0.5 text-[10px] leading-tight text-gray-400">
+                <p className={`mt-1.5 px-0.5 text-[10px] leading-tight ${loose}`}>
+                    {footnote && <>{footnote} </>}
                     Responses are AI-generated and can be wrong — check anything you plan to act on.
                     Conversations are saved to your history and may be retained by your administrator.
                 </p>

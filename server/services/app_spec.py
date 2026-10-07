@@ -71,8 +71,14 @@ FONTS = ("inter", "manrope", "space-grotesk", "fraunces", "ibm-plex-sans", "jetb
 CARD_STYLES = {
     "radius": ("none", "sm", "md", "lg", "xl"),
     "depth": ("flat", "border", "shadow"),
-    "header": ("bar", "minimal", "none"),
+    # "accent" and "dark" tint the title bar with a theme colour, which is why
+    # those must carry white text.
+    "header": ("bar", "minimal", "none", "accent", "dark"),
+    "spacing": ("compact", "normal", "roomy"),
 }
+# The header (a view on its own, and the assistant's beside it): white, or the
+# view's dark colour with white text. Tabs sit on the background either way.
+BARS = ("light", "dark")
 
 # A filter's choice lands in the dashboard variables under its key, which widget
 # code reads as `data.variables.<key>`, so the key must be a plain identifier.
@@ -346,6 +352,13 @@ def _theme(value: Any, strict: bool, where: str = "theme") -> Optional[Dict[str,
             out["font"] = font
         elif strict:
             raise SpecError(f"{where}.font must be one of {', '.join(FONTS)}.")
+
+    bars = value.get("bars")
+    if bars not in (None, ""):
+        if bars in BARS:
+            out["bars"] = bars
+        elif strict:
+            raise SpecError(f"{where}.bars must be one of {', '.join(BARS)}.")
 
     cards = _cards(value.get("cards"), where, strict)
     if cards:

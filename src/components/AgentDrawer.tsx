@@ -3,7 +3,7 @@ import { Bot } from 'lucide-react';
 import clsx from 'clsx';
 import { AgentPanel } from './AgentPanel';
 import type { AgentChat } from '../hooks/useAgentChat';
-import { DEFAULT_AGENT_NAME } from '../store/appSpec';
+import { DEFAULT_AGENT_NAME, type CanvasBackground } from '../store/appSpec';
 
 /**
  * The assistant: a resizable panel down the right-hand side when open, a
@@ -14,7 +14,11 @@ export const AgentDrawer: React.FC<{
   chat: AgentChat;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-}> = ({ chat, isOpen, onOpenChange }) => {
+  /** The view's background, drawn behind the messages. */
+  backdrop?: CanvasBackground | null;
+  /** The page header beside the drawer is the dark color, so its header is too. */
+  dark?: boolean;
+}> = ({ chat, isOpen, onOpenChange, backdrop, dark }) => {
   // Agents are listed lazily (the listing scans Unity Catalog), so a pinned
   // agent's name may not be known yet; say "Assistant" rather than name the
   // built-in agent when it isn't the one that will answer.
@@ -65,7 +69,7 @@ export const AgentDrawer: React.FC<{
         >
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-10 w-1 rounded-full bg-gray-300 group-hover:bg-brand-blue transition-colors" />
         </div>
-        <AgentPanel chat={chat} onCollapse={() => onOpenChange(false)} />
+        <AgentPanel chat={chat} onCollapse={() => onOpenChange(false)} backdrop={backdrop} dark={dark} />
       </div>
     );
   }

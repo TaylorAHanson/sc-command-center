@@ -62,6 +62,8 @@ export interface AppTheme {
   background?: CanvasBackground | null;
   /** One of `FONTS` in fonts.ts. */
   font?: string | null;
+  /** The header and tab bar: white, or the dark colour with white text. */
+  bars?: 'light' | 'dark' | null;
   cards?: CardStyle | null;
 }
 
@@ -75,8 +77,33 @@ export type GradientDirection = 'to-b' | 'to-r' | 'to-br' | 'to-tr';
 export interface CardStyle {
   radius?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
   depth?: 'flat' | 'border' | 'shadow';
-  header?: 'bar' | 'minimal' | 'none';
+  header?: 'bar' | 'minimal' | 'none' | 'accent' | 'dark';
+  spacing?: 'compact' | 'normal' | 'roomy';
 }
+
+export const darkBars = (app?: App | null): boolean => effectiveTheme(app).bars === 'dark';
+
+/**
+ * What the tab and filter bars are drawn on: Command Center's white band with no
+ * background, else the background itself, behind a pale band only over an image.
+ */
+export const barSurface = (app?: App | null): 'plain' | 'light' | 'dark' | 'image' => {
+  const background = effectiveTheme(app).background;
+  return background ? canvasTone(background) : 'plain';
+};
+
+export const BAR_SURFACE = {
+  plain: 'bg-white border-gray-200',
+  light: 'border-black/10',
+  dark: 'border-white/15',
+  image: 'bg-white/85 backdrop-blur-sm border-gray-200',
+} as const;
+
+/** The gap between cards and around the grid, in pixels. */
+export const cardSpacing = (cards?: CardStyle | null): { margin: [number, number]; padding: [number, number] } => {
+  const gap = { compact: 4, normal: 8, roomy: 16 }[cards?.spacing || 'normal'];
+  return { margin: [gap, gap], padding: [gap / 2, gap / 2] };
+};
 
 /** The look every tab of a view is drawn with. */
 export const effectiveTheme = (app?: App | null): AppTheme => app?.spec?.theme || {};
@@ -104,14 +131,34 @@ const DEPTH: Record<NonNullable<CardStyle['depth']>, string> = {
   flat: 'border border-transparent', border: 'border border-gray-200', shadow: 'border border-transparent shadow-md',
 };
 
+const TINTED_HEADER = { accent: 'bg-brand-blue', dark: 'bg-brand-navy' } as const;
+
 /** The classes a card is drawn with. Unset is Command Center's own card. */
-export const cardClasses = (cards?: CardStyle | null) => ({
-  frame: `${RADIUS[cards?.radius || 'lg']} ${cards?.depth ? DEPTH[cards.depth] : 'border border-gray-200 shadow-sm'}`,
-  /** No title bar: the card's controls float over its top-right corner instead. */
-  bare: cards?.header === 'none',
-  header: cards?.header === 'minimal' ? 'bg-white' : 'bg-gray-50 border-b border-gray-100',
-  title: cards?.header === 'minimal' ? 'text-sm font-semibold text-gray-800' : 'text-xs font-semibold text-gray-600 uppercase tracking-wide',
-});
+export const cardClasses = (cards?: CardStyle | null) => {
+  const tint = cards?.header === 'accent' || cards?.header === 'dark' ? cards.header : null;
+  return {
+    frame: `${RADIUS[cards?.radius || 'lg']} ${cards?.depth ? DEPTH[cards.depth] : 'border border-gray-200 shadow-sm'}`,
+    /** No title bar: the card's controls float over its top-right corner instead. */
+    bare: cards?.header === 'none',
+    /** A title bar in a theme color, whose controls `.cc-tinted-bar` turns white. */
+    tinted: !!tint,
+    header: tint ? `${TINTED_HEADER[tint]} cc-tinted-bar` : cards?.header === 'minimal' ? 'bg-white' : 'bg-gray-50 border-b border-gray-100',
+    title: tint
+      ? 'text-xs font-semibold text-white uppercase tracking-wide'
+      : cards?.header === 'minimal' ? 'text-sm font-semibold text-gray-800' : 'text-xs font-semibold text-gray-600 uppercase tracking-wide',
+  };
+};
+
+/**
+ * Whether text drawn straight on the canvas should be light: `dark` behind it,
+ * `image` when nothing can be known about it (so the text gets a backing).
+ */
+export const canvasTone = (background?: CanvasBackground | null): 'light' | 'dark' | 'image' => {
+  if (!background) return 'light';
+  if (background.kind === 'image') return 'image';
+  const colours = background.kind === 'colour' ? [background.colour] : [background.from, background.to];
+  return colours.every(c => /^#[0-9a-f]{6}$/i.test(c) && whiteTextContrast(c) >= MIN_WHITE_CONTRAST) ? 'dark' : 'light';
+};
 
 /** Command Center's own colours (`--brand-blue` / `--brand-navy` in index.css). */
 export const DEFAULT_THEME = { primary: '#007bff', dark: '#001e3c' };

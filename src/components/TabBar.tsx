@@ -3,7 +3,7 @@ import { FileText, LayoutGrid, Plus, X } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from './ConfirmModal';
 import { useDashboardStore } from '../store/dashboardStore';
-import { layoutSwitch, MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel, type TabLayout } from '../store/appSpec';
+import { BAR_SURFACE, barSurface, layoutSwitch, MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel, type TabLayout } from '../store/appSpec';
 
 const NEW_TAB = '\u0000new';
 
@@ -143,6 +143,11 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
   const app = activeApp;
   const tabs = app.spec.tabs;
   const editable = canEditLayout(app);
+  // The tabs sit on the view's background rather than a band of their own, so
+  // the header stays the only line across the view and the assistant beside it.
+  const surface = barSurface(app);
+  const dark = surface === 'dark';
+  const quiet = dark ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-brand-blue hover:bg-gray-100';
   // Roving focus: one tab is in the Tab order, the arrow keys move between them.
   const activeIndex = tabs.findIndex(t => t.id === activeAppTab?.id);
   const rovingIndex = focusIndex !== null && focusIndex < tabs.length ? focusIndex : Math.max(0, activeIndex);
@@ -209,7 +214,7 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
   return (
     <nav
       className={clsx(
-        'bg-white border-gray-200 shrink-0',
+        'shrink-0', BAR_SURFACE[surface],
         side ? 'w-52 border-r py-2 flex flex-col gap-0.5 overflow-y-auto' : 'border-b px-4 flex items-end gap-1 overflow-x-auto',
       )}
       aria-label="Tabs"
@@ -258,12 +263,15 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
             onDoubleClick={() => editable && startEditing(tab.id, label)}
             title={editable ? `${label} — double-click or press F2 to rename, drag to reorder` : label}
             className={clsx(
-              'group flex items-center gap-1 px-3 py-2 text-sm cursor-pointer select-none whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-inset',
+              'group flex items-center gap-1 px-3 py-2 text-sm cursor-pointer select-none whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset',
+              dark ? 'focus-visible:ring-white/60' : 'focus-visible:ring-brand-blue/40',
               side ? 'border-l-2 justify-between' : 'border-b-2',
-              active ? 'border-brand-blue text-brand-navy font-medium' : 'border-transparent text-gray-500 hover:text-gray-800',
-              side && active && 'bg-brand-blue/5',
+              active
+                ? (dark ? 'border-white text-white font-medium' : 'border-brand-blue text-brand-navy font-medium')
+                : (dark ? 'border-transparent text-white/70 hover:text-white' : 'border-transparent text-gray-500 hover:text-gray-800'),
+              side && active && (dark ? 'bg-white/10' : 'bg-brand-blue/5'),
               dragIndex === index && 'opacity-50',
-              overIndex === index && dragIndex !== null && dragIndex !== index && 'bg-brand-blue/5',
+              overIndex === index && dragIndex !== null && dragIndex !== index && (dark ? 'bg-white/10' : 'bg-brand-blue/5'),
             )}
           >
             <span className={clsx('truncate', !side && 'max-w-[14rem]')}>{label}</span>
@@ -286,7 +294,7 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
                   className={clsx(
                     'p-0.5 rounded opacity-0 group-hover:opacity-100 focus:opacity-100',
                     !active && 'invisible',
-                    swap.blocked ? 'text-gray-300 cursor-not-allowed' : 'text-gray-400 hover:text-brand-blue hover:bg-gray-100',
+                    swap.blocked ? clsx(dark ? 'text-white/30' : 'text-gray-300', 'cursor-not-allowed') : quiet,
                   )}
                   title={swap.title}
                 >
@@ -303,7 +311,10 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
                   if (count) setDeleting({ id: tab.id, label, count });
                   else removeTab(app.id, tab.id);
                 }}
-                className="p-0.5 rounded text-gray-400 hover:text-red-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                className={clsx(
+                  'p-0.5 rounded opacity-0 group-hover:opacity-100 focus:opacity-100',
+                  dark ? 'text-white/60 hover:text-red-200 hover:bg-white/10' : 'text-gray-400 hover:text-red-600 hover:bg-gray-100',
+                )}
                 title={`Delete the tab “${label}”`}
               >
                 <X className="w-3 h-3" />
@@ -322,7 +333,7 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
               <button
                 type="button"
                 onClick={open}
-                className="p-1.5 rounded-md text-gray-400 hover:text-brand-blue hover:bg-gray-100"
+                className={clsx('p-1.5 rounded-md', quiet)}
                 title="Add a tab"
               >
                 <Plus className="w-4 h-4" />

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Sparkles, Undo2, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 import {
-  backgroundStyle, cardClasses, DEFAULT_THEME, imageProblem,
+  backgroundStyle, BAR_SURFACE, canvasTone, cardClasses, cardSpacing, DEFAULT_THEME, imageProblem,
   type AppTheme, type CanvasBackground, type CardStyle, type GradientDirection,
 } from '../store/appSpec';
 import { FONTS, fontById, loadFont } from '../fonts';
@@ -21,7 +21,8 @@ const DIRECTIONS: [GradientDirection, string][] = [
 const CARD_CHOICES: { key: keyof CardStyle; label: string; help: string; options: [string, string][] }[] = [
   { key: 'radius', label: 'Corners', help: 'How rounded each card’s corners are, from square to very rounded.', options: [['none', 'Square'], ['sm', 'Slightly rounded'], ['md', 'Rounded'], ['lg', 'More rounded'], ['xl', 'Very rounded']] },
   { key: 'depth', label: 'Edges', help: 'Flat cards have no edge, Outlined adds a thin line, and Shadowed lifts each card off the background.', options: [['flat', 'Flat'], ['border', 'Outlined'], ['shadow', 'Shadowed']] },
-  { key: 'header', label: 'Title', help: 'In a gray bar is Command Center’s usual card header; Plain drops the tint and capitals. With No title, a card’s buttons appear when you hover over it.', options: [['bar', 'In a gray bar'], ['minimal', 'Plain'], ['none', 'No title']] },
+  { key: 'header', label: 'Title', help: 'In a gray bar is Command Center’s usual card header; Plain drops the tint and capitals; the color bars put the title in white on the accent or dark color. With No title, a card’s buttons appear when you hover over it.', options: [['bar', 'In a gray bar'], ['accent', 'In an accent-color bar'], ['dark', 'In a dark-color bar'], ['minimal', 'Plain'], ['none', 'No title']] },
+  { key: 'spacing', label: 'Spacing', help: 'The space between cards, and around the edge of the tab.', options: [['compact', 'Compact'], ['roomy', 'Roomy']] },
 ];
 
 const selectClass = 'w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40';
@@ -155,6 +156,23 @@ export const LookEditor: React.FC<{
             </select>
           </div>
 
+          <div>
+            <FieldLabel
+              label="Header"
+              help="The bar along the top with the view’s title, and the assistant’s beside it, when the view is opened on its own. Inside Command Center, Command Center’s header is used. The tabs sit on the background below either way."
+              className="text-sm font-medium text-gray-700 mb-1"
+            />
+            <select
+              value={value.bars || ''}
+              onChange={e => set({ bars: (e.target.value || undefined) as AppTheme['bars'] })}
+              aria-label="Header"
+              className={selectClass}
+            >
+              <option value="">White</option>
+              <option value="dark">The dark color</option>
+            </select>
+          </div>
+
           {page ? (
             <p className="text-xs text-gray-500">This view is a page: its widget draws its own background, so only the colors and font apply.</p>
           ) : (
@@ -162,7 +180,7 @@ export const LookEditor: React.FC<{
               <div className="space-y-2">
                 <FieldLabel
                   label="Background"
-                  help="What’s drawn behind the cards on tabs of cards. Cards stay white, so widgets stay readable on any background."
+                  help="Everything under the header sits on it: the tabs, the filters, the cards and the assistant’s messages. Cards and messages stay white, and text drawn straight on a dark background turns light."
                   className="text-sm font-medium text-gray-700"
                 />
                 <select
@@ -221,7 +239,7 @@ export const LookEditor: React.FC<{
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Cards</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {CARD_CHOICES.map(choice => (
                     <div key={choice.key}>
                       <FieldLabel label={choice.label} help={choice.help} about={`card ${choice.label.toLowerCase()}`} className="text-xs text-gray-500 mb-0.5" />
@@ -257,6 +275,24 @@ const LookPreview: React.FC<{ look: AppTheme; page: boolean }> = ({ look, page }
   const cards = cardClasses(page ? null : look.cards);
   const drawable = look.background?.kind !== 'image' || (look.background.url && !imageProblem(look.background.url));
   const background = page || !drawable ? undefined : look.background;
+  const darkBar = look.bars === 'dark';
+  const surface = background ? canvasTone(background) : 'plain';
+  const gap = cardSpacing(page ? null : look.cards).margin[0];
+  // The preview sits inside the editor, so the draft colors are set inline
+  // rather than through --brand-blue / --brand-navy.
+  const tint = look.cards?.header === 'accent' ? primary : look.cards?.header === 'dark' ? dark : undefined;
+  const card = (title: string, figure: string) => (
+    <div className={clsx('bg-white overflow-hidden flex-1 min-w-0', cards.frame)}>
+      {!cards.bare && (
+        <div className={clsx('px-3 py-1.5 truncate', cards.header)} style={tint ? { background: tint } : undefined}>
+          <span className={cards.title}>{title}</span>
+        </div>
+      )}
+      <div className="px-3 py-2 text-sm text-gray-700 truncate">
+        <span className="font-semibold" style={{ color: primary }}>{figure}</span>
+      </div>
+    </div>
+  );
   return (
     <div
       className="rounded-md border border-gray-200 overflow-hidden"
@@ -264,21 +300,32 @@ const LookPreview: React.FC<{ look: AppTheme; page: boolean }> = ({ look, page }
       data-look-preview
       aria-hidden
     >
-      <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-white" style={{ background: dark }}>
-        <span className="font-semibold">Your view</span>
-        <span className="ml-auto px-2 py-0.5 rounded" style={{ background: primary }}>Tab</span>
+      <div
+        className={clsx('px-3 py-1.5 text-xs font-semibold border-b', darkBar ? 'text-white border-white/10' : 'bg-white border-gray-200')}
+        style={darkBar ? { background: dark } : { color: dark }}
+      >
+        Your view
       </div>
-      <div className={clsx('p-3', !background && 'bg-gray-50')} style={backgroundStyle(background)}>
-        {page ? (
-          <p className="text-sm text-gray-500">The page’s widget fills this space.</p>
-        ) : (
-          <div className={clsx('bg-white overflow-hidden', cards.frame)}>
-            {!cards.bare && <div className={clsx('px-3 py-1.5', cards.header)}><span className={cards.title}>A card</span></div>}
-            <div className="px-3 py-2 text-sm text-gray-700">
-              Revenue <span className="font-semibold" style={{ color: primary }}>$1.2M</span>
+      <div className={clsx(!background && 'bg-gray-50')} style={backgroundStyle(background)}>
+        <div className={clsx('flex gap-3 px-3 pt-1 text-xs border-b', BAR_SURFACE[surface])}>
+          <span
+            className={clsx('pb-1 border-b-2 font-medium', surface === 'dark' && 'text-white border-white')}
+            style={surface === 'dark' ? undefined : { borderColor: primary, color: dark }}
+          >
+            Tab
+          </span>
+          <span className={surface === 'dark' ? 'text-white/70' : 'text-gray-500'}>Another</span>
+        </div>
+        <div style={{ padding: page ? 12 : Math.max(gap, 6) }}>
+          {page ? (
+            <p className={clsx('text-sm', surface === 'dark' ? 'text-white/70' : 'text-gray-500')}>The page’s widget fills this space.</p>
+          ) : (
+            <div className="flex" style={{ gap }}>
+              {card('Revenue', '$1.2M')}
+              {card('Orders', '8,410')}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

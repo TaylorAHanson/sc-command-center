@@ -665,14 +665,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         ) : (
           // The view's theme covers its own tabs, filters and canvas; the sidebar
           // and header are Command Center's, so switching views doesn't repaint them.
-          <div className="flex-1 flex flex-col min-h-0" style={viewLook}>
+          <div className="flex-1 flex flex-col min-h-0" style={{ ...viewLook, ...look.areaStyle }}>
             <TabBar placement="top" />
             <FilterBar />
             <div className="flex-1 flex min-h-0">
               <TabBar placement="side" />
               <main
-                className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative"
-                style={look.canvasStyle}
+                className={`flex-1 min-w-0 overflow-auto relative ${look.hasBackground ? '' : 'bg-gray-50/50'}`}
                 onDragOver={(e) => {
                   // Allow drops on main content area
                   if (e.dataTransfer.types.includes('application/widget-type')) {
@@ -706,7 +705,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           does when the view is opened on its own; elsewhere, Command Center's. */}
       {!isFullScreenStudio && !viewHasNoAssistant && (
         <div className="contents" style={currentPage === null ? viewLook : undefined}>
-          <AgentDrawer chat={agentChat} isOpen={isAgentOpen} onOpenChange={setAgentOpen} />
+          <AgentDrawer
+            chat={agentChat}
+            isOpen={isAgentOpen}
+            onOpenChange={setAgentOpen}
+            backdrop={currentPage === null ? look.theme.background : undefined}
+          />
         </div>
       )}
 

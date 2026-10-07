@@ -224,6 +224,14 @@ def test_a_theme_carries_a_background_a_font_and_a_card_style():
     assert validate_spec(two_tabs(theme={"cards": {}}), APP)["theme"] is None, "an empty card style is no style"
 
 
+def test_a_theme_can_color_the_bars_and_the_card_titles_and_space_the_cards():
+    look = {"dark": "#7c2d12", "bars": "dark", "cards": {"header": "accent", "spacing": "roomy"}}
+    spec = validate_spec(two_tabs(theme=look), APP)
+    assert spec["theme"] == {"primary": None, "dark": "#7c2d12", "bars": "dark", "cards": {"header": "accent", "spacing": "roomy"}}
+    assert read_spec(APP, dumps(spec), "[]") == spec
+    assert validate_spec(two_tabs(theme={"cards": {"header": "dark"}}), APP)["theme"]["cards"] == {"header": "dark"}
+
+
 def test_a_look_that_could_not_be_drawn_is_refused_on_write_and_dropped_on_read():
     bad_looks = [
         ({"background": {"kind": "video"}}, "theme.background"),
@@ -234,6 +242,8 @@ def test_a_look_that_could_not_be_drawn_is_refused_on_write_and_dropped_on_read(
         ({"font": "Comic Sans MS"}, "theme.font"),
         ({"cards": {"radius": "huge"}}, "theme.cards"),
         ({"cards": "rounded"}, "theme.cards"),
+        ({"cards": {"spacing": "huge"}}, "theme.cards"),
+        ({"bars": "neon"}, "theme.bars"),
     ]
     for look, fragment in bad_looks:
         refuses(two_tabs(theme=look), fragment)

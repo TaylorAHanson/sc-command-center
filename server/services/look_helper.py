@@ -33,9 +33,11 @@ the other keys are optional, so leave out what the description doesn't ask for:
   "background": {{"kind": "colour", "colour": "#rrggbb"}}
               | {{"kind": "gradient", "from": "#rrggbb", "to": "#rrggbb", "direction": {" | ".join(f'"{d}"' for d in app_spec.GRADIENT_DIRECTIONS)}}},
   "font": {" | ".join(f'"{f}"' for f in app_spec.FONTS)},
+  "bars": {" | ".join(f'"{b}"' for b in app_spec.BARS)},
   "cards": {{"radius": {" | ".join(f'"{r}"' for r in app_spec.CARD_STYLES["radius"])},
             "depth": {" | ".join(f'"{d}"' for d in app_spec.CARD_STYLES["depth"])},
-            "header": {" | ".join(f'"{h}"' for h in app_spec.CARD_STYLES["header"])}}}
+            "header": {" | ".join(f'"{h}"' for h in app_spec.CARD_STYLES["header"])},
+            "spacing": {" | ".join(f'"{s}"' for s in app_spec.CARD_STYLES["spacing"])}}}
 }}
 
 Rules:
@@ -43,11 +45,15 @@ Rules:
   at least {app_spec.MIN_WHITE_CONTRAST:g}:1). Where the look's natural accent is bright
   (cyan on navy, gold on brown), give the deepest shade of it that still carries
   white text rather than leaving the accent out.
-- The background sits behind white cards, so it may be light or dark.
+- The background is everything under the header: tabs, filters, and the white
+  cards and assistant messages, so it may be light or dark.
 - Fonts: {"; ".join(f"{k} — {v}" for k, v in _FONT_NOTES.items())}.
 - Cards: "flat" has no edge, "border" a thin line, "shadow" a soft lift.
   "minimal" headers drop the gray bar and capitals; "none" leaves the title off
-  entirely, for cards whose content names itself.
+  entirely, for cards whose content names itself; "accent" and "dark" put the
+  title in white on a bar of that color. "spacing" is the gap between cards.
+- "bars": "dark" draws the header in the dark color with white text, for a bold,
+  branded look; "light" (the default) keeps it white.
 - If a current look is given, change only what the description asks to change and
   return the whole resulting look.
 - No image backgrounds; no other keys; no comments in the JSON."""
@@ -65,7 +71,8 @@ def messages(description: str, current: Optional[Dict[str, Any]]) -> List[Tuple[
 
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 
-_LABELS = {"primary": "accent color", "dark": "dark color", "background": "background", "font": "font", "cards": "card style"}
+_LABELS = {"primary": "accent color", "dark": "dark color", "background": "background", "font": "font",
+           "bars": "header color", "cards": "card style"}
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Check, Link2, Pencil } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
-import { isPage, shownTab, themeVariables, type AppTheme } from '../store/appSpec';
+import { darkBars, isPage, shownTab, themeVariables, type AppTheme } from '../store/appSpec';
 import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
 import { useCanvasLook } from '../hooks/useCanvasLook';
 import { TabBar } from './TabBar';
@@ -125,16 +125,22 @@ export const AppShell: React.FC = () => {
   // the owner for a personal one.
   const canShare = activeApp.is_global ? isAdmin : (!activeApp.is_shared && activeApp.username === username);
   const offersAssistant = activeApp.spec.assistant !== 'off';
+  const dark = darkBars(activeApp);
+  const headerButton = `flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${
+    dark ? 'text-white/80 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-brand-blue hover:bg-gray-100'
+  }`;
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden" style={look.fontStack ? { fontFamily: look.fontStack } : undefined}>
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
+        <header className={`h-14 border-b flex items-center justify-between px-6 shadow-sm z-10 ${
+          dark ? 'bg-brand-navy border-white/10' : 'bg-white border-gray-200'
+        }`}>
           <div className="flex items-center gap-3 min-w-0">
             {branding?.logo && (
               <img src={branding.logo} alt="" className="h-8 w-auto max-w-[8rem] object-contain shrink-0" />
             )}
-            <h1 className="text-lg font-semibold text-brand-navy truncate">{title}</h1>
+            <h1 className={`text-lg font-semibold truncate ${dark ? 'text-white' : 'text-brand-navy'}`}>{title}</h1>
             {badge && (
               <span
                 className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded bg-amber-100 text-amber-800 shrink-0"
@@ -155,7 +161,7 @@ export const AppShell: React.FC = () => {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);
                 }}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                className={headerButton}
                 title="Copy a link to this page"
               >
                 {copied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
@@ -165,7 +171,7 @@ export const AppShell: React.FC = () => {
             {canEditApp(activeApp) && (
               <button
                 onClick={() => shell.edit(activeApp, linkTab(activeApp, activeAppTab))}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                className={headerButton}
                 title="Open this view in Command Center to change it"
               >
                 <Pencil className="w-4 h-4" />
@@ -175,18 +181,20 @@ export const AppShell: React.FC = () => {
           </div>
         </header>
 
-        <TabBar placement="top" />
-        <FilterBar />
+        <div className="flex-1 flex flex-col min-h-0" style={look.areaStyle}>
+          <TabBar placement="top" />
+          <FilterBar />
 
-        <div className="flex-1 flex min-h-0">
-          <TabBar placement="side" />
-          <main className="flex-1 min-w-0 overflow-auto bg-gray-50/50 relative" style={look.canvasStyle}>
-            <div className={isPage(activeAppTab) ? 'w-full h-full' : 'w-full h-full px-2'}>
-              <AssistantDoorContext.Provider value={assistantDoor}>
-                <DashboardGrid />
-              </AssistantDoorContext.Provider>
-            </div>
-          </main>
+          <div className="flex-1 flex min-h-0">
+            <TabBar placement="side" />
+            <main className={`flex-1 min-w-0 overflow-auto relative ${look.hasBackground ? '' : 'bg-gray-50/50'}`}>
+              <div className={isPage(activeAppTab) ? 'w-full h-full' : 'w-full h-full px-2'}>
+                <AssistantDoorContext.Provider value={assistantDoor}>
+                  <DashboardGrid />
+                </AssistantDoorContext.Provider>
+              </div>
+            </main>
+          </div>
         </div>
       </div>
 
@@ -195,6 +203,8 @@ export const AppShell: React.FC = () => {
           chat={agentChat}
           isOpen={isAgentOpen}
           onOpenChange={setAgentOpen}
+          backdrop={look.theme.background}
+          dark={dark}
         />
       )}
     </div>

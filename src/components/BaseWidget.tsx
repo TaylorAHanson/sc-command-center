@@ -71,7 +71,7 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
     <div
       ref={ref}
       style={style}
-      className={`${className} ${className_rgl} bg-white text-brand-navy ${look.frame} flex flex-col overflow-hidden${look.bare ? ' relative group' : ''}`}
+      className={`${className ?? ''} ${className_rgl ?? ''} bg-white text-brand-navy ${look.frame} flex flex-col overflow-hidden${look.bare ? ' relative group' : ''}`}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
       onTouchEnd={onTouchEnd}

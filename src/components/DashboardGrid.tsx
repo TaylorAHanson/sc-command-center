@@ -7,7 +7,8 @@ import { useDashboardStore, type WidgetLayout } from '../store/dashboardStore';
 import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { BaseWidget } from './BaseWidget';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
-import { cardClasses, effectiveTheme, isPage } from '../store/appSpec';
+import clsx from 'clsx';
+import { canvasTone, cardClasses, cardSpacing, effectiveTheme, isPage } from '../store/appSpec';
 import { PageTab } from './PageTab';
 import { useAppApi } from '../appApi';
 
@@ -83,6 +84,8 @@ export const DashboardGrid: React.FC = () => {
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const appApi = useAppApi();
   const cardLook = React.useMemo(() => cardClasses(effectiveTheme(activeApp).cards), [activeApp]);
+  const spacing = cardSpacing(effectiveTheme(activeApp).cards);
+  const tone = canvasTone(effectiveTheme(activeApp).background);
   const [droppingItem, setDroppingItem] = useState<{ i: string; w: number; h: number } | undefined>();
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
@@ -205,7 +208,7 @@ export const DashboardGrid: React.FC = () => {
     // Grid properties
     const cols = 12; // lg breakpoint
     const rowHeight = 60;
-    const margin = [16, 16];
+    const margin = spacing.margin;
     const colWidth = (gridRect.width - margin[0] * (cols + 1)) / cols;
 
     // Calculate grid coordinates
@@ -438,8 +441,11 @@ export const DashboardGrid: React.FC = () => {
       {/* Beside the grid, not in it: the grid drops any child that isn't one of
           its items. It lets drops through to the grid underneath. */}
       {visibleWidgets.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">
-          <div className="text-center">
+        <div className={clsx(
+          'absolute inset-0 flex items-center justify-center pointer-events-none',
+          tone === 'dark' ? 'text-white/70' : tone === 'image' ? 'text-gray-600' : 'text-gray-400',
+        )}>
+          <div className={clsx('text-center', tone === 'image' && 'px-6 py-4 rounded-lg bg-white/90 shadow-sm')}>
             <p className="text-lg mb-2">This tab is empty</p>
             <p className="text-sm">
               {isReadOnly
@@ -460,8 +466,8 @@ export const DashboardGrid: React.FC = () => {
           handleLayoutChange(currentLayout as WidgetLayout[]);
         }}
         draggableHandle={isReadOnly ? "" : ".drag-handle"}
-        margin={[8, 8]}
-        containerPadding={[4, 4]}
+        margin={spacing.margin}
+        containerPadding={spacing.padding}
         isDroppable={!isReadOnly}
         isDraggable={!isReadOnly}
         isResizable={!isReadOnly}

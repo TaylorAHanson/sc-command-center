@@ -4,12 +4,16 @@ import type { AgentChat } from '../hooks/useAgentChat';
 import { AgentConversation } from './AgentConversation';
 import { ConversationHistory } from './ConversationHistory';
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
-import { DEFAULT_AGENT_NAME, pinnedAgentOf, tabLabel } from '../store/appSpec';
+import { DEFAULT_AGENT_NAME, pinnedAgentOf, tabLabel, type CanvasBackground } from '../store/appSpec';
 
 export const AgentPanel: React.FC<{
     chat: AgentChat;
     onCollapse: () => void;
-}> = ({ chat, onCollapse }) => {
+    backdrop?: CanvasBackground | null;
+    /** Draw the header in the dark color, as the page header beside it is. */
+    dark?: boolean;
+}> = ({ chat, onCollapse, backdrop, dark = false }) => {
+    const quiet = dark ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100';
     const {
         isLoading, clear, widgetCount,
         availableProfiles, selectedProfileId, setSelectedProfileId, loadProfilesOnce,
@@ -87,47 +91,22 @@ export const AgentPanel: React.FC<{
 
     return (
         <div className="flex flex-col h-full bg-white">
-            {/* Header — the agent title doubles as the profile picker (Agent
-                Studio profiles), on its own line so it isn't cramped at narrow
-                widths. Loaded lazily/throttled to avoid a UC scan on every mount. */}
-            <div className="px-4 py-2.5 border-b border-gray-200 shrink-0">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                        <div className="p-1.5 bg-brand-navy/10 rounded-md shrink-0">
-                            <Bot className="w-4 h-4 text-brand-navy" />
-                        </div>
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-blue">
-                            Active Agent:
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                        <ConversationHistory chat={chat} disabled={isLoading} />
-                        <button
-                            onClick={clear}
-                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                            title="New conversation (this one is saved in history)"
-                        >
-                            <MessageSquarePlus className="w-4 h-4" />
-                        </button>
-                        <button
-                            onClick={onCollapse}
-                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                            title={`Collapse ${DEFAULT_AGENT_NAME}`}
-                        >
-                            <PanelRightClose className="w-4 h-4" />
-                        </button>
-                    </div>
-                </div>
-                <div className="flex items-center gap-1.5 mt-2">
-                    <div className="relative flex-1 min-w-0">
+            {/* As tall as the page header beside it (h-14), so the two read as one
+                line: anything that varies goes below, never in here. */}
+            <div className={`h-14 px-3 border-b shrink-0 flex items-center gap-1 ${dark ? 'bg-brand-navy border-white/10' : 'bg-white border-gray-200'}`}>
+                    <div className="relative flex-1 min-w-0 mr-1">
+                        <Bot className={`w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${dark ? 'text-white/80' : 'text-brand-navy'}`} />
                         <select
                             value={selectedProfileId}
                             onChange={e => setSelectedProfileId(e.target.value)}
                             onFocus={loadProfilesOnce}
                             onMouseDown={loadProfilesOnce}
                             disabled={isLoading}
-                            title="Run the drawer as a saved Agent Studio profile"
-                            className="w-full truncate appearance-none rounded-md border border-brand-blue/40 bg-brand-blue/5 hover:bg-brand-blue/10 pl-2.5 pr-8 py-1.5 text-sm font-semibold text-brand-navy cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-brand-blue/40 disabled:opacity-50"
+                            aria-label="Active agent"
+                            title={`The agent answering here. It can see ${widgetCount} widget${widgetCount === 1 ? '' : 's'} on this tab.`}
+                            className={`w-full truncate appearance-none rounded-md border pl-8 pr-8 py-1.5 text-sm font-semibold cursor-pointer transition-colors focus:outline-none focus:ring-2 disabled:opacity-50 ${dark
+                                ? 'border-white/20 bg-white/10 hover:bg-white/15 text-white focus:ring-white/40 [&>option]:text-gray-900'
+                                : 'border-brand-blue/40 bg-brand-blue/5 hover:bg-brand-blue/10 text-brand-navy focus:ring-brand-blue/40'}`}
                         >
                             <option value="">{DEFAULT_AGENT_NAME} (default)</option>
                             {availableProfiles.map(p => {
@@ -144,7 +123,7 @@ export const AgentPanel: React.FC<{
                                 <option value={selectedProfileId}>Agent unavailable</option>
                             )}
                         </select>
-                        <ChevronDown className="w-4 h-4 text-brand-blue absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <ChevronDown className={`w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${dark ? 'text-white/80' : 'text-brand-blue'}`} />
                     </div>
                     {canPin && (
                         <div className="relative shrink-0" ref={menuRef}>
@@ -165,7 +144,9 @@ export const AgentPanel: React.FC<{
                                         : `Open "${activeApp?.name}" with ${nameOf(wouldPin)}`}
                                 className={`p-1.5 rounded-md border transition-colors ${isPinnedHere
                                     ? 'border-brand-blue/40 bg-brand-blue text-white hover:bg-brand-blue/90'
-                                    : 'border-gray-200 text-gray-400 hover:text-brand-blue hover:border-brand-blue/40 hover:bg-brand-blue/5'}`}
+                                    : dark
+                                        ? 'border-white/20 text-white/70 hover:text-white hover:bg-white/10'
+                                        : 'border-gray-200 text-gray-400 hover:text-brand-blue hover:border-brand-blue/40 hover:bg-brand-blue/5'}`}
                             >
                                 <Pin className={`w-4 h-4 ${isPinnedHere ? 'fill-current' : ''}`} />
                             </button>
@@ -196,30 +177,38 @@ export const AgentPanel: React.FC<{
                             )}
                         </div>
                     )}
-                </div>
-                {pinnedAgentUnavailable ? (
-                    <div className="text-[10px] text-amber-600 mt-1.5 pl-0.5">
-                        This view is pinned to an agent you can't open, so it stays on the one above.
-                    </div>
-                ) : pinnedButPrivate ? (
-                    <div className="text-[10px] text-amber-600 mt-1.5 pl-0.5">
-                        This agent is private, so others on this view still get the {DEFAULT_AGENT_NAME}.
-                    </div>
-                ) : pinnedAgentId && !isPinnedHere ? (
-                    <div className="text-[10px] text-gray-400 mt-1.5 pl-0.5">
-                        {nameOf(pinnedAgentId)} is pinned to {pinnedWhere}
-                    </div>
-                ) : pinnedAgentId && multiTab ? (
-                    <div className="text-[10px] text-gray-400 mt-1.5 pl-0.5">
-                        Pinned to {pinnedWhere}
-                    </div>
-                ) : null}
-                <div className="text-[10px] text-gray-400 mt-1.5 pl-0.5">
-                    {widgetCount} widget{widgetCount === 1 ? '' : 's'} in context
-                </div>
+                <ConversationHistory chat={chat} disabled={isLoading} buttonClassName={quiet} />
+                <button
+                    onClick={clear}
+                    className={`p-1.5 rounded-md transition-colors ${quiet}`}
+                    title="New conversation (this one is saved in history)"
+                >
+                    <MessageSquarePlus className="w-4 h-4" />
+                </button>
+                <button
+                    onClick={onCollapse}
+                    className={`p-1.5 rounded-md transition-colors ${quiet}`}
+                    title={`Collapse ${DEFAULT_AGENT_NAME}`}
+                >
+                    <PanelRightClose className="w-4 h-4" />
+                </button>
             </div>
 
-            <AgentConversation chat={chat} placeholder="Ask about your dashboard…" />
+            <AgentConversation
+                chat={chat}
+                placeholder="Ask about your dashboard…"
+                backdrop={backdrop}
+                footnote={`Sees ${widgetCount} widget${widgetCount === 1 ? '' : 's'} on this tab.`}
+                notice={pinnedAgentUnavailable ? (
+                    { warn: true, text: 'This view is pinned to an agent you can’t open, so it stays on the one above.' }
+                ) : pinnedButPrivate ? (
+                    { warn: true, text: `This agent is private, so others on this view still get the ${DEFAULT_AGENT_NAME}.` }
+                ) : pinnedAgentId && !isPinnedHere ? (
+                    { warn: false, text: `${nameOf(pinnedAgentId)} is pinned to ${pinnedWhere}.` }
+                ) : pinnedAgentId && multiTab ? (
+                    { warn: false, text: `Pinned to ${pinnedWhere}.` }
+                ) : null}
+            />
         </div>
     );
 };

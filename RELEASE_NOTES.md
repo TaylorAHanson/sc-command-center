@@ -38,7 +38,8 @@
 - **Tabs down the side.** In **Settings → Look**, choose **Down the side** to list a view's tabs on the left.
 - **Every view setting explains itself.** Hover the **?** beside a field in a view's **Settings** to see what it does.
 - **Give a view its own look.** **Settings → Look** sets its colors, font, background and cards, down to **No title**, and **Suggest** fills them in from a description.
-- **The assistant matches the view.** The assistant panel takes the view's colors and font from **Settings → Look**, or Command Center's when it has none.
+- **The assistant matches the view.** The assistant panel takes the view's colors, font and background from **Settings → Look**, or Command Center's when it has none.
+- **More ways to style a view.** **Settings → Look** adds a dark **Header**, card titles in a colored bar, and **Spacing** between cards.
 - **Pin an agent to one tab.** On a view with tabs, the pin beside the agent picker offers **This tab** or **Every tab**.
 - **Promoting a view checks the target first.** View Promotion's confirmation lists widgets and pinned agents the target lacks, and can promote the missing widgets along with it.
 - **Remove a global view.** **Remove** on **View Promotion** archives it for everyone; **Archived** lists it, where you can **Restore** it or **Delete permanently**.
@@ -46,6 +47,8 @@
 
 ### Changed
 
+- **A view with a background reads as one surface.** Its tabs and filters sit on the background instead of white bands, and text on a dark one turns light.
+- **The assistant lines up with the page.** Its header is now one row, as tall as the header beside it; the widget count moved under the message box.
 - **Tidier read-only cards.** On a locked or shared view, cards drop the drag dots and version; on its own they drop the widget link too.
 - **Removing asks first, in the app.** Deleting a tab with widgets, replacing a page's widget or taking it off now confirms in Command Center's own dialog.
 - **Tidier view history.** Changes to a personal view within five minutes of each other are saved as one version.
