@@ -109,8 +109,10 @@ per-user unless they are global.
   edges (flat, outlined, shadowed) and title (in a gray bar, plain, or **No title**, which
   leaves the title off and shows the card's buttons only on hover); a card's
   body stays white so widgets stay readable. Inside Command Center the
-  look covers the view's tabs, filter bar and background, while the sidebar and
-  header stay Command Center's; opened on its own, the whole page uses it. A
+  look covers the view's tabs, filter bar, background and the assistant panel,
+  while the sidebar and header stay Command Center's; opened on its own, the
+  whole page uses it. A view with no look, and every page that isn't a view
+  (studios, User Guide, Admin Panel), keeps Command Center's colors. A
   page tab takes only the colors and font, because its widget draws its own
   background and it has no cards. A preview beside the choices shows the result.
 - **Suggest**, beside **Describe the look**, turns a

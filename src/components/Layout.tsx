@@ -93,6 +93,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const viewHasNoAssistant = currentPage === null && activeApp?.spec.assistant === 'off';
   const assistantDoor = useAssistantDoorFor(agentChat.prefill, setAgentOpen, !viewHasNoAssistant);
   const look = useCanvasLook(activeApp, activeAppTab);
+  const viewLook = { ...themeVariables(look.theme), ...(look.fontStack ? { fontFamily: look.fontStack } : {}) } as React.CSSProperties;
 
   // Fetch the pages behind the sidebar buttons once the dashboard has settled.
   // Splitting them out of the bundle is what makes the first load quick; pulling
@@ -664,10 +665,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         ) : (
           // The view's theme covers its own tabs, filters and canvas; the sidebar
           // and header are Command Center's, so switching views doesn't repaint them.
-          <div
-            className="flex-1 flex flex-col min-h-0"
-            style={{ ...themeVariables(look.theme), ...(look.fontStack ? { fontFamily: look.fontStack } : {}) } as React.CSSProperties}
-          >
+          <div className="flex-1 flex flex-col min-h-0" style={viewLook}>
             <TabBar placement="top" />
             <FilterBar />
             <div className="flex-1 flex min-h-0">
@@ -704,7 +702,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       </div>
 
       {/* Agent Assistant (hidden in Studios, which need the full viewport) */}
-      {!isFullScreenStudio && !viewHasNoAssistant && <AgentDrawer chat={agentChat} isOpen={isAgentOpen} onOpenChange={setAgentOpen} />}
+      {/* It answers about the view on screen, so it wears that view's look, as it
+          does when the view is opened on its own; elsewhere, Command Center's. */}
+      {!isFullScreenStudio && !viewHasNoAssistant && (
+        <div className="contents" style={currentPage === null ? viewLook : undefined}>
+          <AgentDrawer chat={agentChat} isOpen={isAgentOpen} onOpenChange={setAgentOpen} />
+        </div>
+      )}
 
       {/* Widget Tray */}
       <WidgetTray

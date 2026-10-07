@@ -38,6 +38,7 @@
 - **Tabs down the side.** In **Settings → Look**, choose **Down the side** to list a view's tabs on the left.
 - **Every view setting explains itself.** Hover the **?** beside a field in a view's **Settings** to see what it does.
 - **Give a view its own look.** **Settings → Look** sets its colors, font, background and cards, down to **No title**, and **Suggest** fills them in from a description.
+- **The assistant matches the view.** The assistant panel takes the view's colors and font from **Settings → Look**, or Command Center's when it has none.
 - **Pin an agent to one tab.** On a view with tabs, the pin beside the agent picker offers **This tab** or **Every tab**.
 - **Promoting a view checks the target first.** View Promotion's confirmation lists widgets and pinned agents the target lacks, and can promote the missing widgets along with it.
 - **Remove a global view.** **Remove** on **View Promotion** archives it for everyone; **Archived** lists it, where you can **Restore** it or **Delete permanently**.
@@ -51,6 +52,8 @@
 - **Your browser's address is a share link.** Copy it, or use **Share**; links copied before this release still open the same view.
 - **Filters belong to their view.** A choice one widget passes to others applies across that view's tabs, and another view starts fresh.
 - **Widget Studio picks where to search and sort by data size.** About 10 MB or less is fetched once and worked on in the browser; anything larger is paged and filtered in SQL.
+- **Runs on Python 3.13.** The server moved up from Python 3.11, and every deploy installs exactly the library versions it was tested with.
+- **Comes back after platform maintenance.** When Databricks restarts the app on its own, it starts the same way a deploy does.
 
 ### Fixed
 
