@@ -39,6 +39,7 @@
 - **Every view setting explains itself.** Hover the **?** beside a field in a view's **Settings** to see what it does.
 - **Give a view its own look.** **Settings → Look** sets its colors, font, background and cards, down to **No title**, and **Suggest** fills them in from a description.
 - **The assistant matches the view.** The assistant panel takes the view's colors, font and background from **Settings → Look**, or Command Center's when it has none.
+- **Paste a screenshot to attach it.** In the assistant and Widget Studio, paste an image into the message box instead of saving a file and clicking the paperclip.
 - **More ways to style a view.** **Settings → Look** adds a dark **Header**, card titles in a colored bar, and **Spacing** between cards.
 - **Pin an agent to one tab.** On a view with tabs, the pin beside the agent picker offers **This tab** or **Every tab**.
 - **Promoting a view checks the target first.** View Promotion's confirmation lists widgets and pinned agents the target lacks, and can promote the missing widgets along with it.

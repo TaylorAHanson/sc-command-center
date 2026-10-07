@@ -168,7 +168,7 @@ export const UserGuidePage: React.FC = () => {
               Attaching files
             </div>
             <p className="text-sm text-gray-600">
-              Click the paperclip, or drag a file onto the panel. Spreadsheets and CSVs, PDFs, Word documents, JSON, text and images all work — up to 25 MB each, five per conversation. A chip above the message box shows the file being read and then what's in it, such as "5,000 rows x 6 columns".
+              Click the paperclip, drag a file onto the panel, or paste a screenshot or copied image straight into the message box. Spreadsheets and CSVs, PDFs, Word documents, JSON, text and images all work — up to 25 MB each, five per conversation. A chip above the message box shows the file being read and then what's in it, such as "5,000 rows x 6 columns".
             </p>
             <p className="text-sm text-gray-600 mt-3">
               Big files stay quick because the assistant isn't handed the whole file. For a spreadsheet it sees the structure and then queries it, so totals and counts come from every row rather than a sample. For a document it finds the relevant passages and cites the page. Images and short PDFs it reads directly, so charts, screenshots and scans are fine. If a file can't be read — a scanned PDF with no text, or a protected file — the chip says so.
@@ -529,7 +529,7 @@ export const UserGuidePage: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-2">3. Showing the Agent What You Mean</h3>
               <p className="text-gray-700 mb-2">
-                The paperclip beside the message box attaches spreadsheets, documents and images for the agent to read — a sample export, say, or a design someone sent you. Below the preview, <strong>Send screenshot to agent</strong> attaches a picture of the widget exactly as it looks right now, at the size you have dragged it to.
+                The paperclip beside the message box attaches spreadsheets, documents and images for the agent to read — a sample export, say, or a design someone sent you. You can also paste a screenshot or copied image straight into the message box. Below the preview, <strong>Send screenshot to agent</strong> attaches a picture of the widget exactly as it looks right now, at the size you have dragged it to.
               </p>
               <p className="text-gray-700">
                 Neither one sends by itself. The file waits on your next message, so "this column is too narrow and the total is in the wrong place" arrives alongside the thing it is describing. Grabbing a second screenshot replaces the first.

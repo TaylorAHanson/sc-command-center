@@ -4,7 +4,7 @@ import { toPng } from 'html-to-image';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
-import { useChatUploads } from '../hooks/useChatUploads';
+import { pastedFiles, useChatUploads } from '../hooks/useChatUploads';
 import { BaseWidget } from '../components/BaseWidget';
 import { CodeEditor } from '../components/CodeEditor';
 import { AttachmentChip, SentAttachments } from '../components/AttachmentChip';
@@ -2171,7 +2171,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         <button
                             onClick={() => attachInputRef.current?.click()}
                             disabled={isUploading}
-                            title="Attach a spreadsheet, document, or screenshot for the agent to read"
+                            title="Attach a spreadsheet, document, or screenshot for the agent to read. You can also paste a screenshot into the message box."
                             className="px-3 py-3 self-stretch text-slate-400 hover:text-indigo-400 disabled:opacity-40 transition-colors"
                         >
                             {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
@@ -2182,6 +2182,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             placeholder="Create a bar chart showing total sales..."
                             value={prompt}
                             onChange={e => setPrompt(e.target.value)}
+                            onPaste={e => {
+                                const files = pastedFiles(e.clipboardData);
+                                if (!files.length) return;
+                                e.preventDefault();
+                                attachFiles(files);
+                            }}
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();

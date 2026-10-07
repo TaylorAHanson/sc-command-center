@@ -9,6 +9,7 @@ import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { SendStopButton } from './SendStopButton';
 import { VegaChart, CHART_FENCE_MODES } from './VegaChart';
 import { ChatImage } from './ChatImage';
+import { pastedFiles } from '../hooks/useChatUploads';
 import { backgroundStyle, canvasTone, type CanvasBackground } from '../store/appSpec';
 
 const TypingDots: React.FC = () => (
@@ -262,7 +263,7 @@ export const AgentConversation: React.FC<{
                                         : tone === 'image' ? 'bg-white/90 text-gray-500 hover:text-brand-blue'
                                             : 'text-gray-400 hover:text-brand-blue hover:bg-gray-100'
                                 }`}
-                                title="Attach a spreadsheet, document, or image"
+                                title="Attach a spreadsheet, document, or image. You can also paste a screenshot into the message box."
                             >
                                 {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
                             </button>
@@ -276,6 +277,13 @@ export const AgentConversation: React.FC<{
                                 e.preventDefault();
                                 send(input);
                             }
+                        }}
+                        onPaste={e => {
+                            if (!canAttach) return;
+                            const files = pastedFiles(e.clipboardData);
+                            if (!files.length) return;
+                            e.preventDefault();
+                            attachFiles!(files);
                         }}
                         rows={1}
                         placeholder={placeholder}

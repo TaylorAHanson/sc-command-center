@@ -271,7 +271,8 @@ description.
    can do this too, and it runs any SQL it writes once before handing the code
    back. Admins can switch either tool off in Admin Panel → Settings.
 3. **Attachments and screenshots** — the paperclip attaches spreadsheets,
-   documents and images for the agent to read, and **Send screenshot to agent**
+   documents and images for the agent to read, a screenshot or copied image can
+   be pasted straight into the message box, and **Send screenshot to agent**
    under the preview attaches a picture of the widget as it currently looks.
    Neither sends on its own: the file waits on the next message, so "this column
    is too narrow" arrives with the thing it describes.
@@ -563,7 +564,10 @@ answer send data to that site just by being displayed.
 ## Attaching files to the assistant
 
 The paperclip in the assistant panel attaches a file to the conversation, and
-files can also be dragged onto the panel. Spreadsheets and CSVs, PDFs, Word
+files can also be dragged onto the panel. A screenshot or copied image pasted
+into the message box (Cmd+V / Ctrl+V) is attached too, named "Pasted image" and
+the time; when the clipboard also holds text, as it does for cells copied from
+Excel, the text is pasted instead. Spreadsheets and CSVs, PDFs, Word
 documents, JSON, plain text and images are accepted, up to 25 MB each and five
 files per conversation. A chip above the message box shows each file being read
 and then what it contains, such as "5,000 rows x 6 columns"; the X removes it.

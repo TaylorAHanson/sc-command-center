@@ -13,6 +13,30 @@ export interface Attachment {
     warnings?: string[];
 }
 
+const IMAGE_EXTENSIONS: Record<string, string> = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp',
+};
+
+/**
+ * The files a paste into a composer should attach, or none to let it paste as
+ * text. Copying cells from Excel or a passage from a web page puts a picture of
+ * it on the clipboard beside the text, and the person meant the text, so files
+ * are taken only when there is no text to paste. Browsers name every pasted
+ * screenshot `image.png`, which would make several in one conversation
+ * indistinguishable, so those get the time they were pasted.
+ */
+export const pastedFiles = (clipboard: DataTransfer | null): File[] => {
+    if (!clipboard || clipboard.getData('text/plain').trim()) return [];
+    const files = Array.from(clipboard.files || []);
+    const stamp = new Date().toTimeString().slice(0, 8).replace(/:/g, '.');
+    return files.map((file, index) => {
+        const ext = IMAGE_EXTENSIONS[file.type];
+        if (!ext || !/^image\.\w+$/i.test(file.name || 'image.png')) return file;
+        const suffix = files.length > 1 ? ` (${index + 1})` : '';
+        return new File([file], `Pasted image ${stamp}${suffix}.${ext}`, { type: file.type });
+    });
+};
+
 const UPLOAD_POLL_MS = 900;
 const UPLOAD_TIMEOUT_MS = 180_000;
 
