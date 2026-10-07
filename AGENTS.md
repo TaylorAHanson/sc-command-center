@@ -91,9 +91,6 @@ embeds that manage their own session securely (e.g. a Tableau iframe).
 Studio and persisted to the `widgets` table. The generation contract the LLM and
 the browser runtime must both satisfy is `server/routes/agent_instructions.md`
 — treat that file as the source of truth for what widget code may contain.
-The one exception is a built-in, a product control with no data access that
-ships with the app (today only **Tab links**, `src/components/TabLinksWidget.tsx`);
-see `src/AGENTS.md` before adding another.
 
 **Every user-visible change updates `RELEASE_NOTES.md`, in the same commit.**
 That file is bundled and rendered in the app under Resources → Release Notes, so

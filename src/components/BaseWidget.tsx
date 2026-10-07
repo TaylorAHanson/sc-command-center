@@ -21,8 +21,6 @@ interface BaseWidgetProps {
   helpText?: string;
 
   customActions?: React.ReactNode;
-  /** A line above the widget for whoever can fix what it says. */
-  notice?: React.ReactNode;
   /** The view's card style; see `cardClasses`. */
   look?: { frame: string; header: string; title: string; bare?: boolean };
   className?: string;
@@ -50,7 +48,6 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
   onChangeVersion,
   helpText,
   customActions,
-  notice,
   look = DEFAULT_LOOK,
   className,
   style,
@@ -169,9 +166,6 @@ export const BaseWidget = React.forwardRef<HTMLDivElement, BaseWidgetProps>(({
           )}
         </div>
       </div>
-      {notice && (
-        <div role="note" className="shrink-0 px-3 py-1.5 text-xs text-amber-800 bg-amber-50 border-b border-amber-200">{notice}</div>
-      )}
       <div 
         className="flex-1 p-4 overflow-auto relative min-h-0 min-w-0"
         onDoubleClick={(e) => {

@@ -7,7 +7,7 @@ import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { useActionLogger } from '../hooks/useActionLogger';
 import { ActionProvider, ExecuteActionPropInjector } from '../contexts/ActionContext';
 import { useWorkspaceTools } from '../contexts/WorkspaceTools';
-import { missingTabsNotice, type App, type AppTab } from '../store/appSpec';
+import type { App, AppTab } from '../store/appSpec';
 import type { AppApi } from '../appApi';
 
 const WIDGET_DRAG = 'application/widget-type';
@@ -67,7 +67,6 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
     },
   } : {};
 
-  const notice = editable && def ? missingTabsNotice(app, def.tabTargets) : null;
   const configurable = def && (def.configurationMode === 'config_required' || def.configurationMode === 'config_allowed');
   const button = 'flex items-center gap-1.5 px-2 py-1 rounded text-xs text-gray-600 hover:text-brand-blue hover:bg-gray-100';
 
@@ -79,7 +78,7 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
             <Replace className="w-3.5 h-3.5" />
             <span>{widget ? 'Change widget' : 'Choose a widget'}</span>
           </button>
-          {def && !def.builtIn && canEditDomain(def.domain) && (
+          {def && canEditDomain(def.domain) && (
             <button type="button" className={button} onClick={() => tools!.editWidget(widget!.type)} title="Edit this page's widget in Widget Studio">
               <Pencil className="w-3.5 h-3.5" />
               <span>Edit in Widget Studio</span>
@@ -104,10 +103,6 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
             <LayoutGrid className="w-3.5 h-3.5" />
           </button>
         </div>
-      )}
-
-      {notice && (
-        <div role="note" className="absolute top-2 left-2 z-20 max-w-md px-3 py-1.5 rounded-md text-xs text-amber-800 bg-amber-50 border border-amber-200 shadow-sm">{notice}</div>
       )}
 
       {def ? (

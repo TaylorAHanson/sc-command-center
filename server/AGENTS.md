@@ -229,12 +229,6 @@ preflight and offers to bring missing widgets along. Agents have no promotion
 path at all, so a missing agent can only be reported. `tests/test_promotion.py`
 holds this with one fake connection per env.
 
-Widget types whose id isn't a UUID are built into the frontend (today only
-`cc-tab-links`, the **Tab links** widget) and have no `widgets` row in any env.
-`app_store.is_custom_widget` is the test, so preflight, `include_widgets` and the
-certified-widgets check for global views all pass over them; don't give a
-built-in a UUID, or every one of those starts reporting it as missing.
-
 ## Who made what (`services/creator_stats.py`)
 
 The Widget Library credits an author on every card and ranks creators behind the

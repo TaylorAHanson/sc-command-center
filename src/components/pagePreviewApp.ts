@@ -44,9 +44,6 @@ export const usePreviewApp = () => {
       say(tab
         ? `In a view this opens the “${tab.name}” tab.`
         : `In a view this opens the “${idOrName}” tab, if the view has one. The preview’s stand-in tabs are ${STAND_IN_TABS.map(t => t.name).join(', ')}.`);
-      // The preview can't know the view's tabs, so it shows what the link would
-      // open rather than the widget's fallback for a missing tab.
-      return true;
     },
     openAssistant: (request = {}) => {
       const agent = typeof request.agentId === 'string' && request.agentId ? ` with agent “${request.agentId}”` : '';

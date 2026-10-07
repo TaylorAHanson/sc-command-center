@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { X, Settings } from 'lucide-react';
-import type { ConfigField, WidgetDefinition } from '../widgetRegistry';
-import { useDashboardStore } from '../store/dashboardStore';
-import { tabLabel } from '../store/appSpec';
+import type { WidgetDefinition } from '../widgetRegistry';
 
 interface ConfigModalProps {
     isOpen: boolean;
@@ -14,56 +12,9 @@ interface ConfigModalProps {
     editing?: boolean;
 }
 
-/**
- * A `tabs` field: every other tab (the default, which takes in tabs added later)
- * or a pick of them. Kept as tab ids, so renaming a tab doesn't lose it.
- */
-const TabsField: React.FC<{ field: ConfigField; value: unknown; onChange: (ids: string[]) => void; picking: boolean; setPicking: (on: boolean) => void }> = ({
-    field, value, onChange, picking, setPicking,
-}) => {
-    const { activeApp, activeAppTab } = useDashboardStore();
-    const tabs = activeApp ? activeApp.spec.tabs.map((t, i) => ({ id: t.id, name: tabLabel(activeApp, t, i) })) : [];
-    const others = tabs.filter(t => t.id !== activeAppTab?.id);
-    const chosen = Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
-    const toggle = (id: string) => onChange(chosen.includes(id) ? chosen.filter(c => c !== id) : [...chosen, id]);
-
-    return (
-        <fieldset className="space-y-2">
-            <legend className="block text-sm font-medium text-gray-700 mb-1">{field.label}</legend>
-            <label className="flex items-start gap-2 text-sm text-gray-700">
-                <input type="radio" className="mt-0.5" checked={!picking} onChange={() => { setPicking(false); onChange([]); }} />
-                <span>
-                    Every other tab
-                    <span className="block text-xs text-gray-500">Tabs added later show up on their own.</span>
-                </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm text-gray-700">
-                <input type="radio" className="mt-0.5" checked={picking} onChange={() => setPicking(true)} />
-                <span>Only the tabs I pick</span>
-            </label>
-            {picking && (
-                <div className="ml-6 space-y-1.5" role="group" aria-label="Tabs to link to">
-                    {tabs.length < 2 && <p className="text-xs text-gray-500">This view has one tab. Add another and come back to pick it.</p>}
-                    {tabs.map(t => (
-                        <label key={t.id} className="flex items-center gap-2 text-sm text-gray-700">
-                            <input type="checkbox" checked={chosen.includes(t.id)} onChange={() => toggle(t.id)} />
-                            <span className="truncate">{t.name}</span>
-                            {t.id === activeAppTab?.id && <span className="text-xs text-gray-400">(this tab)</span>}
-                        </label>
-                    ))}
-                </div>
-            )}
-            {!picking && !others.length && (
-                <p className="text-xs text-gray-500">This view has no other tabs yet, so the card will say how to add one.</p>
-            )}
-        </fieldset>
-    );
-};
-
 export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSave, widget, initialConfig, editing }) => {
     // For structured forms
     const [formData, setFormData] = useState<Record<string, any>>({});
-    const [picking, setPicking] = useState<Record<string, boolean>>({});
     const [problem, setProblem] = useState<string | null>(null);
     // For JSON fallback
     const [jsonConfig, setJsonConfig] = useState(JSON.stringify(initialConfig || {}, null, 2));
@@ -74,17 +25,14 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
             if (widget?.configSchema) {
                 // Initialize form data from initialConfig or defaults
                 const data: Record<string, any> = {};
-                const pick: Record<string, boolean> = {};
                 widget.configSchema.forEach(field => {
                     // Use initialConfig value if it exists, otherwise use defaultValue
                     const hasInitialValue = initialConfig && field.key in initialConfig;
                     data[field.key] = hasInitialValue
                         ? initialConfig[field.key]
                         : (field.defaultValue !== undefined ? field.defaultValue : '');
-                    if (field.type === 'tabs') pick[field.key] = Array.isArray(data[field.key]) && data[field.key].length > 0;
                 });
                 setFormData(data);
-                setPicking(pick);
             } else {
                 setJsonConfig(JSON.stringify(initialConfig || {}, null, 2));
             }
@@ -107,12 +55,6 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
                 .map(field => field.label);
             if (missingFields.length > 0) {
                 setProblem(`Fill in ${missingFields.join(', ')}.`);
-                return;
-            }
-            const unpicked = widget.configSchema!.find(field =>
-                field.type === 'tabs' && picking[field.key] && !(Array.isArray(formData[field.key]) && formData[field.key].length));
-            if (unpicked) {
-                setProblem(`${unpicked.label}: tick at least one tab, or choose Every other tab.`);
                 return;
             }
 
@@ -165,16 +107,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSav
 
                     {hasSchema ? (
                         <div className="space-y-4">
-                            {widget.configSchema!.map(field => field.type === 'tabs' ? (
-                                <TabsField
-                                    key={field.key}
-                                    field={field}
-                                    value={formData[field.key]}
-                                    onChange={ids => handleFormChange(field.key, ids)}
-                                    picking={!!picking[field.key]}
-                                    setPicking={on => { setProblem(null); setPicking(prev => ({ ...prev, [field.key]: on })); }}
-                                />
-                            ) : (
+                            {widget.configSchema!.map(field => (
                                 <div key={field.key}>
                                     <label htmlFor={`config-${field.key}`} className="block text-sm font-medium text-gray-700 mb-1">
                                         {field.label}

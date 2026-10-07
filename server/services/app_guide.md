@@ -184,21 +184,6 @@ If the agent it asks for is one the user can't open, the assistant keeps the
 agent it had. In a view whose agent is **No agent**, the button does nothing. Ask Widget Studio for this in plain words — "tiles that go
 to each tab", "an Ask about this button".
 
-**Tab links** is a widget that comes with Command Center rather than one someone
-built, so it is in every Widget Library, marked certified, and can't be edited,
-deleted or claimed. It draws a tile (or, under **Show as**, a list line) for
-each tab of the view and opens that tab when clicked. With no settings it shows
-every other tab, including ones added later; its gear sets a **Heading** and
-**Links to** → **Only the tabs I pick**. Picked tabs are kept by the tab itself,
-not its name, so renaming a tab keeps its link and deleting one drops its tile.
-It reads no data, so it needs no access beyond seeing the view. Suggest it when
-someone just wants tiles to each tab; Widget Studio is for anything more.
-
-A widget that opens a tab by name — `goToTab('Sales')` in its code — shows a
-note to whoever can change the view when the view has no tab of that name
-(names match ignoring case). The fix is to name a tab to match, or to change
-the widget. Viewers never see the note.
-
 ## Widget Library
 
 Opens from the **Widget Library** button in the sidebar, or by pressing `w`.
@@ -287,9 +272,7 @@ description.
    page you want and the agent works from it. Cards on a page that name a part
    of the view (a persona, a team) open the tab of that name when the view has
    one, found by name when clicked, and otherwise ask the assistant; so add the
-   tabs, named as the cards are, and the cards start leading to them. Until
-   then, editors of the view see a note on the page naming the tabs it is
-   missing.
+   tabs, named as the cards are, and the cards start leading to them.
 6. **Agent settings** (the sliders icon above the chat) — two options, remembered
    in that browser rather than set for everyone. *Conduct review after change*
    (off by default) has the agent re-read its own code once it has compiled and

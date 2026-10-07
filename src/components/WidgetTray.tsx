@@ -186,7 +186,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
   // domain you could publish to, and only when we know who you are. The endpoint
   // applies the same three tests.
   const canClaim = (widget: WidgetDefinition): boolean =>
-    !widget.builtIn && !creatorOf(widget) && isPerson(currentUser) && canEditDomain(widget.domain);
+    !creatorOf(widget) && isPerson(currentUser) && canEditDomain(widget.domain);
 
   // Nobody is recorded as having written the widgets built before authorship
   // worked, and nothing we stored can work out who did — so the person who
@@ -588,17 +588,17 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                             // Two different rights, because the server applies two:
                             // any editor of the domain may publish a new version,
                             // only the author (or nobody) may delete.
-                            const mayEdit = !widget.builtIn && canEditDomain(widget.domain);
-                            const mayDelete = !widget.builtIn && canManageWidget(widget.createdBy, currentUser);
+                            const mayEdit = canEditDomain(widget.domain);
+                            const mayDelete = canManageWidget(widget.createdBy, currentUser);
                             return (
                               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
-                                {!widget.builtIn && <button
+                                <button
                                   title="Clone widget"
                                   onClick={(e) => { e.stopPropagation(); e.preventDefault(); onCloneWidget?.(widget.id); onClose(); }}
                                   className="p-1 rounded bg-white/90 hover:bg-gray-100 text-gray-600 shadow-sm border border-gray-200"
                                 >
                                   <Copy className="w-3 h-3" />
-                                </button>}
+                                </button>
                                 {mayEdit && (
                                   <button
                                     title="Edit in Widget Studio"
@@ -633,7 +633,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                               component={widget.component}
                               snapshot={widget.snapshot}
                               widget={widget}
-                              canRefresh={!widget.builtIn && canEditDomain(widget.domain)}
+                              canRefresh={canEditDomain(widget.domain)}
                               className={clsx("h-full", !hasAccess && "opacity-50 grayscale")}
                             />
                           </div>

@@ -34,11 +34,9 @@ replace the ones about the card:
   `fontFamily` the page uses the view's font.
 - **Moving around the view.** Pages are how people get around an app. A card or
   tile that stands for a part of the app (a persona, a team, a topic, "see the
-  details") goes to the tab of that name: call `props.app.goToTab('Team')` with
-  the name written out as a plain string, which matches case-insensitively and
-  returns `false` when the view has no such tab. Command Center reads those
-  strings to warn the view's editors about a link to a tab that isn't there, so
-  don't build the name at run time. Only on `false` does it fall back, to
+  details") goes to the tab of that name: look it up in `props.app.tabs` when it
+  is clicked, matching names case-insensitively, and call `props.app.goToTab`
+  with its id. Only when the view has no such tab does it fall back, to
   `props.app.openAssistant` with the card's question if it has one, or to doing
   nothing; never invent an address. Do this even when the request doesn't
   mention tabs: the page is built before the view's tabs are, and the studio's

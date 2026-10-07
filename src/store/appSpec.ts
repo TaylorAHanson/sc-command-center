@@ -177,22 +177,6 @@ export const shownTab = (app?: App | null, tabId?: string | null): AppTab | null
 export const tabLabel = (app: App, tab: AppTab, index: number): string =>
   tab.name || (index === 0 || tab.id === app.id ? app.name : `Tab ${index + 1}`);
 
-/** Which of the names (or ids) a widget sends to `goToTab` match none of the app's tabs, as `goToTab` matches them. */
-export const missingTabs = (app: App, targets?: string[]): string[] => {
-  if (!targets?.length) return [];
-  const names = new Set(app.spec.tabs.map((t, i) => tabLabel(app, t, i).trim().toLowerCase()));
-  const ids = new Set(app.spec.tabs.map(t => t.id));
-  return targets.filter(t => !ids.has(t) && !names.has(t.trim().toLowerCase()));
-};
-
-/** What editors are told about a widget whose tab links go nowhere, or null when they all land. */
-export const missingTabsNotice = (app: App, targets?: string[]): string | null => {
-  const missing = missingTabs(app, targets);
-  if (!missing.length) return null;
-  const list = missing.map(m => `“${m}”`).join(', ');
-  return `${missing.length === 1 ? 'A link here goes to a tab this view doesn’t have' : 'Links here go to tabs this view doesn’t have'}: ${list}. Name a tab to match, or change the widget.`;
-};
-
 /** The agent the drawer opens with: the tab's own pin, else the app's. */
 export const pinnedAgentOf = (app?: App | null, tab?: AppTab | null): string =>
   tab?.pinned_agent_id || app?.pinned_agent_id || '';

@@ -7,7 +7,7 @@ import { useDashboardStore, type WidgetLayout } from '../store/dashboardStore';
 import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { BaseWidget } from './BaseWidget';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
-import { cardClasses, effectiveTheme, isPage, missingTabsNotice } from '../store/appSpec';
+import { cardClasses, effectiveTheme, isPage } from '../store/appSpec';
 import { PageTab } from './PageTab';
 import { useAppApi } from '../appApi';
 
@@ -547,7 +547,6 @@ export const DashboardGrid: React.FC = () => {
                     });
                   }}
                   customActions={customActions}
-                  notice={isReadOnly || !activeApp ? undefined : missingTabsNotice(activeApp, def.tabTargets)}
                   look={cardLook}
                   isFullscreen={fullscreenWidget?.id === widget.i}
                   onRemove={isReadOnly && fullscreenWidget?.id !== widget.i ? undefined : () => removeWidget(appId, tabId, widget.i)}

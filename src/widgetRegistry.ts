@@ -3,7 +3,6 @@ import { useScript } from './hooks/useScript';
 import { brandReady, withBrandColors } from './brand';
 import { loadFontsNamedIn } from './fonts';
 import type { AppApi } from './appApi';
-import { TabLinksWidget } from './components/TabLinksWidget';
 
 // Define types broadly since we only need component matching
 export interface WidgetProps {
@@ -18,8 +17,7 @@ export interface WidgetProps {
 export interface ConfigField {
   key: string;
   label: string;
-  /** `tabs`: a pick of the view's tabs, kept as tab ids; none picked means every other tab. */
-  type: 'text' | 'number' | 'select' | 'textarea' | 'tabs';
+  type: 'text' | 'number' | 'select' | 'textarea';
   required?: boolean;
   placeholder?: string;
   options?: Array<{ value: string; label: string }>; // For select fields
@@ -53,48 +51,9 @@ export interface WidgetDefinition {
   createdBy?: string; // Username of whoever published this widget (custom widgets only)
   /** Built to fill a page tab rather than a card; any widget may go on either. */
   layoutKind?: 'card' | 'page';
-  /** Part of Command Center itself rather than a row in `widgets`: nobody edits, deletes or claims it. */
-  builtIn?: boolean;
-  /** Tabs its code names in `goToTab('…')`, so editors can be told when the view has none of that name. */
-  tabTargets?: string[];
 }
 
-const TAB_TARGET = /goToTab\s*(?:\?\.)?\(\s*(['"`])([^'"`$\\]+)\1\s*\)/g;
-
-/** The tab names (or ids) a widget's source passes to `goToTab` as plain strings. */
-export const tabTargetsIn = (code?: string | null): string[] | undefined => {
-  if (!code) return undefined;
-  const found = new Set<string>();
-  for (const m of code.matchAll(TAB_TARGET)) found.add(m[2].trim());
-  return found.size ? [...found] : undefined;
-};
-
-export const TAB_LINKS_WIDGET = 'cc-tab-links';
-
-export const widgetRegistry: Record<string, WidgetDefinition> = {
-  // Registered before any rows load: a view holding a widget the registry doesn't
-  // know once loading ends has that widget dropped.
-  [TAB_LINKS_WIDGET]: {
-    id: TAB_LINKS_WIDGET,
-    name: 'Tab links',
-    component: TabLinksWidget,
-    defaultW: 6,
-    defaultH: 3,
-    description: 'Tiles that take people to the view’s other tabs. Pick which in its settings; renaming a tab keeps its link.',
-    category: 'Navigation',
-    isCertified: true,
-    builtIn: true,
-    configurationMode: 'config_allowed',
-    configSchema: [
-      { key: 'heading', label: 'Heading', type: 'text', placeholder: 'e.g. Where to next', helpText: 'Shown above the links. Leave it empty for none.' },
-      { key: 'tabs', label: 'Links to', type: 'tabs', defaultValue: [] },
-      { key: 'style', label: 'Show as', type: 'select', defaultValue: 'tiles', options: [{ value: 'tiles', label: 'Tiles' }, { value: 'list', label: 'A list' }] },
-    ],
-    helpText: 'Click a tile to open that tab of this view. Whoever can change the view picks the tabs from the gear on this card; with none picked it shows every other tab, including ones added later.',
-    layoutKind: 'card',
-    accessControl: { mockHasAccess: true },
-  },
-};
+export const widgetRegistry: Record<string, WidgetDefinition> = {};
 let registryVersion = 0;
 let isRegistryLoading = true;
 const listeners = new Set<() => void>();
@@ -345,7 +304,6 @@ const registerRows = async (url: string) => {
           openInNewTabLink: w.open_in_new_tab_link || undefined,
           createdBy: w.created_by || undefined,
           layoutKind: w.layout_kind === 'page' ? 'page' as const : 'card' as const,
-          tabTargets: tabTargetsIn(w.tsx_code),
           accessControl: { mockHasAccess: true }
         };
 
