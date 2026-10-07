@@ -85,6 +85,22 @@ def classify(name: str, groups: List[str], users: List[str]) -> Dict[str, Any]:
     }
 
 
+def failure_reason(exc: Exception) -> str:
+    """What the form says when a lookup fails, without the SDK's config dump.
+
+    The SDK appends the client's whole configuration (host, client id, discovery
+    URLs) to its errors, which is noise in a form and none of an admin's business
+    there; the full text goes to the log instead. The scope case is the one that
+    happens on every deployed app: Databricks Apps can't request the `scim` scope
+    for user authorization, so the signed-in user's token can never list groups.
+    """
+    text = str(exc)
+    if "required scopes" in text and "scim" in text:
+        return "this app isn't allowed to list workspace groups and users as you"
+    first = text.split(" Config:")[0].split("[ReqId")[0].strip().rstrip(".")
+    return first[:200] or "the lookup failed"
+
+
 def _scim_names(w: Any, resource: str, attribute: str, scim_filter: str, count: int) -> List[str]:
     params: Dict[str, Any] = {"attributes": attribute, "count": count, "startIndex": 1}
     if scim_filter:
@@ -110,7 +126,7 @@ def search(w: Any, query: str, limit: int = SEARCH_LIMIT) -> Dict[str, Any]:
         users = _scim_names(w, "Users", "userName", f'userName co "{q}"', limit) if q else []
     except Exception as exc:  # noqa: BLE001
         logger.warning("SCIM principal search failed: %s", exc)
-        return {"groups": [], "users": [], "available": False, "error": str(exc)}
+        return {"groups": [], "users": [], "available": False, "error": failure_reason(exc)}
     return {"groups": sorted(groups, key=str.lower), "users": sorted(users, key=str.lower),
             "available": True}
 

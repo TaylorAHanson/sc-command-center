@@ -91,6 +91,17 @@ def test_search_reports_an_outage_instead_of_an_empty_directory():
     assert out["available"] is False and out["groups"] == []
 
 
+def test_a_failed_search_says_why_without_the_sdk_config_dump():
+    scope = RuntimeError(
+        "Provided OAuth token does not have required scopes: scim [ReqId: 16e3]. "
+        "Config: host=https://x.cloud.databricks.com, client_id=ee35, client_secret=***, auth_type=pat."
+    )
+    reason = principals.failure_reason(scope)
+    assert "isn't allowed to list" in reason and "Config" not in reason and "client_id" not in reason
+    other = principals.failure_reason(RuntimeError("Connection reset [ReqId: 1]. Config: host=h, client_id=c"))
+    assert other == "Connection reset"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:

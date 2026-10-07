@@ -62,6 +62,7 @@
 
 ### Fixed
 
+- **Group search says plainly when it can't run.** **Create Domain Mapping** no longer shows a wall of connection settings when it can't search Databricks groups.
 - **Lock and Share stay on views.** They no longer show on the Admin Panel, User Guide and other pages.
 - **A card's settings keep its version.** Saving a widget's settings no longer drops the version it was pinned to.
 - **Big screenshots attach.** Full-resolution screenshots and other large images are scaled down before the model sees them, instead of failing with an error.
