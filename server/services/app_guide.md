@@ -377,17 +377,17 @@ Key rules:
 ## Managing access and requesting access
 
 Global admins map roles in the UI, no database work required: **Admin Panel**
-(shield icon, under Resources) → **Role Mappings**. Pick the Databricks group or
-user from the search box, the domain from the list, and the level, then **Add
-Mapping**. **Assign Global Administrator** at the top of the same page does the
-same for the `Global` domain.
+(shield icon, under Resources) → **Role Mappings**. Type the Databricks group or
+user, pick the domain from the list and the level, then **Add Mapping**. **Assign
+Global Administrator** at the top of the same page does the same for the `Global`
+domain.
 
-The group field checks the name against Databricks as you type, because a mapping
-only applies to someone whose group (or username) matches it **exactly, capitals
-included**. A name that doesn't exist, or exists with different capitals, is
-refused with the reason — for a capitalisation slip it offers the right spelling.
-If Databricks can't be reached for the check, the name is saved as typed and the
-form says so. Domains come from **Categories & Domains**, so add a new domain
+The group field is free text and isn't looked up in Databricks: a deployed app
+can't list workspace groups on the signed-in user's behalf. A mapping only applies
+to someone whose group (or username) matches it **exactly, capitals included**, so
+a typo saves without complaint and grants nothing. If someone mapped still lacks
+access, compare the name with the workspace's Groups page, character for
+character. Domains come from **Categories & Domains**, so add a new domain
 there first; an existing mapping whose domain has since been renamed or deleted is
 flagged "not a domain" in the table.
 

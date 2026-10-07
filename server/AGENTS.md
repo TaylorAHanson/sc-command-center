@@ -681,22 +681,22 @@ want the model's narration on screen, the prompt has to ask for it as ordinary
 text. `tools/widget_repro.py` prints what a reply contained and how much of it
 survived the read, including how much prose arrived before the code.
 
-## Role-mapping validation (`services/principals.py`)
+## Role-mapping validation (`routes/roles._validate_mapping`)
 
 A mapping's `external_role` is compared with the caller's SCIM group display names
 and username **exactly** (`roles._get_user_permissions`), so a typo or a
-capitalisation slip saves fine and grants nothing, silently. `GET
-/api/roles/principals` backs the form's typeahead and `/principals/check` gives a
-verdict; `_validate_mapping` repeats the check on POST/PUT, plus "the domain is a
-taxonomy entry or a global alias". Things that look odd but aren't:
+capitalisation slip saves fine and grants nothing, silently. `_validate_mapping`
+checks only that the domain is a taxonomy entry or a global alias
+(`GLOBAL_DOMAINS`); an edit doesn't re-check a domain it didn't change, so a
+legacy mapping can have its level changed without first being fixed.
 
-- **Groups are checked with `co`, not `eq`.** Databricks compares group `eq`
-  case-sensitively, which reports `Admins` as unknown when the useful answer is
-  "it's spelled `admins`"; `co` ignores case and `classify` does the exact match.
-- **A failed lookup allows the save** (`unverified`). Refusing would make access
-  control uneditable during a SCIM outage.
-- **An edit doesn't re-check a field it didn't change**, so a legacy mapping can
-  have its level changed without first being fixed.
+**The name itself is not checked, deliberately.** There used to be a SCIM
+typeahead and verdict (`/api/roles/principals`). It worked locally, where
+`DEV_MODE` runs as the service principal, and never in a deployed App: listing
+groups needs the `scim` scope, which isn't one Databricks Apps can request in
+`user_api_scopes`. Doing the lookups as the service principal would extend SP
+auth beyond inference, so the field is free text. Don't reintroduce a lookup that
+only works on the SP.
 
 `taxonomy._near_duplicate` is the same idea for categories and domains:
 `UNIQUE (name)` is case-sensitive, so `Logistics` and `logistics` could coexist.
@@ -1107,7 +1107,6 @@ PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 10 passe
 PYTHONPATH=server .venv/bin/python tests/test_conversation_store.py   # 5 passed
 PYTHONPATH=server .venv/bin/python tests/test_db_pool.py              # 14 passed
 PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 24 passed
-PYTHONPATH=server .venv/bin/python tests/test_principals.py           # 10 passed
 PYTHONPATH=server .venv/bin/python tests/test_data_migration.py       # 21 passed
 PYTHONPATH=server .venv/bin/python tests/test_promotion.py            # 16 passed
 ```

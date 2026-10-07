@@ -306,13 +306,13 @@ export const UserGuidePage: React.FC = () => {
             </p>
             <ol className="list-decimal pl-5 space-y-3 text-gray-700">
               <li>Navigate to the <strong>Admin Panel</strong> by clicking on the shield icon in the left navigation sidebar, and open <strong>Role Mappings</strong>.</li>
-              <li>Under "Create Domain Mapping", start typing in <strong>Databricks group or user</strong> and pick from the matching groups and users (e.g., <code>finance-team</code>).</li>
+              <li>Under "Create Domain Mapping", type the name in <strong>Databricks group or user</strong> exactly as it appears in Databricks (e.g., <code>finance-team</code>).</li>
               <li>Choose the <strong>Mapped Domain</strong> from the list. The list is the domains under <strong>Categories &amp; Domains</strong>, so add a new domain there first.</li>
               <li>Select the appropriate Permission Level: <code>Viewer</code>, <code>Editor</code>, or <code>Admin</code>.</li>
               <li>Click <strong>Add Mapping</strong>. The backend applies this permission to any user belonging to that Databricks group upon their next session.</li>
             </ol>
             <p className="text-sm text-gray-700 mt-4">
-              The group field is checked against Databricks as you type, because a mapping only applies to someone whose group or username matches it <strong>exactly, capitals included</strong>. A name that doesn't exist, or exists with different capitals, can't be saved — for a capitalisation slip the form offers the right spelling. If Databricks can't be reached for the check, the name is saved as typed and the form tells you so. A mapping whose domain has since been renamed or removed is marked <em>not a domain</em> in the table.
+              A mapping only applies to someone whose group or username matches it <strong>exactly, capitals included</strong>, and the name is saved as you typed it, so copy it from the workspace's Groups page rather than retyping it. A mapping whose domain has since been renamed or removed is marked <em>not a domain</em> in the table.
             </p>
           </div>
         </div>

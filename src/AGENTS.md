@@ -407,14 +407,13 @@ from which style you picked.
 The endpoint line under each option is `slate-400` in the dark variant: `slate-500`
 measures 3.75:1 there, under AA for text that small.
 
-## Group picker (`components/PrincipalSelect.tsx`)
+## Role-mapping group field (`pages/admin/RoleMappings.tsx`)
 
-The role-mapping field. Unlike `ModelSelect`, free text is *not* accepted: a
-mapping matches groups exactly, so the component checks every value against SCIM
-and forms gate saving on `principalAllowsSave(verdict, value)` (`src/principals.ts`).
-That helper takes the value as well because the check is debounced — for a moment
-after each keystroke the latest verdict is about the previous text, and a stale
-"group" must not enable Save. The displayed verdict is derived the same way.
+Plain text (`PrincipalInput`), not a picker. A deployed App can't list workspace
+groups as the signed-in user (no `scim` user scope), so there is nothing to search
+or check against; see `server/AGENTS.md` → *Role-mapping validation*. The hint
+under it says the name must match exactly, because that's what the permission
+check does.
 
 ## Data Migration (`pages/admin/DataMigration.tsx`)
 

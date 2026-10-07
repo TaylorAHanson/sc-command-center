@@ -7,9 +7,13 @@ import datetime
 from database import get_db_connection
 from middleware.auth import get_db_client, get_user_token
 from databricks.sdk import WorkspaceClient
-from services import caller_identity, principals
+from services import caller_identity
 
 router = APIRouter()
+
+#: Domain names that mean "every domain" to the permission check. They are
+#: meaningful as a mapping's domain without being taxonomy entries.
+GLOBAL_DOMAINS = ("global", "all", "app")
 
 
 def _permissions_disabled() -> bool:
@@ -245,37 +249,27 @@ def get_my_permissions(w: WorkspaceClient = Depends(get_db_client), env: str = "
         print(f"Error fetching my permissions: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/principals", summary="Search Databricks groups and users for a role mapping")
-def search_principals(q: str = "", limit: int = principals.SEARCH_LIMIT,
-                      w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """Typeahead for the role-mapping form. Global admins only, like the form."""
-    require_global_admin(w, env)
-    return principals.search(w, q, limit)
-
-
-@router.get("/principals/check", summary="Check that a role-mapping name exists in Databricks")
-def check_principal(name: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
-    return principals.check(w, name)
-
-
 def _known_domains(c) -> set:
     c.execute("SELECT name FROM widget_domains")
     return {(row["name"] if hasattr(row, "keys") else row[0]) for row in c.fetchall()}
 
 
-def _validate_mapping(w: WorkspaceClient, c, mapping: RoleMappingCreate, previous: Dict[str, Any] = None) -> None:
+def _validate_mapping(c, mapping: RoleMappingCreate, previous: Dict[str, Any] = None) -> None:
     """Refuse a mapping that could never grant anything.
 
-    Both halves of a mapping used to be free text, and both fail silently: a group
-    name nobody holds matches no one, and a domain that isn't in the taxonomy is
-    one no widget or view can be filed under. The form now picks from real values
-    and checks as you type; this is the same check where it can't be skipped.
+    A domain that isn't in the taxonomy is one no widget or view can be filed
+    under, so it grants nothing; the form picks from the taxonomy and this is the
+    same check where it can't be skipped.
 
-    On an edit, a field left as it was is not re-checked. Mappings saved before this
-    existed may name something the check would refuse, and an admin changing only
-    the permission level shouldn't be made to fix the rest first — the form still
-    flags it.
+    The group or user name is taken as typed. Checking it would mean listing
+    workspace groups, which a deployed app can't do as the signed-in admin:
+    Databricks Apps can't request the `scim` scope for user authorization, and
+    doing it as the app's service principal would widen what that identity is
+    used for.
+
+    On an edit, a domain left as it was is not re-checked. Mappings saved before
+    this existed may name one the check would refuse, and an admin changing only
+    the permission level shouldn't be made to fix it first — the table flags it.
     """
     previous = previous or {}
     if mapping.permission_level not in ("viewer", "editor", "admin"):
@@ -284,17 +278,13 @@ def _validate_mapping(w: WorkspaceClient, c, mapping: RoleMappingCreate, previou
     domain = mapping.domain.strip()
     if not role or not domain:
         raise HTTPException(status_code=400, detail="External role and domain are both required.")
-    if domain != previous.get("domain") and domain.lower() not in principals.GLOBAL_DOMAINS:
+    if domain != previous.get("domain") and domain.lower() not in GLOBAL_DOMAINS:
         if domain not in _known_domains(c):
             raise HTTPException(
                 status_code=400,
                 detail=(f"'{domain}' is not a domain. Add it under Categories & Domains first, "
                         "so widgets and views can be filed under it."),
             )
-    if role != previous.get("external_role"):
-        verdict = principals.check(w, role)
-        if principals.is_blocking(verdict):
-            raise HTTPException(status_code=400, detail=verdict["detail"])
 
 
 @router.get("/mapping")
@@ -323,7 +313,7 @@ def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = Depends
                                     domain=mapping.domain.strip(),
                                     permission_level=mapping.permission_level)
         try:
-            _validate_mapping(w, c, mapping)
+            _validate_mapping(c, mapping)
         except HTTPException:
             conn.close()
             raise
@@ -396,7 +386,7 @@ def update_role_mapping(mapping_id: int, mapping: RoleMappingCreate, w: Workspac
             conn.close()
             raise HTTPException(status_code=404, detail="Role mapping not found")
         try:
-            _validate_mapping(w, c, mapping, dict(previous))
+            _validate_mapping(c, mapping, dict(previous))
         except HTTPException:
             conn.close()
             raise

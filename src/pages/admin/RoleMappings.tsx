@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Shield, RefreshCw, Pencil, Check, X, AlertTriangle } from 'lucide-react';
 import { ConfirmModal } from '../../components/ConfirmModal';
-import { PrincipalSelect } from '../../components/PrincipalSelect';
-import { principalAllowsSave } from '../../principals';
-import type { PrincipalVerdict } from '../../principals';
 
 // Domains that mean "every domain" to the permission check (`roles.py`), so they
 // are valid on a mapping without being taxonomy entries.
@@ -37,12 +34,6 @@ export const RoleMappings: React.FC = () => {
     const [editDomain, setEditDomain] = useState('');
     const [editPermission, setEditPermission] = useState<'viewer' | 'editor' | 'admin'>('editor');
     const [editOriginal, setEditOriginal] = useState<RoleMapping | null>(null);
-
-    // What the name in each role field resolves to in Databricks. Save is refused
-    // for a name no user could ever hold — see PrincipalSelect.
-    const [globalVerdict, setGlobalVerdict] = useState<PrincipalVerdict | null>(null);
-    const [newVerdict, setNewVerdict] = useState<PrincipalVerdict | null>(null);
-    const [editVerdict, setEditVerdict] = useState<PrincipalVerdict | null>(null);
 
     // Mapped domains are picked from the taxonomy rather than typed: a mapping to
     // a domain nothing can be filed under grants nothing. `null` = not loaded.
@@ -84,14 +75,14 @@ export const RoleMappings: React.FC = () => {
     }, []);
 
     const knownDomain = (d: string) => isGlobalDomain(d) || (domains ?? []).includes(d);
-    // An edit may keep a value the checks would now refuse (a mapping saved before
-    // they existed); only what the admin changed has to pass. The server agrees.
-    const editRoleOk = !!editOriginal && (editRole.trim() === editOriginal.external_role || principalAllowsSave(editVerdict, editRole));
+    // An edit may keep a domain the check would now refuse (a mapping saved before
+    // it existed); only what the admin changed has to pass. The server agrees.
+    const editRoleOk = !!editRole.trim();
     const editDomainOk = !!editOriginal && (editDomain === editOriginal.domain || knownDomain(editDomain));
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newRole.trim() || !newDomain.trim() || !principalAllowsSave(newVerdict, newRole)) return;
+        if (!newRole.trim() || !newDomain.trim()) return;
 
         setIsSaving(true);
         try {
@@ -124,7 +115,7 @@ export const RoleMappings: React.FC = () => {
 
     const handleCreateGlobalAdmin = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newGlobalAdminRole.trim() || !principalAllowsSave(globalVerdict, newGlobalAdminRole)) return;
+        if (!newGlobalAdminRole.trim()) return;
 
         setIsSavingGlobal(true);
         try {
@@ -207,7 +198,6 @@ export const RoleMappings: React.FC = () => {
     const startEditing = (mapping: RoleMapping) => {
         setEditingId(mapping.id);
         setEditOriginal(mapping);
-        setEditVerdict(null);
         setEditRole(mapping.external_role);
         setEditDomain(mapping.domain);
         setEditPermission(mapping.permission_level);
@@ -245,17 +235,16 @@ export const RoleMappings: React.FC = () => {
                         <form onSubmit={handleCreateGlobalAdmin} className="flex gap-4 items-start bg-blue-50 p-4 rounded-lg border border-blue-100">
                             <div className="flex-1">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Databricks group or user</label>
-                                <PrincipalSelect
+                                <PrincipalInput
                                     value={newGlobalAdminRole}
                                     onChange={setNewGlobalAdminRole}
-                                    onVerdict={setGlobalVerdict}
                                     ariaLabel="Global administrator group or user"
                                     placeholder="e.g. global_app_admins"
                                 />
                             </div>
                             <button
                                 type="submit"
-                                disabled={isSavingGlobal || !newGlobalAdminRole.trim() || !principalAllowsSave(globalVerdict, newGlobalAdminRole)}
+                                disabled={isSavingGlobal || !newGlobalAdminRole.trim()}
                                 className="mt-6 px-4 py-2 bg-brand-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
                             >
                                 <Shield size={16} />
@@ -269,10 +258,9 @@ export const RoleMappings: React.FC = () => {
                         <form onSubmit={handleCreate} className="flex gap-4 items-start bg-gray-50 p-4 rounded-lg border border-gray-200">
                             <div className="flex-1">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Databricks group or user</label>
-                                <PrincipalSelect
+                                <PrincipalInput
                                     value={newRole}
                                     onChange={setNewRole}
-                                    onVerdict={setNewVerdict}
                                     ariaLabel="Group or user for this domain"
                                     placeholder="e.g. corp_sc_admins"
                                 />
@@ -301,7 +289,7 @@ export const RoleMappings: React.FC = () => {
                             </div>
                             <button
                                 type="submit"
-                                disabled={isSaving || !newRole.trim() || !newDomain.trim() || !principalAllowsSave(newVerdict, newRole)}
+                                disabled={isSaving || !newRole.trim() || !newDomain.trim()}
                                 className="mt-6 px-4 py-2 bg-brand-blue hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors h-[38px]"
                             >
                                 <Plus size={16} />
@@ -353,10 +341,9 @@ export const RoleMappings: React.FC = () => {
                                                         />
                                                     </td>
                                                     <td className="px-6 py-4">
-                                                        <PrincipalSelect
+                                                        <PrincipalInput
                                                             value={editRole}
                                                             onChange={setEditRole}
-                                                            onVerdict={setEditVerdict}
                                                             ariaLabel="Group or user"
                                                             compact
                                                         />
@@ -381,7 +368,7 @@ export const RoleMappings: React.FC = () => {
                                                                 onClick={() => handleSaveEdit(mapping.id)}
                                                                 disabled={!editRoleOk || !editDomainOk}
                                                                 className="text-green-600 hover:text-green-800 transition-colors p-1 rounded-md hover:bg-green-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                                                                title={editRoleOk && editDomainOk ? 'Save changes' : 'Fix the group or domain first'}
+                                                                title={editRoleOk && editDomainOk ? 'Save changes' : 'Enter a group and choose a domain first'}
                                                             >
                                                                 <Check size={16} />
                                                             </button>
@@ -458,6 +445,35 @@ export const RoleMappings: React.FC = () => {
         </>
     );
 };
+
+/**
+ * The group or user a mapping grants to, typed as-is. Nothing checks it against
+ * the workspace: a deployed app can't list groups as the signed-in admin, because
+ * Databricks Apps can't request the `scim` scope for user authorization. The
+ * permission check compares names exactly, so the hint says so.
+ */
+const PrincipalInput: React.FC<{
+    value: string;
+    onChange: (next: string) => void;
+    ariaLabel: string;
+    placeholder?: string;
+    compact?: boolean;
+}> = ({ value, onChange, ariaLabel, placeholder, compact }) => (
+    <div>
+        <input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            aria-label={ariaLabel}
+            placeholder={placeholder}
+            autoComplete="off"
+            spellCheck={false}
+            className={`w-full bg-white border border-gray-300 rounded-md text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}
+        />
+        {!compact && (
+            <p className="mt-1 text-[11px] text-gray-500">Exactly as in Databricks, capitals included.</p>
+        )}
+    </div>
+);
 
 /**
  * A select over the taxonomy's domains. `keep` is the value a row already had:
