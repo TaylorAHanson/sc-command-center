@@ -1,0 +1,53 @@
+[project]
+name = "sc-command-center"
+version = "0.0.0"
+# Databricks Apps installs with uv only when there is no requirements.txt and
+# both this file and uv.lock exist; pip-based apps are fixed at Python 3.11.
+# Keep .python-version in step with this range.
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi",
+    # [standard] brings uvloop and httptools. pip-based Apps preinstalled
+    # uvicorn[standard], so plain `uvicorn` here would quietly fall back to the
+    # pure-Python event loop and HTTP parser: uv-based Apps preinstall nothing.
+    "uvicorn[standard]",
+    "databricks-sdk>=0.56.0",
+    "pydantic",
+    "python-multipart",
+    "httpx",
+    "psycopg2-binary",
+    "openai",
+    "langchain",
+    "langchain-openai",
+    "langchain-core",
+    "langgraph",
+    "databricks-mcp",
+    # Reading files users attach to the assistant. pandas and pyarrow arrive
+    # transitively via mlflow/langchain in some environments, but a deployed App
+    # installs only what is listed here — leaving them implicit means uploads
+    # work locally and break in production. pyarrow is what makes a re-read
+    # cheap: spreadsheets are normalized to Parquet once at upload, then
+    # reloaded per tool call.
+    "pandas",
+    "pyarrow",
+    "openpyxl",
+    "pypdf",
+    "python-docx",
+    # Shrinking attached images to what the model accepts. Only matplotlib
+    # brings it in locally, for the same reason as above.
+    "pillow",
+    # Capped because `requests` validates the chardet version it finds and warns
+    # on every import when it is newer than it knows about.
+    "chardet<6",
+]
+
+[tool.uv]
+package = false
+
+# uv.lock records the index every package came from, and the deployed App
+# downloads from those URLs. A developer's own uv config often points at a
+# corporate mirror the App cannot reach, so the lock is pinned to public PyPI.
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true

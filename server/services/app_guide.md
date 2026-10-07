@@ -54,8 +54,10 @@ per-user unless they are global.
 - On a page, drag a widget from the Widget Library onto it (dropping another
   replaces it, after asking). The toolbar in its top-right corner — shown only
   to whoever may change the tab, inside Command Center — offers **Change
-  widget**, **Edit in Widget Studio**, its settings, remove (after asking), and
-  back to cards on a grid.
+  widget**, **Edit in Widget Studio**, the gear for the widget's settings (where
+  its links are set), and remove (after asking). The gear is grayed out for a
+  widget built without settings. To turn the page back into cards on a grid, use
+  the grid/page icon on the tab.
   A view opened on its own shows the page without the toolbar. Any widget can
   go on a page, but one built as a page in Widget Studio (marked **PAGE** in
   the Widget Library) is the one made to fill it.

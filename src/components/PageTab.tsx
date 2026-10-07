@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutGrid, Pencil, Replace, Settings, Trash2 } from 'lucide-react';
+import { Pencil, Replace, Settings, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from './ConfirmModal';
 import { useDashboardStore } from '../store/dashboardStore';
@@ -18,7 +18,7 @@ const WIDGET_DRAG = 'application/widget-type';
  * toolbar for whoever may change the tab, and only inside Command Center.
  */
 export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appApi?: AppApi }> = ({ app, tab, readOnly, appApi }) => {
-  const { addWidget, removeWidget, updateWidget, openConfigModal, setTabLayout, activeDomain, username, variables, setVariable, canEditDomain } = useDashboardStore();
+  const { addWidget, removeWidget, updateWidget, openConfigModal, activeDomain, username, variables, setVariable, canEditDomain } = useDashboardStore();
   const { loading } = useWidgetRegistry();
   const tools = useWorkspaceTools();
   const [dropping, setDropping] = useState(false);
@@ -84,24 +84,30 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
               <span>Edit in Widget Studio</span>
             </button>
           )}
-          {configurable && (
+          {def && (configurable ? (
             <button
               type="button"
               className={button}
               onClick={() => openConfigModal(widget!.type, c => updateWidget(app.id, tab.id, widget!.i, { props: c }), widget!.props || {})}
-              title="This widget's settings"
+              title="Widget settings"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
-          )}
+          ) : (
+            <button
+              type="button"
+              aria-disabled="true"
+              className={clsx(button, 'opacity-40 cursor-default hover:text-gray-600 hover:bg-transparent')}
+              title="This widget has no settings. Give it some on the Configuration tab in Widget Studio."
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+          ))}
           {widget && (
             <button type="button" className={clsx(button, 'hover:text-red-600')} onClick={() => setConfirming({ kind: 'remove' })} title="Take the widget off this page">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
-          <button type="button" className={button} onClick={() => setTabLayout(app.id, tab.id, 'canvas')} title="Make this tab cards on a grid">
-            <LayoutGrid className="w-3.5 h-3.5" />
-          </button>
         </div>
       )}
 
