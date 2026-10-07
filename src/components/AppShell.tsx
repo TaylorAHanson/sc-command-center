@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Link2, Pencil } from 'lucide-react';
+import { ArrowLeft, Check, Link2, Pencil } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
 import { darkBars, isPage, shownTab, themeVariables, type AppTheme } from '../store/appSpec';
@@ -149,6 +149,16 @@ export const AppShell: React.FC = () => {
                 {badge}
               </span>
             )}
+            {shell.previewing && (
+              <span
+                className={`px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded shrink-0 ${
+                  dark ? 'bg-white/15 text-white' : 'bg-brand-blue/10 text-brand-blue'
+                }`}
+                title="This is how the view looks to people who open its link. Only you see this label."
+              >
+                Preview
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -168,7 +178,18 @@ export const AppShell: React.FC = () => {
                 <span>{copied ? 'Copied!' : 'Copy link'}</span>
               </button>
             )}
-            {canEditApp(activeApp) && (
+            {shell.previewing ? (
+              <button
+                onClick={() => shell.edit(activeApp, linkTab(activeApp, activeAppTab))}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  dark ? 'bg-white text-brand-navy hover:bg-white/90' : 'bg-brand-blue text-white hover:bg-brand-navy'
+                }`}
+                title="Leave the preview and go back to this view in Command Center"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>{canEditApp(activeApp) ? 'Back to editing' : 'Back to Command Center'}</span>
+              </button>
+            ) : canEditApp(activeApp) && (
               <button
                 onClick={() => shell.edit(activeApp, linkTab(activeApp, activeAppTab))}
                 className={headerButton}

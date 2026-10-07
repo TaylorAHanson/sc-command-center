@@ -8,12 +8,17 @@ import type { App } from './store/appSpec';
  * workspace by its editors.
  */
 export interface Shell {
-  /** Show an app on its own, the way people with its link see it. */
-  present: (app: App, tabId?: string | null, widgetId?: string | null) => void;
+  /**
+   * Show an app on its own, the way people with its link see it. `preview` is
+   * the workspace's Preview: the page then always offers the way back.
+   */
+  present: (app: App, tabId?: string | null, widgetId?: string | null, preview?: boolean) => void;
   /** Open an app in the workspace, where its editors build it. */
   edit: (app: App, tabId?: string | null) => void;
+  /** The app on its own was opened by Preview, not by its link. */
+  previewing: boolean;
 }
 
-export const ShellContext = createContext<Shell>({ present: () => {}, edit: () => {} });
+export const ShellContext = createContext<Shell>({ present: () => {}, edit: () => {}, previewing: false });
 
 export const useShell = () => useContext(ShellContext);

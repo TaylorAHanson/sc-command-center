@@ -156,7 +156,11 @@ per-user unless they are global.
   Center, and **Edit** goes to anyone who may change the view's settings.
   **Edit** reopens it inside Command Center at an address starting
   `#/workspace/…`, which keeps it there on reload; **Preview** in the header goes
-  back to seeing it on its own. Who can open the link is unchanged, and opening
+  back to seeing it on its own. A view opened with **Preview** is labelled
+  **Preview** and has **Back to editing** (or **Back to Command Center** for
+  someone who can't change it) in place of **Edit**, returning to the same tab;
+  the label and button are only there for whoever pressed **Preview**, not for
+  people opening the link. Who can open the link is unchanged, and opening
   someone else's personal view on its own still adds it to **Shared Views**.
 
 ## Widgets

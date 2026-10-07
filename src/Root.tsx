@@ -9,7 +9,7 @@ import { ShellContext, type Shell } from './shell';
 type Showing =
   | { kind: 'resolving' }
   | { kind: 'workspace' }
-  | { kind: 'standalone'; app: AppModel; route: AppRoute; opened: number };
+  | { kind: 'standalone'; app: AppModel; route: AppRoute; opened: number; preview?: boolean };
 
 // Whatever isn't a standalone app this person can open goes to the workspace,
 // including a link that can't be opened at all: the workspace does with it what
@@ -50,9 +50,9 @@ export const Root = () => {
   // moved on from must not take the page back to it.
   const navigation = useRef(0);
 
-  const standalone = useCallback((app: AppModel, route: AppRoute) => {
+  const standalone = useCallback((app: AppModel, route: AppRoute, preview = false) => {
     navigation.current += 1;
-    setShowing({ kind: 'standalone', app, route, opened: navigation.current });
+    setShowing({ kind: 'standalone', app, route, opened: navigation.current, preview });
   }, []);
 
   const follow = useCallback((route: AppRoute | null) => {
@@ -98,18 +98,20 @@ export const Root = () => {
   // `pushState` raises no hashchange, so moving between pages here never trips
   // the listener of the page being left. An address already naming the target
   // (the workspace handing over a link it was given) is not pushed again.
+  const previewing = showing.kind === 'standalone' && !!showing.preview;
   const shell = useMemo<Shell>(() => ({
-    present: (app, tabId = null, widgetId = null) => {
+    present: (app, tabId = null, widgetId = null, preview = false) => {
       const named = parseAppRoute(window.location.hash);
       if (!(named && !named.workspace && named.appId === app.id)) goTo(appHash(app.id, tabId));
-      standalone(app, { appId: app.id, tabId, widgetId });
+      standalone(app, { appId: app.id, tabId, widgetId }, preview);
     },
     edit: (app, tabId = null) => {
       navigation.current += 1;
       goTo(appHash(app.id, tabId, null, true));
       setShowing({ kind: 'workspace' });
     },
-  }), [standalone]);
+    previewing,
+  }), [standalone, previewing]);
 
   return (
     <ShellContext.Provider value={shell}>

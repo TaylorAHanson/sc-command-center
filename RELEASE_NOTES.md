@@ -48,6 +48,7 @@
 ### Changed
 
 - **A view with a background reads as one surface.** Its tabs and filters sit on the background instead of white bands, and text on a dark one turns light.
+- **A way back from Preview.** A view opened with **Preview** is labelled as one and has **Back to editing**, which returns you to the same tab.
 - **The assistant lines up with the page.** Its header is now one row, as tall as the header beside it; the widget count moved under the message box.
 - **Tidier read-only cards.** On a locked or shared view, cards drop the drag dots and version; on its own they drop the widget link too.
 - **Removing asks first, in the app.** Deleting a tab with widgets, replacing a page's widget or taking it off now confirms in Command Center's own dialog.

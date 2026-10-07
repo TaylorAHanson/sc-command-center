@@ -533,7 +533,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <div className="flex items-center gap-3">
               {!currentPage && activeApp && isStandalone(activeApp) && (
                 <button
-                  onClick={() => shell.present(activeApp, linkTab(activeApp, activeAppTab))}
+                  onClick={() => shell.present(activeApp, linkTab(activeApp, activeAppTab), null, true)}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
                   title="See this view on its own, as people with its link do"
                 >
