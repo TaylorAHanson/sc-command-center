@@ -2,7 +2,7 @@
 
 Run from the repo root with the server's interpreter:
 
-    server/venv/bin/python tools/tool_call_shape_probe.py [model]
+    .venv/bin/python tools/tool_call_shape_probe.py [model]
 
 LangChain sends an assistant message that only calls tools with ``"content":
 null`` (langchain_openai `_convert_message_to_dict`, "If tool calls present,

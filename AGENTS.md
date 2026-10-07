@@ -19,17 +19,37 @@ before editing either side.
 | --- | --- |
 | Run both servers | `./dev.sh` |
 | Frontend only | `npm run dev` |
-| Backend only | `cd server && venv/bin/uvicorn main:app --reload --port 8001` |
+| Backend only | `cd server && ../.venv/bin/uvicorn main:app --reload --port 8001` |
 | Build frontend | `npm run build` (`tsc -b && vite build` → `dist/`) |
 | Lint | `npm run lint` |
-| Backend tests | `PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py` |
+| Backend tests | `PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py` |
+| Python env | `uv sync --locked` (builds `.venv`; `dev.sh` runs it for you) |
+| Change Python deps | edit `pyproject.toml`, then `./lock.sh` |
 | Deploy | `databricks bundle deploy -t <target>` (targets in `databricks.yml`) |
 
 Backend runs on **8001**, frontend on **5174**, and Vite proxies `/api` to
 `127.0.0.1:8001` (`vite.config.ts`). `dev.sh` is the happy path: it clears both
-ports, creates `server/venv` if missing, installs `requirements.txt` when a key
-import is absent, and tees output to `backend.log` / `frontend.log` rather than
-the terminal — so read those files when something fails to start.
+ports, runs `uv sync --locked` to bring `.venv` in line with `uv.lock`, and tees
+output to `backend.log` / `frontend.log` rather than the terminal — so read those
+files when something fails to start.
+
+### Python dependencies
+
+Python is **3.13**, set by `requires-python` in `pyproject.toml` and by
+`.python-version`; keep the two in step. The deployed App installs with uv from
+`uv.lock` (`uv sync`) and starts through `uv run --frozen` (the command in
+`app.yaml`). Three rules follow:
+
+- **There is no `requirements.txt`, and adding one breaks the deploy quietly.**
+  If it exists, Databricks Apps installs with pip instead, on Python 3.11, and
+  ignores `pyproject.toml` entirely.
+- **Declare everything the server imports.** uv-based Apps preinstall nothing,
+  unlike pip-based ones, which is why `uvicorn[standard]` (uvloop, httptools) is
+  spelled out rather than plain `uvicorn`.
+- **Relock with `./lock.sh`, not bare `uv lock`.** The App downloads from the
+  URLs in `uv.lock`, so they must be public PyPI; the corporate network refuses
+  pypi.org, so the script resolves through the mirror and writes public URLs
+  back. `uv lock --check --offline` confirms the lock matches `pyproject.toml`.
 
 There is **no pytest harness**. Tests in `tests/` are written to run standalone
 under plain `python3` (they insert `server/` on `sys.path` themselves), and they
@@ -41,9 +61,11 @@ pypdf and python-docx. `server/AGENTS.md` lists each file with its expected coun
 
 ```
 databricks.yml          Asset Bundle: app resource, env vars, per-target overrides
+app.yaml                The App's start command (survives platform restarts)
 dev.sh / deploy.sh      Local dev launcher / manual sync+deploy to an existing App
+lock.sh                 Regenerates uv.lock with public PyPI URLs
 RELEASE_NOTES.md        User-facing changelog, rendered in-app; update every change
-requirements.txt        Backend deps (frontend deps in package.json)
+pyproject.toml, uv.lock Backend deps and Python version (frontend deps in package.json)
 server/                 FastAPI gateway — see server/AGENTS.md
   main.py               App factory, router registration, SPA catch-all
   database.py           Lakebase connection, schema selection, init_db
@@ -150,8 +172,13 @@ failures are caught and logged instead of raised.
 
 ## Configuration
 
-`databricks.yml` is authoritative for deployed configuration; `.env` covers
-local development (`dev.sh` sources it). The bundle root is set once, at the
+`databricks.yml` is authoritative for deployed configuration except the start
+command, which lives in `app.yaml`; `.env` covers local development (`dev.sh`
+sources it). The split is deliberate: the bundle's `config:` block reaches the
+app only through `databricks bundle run`, while a restart the platform does by
+itself (patching, maintenance) reads `app.yaml`. So the command must not depend
+on anything the bundle sets, and the bundle must not set a `command:` of its
+own, which would override `app.yaml` on bundle runs and let the two drift. The bundle root is set once, at the
 top of that file, under the deploying identity's home folder. Don't give a
 target a `root_path` under `/Workspace/Shared`: every workspace user can write
 there, and the root holds the code the app runs. Moving the root also leaves the

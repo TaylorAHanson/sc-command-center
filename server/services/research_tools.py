@@ -172,11 +172,35 @@ def format_result(columns: List[str], rows: List[List[Any]], limit: int,
     return f"{head}:\n\n" + "\n".join(lines) + note
 
 
+_CONSTANT_ITEM = re.compile(r"^(?:[-+]?\d+(?:\.\d+)?|''|true|false|null)(?:\s+(?:as\s+)?[a-z_][a-z0-9_]*)?$")
+
+
+def is_ping(sql: str) -> bool:
+    """True for a SELECT of constants only (`SELECT 1`, `SELECT 'ok' AS x`).
+
+    It reads no table, so it can't confirm anything a widget depends on, and on a
+    stopped warehouse it still costs a cold start. The studio agent ran one as a
+    "connectivity check" on edits that touched no SQL despite being told not to,
+    so it is answered here rather than left to the prompt.
+    """
+    cleaned = " ".join(sql_safety.strip_noise(sql).lower().split()).rstrip(";").strip()
+    if not cleaned.startswith("select "):
+        return False
+    return all(_CONSTANT_ITEM.match(item.strip()) for item in cleaned[len("select "):].split(","))
+
+
 def refusal(sql: str) -> Optional[str]:
     """Why `run_sql` won't send this statement, or None if it will."""
     kind, verb = sql_safety.classify_statement(sql)
     if kind == "empty":
         return "run_sql needs a query."
+    if kind == "read" and is_ping(sql):
+        return (
+            "Not run: that query reads no table, so it checks nothing — the warehouse "
+            "needs no connectivity check. Query only a statement your code sends or data "
+            "you need to see. If this change adds or edits no SQL, return the code without "
+            "querying."
+        )
     if kind == "write":
         named = f" ('{verb.upper()}')" if verb else ""
         return (

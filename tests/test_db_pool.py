@@ -4,7 +4,7 @@ No database and no network: a fake connection stands in for psycopg2's, so these
 cover the decisions the pool makes — what it reuses, what it throws away, and what
 it does with a connection a caller forgot to close.
 
-    PYTHONPATH=server server/venv/bin/python tests/test_db_pool.py
+    PYTHONPATH=server .venv/bin/python tests/test_db_pool.py
 
 (psycopg2 is imported for its transaction-status constants, so this needs the
 server's interpreter rather than a bare python3.)

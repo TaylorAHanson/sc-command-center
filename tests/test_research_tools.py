@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 try:
     from services import research_tools as rt
-    from routes.widget_studio import GenerateRequest, _wants_research
+    from routes.widget_studio import GenerateRequest, _may_need_data, _wants_research
 except Exception as e:  # pragma: no cover - needs the backend venv
     print(f"SKIP test_research_tools: {e}")
     sys.exit(0)
@@ -36,6 +36,17 @@ def test_writes_are_refused_before_anything_is_sent():
 
 def test_an_empty_query_is_refused():
     assert rt.run_sql(ExplodingClient(), "  ") == "run_sql needs a query."
+
+
+def test_a_ping_is_answered_without_the_warehouse():
+    for sql in ("SELECT 1", "select 1;", "SELECT 1 AS ok, 'x' y", "/* check */ SELECT TRUE", "SELECT -1.5"):
+        assert rt.run_sql(ExplodingClient(), sql).startswith("Not run: that query reads no table"), sql
+
+
+def test_queries_that_read_something_are_not_pings():
+    for sql in ("SELECT 1 FROM a.b.c", "SELECT count(*) FROM t", "SELECT current_user()", "SELECT col",
+                "WITH x AS (SELECT 1) SELECT * FROM x", "SHOW TABLES IN a.b"):
+        assert not rt.is_ping(sql), sql
 
 
 def test_selects_are_bounded():
@@ -213,6 +224,24 @@ def test_styling_does_not():
 
 def test_fixing_a_compile_error_never_researches():
     assert not wants("fix main.supply.shipments usage", error_log="SyntaxError")
+
+
+HUB = "export default function Hub(props) { return <button onClick={() => props.app?.goToTab('x')}>Go</button>; }"
+
+
+def may(prompt, **kw):
+    return _may_need_data(GenerateRequest(prompt=prompt, **kw))
+
+
+def test_an_edit_to_a_widget_that_queries_nothing_gets_no_research_tools():
+    assert not may("make each persona card and the Ask the supervisor button a link", current_code=HUB)
+
+
+def test_research_tools_stay_where_data_may_be_involved():
+    assert may("a chart of late shipments")                                    # a new widget
+    assert may("make it blue", current_code=HUB, data_source_type="sql")       # has a data source
+    assert may("make it blue", current_code="fetch('/api/sql/execute-raw', {})")  # queries in code
+    assert may("add totals from main.supply.shipments", current_code=HUB)      # names a table
 
 
 if __name__ == "__main__":

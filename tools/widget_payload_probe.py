@@ -2,7 +2,7 @@
 
 Run from the repo root with the server's interpreter:
 
-    server/venv/bin/python tools/widget_payload_probe.py [env]
+    .venv/bin/python tools/widget_payload_probe.py [env]
 
 Runs the queries behind `/api/widgets/custom` and `/api/widgets/custom/snapshots`
 alongside the `SELECT *` they replaced, and prints how many rows, how many

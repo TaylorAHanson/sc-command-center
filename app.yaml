@@ -1,0 +1,36 @@
+# How Databricks Apps starts the server. It lives here rather than in the
+# bundle's `config:` because only `databricks bundle run` sends that block to
+# the app; a restart the platform does by itself (patching, maintenance) reads
+# this file. Keep the command self-sufficient for that reason: nothing in it may
+# depend on an env var the bundle sets.
+#
+# uv-based Apps install from uv.lock into their own environment, which `uv run`
+# enters. --frozen runs the locked versions as installed and never re-resolves,
+# so startup can't reach for an index.
+#
+# --app-dir puts server/ on sys.path, which the flat imports need
+# (`from routes import ...`, see server/AGENTS.md). It used to come from a
+# PYTHONPATH env var, which a restart from this file alone would not have had.
+command:
+  - uv
+  - run
+  - --frozen
+  - uvicorn
+  - main:app
+  - --app-dir
+  - server
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
+  - --proxy-headers
+  - --forwarded-allow-ips
+  - "*"
+  # Run multiple worker processes so one slow/blocking request can't stall the
+  # whole app. Each worker is an independent event loop + thread pool. Any
+  # request can reach any worker, so state a later request needs must live in
+  # Lakebase, not in a module-level dict (Widget Studio's jobs do; Agent Studio
+  # streams its runs over one connection instead). Tune up if the app container
+  # has more CPU/memory headroom.
+  - --workers
+  - "2"

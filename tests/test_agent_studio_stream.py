@@ -7,7 +7,7 @@ nothing has reached the browser, because a retry after that shows the user the
 same prose twice. These drive the real route with a fake agent in place of
 LangGraph and the model.
 
-    PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_stream.py
+    PYTHONPATH=server .venv/bin/python tests/test_agent_studio_stream.py
 """
 import asyncio
 import json

@@ -72,184 +72,30 @@ else
     echo -e "${GREEN}✓ Ports available${NC}\n"
 fi
 
-# Determine Python and uvicorn commands
-if command -v python3 >/dev/null 2>&1; then
-    PYTHON_CMD="python3"
-else
-    PYTHON_CMD="python"
+# Python environment: uv builds .venv from uv.lock with the interpreter named in
+# .python-version (downloading it if it isn't installed), which is how the
+# deployed App installs too. It is a no-op when nothing has changed, so there is
+# no stale venv to detect. --locked refuses a lock that no longer matches
+# pyproject.toml rather than quietly installing the old set; ./lock.sh fixes it.
+if ! command -v uv >/dev/null 2>&1; then
+    echo -e "${RED}✗ uv is not installed: https://docs.astral.sh/uv/getting-started/installation/${NC}"
+    exit 1
 fi
-UVICORN_CMD=""
-VENV_PATH=""
-
-# Helper function to find and verify Python executable in venv
-find_venv_python() {
-    local venv_path=$1
-    local python_exe=""
-    
-    # Check for python or python3 in bin (Unix) or Scripts (Windows)
-    if [ -f "$venv_path/bin/python" ] && [ -x "$venv_path/bin/python" ]; then
-        python_exe="$venv_path/bin/python"
-    elif [ -f "$venv_path/bin/python3" ] && [ -x "$venv_path/bin/python3" ]; then
-        python_exe="$venv_path/bin/python3"
-    elif [ -f "$venv_path/Scripts/python.exe" ] && [ -x "$venv_path/Scripts/python.exe" ]; then
-        python_exe="$venv_path/Scripts/python.exe"
-    elif [ -f "$venv_path/Scripts/python3.exe" ] && [ -x "$venv_path/Scripts/python3.exe" ]; then
-        python_exe="$venv_path/Scripts/python3.exe"
-    elif [ -f "$venv_path/Scripts/python" ] && [ -x "$venv_path/Scripts/python" ]; then
-        python_exe="$venv_path/Scripts/python"
-    fi
-    
-    # Verify it actually works
-    if [ ! -z "$python_exe" ] && $python_exe --version > /dev/null 2>&1; then
-        echo "$python_exe"
-    else
-        echo ""
-    fi
-}
-
-# Check if Python virtual environment exists and is valid
-VENV_PYTHON=""
-if [ -d "server/venv" ]; then
-    VENV_PYTHON=$(find_venv_python "server/venv")
-    if [ ! -z "$VENV_PYTHON" ]; then
-        echo -e "${CYAN}Using Python virtual environment (server/venv)...${NC}"
-        PYTHON_CMD="$VENV_PYTHON"
-        VENV_PATH="server/venv"
-        if [ -f "server/venv/bin/uvicorn" ]; then
-            UVICORN_CMD="server/venv/bin/uvicorn"
-        elif [ -f "server/venv/Scripts/uvicorn.exe" ]; then
-            UVICORN_CMD="server/venv/Scripts/uvicorn.exe"
-        elif [ -f "server/venv/Scripts/uvicorn" ]; then
-            UVICORN_CMD="server/venv/Scripts/uvicorn"
-        else
-            UVICORN_CMD="$PYTHON_CMD -m uvicorn"
-        fi
-    else
-        echo -e "${YELLOW}Virtual environment directory exists but is incomplete. Recreating...${NC}"
-        rm -rf server/venv
-    fi
+echo -e "${CYAN}Syncing Python environment (.venv) from uv.lock...${NC}"
+if ! uv sync --locked; then
+    echo -e "${RED}✗ uv sync failed. If uv.lock is out of date, run ./lock.sh${NC}"
+    exit 1
 fi
-
-# Create venv if we don't have a valid one
-if [ -z "$VENV_PYTHON" ]; then
-    echo -e "${YELLOW}No valid virtual environment found. Creating one...${NC}"
-    echo -e "${CYAN}Creating virtual environment in server/venv...${NC}"
-    cd server
-    $PYTHON_CMD -m venv venv
-    # Wait a moment for venv to be fully created
-    sleep 1
-    VENV_PYTHON=$(find_venv_python "venv")
-    if [ -z "$VENV_PYTHON" ]; then
-        echo -e "${RED}✗ Failed to create virtual environment${NC}"
-        cd ..
-        exit 1
-    fi
-    # VENV_PYTHON is relative to server/, so make it relative to project root
-    PYTHON_CMD="server/$VENV_PYTHON"
-    VENV_PATH="server/venv"
-    UVICORN_CMD="$PYTHON_CMD -m uvicorn"
-    cd ..
-    echo -e "${GREEN}✓ Virtual environment created${NC}"
-fi
-
-# Verify Python command actually works before proceeding
-if [ ! -f "$PYTHON_CMD" ] || [ ! -x "$PYTHON_CMD" ] || ! $PYTHON_CMD --version > /dev/null 2>&1; then
-    echo -e "${YELLOW}Python executable not accessible: $PYTHON_CMD${NC}"
-    echo -e "${YELLOW}Removing incomplete virtual environment and recreating...${NC}"
-    rm -rf server/venv
-    # Recreate venv
-    echo -e "${CYAN}Creating virtual environment in server/venv...${NC}"
-    cd server
-    
-    # Reset PYTHON_CMD to system python for venv creation
-    if command -v python3 >/dev/null 2>&1; then
-        SYS_PYTHON="python3"
-    else
-        SYS_PYTHON="python"
-    fi
-    $SYS_PYTHON -m venv venv
-    
-    sleep 2
-    VENV_PYTHON=$(find_venv_python "venv")
-    if [ -z "$VENV_PYTHON" ]; then
-        echo -e "${RED}✗ Failed to create virtual environment${NC}"
-        cd ..
-        exit 1
-    fi
-    PYTHON_CMD="server/$VENV_PYTHON"
-    VENV_PATH="server/venv"
-    UVICORN_CMD="$PYTHON_CMD -m uvicorn"
-    cd ..
-    echo -e "${GREEN}✓ Virtual environment recreated${NC}"
-    
-    # Verify it works now
-    if [ ! -f "$PYTHON_CMD" ] || ! $PYTHON_CMD --version > /dev/null 2>&1; then
-        echo -e "${RED}✗ Python executable still not working after recreation${NC}"
-        exit 1
-    fi
-fi
-
-# Verify key dependencies are available, install if not
-echo -e "${CYAN}Checking if dependencies are installed...${NC}"
-MISSING_DEPS=()
-
-# Check for key dependencies
-if ! $PYTHON_CMD -c "import uvicorn" 2>/dev/null; then
-    MISSING_DEPS+=("uvicorn")
-fi
-if ! $PYTHON_CMD -c "import fastapi" 2>/dev/null; then
-    MISSING_DEPS+=("fastapi")
-fi
-if ! $PYTHON_CMD -c "import databricks.sdk" 2>/dev/null; then
-    MISSING_DEPS+=("databricks-sdk")
-fi
-# databricks-mcp powers Agent Studio tool discovery. It was added to
-# requirements.txt after early venvs were created, so check it explicitly —
-# otherwise a stale venv silently disables tool discovery ("AI Gateway returned
-# no tools").
-if ! $PYTHON_CMD -c "import databricks_mcp" 2>/dev/null; then
-    MISSING_DEPS+=("databricks-mcp")
-fi
-
-if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
-    echo -e "${YELLOW}Missing dependencies: ${MISSING_DEPS[*]}. Installing from requirements.txt...${NC}"
-    # requirements.txt is in root
-    if [ -f "requirements.txt" ]; then
-        echo -e "${CYAN}Installing dependencies (this may take a minute)...${NC}"
-        $PYTHON_CMD -m pip install --upgrade pip > /dev/null 2>&1
-        $PYTHON_CMD -m pip install -r requirements.txt
-        INSTALL_EXIT_CODE=$?
-
-        if [ $INSTALL_EXIT_CODE -eq 0 ]; then
-            echo -e "${GREEN}✓ Dependencies installed${NC}"
-        else
-            echo -e "${RED}✗ Failed to install dependencies${NC}"
-            exit 1
-        fi
-    else
-        echo -e "${RED}✗ Could not find requirements.txt${NC}"
-        exit 1
-    fi
-else
-    echo -e "${GREEN}✓ Dependencies are installed${NC}"
-fi
-echo ""
+VENV_DIR="$(cd "${UV_PROJECT_ENVIRONMENT:-.venv}" && pwd)"
+echo -e "${GREEN}✓ Python environment ready${NC}\n"
 
 # Start backend (Python FastAPI)
 echo -e "${GREEN}→ Starting backend API...${NC}"
 cd server
-# Adjust uvicorn path if it starts with "server/"
-if [[ "$UVICORN_CMD" == server/* ]]; then
-    LOCAL_UVICORN_CMD="${UVICORN_CMD#server/}"
-elif [[ "$UVICORN_CMD" == *"server/venv"* ]]; then
-    LOCAL_UVICORN_CMD="${UVICORN_CMD#server/}"
-else
-    LOCAL_UVICORN_CMD="$UVICORN_CMD"
-fi
 # Add timestamp to log file
 echo "=== Backend started at $(date) ===" > ../backend.log
 # Running from server directory, imports are relative, so we use main:app
-PYTHONUNBUFFERED=1 $LOCAL_UVICORN_CMD main:app --reload --port 8001 >> ../backend.log 2>&1 &
+PYTHONUNBUFFERED=1 "$VENV_DIR/bin/uvicorn" main:app --reload --port 8001 >> ../backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
 

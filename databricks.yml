@@ -69,27 +69,11 @@ resources:
             database: projects/${resources.database_instances.command_center_db.name}/branches/production/databases/databricks-postgres
             permission: CAN_CONNECT_AND_CREATE
       config:
-        command:
-          - uvicorn
-          - server.main:app
-          - --host
-          - 0.0.0.0
-          - --port
-          - "8000"
-          - --proxy-headers
-          - --forwarded-allow-ips
-          - "*"
-          # Run multiple worker processes so one slow/blocking request can't stall
-          # the whole app. Each worker is an independent event loop + thread pool.
-          # Any request can reach any worker, so state a later request needs must
-          # live in Lakebase, not in a module-level dict (Widget Studio's jobs do;
-          # Agent Studio streams its runs over one connection instead). Tune up
-          # if the app container has more CPU/memory headroom.
-          - --workers
-          - "2"
+        # The start command is in app.yaml, not here: this block reaches the app
+        # only through `databricks bundle run`, and a restart the platform does
+        # by itself reads app.yaml. A `command:` here would override that file on
+        # bundle runs, so the two could disagree; don't add one back.
         env:
-          - name: PYTHONPATH
-            value: ".:server"
           # Which deployment this is (local/dev/stage/prod). Surfaced by /api/health
           # so the UI can label the browser tab; anything but "prod" is badged.
           - name: APP_ENVIRONMENT
@@ -277,7 +261,12 @@ sync:
     - postcss.config.js
     - eslint.config.js
     - index.html
-    - requirements.txt
+    - app.yaml
+    # Python deps. Never reintroduce a requirements.txt: if one exists, Apps
+    # installs with pip on Python 3.11 and ignores these.
+    - pyproject.toml
+    - uv.lock
+    - .python-version
     - src/**
     - public/**
     # Include all backend code

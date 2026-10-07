@@ -1057,6 +1057,22 @@ def _wants_research(req: GenerateRequest) -> bool:
     return any(hint in prompt for hint in _RESEARCH_HINTS)
 
 
+_QUERYING_CODE_RE = re.compile(r"/api/(?:sql|databricks)/|genie", re.IGNORECASE)
+
+
+def _may_need_data(req: GenerateRequest) -> bool:
+    """Whether this turn should be offered the research tools at all.
+
+    Offered with nothing to look up, the agent found something to run anyway:
+    an edit to a page with no data source and no queries spent two warehouse
+    round trips on `SELECT 1`. A new widget may still need to find its data.
+    """
+    code = req.current_code or ""
+    if not code.strip() or req.data_source_type:
+        return True
+    return bool(_QUERYING_CODE_RE.search(code)) or _wants_research(req)
+
+
 def _research(model: str, make_llm, tools: List[Any], prompt: str, schema_hint: str) -> str:
     """Findings about the data a planned run is about to build on, or `""`.
 
@@ -1477,7 +1493,7 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             research_ws,
             note=lambda line: _trace(job_id, line),
             seconds_left=lambda: budget.left,
-        )
+        ) if _may_need_data(req) else []
         research_prompt = research_tools.prompt_section(research)
         tool_prompt = ("\n\n" + research_prompt if research_prompt else "") + _sql_check_hint(research)
         agent_tools = [search_widgets, *research]

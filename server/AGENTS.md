@@ -5,8 +5,8 @@ commands. This file covers what you need to change code in `server/`.
 
 ## Imports are flat — this bites everyone once
 
-Uvicorn runs with `server/` as the working directory (`main:app`), so packages
-resolve from *inside* `server/`, not from the repo root:
+Uvicorn imports `main:app` with `server/` on `sys.path`, so packages resolve
+from *inside* `server/`, not from the repo root:
 
 ```python
 from routes import widgets            # correct
@@ -15,11 +15,14 @@ from database import init_db
 from server.routes import widgets     # WRONG — will not import
 ```
 
-`databricks.yml` sets `PYTHONPATH` to match in the deployed App, and the
-standalone tests insert `server/` onto `sys.path` themselves. If you see
+Locally that's because `dev.sh` starts uvicorn from inside `server/`. The
+deployed App starts from the repo root, and `--app-dir server` in `app.yaml`'s
+command does the same job; don't move it into a `PYTHONPATH` env var, which a
+platform restart from `app.yaml` alone would not have. The standalone tests
+insert `server/` onto `sys.path` themselves. If you see
 `ModuleNotFoundError: No module named 'server'`, this is why.
 
-Run the backend alone with `cd server && venv/bin/uvicorn main:app --reload
+Run the backend alone with `cd server && ../.venv/bin/uvicorn main:app --reload
 --port 8001`. Startup logs go to `../backend.log` when launched via `dev.sh`.
 
 ## Adding an endpoint
@@ -418,7 +421,7 @@ services. The load-bearing decisions:
   past 1568 px anyway; so anything larger on either count is resized to that long
   edge, as PNG, or JPEG when PNG still won't fit. That is why images skip the
   `AGENT_RUNTIME_NATIVE_FILE_MB` cap. One that can't be made to fit is left out
-  rather than failing the call. Needs `pillow`, listed in `requirements.txt`
+  rather than failing the call. Needs `pillow`, listed in `pyproject.toml`
   because locally only matplotlib brings it.
 - **Nothing lives in process memory.** Two uvicorn workers mean an upload handled
   by one is invisible to the other, so every tool call re-reads from Postgres.
@@ -722,6 +725,13 @@ it when the request names a `catalog.schema.table` (not `props.data.x`) or asks 
 look at data. With `run_sql` bound, `_sql_check_hint` tells both paths to run any
 statement they wrote once before handing code back. In Agent Studio they ride on
 `confirm_schema`, like the probes.
+
+The prompt alone didn't stop the agent running `SELECT 1` as a "connectivity
+check" on edits that touched no SQL, so two things enforce it. `_may_need_data`
+binds no research tools to an edit of a widget with no data source and no
+queries in its code, unless the request names a table or asks to look at data;
+a new widget always gets them. And `run_sql` answers a SELECT of constants only
+(`research_tools.is_ping`) itself, without the warehouse.
 
 ## Moving data between apps (`services/data_migration.py`, `routes/data_migration.py`)
 
@@ -1069,37 +1079,37 @@ settles as *completed* with an apology: the user's code is already fine.
 ## Tests
 
 ```bash
-PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_store.py   # 6 passed
-PYTHONPATH=server server/venv/bin/python tests/test_agent_studio_stream.py  # 10 passed
-PYTHONPATH=server server/venv/bin/python tests/test_agent_runtime.py        # 9 passed
-PYTHONPATH=server server/venv/bin/python tests/test_code_patch.py           # 22 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_helper.py  # 24 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_agent_context.py # 23 passed
-PYTHONPATH=server server/venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
-PYTHONPATH=server server/venv/bin/python tests/test_native_files.py         # 16 passed
-PYTHONPATH=server server/venv/bin/python tests/test_creator_stats.py        # 16 passed
-PYTHONPATH=server server/venv/bin/python tests/test_caller_identity.py      # 11 passed
-PYTHONPATH=server server/venv/bin/python tests/test_settings_store.py       # 14 passed
-PYTHONPATH=server server/venv/bin/python tests/test_llm_params.py           # 17 passed
-PYTHONPATH=server server/venv/bin/python tests/test_llm_client.py           # 16 passed
-PYTHONPATH=server server/venv/bin/python tests/test_sql_errors.py           # 10 passed
-PYTHONPATH=server server/venv/bin/python tests/test_view_pins.py            # 7 passed
-PYTHONPATH=server server/venv/bin/python tests/test_view_archive.py         # 12 passed
-PYTHONPATH=server server/venv/bin/python tests/test_app_spec.py             # 43 passed
-PYTHONPATH=server server/venv/bin/python tests/test_look_helper.py          # 7 passed
-PYTHONPATH=server server/venv/bin/python tests/test_apps_routes.py          # 31 passed
-PYTHONPATH=server server/venv/bin/python tests/test_sql_rows.py             # 10 passed
-server/venv/bin/python tests/test_file_extract.py                           # 22 passed
-server/venv/bin/python tests/test_upload_tools.py                           # 28 passed
-PYTHONPATH=server server/venv/bin/python tests/test_conversation_store.py   # 5 passed
-PYTHONPATH=server server/venv/bin/python tests/test_db_pool.py              # 14 passed
-PYTHONPATH=server server/venv/bin/python tests/test_research_tools.py       # 24 passed
-PYTHONPATH=server server/venv/bin/python tests/test_principals.py           # 10 passed
-PYTHONPATH=server server/venv/bin/python tests/test_data_migration.py       # 21 passed
-PYTHONPATH=server server/venv/bin/python tests/test_promotion.py            # 16 passed
+PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 6 passed
+PYTHONPATH=server .venv/bin/python tests/test_agent_studio_stream.py  # 10 passed
+PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 9 passed
+PYTHONPATH=server .venv/bin/python tests/test_code_patch.py           # 22 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_helper.py  # 24 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_context.py # 23 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
+PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 16 passed
+PYTHONPATH=server .venv/bin/python tests/test_creator_stats.py        # 16 passed
+PYTHONPATH=server .venv/bin/python tests/test_caller_identity.py      # 11 passed
+PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 14 passed
+PYTHONPATH=server .venv/bin/python tests/test_llm_params.py           # 17 passed
+PYTHONPATH=server .venv/bin/python tests/test_llm_client.py           # 16 passed
+PYTHONPATH=server .venv/bin/python tests/test_sql_errors.py           # 10 passed
+PYTHONPATH=server .venv/bin/python tests/test_view_pins.py            # 7 passed
+PYTHONPATH=server .venv/bin/python tests/test_view_archive.py         # 12 passed
+PYTHONPATH=server .venv/bin/python tests/test_app_spec.py             # 43 passed
+PYTHONPATH=server .venv/bin/python tests/test_look_helper.py          # 7 passed
+PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 31 passed
+PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 10 passed
+.venv/bin/python tests/test_file_extract.py                           # 22 passed
+.venv/bin/python tests/test_upload_tools.py                           # 28 passed
+PYTHONPATH=server .venv/bin/python tests/test_conversation_store.py   # 5 passed
+PYTHONPATH=server .venv/bin/python tests/test_db_pool.py              # 14 passed
+PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 24 passed
+PYTHONPATH=server .venv/bin/python tests/test_principals.py           # 10 passed
+PYTHONPATH=server .venv/bin/python tests/test_data_migration.py       # 21 passed
+PYTHONPATH=server .venv/bin/python tests/test_promotion.py            # 16 passed
 ```
 
 The last two need the venv interpreter, not a bare `python3`: they exercise

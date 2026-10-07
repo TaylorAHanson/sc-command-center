@@ -2,7 +2,7 @@
 
 Run from the repo root with the server's interpreter:
 
-    server/venv/bin/python tools/db_latency_probe.py [env]
+    .venv/bin/python tools/db_latency_probe.py [env]
 
 Prints, in milliseconds: resolving credentials, the TCP/TLS/auth handshake, the
 per-connection schema statements, and a trivial query on an already-open

@@ -2,14 +2,14 @@
 
 Run from the repo root with the server's interpreter:
 
-    server/venv/bin/python tools/authoring_repro.py ["your prompt"]
+    .venv/bin/python tools/authoring_repro.py ["your prompt"]
 
 Builds the same client, tools and system prompt `POST /generate/stream` builds,
 streams one turn, and prints a summary of every request payload — role, content
 type and tool calls — so a rejection like "Content in ChatMessage must have type
 in String or List[ContentItem]" can be traced to the message that caused it.
 
-    RAW=1 server/venv/bin/python tools/authoring_repro.py test system.ai.claude-opus-5
+    RAW=1 .venv/bin/python tools/authoring_repro.py test system.ai.claude-opus-5
 
 sends what LangChain produces without `services.llm_client` tidying it, which is
 how to see that failure again (and to check whether an endpoint still needs the

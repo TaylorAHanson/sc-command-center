@@ -2,8 +2,8 @@
 
 Run from the repo root with the server's interpreter:
 
-    server/venv/bin/python tools/widget_repro.py ["prompt"] [model]
-    server/venv/bin/python tools/widget_repro.py --plan ["prompt"] [model]
+    .venv/bin/python tools/widget_repro.py ["prompt"] [model]
+    .venv/bin/python tools/widget_repro.py --plan ["prompt"] [model]
 
 Builds the same client, tool and system prompt the generation job builds, runs
 one turn, and reports how long it took, what shape the reply arrived in, and how
