@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDashboardContext, buildContextPreamble, type DashboardContext } from './useDashboardContext';
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
-import { pinnedAgentOf } from '../store/appSpec';
+import { DEFAULT_AGENT_NAME, pinnedAgentOf } from '../store/appSpec';
 import { useChatUploads } from './useChatUploads';
 
 export type { Attachment } from './useChatUploads';
@@ -872,3 +872,12 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
 };
 
 export type AgentChat = ReturnType<typeof useAgentChat>;
+
+// Agents are listed lazily (the listing scans Unity Catalog), so a pinned
+// agent's name may not be known yet; say "Assistant" rather than name the
+// built-in agent when it isn't the one that will answer.
+export const assistantLabel = (chat: AgentChat): string => (
+    chat.selectedProfileId
+        ? chat.availableProfiles.find(p => p.id === chat.selectedProfileId)?.name || 'Assistant'
+        : DEFAULT_AGENT_NAME
+);

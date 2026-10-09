@@ -493,18 +493,28 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     else. Tab names follow `tabLabel`, since a view's first tab has no name of
     its own and shows the app's.
   - **Links are parsed in one place, `store/appRoute.ts`.** The app hands out
-    `#/app/<appId>[/<tabId>[/w/<widgetId>]]`; `?shared_view=`, `#/view/`,
-    `#/template/` and `?widget=` are aliases for it, permanently, because they
-    sit in people's bookmarks and chats. `openRoute` opens one: it rewrites the
-    address to the canonical link (so a reload doesn't reopen the widget), and
-    subscribes the caller if a fresh list lacks the app, which is what
-    `?shared_view=` always did and the only way a shared link reaches anyone.
+    `#/app/<app>[/<tab>[/w/<widgetId>]]`; `?shared_view=`, `#/view/`,
+    `#/template/`, `?widget=` and every id-based `#/app/<id>/<tabId>` are
+    aliases for it, permanently, because they sit in people's bookmarks and
+    chats. `<app>` is `appRef`: a global app's `link` (its name, claimed on the
+    server, `services/app_links.py`), else `<name>-<id>`. **Never link a personal
+    app by name alone** — it opens for anyone holding its id, so the id is the
+    only thing keeping it private. `<tab>` is `tabRef`: its name unless that
+    would clash, else its id. A route holds those names until `resolvedRoute` /
+    `tabIdOf` turn them into ids; everything past that, and every argument to
+    `appHash`, is ids. A global app's old name only the server knows, which is
+    why `openRoute` asks `GET /api/apps/<ref>` before giving up. `openRoute`
+    opens a link: it rewrites the address to the canonical link (so a reload
+    doesn't reopen the widget), and subscribes the caller by id if a fresh list
+    lacks the app, which is what `?shared_view=` always did and the only way a
+    shared link reaches anyone.
     A link leaves out the tab only when it is the first (`linkTab` / `routeTab`),
     and a bare `#/app/<id>` opens whichever tab is first. A view's original tab
     has the app's id, so once it moves down the bar its link is
     `#/app/<id>/<id>`; `appHash` writes whatever tab it is given, so don't
     special-case a tab id equal to the app id there. Layout's and AppShell's hash
-    sync leave a hash alone when it already names what's on screen. Full-page screens live in Layout's `PAGES`; one missing there is a
+    sync leave a hash alone when it already names what's on screen by the name
+    links use now (`appRef`), so the address catches up after a rename. Full-page screens live in Layout's `PAGES`; one missing there is a
     page Back and reload can't return to.
   - **There are two shells, and `Root.tsx` picks one before anything draws.**
     The workspace (`App` inside `Layout`) is Command Center. An app whose

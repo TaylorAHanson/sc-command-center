@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import App from './App';
 import { AppShell } from './components/AppShell';
 import { DashboardProvider } from './store/dashboardStore';
-import { appHash, isStandalone, parseAppRoute, routeTab, withoutRouteParams, type AppRoute } from './store/appRoute';
+import {
+  appHash, isStandalone, parseAppRoute, refersTo, resolvedRoute, routeTab, withoutRouteParams, type AppRoute,
+} from './store/appRoute';
 import type { App as AppModel } from './store/appSpec';
 import { ShellContext, type Shell } from './shell';
 
@@ -68,8 +70,8 @@ export const Root = () => {
         setShowing({ kind: 'workspace' });
         return;
       }
-      goTo(appHash(app.id, routeTab(app, route.tabId)), true);
-      standalone(app, route);
+      goTo(appHash(app, routeTab(app, route.tabId)), true);
+      standalone(app, resolvedRoute(route, app));
     });
   }, [standalone]);
 
@@ -83,17 +85,17 @@ export const Root = () => {
   // moving between its tabs. Otherwise any address but one to a standalone app —
   // Back to the workspace, a pasted page link — leaves for the workspace, which
   // then reads the address as it would on load.
-  const shownAppId = showing.kind === 'standalone' ? showing.app.id : null;
+  const shownApp = showing.kind === 'standalone' ? showing.app : null;
   useEffect(() => {
     if (showing.kind === 'workspace') return;
     const onHashChange = () => {
       const route = linkedRoute();
-      if (route && route.appId === shownAppId) return;
+      if (route && shownApp && refersTo(route.appId, shownApp)) return;
       follow(route);
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
-  }, [showing.kind, shownAppId, follow]);
+  }, [showing.kind, shownApp, follow]);
 
   // `pushState` raises no hashchange, so moving between pages here never trips
   // the listener of the page being left. An address already naming the target
@@ -102,12 +104,12 @@ export const Root = () => {
   const shell = useMemo<Shell>(() => ({
     present: (app, tabId = null, widgetId = null, preview = false) => {
       const named = parseAppRoute(window.location.hash);
-      if (!(named && !named.workspace && named.appId === app.id)) goTo(appHash(app.id, tabId));
+      if (!(named && !named.workspace && refersTo(named.appId, app))) goTo(appHash(app, tabId));
       standalone(app, { appId: app.id, tabId, widgetId }, preview);
     },
     edit: (app, tabId = null) => {
       navigation.current += 1;
-      goTo(appHash(app.id, tabId, null, true));
+      goTo(appHash(app, tabId, null, true));
       setShowing({ kind: 'workspace' });
     },
     previewing,

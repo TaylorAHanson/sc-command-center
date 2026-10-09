@@ -28,6 +28,9 @@ export const UserGuidePage: React.FC = () => {
           <p className="text-gray-600">
             Whether you're exploring enterprise data, monitoring supply chains, or checking system health, the Command Center gives you the tools to bring all the information you need into one unified pane of glass.
           </p>
+          <p className="text-gray-600">
+            The first time you open it, a welcome panel lays out five ways in, with the assistant open beside it: <strong>Ask</strong> the assistant (pick a starter question to type it in for you to send), <strong>Browse global views</strong>, <strong>Find widgets</strong> in the Widget Library, <strong>Build your own widget</strong> in Widget Studio, and <strong>Build your own agent</strong> in Agent Studio. Hover a card to see where it lives in the sidebar; the two studios need editor access in a domain. Open it again any time from <strong>Resources → Getting Started</strong>.
+          </p>
         </div>
       ),
     },
@@ -96,10 +99,10 @@ export const UserGuidePage: React.FC = () => {
                 Sharing Views
               </div>
               <p className="text-sm text-gray-600">
-                Want to show someone your setup? Click the <strong>Share</strong> button in the top-right corner to copy a direct link to your current view, or copy the address from your browser. Anyone you send it to finds your view under <strong>Shared Views</strong>, read-only.
+                Want to show someone your setup? Click the <strong>Share</strong> button in the top-right corner to copy a direct link to your current view, or copy the address from your browser. Anyone you send it to finds your view under <strong>Shared Views</strong>, read-only. Links read as names: a global view's is its name (<code>#/app/supply-hub/inventory</code>), and a personal view's adds a code after its name, because that code is what keeps a personal view to the people you send it to. Links to a global view's old name keep working after a rename.
               </p>
               <p className="text-sm text-gray-600 mt-2">
-                To share it as a page of its own, open <strong>Settings → Opening</strong> and choose <strong>On its own</strong>; the title, logo and browser tab icon to show appear below it. The link then opens just that view, read-only, under the title and logo you set, and <strong>Preview</strong> in the header shows it that way. <strong>Assistant</strong> in the same dialog picks the agent the view opens with, wherever it opens; <strong>No agent</strong> leaves the view without an assistant. Hover the <strong>?</strong> beside any field in the dialog to see what it does. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center. When you open it with <strong>Preview</strong>, it is labelled <strong>Preview</strong> and <strong>Back to editing</strong> takes you back to the same tab; people opening the link see neither.
+                To share it as a page of its own, open <strong>Settings → Opening</strong> and choose <strong>On its own</strong>; the header, title, logo and browser tab icon to show appear below it. If the view's page has a title bar of its own, choose <strong>No header</strong>: the view then starts with its tabs or page, and <strong>Copy link</strong> and <strong>Edit</strong> sit in a small bar at the bottom left. The link then opens just that view, read-only, under the title and logo you set, and <strong>Preview</strong> in the header shows it that way. <strong>Assistant</strong> in the same dialog picks the agent the view opens with, wherever it opens; <strong>No agent</strong> leaves the view without an assistant. Hover the <strong>?</strong> beside any field in the dialog to see what it does. Its editors get an <strong>Edit</strong> button there that brings it back into Command Center. When you open it with <strong>Preview</strong>, it is labelled <strong>Preview</strong> and <strong>Back to editing</strong> takes you back to the same tab; people opening the link see neither.
               </p>
             </div>
           </div>

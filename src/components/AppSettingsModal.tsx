@@ -85,6 +85,7 @@ export const AppSettingsModal: React.FC<{
   const [title, setTitle] = useState(branding.title || '');
   const [logo, setLogo] = useState(branding.logo || '');
   const [favicon, setFavicon] = useState(branding.favicon || '');
+  const [header, setHeader] = useState(branding.header !== 'hide');
   const [nav, setNav] = useState<AppNav['style']>(navStyle(app));
   const [look, setLook] = useState<AppTheme>(app.spec.theme || {});
   const [filters, setFilters] = useState<FilterDraft[]>(() => (app.spec.filters || []).map(draftOf));
@@ -97,7 +98,7 @@ export const AppSettingsModal: React.FC<{
   // Branding is used, and shown, only on its own, so only then can it stop a save.
   const standalone = presentation === 'standalone';
   const problems: Record<Pane, boolean> = {
-    opening: standalone && Boolean(imageProblem(logo) || imageProblem(favicon)),
+    opening: standalone && Boolean((header && imageProblem(logo)) || imageProblem(favicon)),
     look: Boolean(lookProblem(look)),
     filters: Boolean(filterProblem),
     assistant: false,
@@ -124,6 +125,7 @@ export const AppSettingsModal: React.FC<{
         title: title.trim() || null,
         logo: logo && !imageProblem(logo) ? logo : null,
         favicon: favicon && !imageProblem(favicon) ? favicon : null,
+        header: header ? null : 'hide',
       },
       nav: nav === 'sidebar' ? { style: 'sidebar' } : null,
       theme: savedLook(look),
@@ -224,8 +226,31 @@ export const AppSettingsModal: React.FC<{
                         </div>
                         <div>
                           <FieldLabel
+                            label="Header"
+                            help="The bar across the top with the title, logo, Copy link and Edit. Drop it when the view’s page draws a title bar of its own; Copy link and Edit then sit in a small bar at the bottom left, for the people who get them."
+                            className="text-sm font-medium text-gray-700 mb-1"
+                          />
+                          <div className="flex gap-2">
+                            {([[true, 'Show the header'], [false, 'No header: the page has its own']] as const).map(([value, label]) => (
+                              <label
+                                key={label}
+                                className={clsx(
+                                  'flex-1 flex items-center gap-2 p-2 border rounded-md cursor-pointer text-sm text-gray-800 transition-colors',
+                                  header === value ? 'border-brand-blue bg-brand-blue/5' : 'border-gray-200 hover:border-gray-300'
+                                )}
+                              >
+                                <input type="radio" name="header" checked={header === value} onChange={() => setHeader(value)} />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <FieldLabel
                             label="Title"
-                            help="The name in the header and on the browser tab when the view opens on its own. Left empty, the view’s own name is used."
+                            help={header
+                              ? 'The name in the header and on the browser tab when the view opens on its own. Left empty, the view’s own name is used.'
+                              : 'The name on the browser tab when the view opens on its own. Left empty, the view’s own name is used.'}
                             className="text-sm font-medium text-gray-700 mb-1"
                           />
                           <input
@@ -238,8 +263,10 @@ export const AppSettingsModal: React.FC<{
                           />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
-                          <ImageField label="Logo" hint="Shown beside the title." value={logo} onChange={setLogo}
-                            help="An image beside the title in the header when the view opens on its own. Upload one up to 256 KB, or paste an https:// address." />
+                          {header && (
+                            <ImageField label="Logo" hint="Shown beside the title." value={logo} onChange={setLogo}
+                              help="An image beside the title in the header when the view opens on its own. Upload one up to 256 KB, or paste an https:// address." />
+                          )}
                           <ImageField label="Browser tab icon" hint="Shown on the browser tab." value={favicon} onChange={setFavicon}
                             help="The small icon on the browser tab when the view opens on its own, in place of Command Center’s." />
                         </div>

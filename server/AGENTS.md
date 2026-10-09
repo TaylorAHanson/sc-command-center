@@ -175,6 +175,18 @@ that keep the deployment already running intact:
   handler, moved. Tightening any of this is its own decision — don't do it in passing.
   `GET /api/apps/{id}` is new (views had no read-by-id), writes nothing, and
   answers a global app outside your domains with the same 404 as a missing id.
+- **Links name global apps; a name never reaches a personal one**
+  (`services/app_links.py`). `GET /{ref}`, `/{ref}/widgets` and
+  `/{ref}/subscribe` take an id, a global app's link name, or `<name>-<id>`,
+  via `app_store.resolve_ref`; everything else takes ids. A name resolves only
+  to an app that is global *now*, since a personal app's id is what keeps it
+  private and a name is guessable. Names live in `app_links` (slug → app id,
+  every name a view has held, newest wins) and are claimed on writes only —
+  `insert_version` for a global version (inside a savepoint, so a failure can't
+  fail the save), promotion, and `init_db`'s backfill for views that predate it
+  or arrived by snapshot — because opening an app must write nothing. A slug may
+  not end in a UUID, or a global view named after a personal one's link would
+  answer for it. Permanent delete frees the names; archive keeps them.
 - **One tightening, flagged:** `save_version` also requires editor rights on the
   *resulting* domain when an app is made global or a global app changes domain.
   The old update path checked only the domain a view started in, which let an
@@ -1098,9 +1110,10 @@ PYTHONPATH=server .venv/bin/python tests/test_llm_client.py           # 16 passe
 PYTHONPATH=server .venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server .venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_view_archive.py         # 12 passed
-PYTHONPATH=server .venv/bin/python tests/test_app_spec.py             # 43 passed
+PYTHONPATH=server .venv/bin/python tests/test_app_spec.py             # 46 passed
+PYTHONPATH=server .venv/bin/python tests/test_app_links.py            # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_look_helper.py          # 7 passed
-PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 31 passed
+PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 38 passed
 PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 10 passed
 .venv/bin/python tests/test_file_extract.py                           # 22 passed
 .venv/bin/python tests/test_upload_tools.py                           # 28 passed

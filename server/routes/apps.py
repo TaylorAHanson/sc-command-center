@@ -25,7 +25,7 @@ from middleware.auth import get_db_client, get_db_client_sp
 from routes import custom_widgets as widget_routes
 from routes.widget_studio import quick_helper_reply
 from routes.roles import _get_current_username, _get_user_permissions, require_domain_editor
-from services import app_spec, app_store, look_helper
+from services import app_links, app_spec, app_store, look_helper
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -70,10 +70,13 @@ def _timestamp(value: Any) -> Optional[str]:
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
 
 
-def _public(row: Dict[str, Any], spec: Dict[str, Any], *, username: str, subscribed: bool) -> Dict[str, Any]:
+def _public(row: Dict[str, Any], spec: Dict[str, Any], *, username: str, subscribed: bool,
+            link: Optional[str] = None) -> Dict[str, Any]:
     is_global = bool(row.get("is_global"))
     return {
         "id": row["id"],
+        # What links to a global app name it by; see services/app_links.py.
+        "link": link if is_global else None,
         "version": row["version"],
         "name": row["name"],
         "domain": row.get("domain"),
@@ -94,12 +97,15 @@ def _caller(w: WorkspaceClient, env: str) -> Tuple[str, Dict[str, Any]]:
     return _get_current_username(w), _get_user_permissions(w, env)
 
 
-def _require_readable(c, app_id: str, username: str, perms: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], bool]:
+def _require_readable(c, ref: str, username: str, perms: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], bool]:
     """The app's head row, spec and whether the caller subscribes to it; else 404.
 
-    Archived apps are out of circulation and read as missing, as they drop out of
-    the sidebar list; the archive list in the admin screen is the way back to them.
+    `ref` is whatever a link names the app by (`app_store.resolve_ref`); the row
+    says which app it turned out to be. Archived apps are out of circulation and
+    read as missing, as they drop out of the sidebar list; the archive list in the
+    admin screen is the way back to them.
     """
+    app_id = app_store.resolve_ref(c, ref) or ref
     row = app_store.head(c, app_id)
     if row is None or app_store.is_archived(c, app_id) or not app_spec.can_read(row, perms=perms):
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
@@ -133,6 +139,7 @@ def list_apps(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
             (username, username),
         )
         rows = app_store.fetch_rows(c)
+        links = _links(c, [r["id"] for r in rows if r.get("is_global")])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching apps: {str(e)}")
     finally:
@@ -142,8 +149,18 @@ def list_apps(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     for row in rows:
         if not app_spec.can_read(row, perms=perms):
             continue
-        apps.append(_public(row, app_store.spec_of(row), username=username, subscribed=bool(row.get("subscribed"))))
+        apps.append(_public(row, app_store.spec_of(row), username=username,
+                            subscribed=bool(row.get("subscribed")), link=links.get(row["id"])))
     return {"apps": apps}
+
+
+def _links(c, global_ids: List[str]) -> Dict[str, str]:
+    """Link names for these apps. Read last on the connection: a failure ends its transaction."""
+    try:
+        return app_links.current(c, global_ids)
+    except Exception as e:  # noqa: BLE001 - without names, links carry ids, which always work
+        logger.warning("Couldn't read app link names: %s", e)
+        return {}
 
 
 @router.get("/archived")
@@ -334,19 +351,23 @@ def create_app(body: AppCreate, w: WorkspaceClient = Depends(get_db_client), env
 
 @router.get("/{app_id}")
 def get_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """One app, if the caller may open it. Reads only — opening a link subscribes nobody."""
+    """One app, if the caller may open it, by id or by what its link names it.
+
+    Reads only — opening a link subscribes nobody.
+    """
     username, perms = _caller(w, env)
     conn = get_db_connection(env)
     try:
         c = conn.cursor()
         row, spec, subscribed = _require_readable(c, app_id, username, perms)
+        links = _links(c, [row["id"]] if row.get("is_global") else [])
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching app: {str(e)}")
     finally:
         conn.close()
-    return {"app": _public(row, spec, username=username, subscribed=subscribed)}
+    return {"app": _public(row, spec, username=username, subscribed=subscribed, link=links.get(row["id"]))}
 
 
 @router.get("/{app_id}/widgets")
@@ -407,11 +428,14 @@ def subscribe_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env:
 
     Any app that exists, for anyone holding its id: that is what a share link
     means here. It reveals nothing; reading the app still goes through `can_read`.
+    A link name reaches only a global app (`app_store.resolve_ref`), so it can't be
+    used to subscribe to someone's personal one.
     """
     username = _get_current_username(w)
     conn = get_db_connection(env)
     try:
         c = conn.cursor()
+        app_id = app_store.resolve_ref(c, app_id) or app_id
         c.execute("SELECT id FROM dashboard_views WHERE id = %s", (app_id,))
         if not c.fetchone():
             raise HTTPException(status_code=404, detail="View not found")
@@ -555,6 +579,7 @@ def delete_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: st
 
         c.execute("DELETE FROM dashboard_views WHERE id = %s", (app_id,))
         c.execute("DELETE FROM archived_views WHERE id = %s", (app_id,))
+        app_links.forget(c, app_id)
         conn.commit()
         return {"status": "success", "message": f"View {app_id} deleted"}
     except HTTPException:

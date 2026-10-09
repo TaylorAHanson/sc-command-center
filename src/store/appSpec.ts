@@ -45,7 +45,12 @@ export interface AppBranding {
   title?: string | null;
   logo?: string | null;
   favicon?: string | null;
+  /** On its own, a view whose page has a title bar of its own can drop this one. */
+  header?: 'hide' | null;
 }
+
+/** Whether a view on its own shows its header: unless it says otherwise. */
+export const showsHeader = (app?: App | null): boolean => app?.spec?.branding?.header !== 'hide';
 
 /** Tabs across the top unless this says otherwise. */
 export interface AppNav {
@@ -189,6 +194,8 @@ export interface AppSpec {
 export interface App {
   id: string;
   name: string;
+  /** A global app's name in links (`#/app/supply-hub`); see `appRoute.appRef`. */
+  link?: string | null;
   spec: AppSpec;
   locked?: boolean;
   domain?: string;

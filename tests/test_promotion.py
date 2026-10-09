@@ -21,6 +21,7 @@ from routes import promotion  # noqa: E402
 from routes.promotion import same_content, same_view_content  # noqa: E402
 from services import settings_store  # noqa: E402
 from services.app_spec import legacy_spec  # noqa: E402
+from services.app_links import slugify  # noqa: E402
 
 DEV_V5 = {"id": "w1", "version": 5, "name": "Orders", "tsx_code": "new code", "domain": "Sales",
           "is_certified": 0, "is_deprecated": 0, "timestamp": "2026-09-01", "created_by": "a@x.com"}
@@ -149,6 +150,15 @@ class EnvCursor:
     def execute(self, sql, params=()):
         text = " ".join(sql.split())
         self.env.statements.append(text)
+        if "SAVEPOINT" in text:
+            return
+        if "app_links" in text:
+            # Every name is free in a fresh fake: the claim takes the first it asks for.
+            self.description, self._rows = [("slug",)], [(params[0],)] if text.startswith("INSERT") else []
+            self.env.links = getattr(self.env, "links", {})
+            if text.startswith("INSERT"):
+                self.env.links[params[0]] = params[1]
+            return
         table = ("widgets" if re.search(r"\b(FROM|INTO) widgets\b", text)
                  else "agent_profiles" if "agent_profiles" in text else "dashboard_views")
         if text.startswith("INSERT INTO"):
@@ -286,6 +296,8 @@ def test_promoting_with_its_widgets_writes_them_and_the_view_in_one_commit():
     head = max(test.committed["dashboard_views"], key=lambda r: r["version"])
     assert json.loads(head["spec_json"]) == spec, "every tab travels"
     assert [r["version"] for r in test.committed["widgets"] if r["id"] == MARGINS] == [1, 2]
+    name = app_row(spec)["name"]
+    assert getattr(test, "links", {}) == {slugify(name): "app1"}, "a promoted global view is linked by name there too"
 
 
 def test_a_refused_widget_leaves_the_target_as_it_was():

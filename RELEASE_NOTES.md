@@ -26,6 +26,9 @@
 
 ### Added
 
+- **A welcome for first-time visitors.** New people see five ways in, from asking the assistant to building an agent; **Resources → Getting Started** brings it back.
+- **Links say what they open.** A global view's link is its name, like `#/app/supply-hub/inventory`, and keeps working after a rename; personal views add a code after the name.
+- **Drop the header on a view of its own.** In **Settings → Opening**, choose **No header** for a page that has its own; **Copy link** and **Edit** move to the bottom left.
 - **Share a view as a page of its own.** In **Settings → Opening**, choose **On its own**: its link opens just that view, with your title and logo; **Preview** shows it.
 - **Choose a view's agent in its settings.** **Settings → Assistant** picks the agent the view opens with; **No agent** leaves the view without an assistant.
 - **Views can have tabs.** **Add tab** in the top right asks what to call both tabs; double-click a tab or press F2 to rename it, drag to reorder.

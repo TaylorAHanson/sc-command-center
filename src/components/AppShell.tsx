@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Check, Link2, Pencil } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { appHash, linkTab, parseAppRoute } from '../store/appRoute';
-import { darkBars, isPage, shownTab, themeVariables, type AppTheme } from '../store/appSpec';
+import { appHash, appRef, linkTab, parseAppRoute, tabIdOf } from '../store/appRoute';
+import { darkBars, isPage, showsHeader, shownTab, themeVariables, type AppTheme } from '../store/appSpec';
 import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
 import { useCanvasLook } from '../hooks/useCanvasLook';
 import { TabBar } from './TabBar';
@@ -93,9 +93,9 @@ export const AppShell: React.FC = () => {
   useEffect(() => {
     if (!activeApp || !activeAppTab) return;
     const named = parseAppRoute(window.location.hash);
-    const showing = named && !named.workspace && named.appId === activeApp.id
-      && shownTab(activeApp, named.tabId)?.id === activeAppTab.id;
-    if (!showing) window.location.hash = appHash(activeApp.id, linkTab(activeApp, activeAppTab));
+    const showing = named && !named.workspace && named.appId === appRef(activeApp)
+      && shownTab(activeApp, tabIdOf(activeApp, named.tabId))?.id === activeAppTab.id;
+    if (!showing) window.location.hash = appHash(activeApp, linkTab(activeApp, activeAppTab));
   }, [activeApp, activeAppTab]);
 
   useEffect(() => {
@@ -125,22 +125,18 @@ export const AppShell: React.FC = () => {
   // the owner for a personal one.
   const canShare = activeApp.is_global ? isAdmin : (!activeApp.is_shared && activeApp.username === username);
   const offersAssistant = activeApp.spec.assistant !== 'off';
-  const dark = darkBars(activeApp);
+  const header = showsHeader(activeApp);
+  // Without the header its controls float over the page in a white bar, so the
+  // dark color, which belongs to the header, doesn't apply to them there.
+  const dark = header && darkBars(activeApp);
+  const canEdit = canEditApp(activeApp);
+  const hasControls = Boolean(badge) || shell.previewing || canShare || canEdit;
   const headerButton = `flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${
     dark ? 'text-white/80 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-brand-blue hover:bg-gray-100'
   }`;
 
-  return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden" style={look.fontStack ? { fontFamily: look.fontStack } : undefined}>
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className={`h-14 border-b flex items-center justify-between px-6 shadow-sm z-10 ${
-          dark ? 'bg-brand-navy border-white/10' : 'bg-white border-gray-200'
-        }`}>
-          <div className="flex items-center gap-3 min-w-0">
-            {branding?.logo && (
-              <img src={branding.logo} alt="" className="h-8 w-auto max-w-[8rem] object-contain shrink-0" />
-            )}
-            <h1 className={`text-lg font-semibold truncate ${dark ? 'text-white' : 'text-brand-navy'}`}>{title}</h1>
+  const labels = (
+    <>
             {badge && (
               <span
                 className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded bg-amber-100 text-amber-800 shrink-0"
@@ -159,9 +155,11 @@ export const AppShell: React.FC = () => {
                 Preview
               </span>
             )}
-          </div>
+    </>
+  );
 
-          <div className="flex items-center gap-3">
+  const actions = (
+    <>
             {canShare && (
               <button
                 onClick={async () => {
@@ -187,9 +185,9 @@ export const AppShell: React.FC = () => {
                 title="Leave the preview and go back to this view in Command Center"
               >
                 <ArrowLeft className="w-4 h-4" />
-                <span>{canEditApp(activeApp) ? 'Back to editing' : 'Back to Command Center'}</span>
+                <span>{canEdit ? 'Back to editing' : 'Back to Command Center'}</span>
               </button>
-            ) : canEditApp(activeApp) && (
+            ) : canEdit && (
               <button
                 onClick={() => shell.edit(activeApp, linkTab(activeApp, activeAppTab))}
                 className={headerButton}
@@ -199,8 +197,37 @@ export const AppShell: React.FC = () => {
                 <span>Edit</span>
               </button>
             )}
+    </>
+  );
+
+  return (
+    <div className="flex h-screen bg-gray-50 overflow-hidden" style={look.fontStack ? { fontFamily: look.fontStack } : undefined}>
+      <div className="flex-1 flex flex-col min-w-0">
+        {header ? (
+          <header className={`h-14 border-b flex items-center justify-between px-6 shadow-sm z-10 ${
+            dark ? 'bg-brand-navy border-white/10' : 'bg-white border-gray-200'
+          }`}>
+            <div className="flex items-center gap-3 min-w-0">
+              {branding?.logo && (
+                <img src={branding.logo} alt="" className="h-8 w-auto max-w-[8rem] object-contain shrink-0" />
+              )}
+              <h1 className={`text-lg font-semibold truncate ${dark ? 'text-white' : 'text-brand-navy'}`}>{title}</h1>
+              {labels}
+            </div>
+            <div className="flex items-center gap-3">{actions}</div>
+          </header>
+        ) : hasControls && (
+          // Bottom left: a page with its own title bar keeps its controls at the
+          // top, and the assistant's button sits bottom right.
+          <div
+            role="toolbar"
+            aria-label="View controls"
+            className="fixed bottom-4 left-4 z-30 flex items-center gap-2 pl-2 pr-1 py-1 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg shadow-md"
+          >
+            {labels}
+            {actions}
           </div>
-        </header>
+        )}
 
         <div className="flex-1 flex flex-col min-h-0" style={look.areaStyle}>
           <TabBar placement="top" />

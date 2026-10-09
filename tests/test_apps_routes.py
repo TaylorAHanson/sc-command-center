@@ -48,8 +48,10 @@ def three_tabs(app_id):
 
 
 class Store:
-    def __init__(self, *rows, subscriptions=(), archived=(), widgets=(), library=(), recent=False):
+    def __init__(self, *rows, subscriptions=(), archived=(), widgets=(), library=(), recent=False, links=()):
         self.apps = {r["id"]: r for r in rows}
+        # slug -> app id, in the order claimed; the last for an id is its current name.
+        self.links = dict(links)
         # Whether each app's newest version is inside the coalescing window;
         # the real check is the database's clock, which a fake doesn't have.
         self.recent = recent
@@ -81,7 +83,22 @@ class FakeCursor:
         text = " ".join(sql.split())
         self.store.statements.append((text, params))
         self._rows, self.description, self.rowcount = [], [("?column?",)], -1
-        if text.startswith("UPDATE dashboard_views SET name"):
+        if text.startswith("INSERT INTO app_links"):
+            slug, app_id = params
+            if self.store.links.get(slug, app_id) == app_id:
+                self.store.links.pop(slug, None)
+                self.store.links[slug] = app_id
+                self._rows = [(slug,)]
+        elif text.startswith("SELECT app_id FROM app_links"):
+            self._rows = [(self.store.links[params[0]],)] if params[0] in self.store.links else []
+        elif text.startswith("SELECT DISTINCT ON (app_id) app_id, slug FROM app_links"):
+            current = {a: s for s, a in self.store.links.items() if a in params[0]}
+            self._rows = list(current.items())
+        elif "FROM dashboard_views dv" in text:
+            # The sidebar: every head, which the route then filters by `can_read`.
+            self.description = [(c,) for c in app_store.HEAD_COLUMNS] + [("subscribed",)]
+            self._rows = [tuple(r.get(c) for c in app_store.HEAD_COLUMNS) + (0,) for r in self.store.apps.values()]
+        elif text.startswith("UPDATE dashboard_views SET name"):
             r = self.store.apps.get(params[-3])
             self.rowcount = int(bool(r and self.store.recent and not r["is_global"] and r["version"] == params[-2]))
         elif text == "SELECT id FROM dashboard_views WHERE id = %s":
@@ -225,6 +242,59 @@ def test_a_link_to_no_app_is_not_found_and_subscribes_nobody():
     exc = refused(store, apps.subscribe_app, "gone")
     assert exc.status_code == 404, "a stale link is the caller's problem, not a server error"
     assert store.writes() == []
+
+
+# ------------------------------------------------------- links by name
+
+UUID = "3f2a9c1e-0b5c-4d2e-9f40-4a5b8c6d7e8f"
+SELLER = {"is_admin": False, "domain_permissions": {"Sales": "viewer"}}
+
+
+def test_a_global_app_opens_by_its_link_name_and_says_what_it_is():
+    store = Store(row("g1", is_global=1, domain="Sales"), links={"supply-hub": "g1"})
+    app = run(store, apps.get_app, "supply-hub", perms=SELLER)["app"]
+    assert app["id"] == "g1" and app["link"] == "supply-hub"
+    assert store.writes() == [], "opening by name writes nothing either"
+
+
+def test_a_link_name_still_needs_a_role_in_the_domain():
+    store = Store(row("g1", is_global=1, domain="Sales"), links={"supply-hub": "g1"})
+    assert refused(store, apps.get_app, "supply-hub").status_code == 404
+
+
+def test_an_old_link_name_still_opens_the_app_and_the_newest_is_handed_out():
+    store = Store(row("g1", is_global=1, domain="Sales"), links={"ops": "g1", "supply-hub": "g1"})
+    assert run(store, apps.get_app, "ops", perms=SELLER)["app"]["link"] == "supply-hub"
+
+
+def test_a_link_name_never_reaches_a_personal_app():
+    # Claimed while global, since made personal: its name is not its id, and a
+    # personal app is open only to someone holding that.
+    store = Store(row("g1", owner=OTHER, is_global=0), links={"supply-hub": "g1"})
+    assert refused(store, apps.get_app, "supply-hub").status_code == 404
+    assert refused(store, apps.subscribe_app, "supply-hub").status_code == 404
+    assert store.writes() == []
+
+
+def test_a_personal_app_opens_by_name_and_id_exactly_as_by_id():
+    store = Store(row(UUID))
+    app = run(store, apps.get_app, f"q3-review-{UUID}")["app"]
+    assert app["id"] == UUID and app["link"] is None, "a personal app is never linked by name alone"
+    run(store, apps.subscribe_app, f"q3-review-{UUID}")
+    assert [p for s, p in store.writes() if s.startswith("INSERT INTO shared_views")] == [(ME, UUID)]
+
+
+def test_the_sidebar_carries_link_names_for_global_apps_only():
+    store = Store(row("g1", is_global=1, domain="Sales"), row("p1", owner=ME), links={"supply-hub": "g1"})
+    listed = {a["id"]: a["link"] for a in run(store, apps.list_apps, perms=SELLER)["apps"]}
+    assert listed == {"g1": "supply-hub", "p1": None}
+
+
+def test_saving_a_global_app_claims_its_name_and_a_personal_one_claims_none():
+    store = Store(row("g1", is_global=1, domain="Sales"), row("p1", owner=ME), links={"ops": "other"})
+    run(store, apps.update_app, "g1", apps.AppUpdate(name="Ops"), editor_of=("Sales",))
+    run(store, apps.update_app, "p1", apps.AppUpdate(name="Mine"))
+    assert store.links == {"ops": "other", "ops-2": "g1"}, "a taken name gets the next free number"
 
 
 # ------------------------------------------ the deployment that already exists

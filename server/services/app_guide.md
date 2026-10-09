@@ -23,9 +23,19 @@ own Databricks identity and sees only the data and assets that identity can
 reach.
 
 The left sidebar holds views (My Views and Global Views), the Widget Library,
-Widget Studio, Agent Studio, and — under Resources — the User Guide, Release
-Notes, and Admin Panel. The assistant (this chat) opens from the button at the
-bottom of the sidebar.
+Widget Studio, Agent Studio, and — under Resources — Getting Started, the User
+Guide, Release Notes, and Admin Panel. The assistant (this chat) is the panel on
+the right; collapsed, it is the round button at the bottom right of the screen.
+
+Someone with no views of their own sees a welcome panel over the canvas the
+first time they open the app, with the assistant opened beside it. It offers
+five things: ask the assistant (starter questions are typed into the message box,
+never sent), browse global views, find widgets in the Widget Library, build a
+widget in Widget Studio, and build an agent in Agent Studio. The two studios need
+editor access in a domain; without it those cards say so. Hovering a card
+outlines where that feature lives. It doesn't open for someone arriving by a
+link to a view. **Resources → Getting Started** shows it again; **Got it**, the
+X or Esc close it.
 
 ## Views and layouts
 
@@ -64,6 +74,14 @@ per-user unless they are global.
 - The address names the tab being shown, so a link opens on that tab and Back
   steps between tabs. A link to the first tab doesn't name it, so it opens
   whichever tab is first.
+- Links use names, not codes. A global view's link is its name, like
+  `#/app/supply-hub/inventory`; a second global view with the same name gets
+  `supply-hub-2`. Renaming a global view gives it a new link, and links to the
+  old name keep opening it. A personal view's link is its name followed by its
+  id, like `#/app/q3-review-3f2a…`: anyone holding that link can open a personal
+  view, so the id stays in it to keep it unguessable. A tab goes by its name
+  unless two tabs would share one; after a tab is renamed, an old link to it
+  opens the first tab. Links with ids from before this still work.
 - **Global Views** are shared templates. A user only sees the global views whose
   domain they have at least Viewer access to. Hovering one and clicking the copy
   icon duplicates it into My Views, where it becomes editable.
@@ -88,6 +106,12 @@ per-user unless they are global.
   three fields only appear once **On its own** is chosen. The assistant appears
   too, unless the view's agent is **No agent**. Branding is only used on its
   own; inside Command Center the view keeps its name.
+  **Header** there can be **No header: the page has its own**, for a view whose
+  page draws its own title bar. On its own the view then starts straight with
+  its tabs (or its page), the logo field goes away, and the title is used only on
+  the browser tab. **Copy link**, **Edit** (or **Back to editing** in a preview)
+  and the environment label move to a small bar at the bottom left, shown only
+  to people who get at least one of them. Inside Command Center nothing changes.
 - Each field in **Settings** has a **?** beside it; hovering it (or tabbing to
   it) explains what the field does.
 - **Assistant** in **Settings** has the **Agent** picker: the agent the view
@@ -638,6 +662,8 @@ Admins can narrow what the assistant may reach, in Admin Panel → Settings:
 
 ## Where to find help and what changed
 
+**Getting Started** under Resources reopens the welcome panel: the five ways
+into the app, each a button that opens it.
 **User Guide** under Resources documents the app for end users and admins.
 **Release Notes**, directly below it, lists what changed in each release, newest
 first. Both are in the sidebar's Resources group.

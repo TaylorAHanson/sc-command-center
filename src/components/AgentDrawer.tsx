@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Bot } from 'lucide-react';
 import clsx from 'clsx';
 import { AgentPanel } from './AgentPanel';
-import type { AgentChat } from '../hooks/useAgentChat';
-import { DEFAULT_AGENT_NAME, type CanvasBackground } from '../store/appSpec';
+import { assistantLabel, type AgentChat } from '../hooks/useAgentChat';
+import type { CanvasBackground } from '../store/appSpec';
 
 /**
  * The assistant: a resizable panel down the right-hand side when open, a
@@ -18,13 +18,10 @@ export const AgentDrawer: React.FC<{
   backdrop?: CanvasBackground | null;
   /** The page header beside the drawer is the dark color, so its header is too. */
   dark?: boolean;
-}> = ({ chat, isOpen, onOpenChange, backdrop, dark }) => {
-  // Agents are listed lazily (the listing scans Unity Catalog), so a pinned
-  // agent's name may not be known yet; say "Assistant" rather than name the
-  // built-in agent when it isn't the one that will answer.
-  const label = chat.selectedProfileId
-    ? chat.availableProfiles.find(p => p.id === chat.selectedProfileId)?.name || 'Assistant'
-    : DEFAULT_AGENT_NAME;
+  /** Outline the assistant, for the welcome panel pointing at it. */
+  spotlight?: boolean;
+}> = ({ chat, isOpen, onOpenChange, backdrop, dark, spotlight }) => {
+  const label = assistantLabel(chat);
   const [width, setWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
 
@@ -70,6 +67,9 @@ export const AgentDrawer: React.FC<{
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-10 w-1 rounded-full bg-gray-300 group-hover:bg-brand-blue transition-colors" />
         </div>
         <AgentPanel chat={chat} onCollapse={() => onOpenChange(false)} backdrop={backdrop} dark={dark} />
+        {/* Over the panel rather than on it: an inset ring on the container is
+            painted beneath the panel's own background. */}
+        {spotlight && <div className="pointer-events-none absolute inset-0 z-20 ring-4 ring-inset ring-brand-blue/70 animate-pulse" />}
       </div>
     );
   }
@@ -77,7 +77,10 @@ export const AgentDrawer: React.FC<{
   return (
     <button
       onClick={() => onOpenChange(true)}
-      className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-4 pr-5 py-3 bg-brand-navy text-white rounded-full shadow-lg shadow-brand-navy/40 hover:bg-brand-blue hover:shadow-xl transition-all group"
+      className={clsx(
+        'fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-4 pr-5 py-3 bg-brand-navy text-white rounded-full shadow-lg shadow-brand-navy/40 hover:bg-brand-blue hover:shadow-xl transition-all group',
+        spotlight && 'ring-4 ring-brand-blue/60 ring-offset-2 animate-pulse',
+      )}
       title={`Open ${label}`}
     >
       {chat.isLoading && (

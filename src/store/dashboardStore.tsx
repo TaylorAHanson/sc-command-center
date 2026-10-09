@@ -3,7 +3,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
 import { rememberedFilters, rememberFilters } from './rememberedFilters';
 import { filterDefaults, isPage, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, PAGE_WIDGET_PLACE, retargetLinks, shownTab, withTab, type App, type AppSpec, type AppTab, type TabLayout, type WidgetLayout } from './appSpec';
-import { appHash, appLink, isStandalone, linkTab, parseAppRoute, routeTab, withoutRouteParams, type AppRoute } from './appRoute';
+import {
+  appHash, appLink, isStandalone, linkTab, parseAppRoute, refersTo, routeHash, routeTab, tabIdOf, withoutRouteParams, type AppRoute,
+} from './appRoute';
 import { useShell } from '../shell';
 
 // An app can pin the built-in agent just as deliberately as an authored one, so
@@ -201,7 +203,9 @@ export const DashboardProvider: React.FC<{
   // link to your own app or a global one you can see never does.
   const openRoute = useCallback(async (route: AppRoute, known?: App[] | null) => {
     const canonicalize = (app?: App) => {
-      const canonical = appHash(route.appId, app ? routeTab(app, route.tabId) : route.tabId, null, route.workspace);
+      const canonical = app
+        ? appHash(app, routeTab(app, route.tabId), null, route.workspace)
+        : routeHash(route);
       const search = withoutRouteParams(window.location.search);
       if (window.location.hash !== canonical || window.location.search !== search) {
         window.history.replaceState(window.history.state, '', window.location.pathname + search + canonical);
@@ -210,32 +214,44 @@ export const DashboardProvider: React.FC<{
 
     // On its own, the page holds one app: a link to another is the shell's to follow.
     if (standalone) {
-      if (route.appId !== standalone.app.id || route.workspace) return;
-      canonicalize(appsRef.current[0]);
-      selectApp(route.appId, route.tabId);
+      const app = appsRef.current[0] ?? standalone.app;
+      if (!refersTo(route.appId, app) || route.workspace) return;
+      canonicalize(app);
+      selectApp(app.id, tabIdOf(app, route.tabId));
       if (route.widgetId) setPendingWidgetId(route.widgetId);
       return;
     }
 
-    canonicalize(appsRef.current.find(a => a.id === route.appId));
-    const find = (list?: App[] | null) => list?.find(a => a.id === route.appId);
+    const find = (list?: App[] | null) => list?.find(a => refersTo(route.appId, a));
+    canonicalize(find(appsRef.current));
     let list: App[] | null = known ?? appsRef.current;
     if (!find(list)) list = await fetchApps();
-    if (list && !find(list)) {
+    let app = find(list);
+    if (list && !app) {
+      // A name the app has since been renamed from, or someone else's personal
+      // app: the server says which app the link means, then it is subscribed to
+      // by id if it isn't in the sidebar already.
       try {
-        const res = await fetch(`/api/apps/${encodeURIComponent(route.appId)}/subscribe`, { method: 'POST' });
-        if (res.ok) list = await fetchApps();
+        const res = await fetch(`/api/apps/${encodeURIComponent(route.appId)}`);
+        const read: App | null = res.ok ? (await res.json()).app : null;
+        if (read) {
+          app = list.find(a => a.id === read.id);
+          if (!app) {
+            const sub = await fetch(`/api/apps/${encodeURIComponent(read.id)}/subscribe`, { method: 'POST' });
+            if (sub.ok) list = await fetchApps();
+            app = list?.find(a => a.id === read.id);
+          }
+        }
       } catch (e) {
         console.error('Failed to subscribe to shared app', e);
       }
     }
-    const app = find(list);
     if (app) canonicalize(app);
     if (app && isStandalone(app) && !route.workspace) {
-      shell.present(app, route.tabId, route.widgetId);
+      shell.present(app, tabIdOf(app, route.tabId), route.widgetId);
       return;
     }
-    selectApp(route.appId, route.tabId);
+    selectApp(app?.id ?? route.appId, app ? tabIdOf(app, route.tabId) : null);
     if (route.widgetId) setPendingWidgetId(route.widgetId);
   }, [fetchApps, selectApp, shell, standalone]);
 
@@ -597,13 +613,13 @@ export const DashboardProvider: React.FC<{
   // Opening either link subscribes anyone who doesn't have the app; see `openRoute`.
   const generateShareLink = (): string => {
     if (!activeApp) return '';
-    return appLink(activeApp.id, linkTab(activeApp, activeAppTab));
+    return appLink(activeApp, linkTab(activeApp, activeAppTab));
   };
 
   // A link that opens one widget, full-screen, on the tab it sits on.
   const generateWidgetShareLink = (widgetId: string): string => {
     if (!activeApp || !activeAppTab) return '';
-    return appLink(activeApp.id, activeAppTab.id, widgetId);
+    return appLink(activeApp, activeAppTab.id, widgetId);
   };
 
   const clearPendingWidget = useCallback(() => setPendingWidgetId(null), []);

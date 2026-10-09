@@ -225,6 +225,12 @@ def _branding(value: Any, strict: bool) -> Optional[Dict[str, Optional[str]]]:
         out[key] = _text(value.get(key), f"branding.{key}", strict) or None
     for key in _BRANDING_IMAGES:
         out[key] = _image(value.get(key), key, strict)
+    # A view whose page draws its own title bar can drop this one. Only ever
+    # "hide" or absent, so a view saved before it existed keeps its header.
+    header = value.get("header")
+    if header not in (None, "", "show", "hide") and strict:
+        raise SpecError("`branding.header` must be show or hide.")
+    out["header"] = "hide" if header == "hide" else None
     return out if any(out.values()) else None
 
 

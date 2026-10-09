@@ -382,6 +382,8 @@ def transfer_app(request: AppTransferRequest, w: WorkspaceClient = Depends(get_d
             f"INSERT INTO dashboard_views ({', '.join(keys)}) VALUES ({', '.join(['%s'] * len(keys))})",
             tuple(row[k] for k in keys),
         )
+        if row.get("is_global"):
+            app_store.claim_link(c_target, request.app_id, row.get("name") or "")
         target_conn.commit()
     except Exception:
         target_conn.rollback()

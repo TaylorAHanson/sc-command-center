@@ -596,6 +596,19 @@ def init_db(env: str = "dev"):
         )
     ''')
 
+    # The names links to global views use (`#/app/supply-hub`). Every name a view
+    # has held stays with it, so a link from before a rename still opens it; the
+    # newest claimed is the one handed out. Keyed by the view's id like
+    # archived_views, for the same reason. See services/app_links.py.
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS app_links (
+            slug TEXT PRIMARY KEY,
+            app_id TEXT NOT NULL,
+            claimed_at TIMESTAMPTZ DEFAULT clock_timestamp()
+        )
+    ''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_app_links_app ON app_links (app_id, claimed_at DESC)")
+
     # Agent Studio Profiles Table (versioned, domain-scoped)
     # Agents authored in the Agent Studio now live as DB rows instead of files on
     # Unity Catalog Volumes / Workspace folders. This mirrors the widget/view
@@ -893,6 +906,18 @@ def init_db(env: str = "dev"):
     except Exception as e:
         conn.rollback()
         logging.warning(f"Could not seed default global admin mapping: {e}")
+
+    # Link names for global views saved before they existed, or that arrived by
+    # snapshot. Under the lock, so two workers don't hand one view two names.
+    try:
+        from services import app_links
+        named = app_links.backfill(c)
+        conn.commit()
+        if named:
+            logging.info(f"Gave {named} global view(s) a link name in env={env}")
+    except Exception as e:  # noqa: BLE001 - without names, links carry ids
+        conn.rollback()
+        logging.warning(f"Could not give global views link names in env={env}: {e}")
 
     conn.commit()
 

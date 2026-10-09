@@ -1,20 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow } from 'lucide-react';
+import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow, Compass } from 'lucide-react';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
 import { AgentDrawer } from './AgentDrawer';
+import { WelcomeOverlay, type WelcomeSpot } from './WelcomeOverlay';
 import { AppSettingsModal } from './AppSettingsModal';
 import { AddTabMenu, TabBar } from './TabBar';
 import { FilterBar } from './FilterBar';
-import { useAgentChat } from '../hooks/useAgentChat';
+import { assistantLabel, useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
 import { isPage, layoutSwitch, shownTab, themeVariables } from '../store/appSpec';
 import { WorkspaceToolsContext, type WorkspaceTools } from '../contexts/WorkspaceTools';
 import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
 import { useCanvasLook } from '../hooks/useCanvasLook';
-import { appHash, isStandalone, linkTab, parseAppRoute } from '../store/appRoute';
+import { appHash, appRef, isStandalone, linkTab, parseAppRoute, tabIdOf } from '../store/appRoute';
 import { useShell } from '../shell';
 
 // The full-page screens load when they are opened. Together they are most of the
@@ -56,7 +57,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [currentPage, setCurrentPage] = useState<string | null>(() => pageOf(window.location.hash));
   // Pages that take over the full screen (no header, no agent drawer).
   const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
-  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp, canEditLayout, addTab, setTabLayout } = useDashboardStore();
+  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp, canEditLayout, addTab, setTabLayout, isLoading } = useDashboardStore();
   const shell = useShell();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
@@ -71,6 +72,15 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     try { localStorage.setItem('sccc-agent-open', String(isAgentOpen)); } catch { /* ignore */ }
   }, [isAgentOpen]);
   const [isTrayOpen, setTrayOpen] = useState(false);
+  // The welcome panel opens by itself once, for someone with no views of their
+  // own, and on request from Resources after that. Not for a link, though: whoever
+  // sent it meant the view it names to be the first thing seen.
+  const [welcomeSeen, setWelcomeSeen] = useState(() => {
+    try { return localStorage.getItem('sccc-welcome-seen') === 'true'; } catch { return false; }
+  });
+  const [welcomeRequested, setWelcomeRequested] = useState(false);
+  const [openedWithLink] = useState(() => parseAppRoute(window.location.hash, window.location.search) !== null);
+  const [welcomeSpot, setWelcomeSpot] = useState<WelcomeSpot | null>(null);
   const [editingAppId, setEditingAppId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [draggedAppIndex, setDraggedAppIndex] = useState<number | null>(null);
@@ -126,10 +136,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     } else if (activeApp && activeAppTab) {
       const named = parseAppRoute(window.location.hash);
       const standalone = isStandalone(activeApp);
-      const showing = named?.appId === activeApp.id
+      // By the name links use now, not merely one that reaches the app, so the
+      // address catches up when the view or the tab is renamed.
+      const showing = named?.appId === appRef(activeApp)
         && (named.workspace || !standalone)
-        && shownTab(activeApp, named.tabId)?.id === activeAppTab.id;
-      if (!showing) newHash = appHash(activeApp.id, linkTab(activeApp, activeAppTab), null, standalone);
+        && shownTab(activeApp, tabIdOf(activeApp, named.tabId))?.id === activeAppTab.id;
+      if (!showing) newHash = appHash(activeApp, linkTab(activeApp, activeAppTab), null, standalone);
     }
 
     if (newHash && window.location.hash !== newHash) {
@@ -207,6 +219,26 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const sharedApps = apps.filter(a => !a.is_global && a.is_shared);
   const effectiveDomain = activeDomain || 'All';
   const globalTemplates = apps.filter(a => a.is_global && (effectiveDomain === 'All' || !a.domain || a.domain === effectiveDomain));
+
+  // With no app at all there is nothing under the panel, so it stays as the
+  // page until one exists.
+  const welcomeFirstRun = !welcomeSeen && !openedWithLink && myApps.length === 0;
+  const showWelcome = currentPage === null && !isLoading && (welcomeRequested || welcomeFirstRun || apps.length === 0);
+  // The assistant is the first thing the panel offers, so it is open beside it.
+  // Once: closing the drawer while the panel is still up keeps it closed.
+  const welcomeOpenedAgent = useRef(false);
+  useEffect(() => {
+    if (!showWelcome || !welcomeFirstRun || viewHasNoAssistant || welcomeOpenedAgent.current) return;
+    welcomeOpenedAgent.current = true;
+    setAgentOpen(true);
+  }, [showWelcome, welcomeFirstRun, viewHasNoAssistant]);
+  const dismissWelcome = () => {
+    setWelcomeRequested(false);
+    setWelcomeSpot(null);
+    setWelcomeSeen(true);
+    try { localStorage.setItem('sccc-welcome-seen', 'true'); } catch { /* ignore */ }
+  };
+  const spot = (target: WelcomeSpot) => welcomeSpot === target && 'ring-2 ring-brand-blue ring-offset-2 ring-offset-brand-navy rounded-md bg-brand-blue/15';
 
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
@@ -416,7 +448,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               )}
 
               {/* Global Views (Templates) */}
-              <div className="p-3 border-b border-gray-700">
+              <div className={clsx("p-3 border-b border-gray-700 transition-shadow", spot('global-views'))}>
                 <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
                   <LayoutGrid className="w-3 h-3" />
                   Global Views
@@ -463,7 +495,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <div className="p-3">
                 <button
                   onClick={() => setTrayOpen(true)}
-                  className="w-full px-3 py-2 border border-gray-600 hover:border-brand-blue hover:text-brand-blue rounded-md text-sm text-gray-400 transition-colors flex items-center justify-center gap-2 group"
+                  className={clsx("w-full px-3 py-2 border border-gray-600 hover:border-brand-blue hover:text-brand-blue rounded-md text-sm text-gray-400 transition-colors flex items-center justify-center gap-2 group", spot('library'))}
                 >
                   <LayoutGrid className="w-4 h-4 group-hover:text-brand-blue" />
                   Widget Library (w)
@@ -471,7 +503,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 {canCreateWidgets && (
                   <button
                     onClick={() => setCurrentPage('studio')}
-                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400")}
+                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400", spot('studio'))}
                   >
                     <Code className="w-4 h-4 group-hover:text-brand-blue" />
                     Widget Studio
@@ -480,7 +512,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 {canCreateWidgets && (
                   <button
                     onClick={() => setCurrentPage('agent-studio')}
-                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'agent-studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400")}
+                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'agent-studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400", spot('agent-studio'))}
                   >
                     <Bot className="w-4 h-4 group-hover:text-brand-blue" />
                     Agent Studio
@@ -494,6 +526,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   Resources
                 </div>
                 <div className="space-y-1">
+                  <button onClick={() => { setCurrentPage(null); setWelcomeRequested(true); }} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", showWelcome ? "bg-brand-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
+                    <Compass className="w-4 h-4" />
+                    <span>Getting Started</span>
+                  </button>
                   <button onClick={() => setCurrentPage('user-guide')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'user-guide' ? "bg-brand-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
                     <BookOpen className="w-4 h-4" />
                     <span>User Guide</span>
@@ -665,7 +701,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         ) : (
           // The view's theme covers its own tabs, filters and canvas; the sidebar
           // and header are Command Center's, so switching views doesn't repaint them.
-          <div className="flex-1 flex flex-col min-h-0" style={{ ...viewLook, ...look.areaStyle }}>
+          <div className="flex-1 flex flex-col min-h-0 relative" style={{ ...viewLook, ...look.areaStyle }}>
             <TabBar placement="top" />
             <FilterBar />
             <div className="flex-1 flex min-h-0">
@@ -696,6 +732,20 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </div>
               </main>
             </div>
+            {showWelcome && (
+              <WelcomeOverlay
+                agentName={assistantDoor ? assistantLabel(agentChat) : null}
+                onAsk={prompt => { dismissWelcome(); assistantDoor?.open({ prompt }); }}
+                globalViews={globalTemplates}
+                onOpenView={id => { dismissWelcome(); setActiveAppId(id); }}
+                onOpenLibrary={() => { dismissWelcome(); setTrayOpen(true); }}
+                canBuild={canCreateWidgets}
+                onOpenStudio={page => { dismissWelcome(); setEditWidgetId(null); setCloneWidgetId(null); setCurrentPage(page); }}
+                onBlankView={() => { dismissWelcome(); addApp(`View ${myApps.length + 1}`); }}
+                onSpot={setWelcomeSpot}
+                onDismiss={activeApp ? dismissWelcome : undefined}
+              />
+            )}
           </div>
         )}
       </div>
@@ -710,6 +760,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             isOpen={isAgentOpen}
             onOpenChange={setAgentOpen}
             backdrop={currentPage === null ? look.theme.background : undefined}
+            spotlight={showWelcome && welcomeSpot === 'assistant'}
           />
         </div>
       )}

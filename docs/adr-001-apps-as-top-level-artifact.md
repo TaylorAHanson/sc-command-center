@@ -373,6 +373,11 @@ none should run as the SP.
   app's first, so a view's link is `#/app/<id>`. `?shared_view=`, `#/view/`,
   `#/template/` and `?widget=` parse to the same route (`src/store/appRoute.ts`)
   and the address bar is rewritten to the canonical link once read.
+  *Later (1.14.0):* the canonical link names things instead. A global app is
+  `#/app/<its link name>` (`server/services/app_links.py`), a personal one
+  `#/app/<name>-<id>`, and a tab its name where unique. The id-based forms above
+  are aliases. A personal app is never linked by name alone, because under §2.3
+  its id is what keeps it private; who can open what is unchanged.
 - **Opening a link subscribes, as `?shared_view=` did** (§2.3 kept that). It now
   happens for any link form, not only `?shared_view=`, so an address copied
   from the browser bar works as a share link; before, a `#/view/<id>` for a view

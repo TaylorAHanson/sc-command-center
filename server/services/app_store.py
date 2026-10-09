@@ -14,13 +14,16 @@ app's first tab rather than an empty canvas.
 The functions take a cursor and leave committing to the caller, so a route can
 check, write and commit in one transaction.
 """
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
 from routes.roles import require_domain_editor
-from services import app_spec
+from services import app_links, app_spec
+
+logger = logging.getLogger(__name__)
 
 # Custom widgets are stored under UUID ids; built-in types (iframe, etc.) have no row.
 _CUSTOM_WIDGET_ID = re.compile(
@@ -48,6 +51,42 @@ def head(c, app_id: str) -> Optional[Dict[str, Any]]:
     )
     row = c.fetchone()
     return dict(zip([d[0] for d in c.description], row)) if row else None
+
+
+def resolve_ref(c, ref: str) -> Optional[str]:
+    """The id of the app a link names: its id, a global app's link name, or `<name>-<id>`.
+
+    A link name only ever resolves to an app that is global now. One that was
+    global when it claimed the name and has since been made personal is open to
+    anyone holding its id, and its name is not its id.
+    """
+    if not ref:
+        return None
+    if head(c, ref) is not None:
+        return ref
+    named = app_links.owner(c, ref)
+    if named:
+        row = head(c, named)
+        return named if row is not None and row.get("is_global") else None
+    embedded = app_links.id_in(ref)
+    if embedded and head(c, embedded) is not None:
+        return embedded
+    return None
+
+
+def claim_link(c, app_id: str, name: str) -> None:
+    """Give a global app its link name, without letting a failure here fail the save.
+
+    In a savepoint so an error (the table missing on a deployment whose startup
+    couldn't build it) rolls back only this; the app's links then carry its id.
+    """
+    c.execute("SAVEPOINT app_link")
+    try:
+        app_links.claim(c, app_id, name)
+        c.execute("RELEASE SAVEPOINT app_link")
+    except Exception as e:  # noqa: BLE001
+        c.execute("ROLLBACK TO SAVEPOINT app_link")
+        logger.warning("Couldn't give app %s a link name: %s", app_id, e)
 
 
 def spec_of(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -89,6 +128,8 @@ def insert_version(
             int(bool(is_locked)), pinned_agent_id,
         ),
     )
+    if is_global:
+        claim_link(c, app_id, name)
 
 
 # Arranging a view is a burst of saves (every drag, resize, tab rename and

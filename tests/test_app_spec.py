@@ -176,9 +176,17 @@ def test_empty_branding_is_no_branding():
 def test_an_assistant_name_saved_before_the_agent_picker_is_dropped_not_refused():
     stored = two_tabs(branding={"title": "Ops", "assistant_name": "Ops Bot"})
     read = read_spec(APP, json.dumps(stored), None)
-    assert read["branding"] == {"title": "Ops", "logo": None, "favicon": None}
+    assert read["branding"] == {"title": "Ops", "logo": None, "favicon": None, "header": None}
     assert validate_spec(stored, APP)["branding"] == read["branding"]
     assert validate_spec(two_tabs(branding={"assistant_name": "Ops Bot"}), APP)["branding"] is None
+
+
+def test_a_view_can_drop_its_header_and_one_saved_before_keeps_it():
+    assert validate_spec(two_tabs(branding={"header": "hide"}), APP)["branding"]["header"] == "hide"
+    assert validate_spec(two_tabs(branding={"title": "Ops", "header": "show"}), APP)["branding"]["header"] is None
+    assert validate_spec(two_tabs(branding={"title": "Ops"}), APP)["branding"]["header"] is None
+    refuses(two_tabs(branding={"header": "sideways"}), "branding.header")
+    assert read_spec(APP, json.dumps(two_tabs(branding={"title": "Ops", "header": 1})), None)["branding"]["header"] is None
 
 
 def test_nav_is_tabs_across_the_top_unless_it_says_sidebar():
