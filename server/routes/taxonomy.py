@@ -143,19 +143,19 @@ def list_categories(env: str = "dev"):
 
 @router.post("/categories")
 def create_category(item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
+    require_global_admin(w)
     return _create("widget_categories", item.name, env)
 
 
 @router.put("/categories/{item_id}")
 def update_category(item_id: int, item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
+    require_global_admin(w)
     return _update("widget_categories", item_id, item.name, env)
 
 
 @router.delete("/categories/{item_id}")
 def delete_category(item_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
+    require_global_admin(w)
     return _delete("widget_categories", item_id, env)
 
 
@@ -166,17 +166,17 @@ def list_domains(env: str = "dev"):
 
 @router.post("/domains")
 def create_domain(item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
+    require_global_admin(w)
     return _create("widget_domains", item.name, env)
 
 
 @router.put("/domains/{item_id}")
 def update_domain(item_id: int, item: TaxonomyItem, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
+    require_global_admin(w)
     return _update("widget_domains", item_id, item.name, env)
 
 
 @router.delete("/domains/{item_id}")
 def delete_domain(item_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
+    require_global_admin(w)
     return _delete("widget_domains", item_id, env)

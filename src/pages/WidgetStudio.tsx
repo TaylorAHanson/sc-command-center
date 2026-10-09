@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Terminal, Code, Eye, RefreshCw, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X, Paperclip, Camera, Sliders, Loader2, Wrench, Lightbulb, MoreHorizontal, Rocket, Eraser } from 'lucide-react';
 import { toPng } from 'html-to-image';
+import { getContentEnv } from '../contentEnv';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
@@ -101,7 +102,7 @@ class WidgetErrorBoundary extends React.Component<
     }
 }
 
-const WIDGET_STUDIO_SESSION_KEY = "sc_widget_studio_session";
+const studioSessionKey = () => `sc_widget_studio_session:${getContentEnv()}`;
 
 const DEFAULT_WIDGET_CODE = "export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}";
 
@@ -304,7 +305,7 @@ const CodeHistoryPanel: React.FC<{
     const loadPublished = React.useCallback(async () => {
         if (!widgetId) return;
         try {
-            const res = await fetch(`/api/widgets/history?widget_id=${encodeURIComponent(widgetId)}&env=dev`);
+            const res = await fetch(`/api/widgets/history?widget_id=${encodeURIComponent(widgetId)}`);
             if (!res.ok) {
                 let detail = res.statusText;
                 try { detail = (await res.json()).detail || detail; } catch { /* non-JSON body */ }
@@ -331,7 +332,7 @@ const CodeHistoryPanel: React.FC<{
         setBusyVersion(entry.version);
         setPublishedError(null);
         try {
-            const res = await fetch(`/api/widgets/version?widget_id=${encodeURIComponent(widgetId!)}&version=${entry.version}&env=dev`);
+            const res = await fetch(`/api/widgets/version?widget_id=${encodeURIComponent(widgetId!)}&version=${entry.version}`);
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || `${res.statusText} (HTTP ${res.status})`);
             const code = data.widget?.tsx_code;
@@ -484,14 +485,15 @@ type LayoutKind = 'card' | 'page';
 // A new widget's first request asking for one of these is built as a page.
 const LOOKS_LIKE_PAGE = /\b(?:landing|home|welcome|start|front|cover|splash|title|intro(?:duction)?)\s+page\b|\bhub\b|\bfull[- ]?(?:screen|page|tab)\b|\bwhole tab\b|\bpage tab\b/i;
 
-const SETTING_KEYS = ['name', 'description', 'helpText', 'category', 'domain', 'defaultW', 'defaultH', 'isExecutable'];
+const BASIC_SETTING_KEYS = ['name', 'description', 'helpText', 'category', 'domain', 'defaultW', 'defaultH', 'isExecutable'];
+const SETTING_KEYS = [...BASIC_SETTING_KEYS, 'configurationMode', 'configSchema'];
 const DEFAULT_WIDGET_NAME = "New Custom Widget";
 
 // Basic skeleton for the page
 export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneWidgetId, onClose }) => {
     // Helper to genericize session storage retrieval
     const getSessionState = () => {
-        const stored = sessionStorage.getItem(WIDGET_STUDIO_SESSION_KEY);
+        const stored = sessionStorage.getItem(studioSessionKey());
         if (stored) {
             try { return JSON.parse(stored); } catch (e) { console.error("Could not parse widget studio session.", e); }
         }
@@ -806,13 +808,13 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 checkpoints, uploadConversationId: uploadConversationId.current, layoutKind, layoutKindSettled: kindSettledRef.current
             };
             try {
-                sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
+                sessionStorage.setItem(studioSessionKey(), JSON.stringify(currentState));
             } catch (e) {
                 // Out of quota. The work in progress matters more than its history,
                 // so drop the snapshots and keep the session itself persisting.
                 console.warn("Widget studio session too large; saving without code history.", e);
                 try {
-                    sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify({ ...currentState, checkpoints: [] }));
+                    sessionStorage.setItem(studioSessionKey(), JSON.stringify({ ...currentState, checkpoints: [] }));
                 } catch (inner) {
                     console.error("Could not save the widget studio session.", inner);
                 }
@@ -845,7 +847,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
                 // A published widget's settings were decided by a person, so the
                 // agent leaves all of them alone from here on.
-                SETTING_KEYS.forEach(markSettingTouched);
+                BASIC_SETTING_KEYS.forEach(markSettingTouched);
 
                 // Opening a widget over unsaved work is its own way to lose code,
                 // so the session keeps what was here.
@@ -886,7 +888,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     isExecutable: w.is_executable === 1, openInNewTabLink: w.open_in_new_tab_link || '', dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: loadedSchema, editingId: isClone ? null : w.id,
                     layoutKind: w.layout_kind === 'page' ? 'page' : 'card', layoutKindSettled: true
                 };
-                sessionStorage.setItem(WIDGET_STUDIO_SESSION_KEY, JSON.stringify(currentState));
+                sessionStorage.setItem(studioSessionKey(), JSON.stringify(currentState));
             })
             .catch(console.error);
     }, [editWidgetId, cloneWidgetId, pushCheckpoint]);
@@ -1092,14 +1094,42 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         take('defaultH', 'height', defaultH, defaultH === 6, setDefaultH);
         take('isExecutable', 'executable action', isExecutable, isExecutable === false, setIsExecutable);
 
-        // Links are added, never renamed or removed: the code reads them by key,
-        // and a field the author made stays theirs.
+        // Configuration fields are additive. A field already in the form was a
+        // person's (or an earlier turn's) decision, so a later agent turn cannot
+        // silently redefine its type, options or default.
+        const proposedFields: ConfigField[] = Array.isArray(settings.configSchema) ? settings.configSchema : [];
         const proposedLinks: { key: string; label: string }[] = Array.isArray(settings.links) ? settings.links : [];
-        const newLinks = proposedLinks.filter(l => !configSchema.some(f => f.key === l.key));
-        if (newLinks.length) {
-            setConfigSchema(prev => [...prev, ...newLinks.map(l => ({ key: l.key, label: l.label, type: 'link' as const }))]);
-            if (configMode === 'none') setConfigMode('config_allowed');
-            applied.push(`links (${newLinks.map(l => l.label).join(', ')})`);
+        const additions: ConfigField[] = [];
+        const keys = new Set(configSchema.map(field => field.key));
+        for (const field of proposedFields) {
+            if (!field?.key || keys.has(field.key)) continue;
+            keys.add(field.key);
+            additions.push(field);
+        }
+        const newLinks = proposedLinks.filter(link => !keys.has(link.key));
+        for (const link of newLinks) {
+            keys.add(link.key);
+            additions.push({ key: link.key, label: link.label, type: 'link' });
+        }
+        if (additions.length && !touchedSettingsRef.current.has('configSchema')) {
+            setConfigSchema(prev => [...prev, ...additions]);
+            const params = additions.filter(field => field.type !== 'link');
+            const links = additions.filter(field => field.type === 'link');
+            if (params.length) applied.push(`parameters (${params.map(field => field.label).join(', ')})`);
+            if (links.length) applied.push(`links (${links.map(field => field.label).join(', ')})`);
+        }
+
+        const proposedMode = settings.configurationMode;
+        if (
+            (proposedMode === 'config_allowed' || proposedMode === 'config_required')
+            && proposedMode !== configMode
+            && !touchedSettingsRef.current.has('configurationMode')
+        ) {
+            setConfigMode(proposedMode);
+            applied.push(`configuration mode (${proposedMode === 'config_required' ? 'Required' : 'Allowed'})`);
+        } else if (additions.length && configMode === 'none' && !touchedSettingsRef.current.has('configurationMode')) {
+            setConfigMode('config_allowed');
+            applied.push('configuration mode (Allowed)');
         }
 
         return applied;
@@ -1779,7 +1809,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
     const handleReset = () => {
         if (!confirm("Are you sure you want to reset the Widget Studio? All unsaved changes will be lost.")) return;
-        sessionStorage.removeItem(WIDGET_STUDIO_SESSION_KEY);
+        sessionStorage.removeItem(studioSessionKey());
         // Reset is confirmed, but a misfired one shouldn't be the end of the code.
         pushCheckpoint(codeRef.current, 'Before Reset');
         touchedSettingsRef.current.clear();
@@ -1864,7 +1894,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             // An import always creates a NEW widget; clear editingId so Publish inserts.
             setEditingId(null);
             // The imported file's settings were somebody's decision; keep them.
-            SETTING_KEYS.forEach(markSettingTouched);
+            BASIC_SETTING_KEYS.forEach(markSettingTouched);
             setWidgetName(w.name || 'Imported Widget');
             setWidgetDescription(w.description || '');
             setWidgetHelpText(w.help_text || '');
@@ -2685,7 +2715,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Configuration Mode</label>
                                         <select
                                             value={configMode}
-                                            onChange={e => setConfigMode(e.target.value as any)}
+                                            onChange={e => {
+                                                markSettingTouched('configurationMode');
+                                                setConfigMode(e.target.value as any);
+                                            }}
                                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
                                         >
                                             <option value="none">None (No custom user configurations)</option>
@@ -2700,7 +2733,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                             <div className="flex items-center justify-between">
                                                 <label className="block text-sm font-medium text-slate-300">Configuration Schema</label>
                                                 <button
-                                                    onClick={() => setConfigSchema([...configSchema, { key: '', label: '', type: 'text' }])}
+                                                    onClick={() => {
+                                                        markSettingTouched('configSchema');
+                                                        setConfigSchema([...configSchema, { key: '', label: '', type: 'text' }]);
+                                                    }}
                                                     className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium transition-colors"
                                                 >
                                                     <Plus size={14} /> Add Field
@@ -2716,7 +2752,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                     {configSchema.map((field, index) => (
                                                         <div key={index} className="p-4 bg-slate-900 border border-slate-700 rounded-lg flex flex-col gap-3 relative group">
                                                             <button
-                                                                onClick={() => setConfigSchema(configSchema.filter((_, i) => i !== index))}
+                                                                onClick={() => {
+                                                                    markSettingTouched('configSchema');
+                                                                    setConfigSchema(configSchema.filter((_, i) => i !== index));
+                                                                }}
                                                                 className="absolute top-2 right-2 p-1.5 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded transition-colors opacity-0 group-hover:opacity-100"
                                                                 title="Remove Field"
                                                             >
@@ -2729,6 +2768,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                                     <input
                                                                         value={field.key}
                                                                         onChange={e => {
+                                                                            markSettingTouched('configSchema');
                                                                             const newSchema = [...configSchema];
                                                                             newSchema[index] = { ...field, key: e.target.value };
                                                                             setConfigSchema(newSchema);
@@ -2742,6 +2782,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                                     <input
                                                                         value={field.label}
                                                                         onChange={e => {
+                                                                            markSettingTouched('configSchema');
                                                                             const newSchema = [...configSchema];
                                                                             newSchema[index] = { ...field, label: e.target.value };
                                                                             setConfigSchema(newSchema);
@@ -2755,27 +2796,66 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                                     <select
                                                                         value={field.type}
                                                                         onChange={e => {
+                                                                            markSettingTouched('configSchema');
                                                                             const newSchema = [...configSchema];
                                                                             const type = e.target.value as ConfigField['type'];
-                                                                            newSchema[index] = type === 'link' ? { ...field, type, defaultValue: undefined } : { ...field, type };
+                                                                            newSchema[index] = type === 'link'
+                                                                                ? { ...field, type, defaultValue: undefined, options: undefined }
+                                                                                : type === 'select'
+                                                                                    ? { ...field, type, options: field.options || [] }
+                                                                                    : { ...field, type, options: undefined };
                                                                             setConfigSchema(newSchema);
                                                                         }}
                                                                         className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
                                                                     >
                                                                         <option value="text">Text / String</option>
                                                                         <option value="number">Number</option>
+                                                                        <option value="select">Choice (Select)</option>
                                                                         <option value="textarea">Large Text (Textarea)</option>
                                                                         <option value="link">Link (a tab or web address)</option>
                                                                     </select>
                                                                 </div>
                                                                 {field.type === 'link' ? (
                                                                     <p className="text-xs text-slate-500 self-end pb-1.5">Whoever places the widget picks a tab of their view or a web address in its settings. The preview stands in tabs.</p>
+                                                                ) : field.type === 'select' ? (
+                                                                <div>
+                                                                    <label className="block text-xs font-medium text-slate-400 mb-1">Choices</label>
+                                                                    <input
+                                                                        value={(field.options || []).map(option => `${option.value}:${option.label}`).join(', ')}
+                                                                        onChange={e => {
+                                                                            markSettingTouched('configSchema');
+                                                                            const options = e.target.value.split(',').map(part => {
+                                                                                const [value, ...label] = part.trim().split(':');
+                                                                                return { value: value.trim(), label: (label.join(':').trim() || value.trim()) };
+                                                                            }).filter(option => option.value);
+                                                                            const newSchema = [...configSchema];
+                                                                            newSchema[index] = { ...field, options };
+                                                                            setConfigSchema(newSchema);
+                                                                        }}
+                                                                        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                                        placeholder="open:Open, closed:Closed"
+                                                                    />
+                                                                    <p className="text-xs text-slate-500 mt-1">Comma-separated value:label pairs.</p>
+                                                                    <label className="block text-xs font-medium text-slate-400 mt-2 mb-1">Default choice (Optional)</label>
+                                                                    <input
+                                                                        value={field.defaultValue || ''}
+                                                                        onChange={e => {
+                                                                            markSettingTouched('configSchema');
+                                                                            const newSchema = [...configSchema];
+                                                                            newSchema[index] = { ...field, defaultValue: e.target.value };
+                                                                            setConfigSchema(newSchema);
+                                                                        }}
+                                                                        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                                        placeholder="One of the values above"
+                                                                    />
+                                                                </div>
                                                                 ) : (
                                                                 <div>
                                                                     <label className="block text-xs font-medium text-slate-400 mb-1">Default Value (Optional)</label>
                                                                     <input
                                                                         value={field.defaultValue || ''}
                                                                         onChange={e => {
+                                                                            markSettingTouched('configSchema');
                                                                             const newSchema = [...configSchema];
                                                                             newSchema[index] = { ...field, defaultValue: e.target.value };
                                                                             setConfigSchema(newSchema);
@@ -2786,6 +2866,46 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                                 </div>
                                                                 )}
                                                             </div>
+                                                            {field.type !== 'link' && (
+                                                                <div className="grid grid-cols-2 gap-4 border-t border-slate-800 pt-3">
+                                                                    <label className="flex items-center gap-2 text-xs text-slate-300">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={!!field.required}
+                                                                            onChange={e => {
+                                                                                markSettingTouched('configSchema');
+                                                                                const newSchema = [...configSchema];
+                                                                                newSchema[index] = { ...field, required: e.target.checked };
+                                                                                setConfigSchema(newSchema);
+                                                                            }}
+                                                                            className="rounded border-slate-600 bg-slate-800 text-indigo-600"
+                                                                        />
+                                                                        Required
+                                                                    </label>
+                                                                    <input
+                                                                        value={field.placeholder || ''}
+                                                                        onChange={e => {
+                                                                            markSettingTouched('configSchema');
+                                                                            const newSchema = [...configSchema];
+                                                                            newSchema[index] = { ...field, placeholder: e.target.value };
+                                                                            setConfigSchema(newSchema);
+                                                                        }}
+                                                                        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                                        placeholder="Placeholder (optional)"
+                                                                    />
+                                                                    <input
+                                                                        value={field.helpText || ''}
+                                                                        onChange={e => {
+                                                                            markSettingTouched('configSchema');
+                                                                            const newSchema = [...configSchema];
+                                                                            newSchema[index] = { ...field, helpText: e.target.value };
+                                                                            setConfigSchema(newSchema);
+                                                                        }}
+                                                                        className="col-span-2 w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                                        placeholder="Help shown under this field (optional)"
+                                                                    />
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     ))}
                                                 </div>

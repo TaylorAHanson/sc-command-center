@@ -151,7 +151,7 @@ def run(store, fn, *args, user=ME, perms=None, editor_of=(), certified_only=Fals
     """Call a route with the database, identity, permissions and settings faked."""
     perms = perms or NOBODY
 
-    def require_editor(_w, domain, _env="dev"):
+    def require_editor(_w, domain):
         if not (perms.get("is_admin") or domain in editor_of):
             raise HTTPException(status_code=403, detail=f"Forbidden: Editor required for '{domain}'")
         return True
@@ -159,7 +159,7 @@ def run(store, fn, *args, user=ME, perms=None, editor_of=(), certified_only=Fals
     patches = [
         (apps, "get_db_connection", lambda _env: FakeConn(store)),
         (apps, "_get_current_username", lambda _w: user),
-        (apps, "_get_user_permissions", lambda _w, _env: perms),
+        (apps, "_get_user_permissions", lambda _w: perms),
         (apps, "require_domain_editor", require_editor),
         (app_store, "require_domain_editor", require_editor),
         (settings_store, "get_bool_setting", lambda key, *a, **k: certified_only if key == "require_certified_for_global_views" else False),

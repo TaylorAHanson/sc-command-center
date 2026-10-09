@@ -3,6 +3,7 @@ import { useDashboardContext, buildContextPreamble, type DashboardContext } from
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
 import { DEFAULT_AGENT_NAME, pinnedAgentOf } from '../store/appSpec';
 import { useChatUploads } from './useChatUploads';
+import { getContentEnv } from '../contentEnv';
 
 export type { Attachment } from './useChatUploads';
 
@@ -104,7 +105,7 @@ const GREETING: AgentMessage = {
 // database (so it survives a reload, and so uploaded files have an owner); this
 // only remembers where to reopen, since "most recently updated" is not always the
 // one they were reading.
-const CONVERSATION_KEY = 'sccc-agent-conversation';
+const conversationKey = () => `sccc-agent-conversation:${getContentEnv()}`;
 
 const newConversationId = (): string =>
     'conv-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-6);
@@ -115,7 +116,7 @@ const newTurnId = (): string =>
 const MAX_PREFILL_CHARS = 4000;
 
 const rememberConversation = (id: string) => {
-    try { localStorage.setItem(CONVERSATION_KEY, id); } catch { /* private browsing */ }
+    try { localStorage.setItem(conversationKey(), id); } catch { /* private browsing */ }
 };
 
 /**
@@ -311,7 +312,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         (async () => {
             try {
                 let remembered = '';
-                try { remembered = localStorage.getItem(CONVERSATION_KEY) || ''; } catch { /* private browsing */ }
+                try { remembered = localStorage.getItem(conversationKey()) || ''; } catch { /* private browsing */ }
                 const [list, opened] = await Promise.all([
                     refreshConversations(),
                     remembered ? openConversation(remembered, { yieldToUser: true }) : Promise.resolve(false),

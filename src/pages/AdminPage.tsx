@@ -9,6 +9,8 @@ import { DataMigration } from './admin/DataMigration';
 import clsx from 'clsx';
 import { List, Shield, Layers, LayoutGrid, Sliders, Tag, ArrowRightLeft } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
+import { CONTENT_ENV_LABELS } from '../contentEnv';
+import { useContentEnv } from '../hooks/useContentEnv';
 
 interface AdminPageProps {
     onNavigate: (page: string | null) => void;
@@ -21,13 +23,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     // Domain admins reach this page too, but the settings are deployment-wide, so
     // the tab is hidden for them rather than answering 403 when they open it.
     const { isAdmin } = useDashboardStore();
+    const [contentEnv] = useContentEnv();
 
     return (
         <div className="flex flex-col h-full bg-gray-50">
             {/* Top Navigation Bar */}
             <div className="bg-white border-b border-gray-200">
                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                    <h1 className="text-xl font-bold text-gray-900">Admin Panel</h1>
+                    <div>
+                        <h1 className="text-xl font-bold text-gray-900">Admin Panel</h1>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Categories, domains and action logs are for the <span className="font-semibold">{CONTENT_ENV_LABELS[contentEnv]}</span> workspace. Role mappings and settings apply to the whole app; widget and view promotion lists all three.
+                        </p>
+                    </div>
                 </div>
                 <div className="flex px-4 py-2 space-x-2 overflow-x-auto">
                     <button

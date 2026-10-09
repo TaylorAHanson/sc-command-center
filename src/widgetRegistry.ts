@@ -341,6 +341,18 @@ const registerRows = async (url: string) => {
  * pays for them.
  */
 let snapshotsLoaded = false;
+
+/** Drop every loaded widget. Switching workspaces would otherwise keep Prod's
+ * tiles next to Dev's, and compile the wrong source for a reused id@version. */
+export const resetWidgetRegistry = () => {
+  for (const key of Object.keys(widgetRegistry)) delete widgetRegistry[key];
+  compiled.clear();
+  inFlight.clear();
+  snapshotsLoaded = false;
+  isRegistryLoading = true;
+  announce();
+};
+
 export const loadWidgetSnapshots = async () => {
   if (snapshotsLoaded) return;
   snapshotsLoaded = true;

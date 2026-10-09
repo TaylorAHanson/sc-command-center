@@ -8,12 +8,24 @@ from database import get_db_connection
 from middleware.auth import get_db_client, get_user_token
 from databricks.sdk import WorkspaceClient
 from services import caller_identity
+from services.settings_store import settings_env
 
 router = APIRouter()
 
 #: Domain names that mean "every domain" to the permission check. They are
 #: meaningful as a mapping's domain without being taxonomy entries.
 GLOBAL_DOMAINS = ("global", "all", "app")
+
+
+def roles_env() -> str:
+    """The env whose schema holds `role_mappings`, whatever env a request is in.
+
+    Who may do what is a property of the deployment, not of a workspace: someone
+    who is an Editor is one in Dev, Test and Prod alike. So mappings live in the
+    one schema deployment-wide settings already do (`APP_SETTINGS_ENV`), and the
+    `env` a route works in only picks the content it reads, never the access.
+    """
+    return settings_env()
 
 
 def _permissions_disabled() -> bool:
@@ -100,12 +112,12 @@ def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"
     try:
         # TEMPORARY demo kill-switch: expose every known domain to everyone.
         if _permissions_disabled():
-            conn = get_db_connection(env)
-            c = conn.cursor()
             domains = {"General"}
-            for query, col in (("SELECT name FROM widget_domains", "name"),
-                               ("SELECT DISTINCT domain FROM role_mappings", "domain")):
+            for source_env, query, col in ((env, "SELECT name FROM widget_domains", "name"),
+                                           (roles_env(), "SELECT DISTINCT domain FROM role_mappings", "domain")):
+                conn = get_db_connection(source_env)
                 try:
+                    c = conn.cursor()
                     c.execute(query)
                     for row in c.fetchall():
                         val = row[col] if hasattr(row, "keys") else row[0]
@@ -113,7 +125,8 @@ def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"
                             domains.add(val)
                 except Exception:
                     pass
-            conn.close()
+                finally:
+                    conn.close()
             return {"domains": sorted(domains)}
 
         username = _get_current_username(w)
@@ -122,7 +135,7 @@ def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"
         # Include username as a role for exact-user mappings (e.g. mapping specifically jane.doe@example.com to a domain)
         user_entitlements.append(username)
         
-        conn = get_db_connection(env)
+        conn = get_db_connection(roles_env())
         c = conn.cursor()
         
         c.execute("SELECT DISTINCT domain, external_role FROM role_mappings")
@@ -144,8 +157,8 @@ def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"
         print(f"Error fetching my domains: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-def _get_user_permissions(w: WorkspaceClient, env: str) -> dict:
-    """The caller's identity and what they may do.
+def _get_user_permissions(w: WorkspaceClient) -> dict:
+    """The caller's identity and what they may do, in every workspace alike.
 
     Whose identity this is matters beyond access control: it's the `username` the
     frontend holds, so it ends up stamped on views, on widgets, and in whatever a
@@ -166,7 +179,7 @@ def _get_user_permissions(w: WorkspaceClient, env: str) -> dict:
     user_entitlements = get_user_entitlements(w)
     user_entitlements.append(username)
     
-    conn = get_db_connection(env)
+    conn = get_db_connection(roles_env())
     c = conn.cursor()
     
     format_strings = ','.join(['%s'] * len(user_entitlements))
@@ -201,14 +214,14 @@ def _get_user_permissions(w: WorkspaceClient, env: str) -> dict:
         "domain_permissions": domain_permissions
     }
 
-def require_global_admin(w: WorkspaceClient, env: str = "dev"):
-    perms = _get_user_permissions(w, env)
+def require_global_admin(w: WorkspaceClient):
+    perms = _get_user_permissions(w)
     if not perms.get("is_admin"):
         raise HTTPException(status_code=403, detail="Forbidden: Global Admin access required")
     return True
 
-def require_domain_editor(w: WorkspaceClient, domain: str, env: str = "dev"):
-    perms = _get_user_permissions(w, env)
+def require_domain_editor(w: WorkspaceClient, domain: str):
+    perms = _get_user_permissions(w)
     if perms.get("is_admin"):
         return True
     domain_perm = perms.get("domain_permissions", {}).get(domain, "none")
@@ -216,8 +229,8 @@ def require_domain_editor(w: WorkspaceClient, domain: str, env: str = "dev"):
         raise HTTPException(status_code=403, detail=f"Forbidden: Editor or Admin access required for domain '{domain}'")
     return True
 
-def require_domain_admin(w: WorkspaceClient, domain: str, env: str = "dev"):
-    perms = _get_user_permissions(w, env)
+def require_domain_admin(w: WorkspaceClient, domain: str):
+    perms = _get_user_permissions(w)
     if perms.get("is_admin"):
         return True
     domain_perm = perms.get("domain_permissions", {}).get(domain, "none")
@@ -225,8 +238,8 @@ def require_domain_admin(w: WorkspaceClient, domain: str, env: str = "dev"):
         raise HTTPException(status_code=403, detail=f"Forbidden: Admin access required for domain '{domain}'")
     return True
 
-def require_domain_viewer(w: WorkspaceClient, domain: str, env: str = "dev"):
-    perms = _get_user_permissions(w, env)
+def require_domain_viewer(w: WorkspaceClient, domain: str):
+    perms = _get_user_permissions(w)
     if perms.get("is_admin"):
         return True
     domain_perm = perms.get("domain_permissions", {}).get(domain, "none")
@@ -235,31 +248,48 @@ def require_domain_viewer(w: WorkspaceClient, domain: str, env: str = "dev"):
     return True
 
 @router.get("/my-permissions")
-def get_my_permissions(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def get_my_permissions(w: WorkspaceClient = Depends(get_db_client)):
     """
-    Returns the user's detailed permission structure.
+    Returns the user's detailed permission structure, the same in every workspace.
     {
       "is_admin": bool, # true if they have 'admin' on 'Global' or 'All'
       "domain_permissions": { "DomainName": "admin" | "editor" | "viewer" }
     }
     """
     try:
-        return _get_user_permissions(w, env)
+        return _get_user_permissions(w)
     except Exception as e:
         print(f"Error fetching my permissions: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-def _known_domains(c) -> set:
-    c.execute("SELECT name FROM widget_domains")
-    return {(row["name"] if hasattr(row, "keys") else row[0]) for row in c.fetchall()}
+def _known_domains() -> set:
+    """Domains in any workspace's taxonomy.
+
+    The taxonomy is still kept per workspace, while a mapping applies to all of
+    them, so a domain that so far exists only in one of them is still one a
+    widget can be filed under there.
+    """
+    names = set()
+    for env in ("dev", "test", "prod"):
+        conn = get_db_connection(env)
+        try:
+            c = conn.cursor()
+            c.execute("SELECT name FROM widget_domains")
+            names.update(row["name"] if hasattr(row, "keys") else row[0] for row in c.fetchall())
+        except Exception as e:  # noqa: BLE001 - a workspace not yet initialized names nothing
+            print(f"Could not read domains in {env}: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+    return names
 
 
-def _validate_mapping(c, mapping: RoleMappingCreate, previous: Dict[str, Any] = None) -> None:
+def _validate_mapping(mapping: RoleMappingCreate, previous: Dict[str, Any] = None) -> None:
     """Refuse a mapping that could never grant anything.
 
-    A domain that isn't in the taxonomy is one no widget or view can be filed
-    under, so it grants nothing; the form picks from the taxonomy and this is the
-    same check where it can't be skipped.
+    A domain that isn't in any workspace's taxonomy is one no widget or view can
+    be filed under, so it grants nothing; the form picks from the taxonomy and
+    this is the same check where it can't be skipped.
 
     The group or user name is taken as typed. Checking it would mean listing
     workspace groups, which a deployed app can't do as the signed-in admin:
@@ -279,7 +309,7 @@ def _validate_mapping(c, mapping: RoleMappingCreate, previous: Dict[str, Any] = 
     if not role or not domain:
         raise HTTPException(status_code=400, detail="External role and domain are both required.")
     if domain != previous.get("domain") and domain.lower() not in GLOBAL_DOMAINS:
-        if domain not in _known_domains(c):
+        if domain not in _known_domains():
             raise HTTPException(
                 status_code=400,
                 detail=(f"'{domain}' is not a domain. Add it under Categories & Domains first, "
@@ -288,9 +318,9 @@ def _validate_mapping(c, mapping: RoleMappingCreate, previous: Dict[str, Any] = 
 
 
 @router.get("/mapping")
-def get_role_mappings(env: str = "dev"):
+def get_role_mappings():
     try:
-        conn = get_db_connection(env)
+        conn = get_db_connection(roles_env())
         c = conn.cursor(cursor_factory=RealDictCursor)
         
         c.execute("SELECT id, external_role, domain, permission_level, timestamp FROM role_mappings ORDER BY domain, external_role")
@@ -304,19 +334,15 @@ def get_role_mappings(env: str = "dev"):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/mapping")
-def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
+def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client)):
+    require_global_admin(w)
+    mapping = RoleMappingCreate(external_role=mapping.external_role.strip(),
+                                domain=mapping.domain.strip(),
+                                permission_level=mapping.permission_level)
+    _validate_mapping(mapping)
     try:
-        conn = get_db_connection(env)
+        conn = get_db_connection(roles_env())
         c = conn.cursor(cursor_factory=RealDictCursor)
-        mapping = RoleMappingCreate(external_role=mapping.external_role.strip(),
-                                    domain=mapping.domain.strip(),
-                                    permission_level=mapping.permission_level)
-        try:
-            _validate_mapping(c, mapping)
-        except HTTPException:
-            conn.close()
-            raise
 
         # Check if exists
         c.execute("SELECT id FROM role_mappings WHERE external_role = %s AND domain = %s AND permission_level = %s", 
@@ -346,10 +372,10 @@ def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = Depends
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/mapping/{mapping_id}")
-def delete_role_mapping(mapping_id: int, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
+def delete_role_mapping(mapping_id: int, w: WorkspaceClient = Depends(get_db_client)):
+    require_global_admin(w)
     try:
-        conn = get_db_connection(env)
+        conn = get_db_connection(roles_env())
         c = conn.cursor()
         
         c.execute("DELETE FROM role_mappings WHERE id = %s", (mapping_id,))
@@ -372,10 +398,10 @@ def delete_role_mapping(mapping_id: int, w: WorkspaceClient = Depends(get_db_cli
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/mapping/{mapping_id}")
-def update_role_mapping(mapping_id: int, mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    require_global_admin(w, env)
+def update_role_mapping(mapping_id: int, mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client)):
+    require_global_admin(w)
     try:
-        conn = get_db_connection(env)
+        conn = get_db_connection(roles_env())
         c = conn.cursor(cursor_factory=RealDictCursor)
         mapping = RoleMappingCreate(external_role=mapping.external_role.strip(),
                                     domain=mapping.domain.strip(),
@@ -386,7 +412,7 @@ def update_role_mapping(mapping_id: int, mapping: RoleMappingCreate, w: Workspac
             conn.close()
             raise HTTPException(status_code=404, detail="Role mapping not found")
         try:
-            _validate_mapping(c, mapping, dict(previous))
+            _validate_mapping(mapping, dict(previous))
         except HTTPException:
             conn.close()
             raise

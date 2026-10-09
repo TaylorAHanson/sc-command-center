@@ -52,7 +52,7 @@ def get_custom_widgets(w: WorkspaceClient = Depends(get_db_client), env: str = "
     `/custom/snapshots` when the library is opened, which is the only place they're
     shown; here they'd be paid for on every page load by everyone.
     """
-    perms = _get_user_permissions(w, env)
+    perms = _get_user_permissions(w)
 
     conn = get_db_connection(env)
     try:
@@ -107,7 +107,7 @@ def get_widget_snapshots(w: WorkspaceClient = Depends(get_db_client), env: str =
     base64 PNG per widget — and the only place they are shown is the Widget
     Library, which most sessions never open.
     """
-    perms = _get_user_permissions(w, env)
+    perms = _get_user_permissions(w)
 
     conn = get_db_connection(env)
     c = conn.cursor()
@@ -133,7 +133,7 @@ def _require_visible(w: WorkspaceClient, env: str, domain: Optional[str]) -> Non
     without this anyone holding an id could read another domain's code and
     promotion state in any env.
     """
-    if not _visible([{"domain": domain}], _get_user_permissions(w, env)):
+    if not _visible([{"domain": domain}], _get_user_permissions(w)):
         raise HTTPException(status_code=403, detail=f"You don't have access to this widget in {env}.")
 
 
@@ -228,7 +228,7 @@ def _reject_unsafe(tsx_code, data_source, data_source_type, is_executable, conn=
 @router.post("/custom")
 def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
     domain = widget.get("domain", "General")
-    require_domain_editor(w, domain, env)
+    require_domain_editor(w, domain)
     
     conn = get_db_connection(env)
     c = conn.cursor()
@@ -300,12 +300,12 @@ def update_custom_widget(widget_id: str, widget: dict, w: WorkspaceClient = Depe
         existing_domain = row[2]
     
     # Must be an editor of the existing domain
-    require_domain_editor(w, existing_domain, env)
+    require_domain_editor(w, existing_domain)
     
     new_domain = widget.get("domain", "General")
     if new_domain != existing_domain:
         # Must also be an editor of the new domain if changing
-        require_domain_editor(w, new_domain, env)
+        require_domain_editor(w, new_domain)
 
     name = widget.get("name")
     tsx_code = widget.get("tsx_code")
@@ -409,7 +409,7 @@ def claim_custom_widget(widget_id: str, w: WorkspaceClient = Depends(get_db_clie
             raise HTTPException(status_code=409, detail=f"{owner} is already credited with this widget.")
 
         # Claiming credit in a domain you couldn't publish to isn't yours to do.
-        require_domain_editor(w, domain or "General", env)
+        require_domain_editor(w, domain or "General")
 
         # Every version, because no version ever held a real name: this is filling
         # in a blank rather than rewriting history. The condition repeats the

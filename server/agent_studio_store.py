@@ -423,7 +423,7 @@ class AgentStudioStore:
         except Exception:  # noqa: BLE001
             username = "unknown"
         try:
-            perms = _get_user_permissions(client, env)
+            perms = _get_user_permissions(client)
         except Exception as exc:  # noqa: BLE001
             logger.warning("agent perms lookup failed: %s", exc)
             perms = {"is_admin": False, "domain_permissions": {}}

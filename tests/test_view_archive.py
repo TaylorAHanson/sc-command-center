@@ -95,7 +95,7 @@ def run(store, fn, *args, editor=True, perms=None, **kwargs):
     saved = (apps.get_db_connection, apps._get_current_username,
              apps.require_domain_editor, apps._get_user_permissions)
 
-    def deny(_w, domain, _env="dev"):
+    def deny(_w, domain):
         if not editor:
             raise HTTPException(status_code=403, detail=f"Forbidden: Editor required for '{domain}'")
         return True
@@ -103,7 +103,7 @@ def run(store, fn, *args, editor=True, perms=None, **kwargs):
     apps.get_db_connection = lambda _env: store.conn
     apps._get_current_username = lambda _w: ME
     apps.require_domain_editor = deny
-    apps._get_user_permissions = lambda _w, _env: perms or {"is_admin": False, "domain_permissions": {}}
+    apps._get_user_permissions = lambda _w: perms or {"is_admin": False, "domain_permissions": {}}
     try:
         return fn(*args, w=None, env="dev", **kwargs)
     finally:

@@ -133,6 +133,16 @@ widget and you edit three files: `src/pages/UserGuidePage.tsx` for humans,
 
 ## Environments and the database model
 
+Two different "environments" must not be collapsed:
+
+- **Physical** (`APP_ENVIRONMENT`, bundle target): which Databricks App this is
+  (`local` / `dev` / `stage` / `prod`). Our Dev app is a real Dev deploy.
+- **Workspace** (request `env`, schemas `dev` / `test` / `prod`): authored
+  widgets, views and agents *inside that app*. The sidebar **Workspace**
+  switcher sets it (Dev/Test need Editor or Admin; last choice is remembered
+  per person). Promotion copies between those schemas. In production those
+  three workspaces are for the people using that app.
+
 The app takes an `env` parameter per request (`"dev"` default) and picks storage
 from it, so a single deployment can address `dev` / `test` / `prod`. Startup
 initializes all three:
@@ -199,8 +209,8 @@ Frequently relevant env vars: `DATABRICKS_HOST` / `DATABRICKS_CLIENT_ID` /
 agent; `false` forwards to the external consolidated agent at
 `CONSOLIDATED_AGENT_URL`), the `AGENT_RUNTIME_*` family (model, auth mode, step
 cap, Genie polling), the `AGENT_STUDIO_*` family (authoring model, MCP servers,
-sandbox limits), `APP_SETTINGS_ENV` (which schema holds `app_settings`; settings
-are deployment-global, not per-env), `APP_BRAND` (the brand name older widgets
+sandbox limits), `APP_SETTINGS_ENV` (which schema holds `app_settings` and
+`role_mappings`; both are deployment-global, not per-env), `APP_BRAND` (the brand name older widgets
 use in colour classes, from `var.brand`; `brand` here, a customer's own name in
 their copy — see `src/AGENTS.md`), and `DISABLE_PERMISSION_CHECKS`.
 

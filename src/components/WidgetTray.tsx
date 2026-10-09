@@ -258,13 +258,17 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
     if (!activeApp || !activeAppTab) return;
     const appId = activeApp.id;
     const tabId = activeAppTab.id;
+    const defaults: Record<string, any> = { ...(widget.defaultProps || {}) };
+    widget.configSchema?.forEach(field => {
+      if (field.defaultValue !== undefined) defaults[field.key] = field.defaultValue;
+    });
 
     if (widget.configurationMode === 'config_required') {
       openConfigModal(widget.id, (config) => {
-        addWidget(appId, tabId, widget.id, undefined, config);
+        addWidget(appId, tabId, widget.id, undefined, { ...defaults, ...config });
       });
     } else {
-      addWidget(appId, tabId, widget.id);
+      addWidget(appId, tabId, widget.id, undefined, defaults);
     }
   };
 

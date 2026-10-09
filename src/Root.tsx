@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import App from './App';
 import { AppShell } from './components/AppShell';
+import { CONTENT_ENV_LABELS, dismissRefusedWorkspace, resolveWorkspace, type ContentEnv } from './contentEnv';
+import { useContentEnv, useWorkspaceAccess } from './hooks/useContentEnv';
 import { DashboardProvider } from './store/dashboardStore';
 import {
   appHash, isStandalone, parseAppRoute, refersTo, resolvedRoute, routeTab, withoutRouteParams, type AppRoute,
@@ -47,6 +49,9 @@ const goTo = (hash: string, replace = false) => {
  * that opens on its own never flashes the workspace's sidebar first.
  */
 export const Root = () => {
+  const [contentEnv] = useContentEnv();
+  const { resolved, refused } = useWorkspaceAccess();
+  useEffect(() => { resolveWorkspace(); }, []);
   const [showing, setShowing] = useState<Showing>(() => (linkedRoute() ? { kind: 'resolving' } : { kind: 'workspace' }));
   // Only the newest navigation lands: a slow read for a link someone has since
   // moved on from must not take the page back to it.
@@ -75,11 +80,13 @@ export const Root = () => {
     });
   }, [standalone]);
 
+  // The app a link names is read from the workspace the link opens, so this
+  // waits for that to be settled.
   useEffect(() => {
-    if (showing.kind === 'resolving' && navigation.current === 0) follow(linkedRoute());
+    if (resolved && showing.kind === 'resolving' && navigation.current === 0) follow(linkedRoute());
     // Only the address the page loaded with; later ones arrive as hash changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [resolved]);
 
   // The workspace follows its own hash changes, and so does an app on its own
   // moving between its tabs. Otherwise any address but one to a standalone app —
@@ -115,22 +122,39 @@ export const Root = () => {
     previewing,
   }), [standalone, previewing]);
 
+  if (!resolved) return <Opening />;
+
   return (
     <ShellContext.Provider value={shell}>
+      {refused && <RefusedWorkspace workspace={refused} />}
       {showing.kind === 'resolving' && <Opening />}
       {showing.kind === 'workspace' && (
-        <DashboardProvider key="workspace">
+        <DashboardProvider key={`workspace-${contentEnv}`}>
           <App />
         </DashboardProvider>
       )}
       {showing.kind === 'standalone' && (
-        <DashboardProvider key={`app-${showing.opened}`} standalone={showing}>
+        <DashboardProvider key={`app-${showing.opened}-${contentEnv}`} standalone={showing}>
           <AppShell />
         </DashboardProvider>
       )}
     </ShellContext.Provider>
   );
 };
+
+const RefusedWorkspace = ({ workspace }: { workspace: ContentEnv }) => (
+  <div
+    role="status"
+    className="fixed top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 max-w-lg px-4 py-2 rounded-lg shadow-lg bg-amber-50 border border-amber-200 text-sm text-amber-900"
+  >
+    <span>
+      This link opens the <strong>{CONTENT_ENV_LABELS[workspace]}</strong> workspace, which needs Editor or Admin on a domain. You're seeing <strong>Prod</strong>.
+    </span>
+    <button onClick={dismissRefusedWorkspace} className="shrink-0 font-medium text-amber-800 hover:text-amber-950">
+      Dismiss
+    </button>
+  </div>
+);
 
 const Opening = () => (
   <div className="h-screen flex items-center justify-center bg-gray-50" role="status" aria-label="Opening">

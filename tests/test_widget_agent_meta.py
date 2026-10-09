@@ -67,6 +67,65 @@ def test_keeps_only_well_formed_links():
     assert "links" not in meta
 
 
+def test_extracts_configuration_mode_and_sanitized_parameter_fields():
+    meta, _ = _extract_meta(_response(
+        """{
+          "configurationMode": "config_required",
+          "configSchema": [
+            {"key": "catalogName", "label": "Catalog", "type": "text", "required": true,
+             "placeholder": "main", "helpText": "Set this in each workspace."},
+            {"key": "lateAfterDays", "label": "Late after", "type": "number", "defaultValue": 7},
+            {"key": "status", "label": "Status", "type": "select", "defaultValue": "open",
+             "options": [{"value": "open", "label": "Open"}, {"value": "closed", "label": "Closed"}]}
+          ]
+        }"""
+    ), _req())
+    assert meta["configurationMode"] == "config_required"
+    assert meta["configSchema"] == [
+        {
+            "key": "catalogName", "label": "Catalog", "type": "text",
+            "required": True, "placeholder": "main",
+            "helpText": "Set this in each workspace.",
+        },
+        {"key": "lateAfterDays", "label": "Late after", "type": "number", "defaultValue": 7},
+        {
+            "key": "status", "label": "Status", "type": "select",
+            "options": [{"value": "open", "label": "Open"}, {"value": "closed", "label": "Closed"}],
+            "defaultValue": "open",
+        },
+    ]
+
+
+def test_rejects_unsafe_parameter_fields_and_makes_a_schema_visible():
+    meta, _ = _extract_meta(_response(
+        """{
+          "configurationMode": "none",
+          "configSchema": [
+            {"key": "dataSource", "label": "Override", "type": "text"},
+            {"key": "has space", "label": "Bad", "type": "text"},
+            {"key": "region", "label": "Region", "type": "select", "options": []},
+            {"key": "threshold", "label": "Threshold", "type": "number", "defaultValue": "ten"},
+            {"key": "title", "label": "Title", "type": "text", "defaultValue": "Orders"}
+          ]
+        }"""
+    ), _req())
+    assert meta == {
+        "configurationMode": "config_allowed",
+        "configSchema": [
+            {"key": "threshold", "label": "Threshold", "type": "number"},
+            {"key": "title", "label": "Title", "type": "text", "defaultValue": "Orders"},
+        ],
+    }
+
+
+def test_user_lock_can_keep_configuration_unchanged():
+    req = _req(locked_settings=["configurationMode", "configSchema"])
+    meta, _ = _extract_meta(_response(
+        '{"configurationMode": "config_required", "configSchema": [{"key": "region", "label": "Region", "type": "text"}]}'
+    ), req)
+    assert meta == {}
+
+
 def test_survives_a_malformed_or_absent_block():
     meta, remainder = _extract_meta(_response("{not json at all"), _req())
     assert meta == {}
@@ -84,6 +143,9 @@ if __name__ == "__main__":
         test_drops_settings_the_user_already_owns,
         test_range_checks_dimensions_and_refuses_a_non_boolean_flag,
         test_keeps_only_well_formed_links,
+        test_extracts_configuration_mode_and_sanitized_parameter_fields,
+        test_rejects_unsafe_parameter_fields_and_makes_a_schema_visible,
+        test_user_lock_can_keep_configuration_unchanged,
         test_survives_a_malformed_or_absent_block,
     ]
     for test in tests:

@@ -13,6 +13,8 @@ import { getEnvironmentBadge } from '../api';
 import { useShell } from '../shell';
 import { DashboardGrid } from './DashboardGrid';
 import { AgentDrawer } from './AgentDrawer';
+import { CONTENT_ENV_LABELS } from '../contentEnv';
+import { useContentEnv } from '../hooks/useContentEnv';
 
 const copyText = async (text: string) => {
   try {
@@ -77,6 +79,7 @@ const useTheme = (theme: AppTheme | null | undefined) => {
 export const AppShell: React.FC = () => {
   const { activeApp, activeAppTab, isAdmin, username, canEditApp, generateShareLink, openRoute } = useDashboardStore();
   const shell = useShell();
+  const [workspace] = useContentEnv();
   const agentChat = useAgentChat();
   const [isAgentOpen, setAgentOpen] = useState(false);
   const assistantDoor = useAssistantDoorFor(agentChat.prefill, setAgentOpen, activeApp?.spec.assistant !== 'off');
@@ -130,7 +133,9 @@ export const AppShell: React.FC = () => {
   // dark color, which belongs to the header, doesn't apply to them there.
   const dark = header && darkBars(activeApp);
   const canEdit = canEditApp(activeApp);
-  const hasControls = Boolean(badge) || shell.previewing || canShare || canEdit;
+  // Prod is what people using the app expect; only the other two are named.
+  const offProd = workspace !== 'prod';
+  const hasControls = Boolean(badge) || offProd || shell.previewing || canShare || canEdit;
   const headerButton = `flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${
     dark ? 'text-white/80 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-brand-blue hover:bg-gray-100'
   }`;
@@ -143,6 +148,16 @@ export const AppShell: React.FC = () => {
                 title={`This is the ${badge} deployment, not production`}
               >
                 {badge}
+              </span>
+            )}
+            {offProd && (
+              <span
+                className={`px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded shrink-0 ${
+                  workspace === 'test' ? 'bg-amber-500 text-white' : 'bg-sky-600 text-white'
+                }`}
+                title="This page shows the view as it is in this workspace, not as people using the app see it."
+              >
+                {CONTENT_ENV_LABELS[workspace]} workspace
               </span>
             )}
             {shell.previewing && (

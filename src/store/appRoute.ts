@@ -13,6 +13,7 @@
 // and a name alone could be guessed. A tab goes by its name where that is unique
 // in the app. A route read from an address holds those names until
 // `resolvedRoute` turns them into ids; everything past that works in ids.
+import { contentEnvSearch } from '../contentEnv';
 import { shownTab, type App, type AppTab } from './appSpec';
 
 export interface AppRoute {
@@ -142,7 +143,7 @@ export const routeTab = (app: App, tabRefOrId: string | null): string | null =>
 export const isStandalone = (app?: App | null): boolean => app?.spec?.presentation === 'standalone';
 
 export const appLink = (app: App, tabId?: string | null, widgetId?: string | null): string =>
-  `${window.location.origin}${window.location.pathname}${appHash(app, tabId, widgetId)}`;
+  `${window.location.origin}${window.location.pathname}${contentEnvSearch()}${appHash(app, tabId, widgetId)}`;
 
 /** The query string once a link has been read, so a reload doesn't act on it again. */
 export const withoutRouteParams = (search: string): string => {

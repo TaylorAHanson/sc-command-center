@@ -189,9 +189,91 @@ def _extract_next(content: str) -> tuple[List[Dict[str, str]], str]:
 # listed here is dropped rather than trusted.
 _META_TEXT_LIMITS = {"name": 120, "description": 600, "helpText": 2000}
 
-# A link's key becomes a `props.data` key and a settings field id.
+# A configuration field's key becomes a `props.data` key and a settings field id.
 _LINK_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 MAX_PROPOSED_LINKS = 12
+MAX_PROPOSED_CONFIG_FIELDS = 12
+_CONFIG_TYPES = {"text", "number", "select", "textarea"}
+_CONFIG_RESERVED_KEYS = {
+    "dataSource", "dataSourceType", "username", "variables", "setVariable",
+}
+
+
+def _short_text(value: Any, limit: int) -> Optional[str]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()[:limit]
+
+
+def _proposed_config(value: Any) -> List[Dict[str, Any]]:
+    """Validated dynamic inputs the model wants added to the widget's gear."""
+    if not isinstance(value, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    seen: set = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("key")
+        field_type = str(item.get("type") or "").strip().lower()
+        label = _short_text(item.get("label"), 60)
+        if (
+            not isinstance(key, str)
+            or not _LINK_KEY_RE.match(key)
+            or key in seen
+            or key in _CONFIG_RESERVED_KEYS
+            or field_type not in _CONFIG_TYPES
+            or not label
+        ):
+            continue
+
+        field: Dict[str, Any] = {"key": key, "label": label, "type": field_type}
+        if isinstance(item.get("required"), bool):
+            field["required"] = item["required"]
+        placeholder = _short_text(item.get("placeholder"), 120)
+        if placeholder:
+            field["placeholder"] = placeholder
+        help_text = _short_text(item.get("helpText"), 300)
+        if help_text:
+            field["helpText"] = help_text
+
+        if field_type == "select":
+            options: List[Dict[str, str]] = []
+            option_values: set = set()
+            raw_options = item.get("options")
+            if not isinstance(raw_options, list):
+                continue
+            for option in raw_options:
+                if not isinstance(option, dict):
+                    continue
+                option_value = _short_text(option.get("value"), 100)
+                option_label = _short_text(option.get("label"), 100)
+                if not option_value or not option_label or option_value in option_values:
+                    continue
+                option_values.add(option_value)
+                options.append({"value": option_value, "label": option_label})
+                if len(options) == 30:
+                    break
+            if not options:
+                continue
+            field["options"] = options
+            default = item.get("defaultValue")
+            if isinstance(default, str) and default in option_values:
+                field["defaultValue"] = default
+        elif field_type == "number":
+            default = item.get("defaultValue")
+            if isinstance(default, (int, float)) and not isinstance(default, bool):
+                field["defaultValue"] = default
+        else:
+            default = item.get("defaultValue")
+            if isinstance(default, str):
+                field["defaultValue"] = default[:500]
+
+        seen.add(key)
+        out.append(field)
+        if len(out) == MAX_PROPOSED_CONFIG_FIELDS:
+            break
+    return out
 
 
 def _proposed_links(value: Any) -> List[Dict[str, str]]:
@@ -272,13 +354,29 @@ def _extract_meta(content: str, req: GenerateRequest) -> tuple[Dict[str, Any], s
     if isinstance(raw.get("isExecutable"), bool):
         meta["isExecutable"] = raw["isExecutable"]
 
+    config_schema = _proposed_config(raw.get("configSchema"))
+    if config_schema:
+        meta["configSchema"] = config_schema
+
     links = _proposed_links(raw.get("links"))
     if links:
         meta["links"] = links
 
+    proposed_mode = raw.get("configurationMode")
+    has_fields = bool(config_schema or links or req.config_schema)
+    if proposed_mode in ("config_allowed", "config_required") and has_fields:
+        meta["configurationMode"] = proposed_mode
+    elif config_schema:
+        # A schema hidden behind "none" cannot be configured. Make a missing or
+        # contradictory mode useful while keeping "required" an explicit choice.
+        meta["configurationMode"] = "config_allowed"
+
     # The user's own choices win; don't even return a competing suggestion.
     for key in req.locked_settings:
         meta.pop(key, None)
+    if "configSchema" in req.locked_settings:
+        # `links` is shorthand for link-typed configSchema entries.
+        meta.pop("links", None)
 
     return meta, remainder
 
@@ -446,9 +544,18 @@ def _build_system_prompt(req: GenerateRequest) -> str:
         system_prompt += f"\n\nThe data source returns the following schema (use these exact field names in your component):\n```json\n{schema_str}\n```"
     system_prompt += _sample_section(req)
 
-    if req.configuration_mode != "none" and req.config_schema:
-        config_schema_str = json.dumps(req.config_schema, indent=2)
-        system_prompt += f"\n\nThe user has configured the following dynamic configuration inputs for this widget:\n```json\n{config_schema_str}\n```\nYou MUST expect these exact keys in `props.data` (e.g. `props.data.myKey`). Provide reasonable fallback values if they are undefined or empty. Do NOT hardcode colors/text if a dynamic config key exists for it."
+    config_schema_str = json.dumps(req.config_schema or [], indent=2)
+    system_prompt += (
+        "\n\nThe widget's current runtime-configuration state is:\n"
+        f"- `configurationMode`: `{req.configuration_mode or 'none'}`\n"
+        f"- `configSchema`:\n```json\n{config_schema_str}\n```\n"
+        "Every listed key arrives on `props.data` (for example, "
+        "`props.data.myKey`). Preserve and use existing keys exactly. If the "
+        "request adds a runtime parameter, add it to `configSchema` in the "
+        "`widget-meta` block and read that same key from `props.data` in the "
+        "component. Provide a sensible code fallback, but do not hardcode a "
+        "value when a configuration key already exists for it."
+    )
 
     system_prompt += "\n\nThe widget receives the current user's username via `props.data.username`. You can use this to personalize the widget or make user-specific API calls."
 

@@ -249,7 +249,7 @@ def require_certified_widgets(c, spec: Dict[str, Any], env: str) -> None:
 def require_may_edit(w, env: str, existing: Dict[str, Any], username: str) -> None:
     """Personal apps by their owner, global ones by an editor of their domain."""
     if existing["is_global"]:
-        require_domain_editor(w, existing.get("domain") or "General", env)
+        require_domain_editor(w, existing.get("domain") or "General")
     elif existing["username"] != username:
         raise HTTPException(status_code=403, detail="You can only edit your own views")
 
@@ -288,7 +288,7 @@ def save_version(
     # moving a global app to another domain, puts it in front of that domain's
     # users, which needs the same right as creating it there.
     if new_global and (not existing["is_global"] or (new_domain or "General") != (existing["domain"] or "General")):
-        require_domain_editor(w, new_domain or "General", env)
+        require_domain_editor(w, new_domain or "General")
 
     if spec is not None:
         try:

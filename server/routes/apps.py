@@ -94,7 +94,7 @@ def _public(row: Dict[str, Any], spec: Dict[str, Any], *, username: str, subscri
 
 
 def _caller(w: WorkspaceClient, env: str) -> Tuple[str, Dict[str, Any]]:
-    return _get_current_username(w), _get_user_permissions(w, env)
+    return _get_current_username(w), _get_user_permissions(w)
 
 
 def _require_readable(c, ref: str, username: str, perms: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], bool]:
@@ -170,7 +170,7 @@ def list_archived_apps(w: WorkspaceClient = Depends(get_db_client), env: str = "
     Limited to domains the caller edits: the archive is where an app goes to be
     forgotten, so it should not become a way to browse domains one can't see.
     """
-    perms = _get_user_permissions(w, env)
+    perms = _get_user_permissions(w)
     is_admin = perms.get("is_admin", False)
     domain_permissions = perms.get("domain_permissions", {})
 
@@ -310,7 +310,7 @@ def create_app(body: AppCreate, w: WorkspaceClient = Depends(get_db_client), env
     username = _get_current_username(w)
     domain = body.domain or "General"
     if body.is_global:
-        require_domain_editor(w, domain, env)
+        require_domain_editor(w, domain)
 
     app_id = body.id or str(uuid.uuid4())
     try:
@@ -502,7 +502,7 @@ def _global_app_for_editor(c, w, app_id: str, env: str) -> Dict[str, Any]:
             status_code=400,
             detail="Only global views are archived. Close a personal view to delete it.",
         )
-    require_domain_editor(w, app.get("domain") or "General", env)
+    require_domain_editor(w, app.get("domain") or "General")
     return app
 
 
@@ -565,7 +565,7 @@ def delete_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: st
             raise HTTPException(status_code=404, detail="View not found")
 
         if existing["is_global"]:
-            require_domain_editor(w, existing.get("domain") or "General", env)
+            require_domain_editor(w, existing.get("domain") or "General")
             # Deleting is the second step, after archiving: every version goes and
             # nothing brings them back, so a global app must first have been taken
             # out of circulation where someone could have noticed and said so.

@@ -77,7 +77,7 @@ def test_reading_a_widget_by_id_still_checks_its_domain():
     from routes import custom_widgets
 
     saved = custom_widgets._get_user_permissions
-    custom_widgets._get_user_permissions = lambda w, env: {
+    custom_widgets._get_user_permissions = lambda w: {
         "is_admin": False, "domain_permissions": {"Sales": "viewer"},
     }
     try:
@@ -214,7 +214,7 @@ class EnvConn:
 
 
 def promote(envs, fn, request, *, editor_of=("Sales",), certified_only=False):
-    def require_editor(_w, domain, _env="dev"):
+    def require_editor(_w, domain):
         if domain not in editor_of:
             raise HTTPException(status_code=403, detail=f"Forbidden: Editor required for '{domain}'")
         return True

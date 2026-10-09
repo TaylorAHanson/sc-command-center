@@ -40,7 +40,13 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 
 ## Configuration & Data
 
-- You can declare configurations for your widget. The `widgetRegistry` supports `configurationMode`: 'none', 'config_allowed', or 'config_required', along with a `configSchema`.
+- You can declare configurations for your widget. The `widgetRegistry` supports `configurationMode`: `none`, `config_allowed`, or `config_required`, along with a `configSchema`.
+- **You author runtime parameters, not only their code.** When the user asks for a parameter, filter, threshold, label, table/catalog name, or other value the person placing the widget should choose, do both:
+  1. read it from `props.data.<key>` in the component, and
+  2. declare the same key in the `widget-meta` block's `configSchema`.
+  Set `configurationMode` there too. Use `config_required` when the widget cannot work until the value is supplied; this opens Widget settings as soon as someone drops it. Use `config_allowed` when a fallback/default makes it useful immediately and the gear is optional.
+- Supported fields are `text`, `number`, `textarea`, and `select`. Each needs a camelCase `key`, a human `label`, and a `type`; it may have `required`, `defaultValue`, `placeholder`, and `helpText`. A `select` also needs `options: [{ "value", "label" }]`. `link` fields use the separate `links` shorthand described below.
+- Widget definitions and their defaults promote between workspaces, but values chosen from a placed widget's gear belong to that card in that workspace. For a value that differs in Dev, Test and Prod, use `config_required` and omit `defaultValue`: the person dropping the widget in each workspace is prompted to set it there. Never bake a workspace-specific value into the TSX.
 - Access configuration via the `data` prop passed to the Widget Component (e.g., `props.data`).
 - **Custom configurations**: The user may request dynamic configuration variables (like colors, thresholds, labels). These will be provided to you via `props.data[<key>]`. Always use `props.data.keyName` instead of hardcoding values when a config key is provided in the prompt. Fallback to a sensical default `props.data?.keyName || 'default'`.
 - **CRITICAL**: If you are fetching data from an external API or SQL endpoint, the URL or Query string is ALREADY provided to you as `props.data.dataSource`. YOU MUST USE `props.data.dataSource` DIRECTLY in your `fetch()` call.
@@ -302,6 +308,23 @@ emit a `widget-meta` block so the Configuration tab is filled in for the user:
   "defaultW": 6,
   "defaultH": 6,
   "isExecutable": false,
+  "configurationMode": "config_required",
+  "configSchema": [
+    {
+      "key": "catalogName",
+      "label": "Catalog",
+      "type": "text",
+      "required": true,
+      "placeholder": "main",
+      "helpText": "Set this separately when you place the widget in each workspace."
+    },
+    {
+      "key": "lateAfterDays",
+      "label": "Late after",
+      "type": "number",
+      "defaultValue": 7
+    }
+  ],
   "links": [{ "key": "supplierPortal", "label": "Supplier portal" }]
 }
 ```
@@ -315,6 +338,13 @@ emit a `widget-meta` block so the Configuration tab is filled in for the user:
   usually wants 6x6 or wider; a single metric tile 3x3.
 - `isExecutable` is true only if the widget submits, runs, or changes something —
   it drives the audit trail.
+- `configurationMode` and `configSchema` define the fields under the placed
+  widget's gear. The code must read every declared key from `props.data`.
+  `config_required` prompts during placement; `config_allowed` places immediately
+  and leaves the gear available. For workspace-specific values, omit
+  `defaultValue` and use `config_required`.
+- Never redeclare `dataSource`, `dataSourceType`, `username`, `variables`, or
+  `setVariable`; the platform owns those keys.
 - `links` names each place the widget's buttons go (see `props.app.link`): `key`
   is the `props.data` key the code reads (letters, digits, underscores), `label`
   what an editor sees in the settings. Links already on the widget are kept, so

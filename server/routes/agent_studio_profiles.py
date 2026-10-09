@@ -917,9 +917,9 @@ def _authorize_write(w: WorkspaceClient, visibility: str, domain: str, env: str)
     """
     vis = (visibility or VIS_PERSONAL).strip().lower()
     if vis == VIS_GLOBAL:
-        require_global_admin(w, env)
+        require_global_admin(w)
     elif vis == VIS_DOMAIN:
-        require_domain_editor(w, domain or DEFAULT_DOMAIN, env)
+        require_domain_editor(w, domain or DEFAULT_DOMAIN)
     # personal -> no domain role required
 
 
@@ -983,7 +983,7 @@ def save_profile(
         _authorize_write(w, existing.get("visibility") or VIS_PERSONAL, existing.get("domain") or DEFAULT_DOMAIN, env)
         # A personal agent can only be edited by its owner (unless global admin).
         if (existing.get("visibility") or VIS_PERSONAL) == VIS_PERSONAL and owner != me:
-            require_global_admin(w, env)
+            require_global_admin(w)
 
     # Authorize writing to the TARGET visibility/domain.
     _authorize_write(w, req.visibility, req.domain, env)
@@ -1030,7 +1030,7 @@ def delete_profile(
     # domain, global admin for global.
     _authorize_write(w, vis, existing.get("domain") or DEFAULT_DOMAIN, env)
     if vis == VIS_PERSONAL and (existing.get("username") or "") != me:
-        require_global_admin(w, env)
+        require_global_admin(w)
     try:
         store.delete_profile(profile_id, env=env)
     except AgentStudioError as exc:

@@ -100,8 +100,7 @@ def transfer_widget(request: TransferRequest, w: WorkspaceClient = Depends(get_d
     if not widget:
         raise HTTPException(status_code=404, detail=f"Widget not found in source environment ({request.source_env})")
 
-    # RBAC Enforcement: must be editor/admin in the target environment for this domain
-    require_domain_editor(w, widget.get('domain', 'General'), request.target_env)
+    require_domain_editor(w, widget.get('domain', 'General'))
 
     # Connect to the target environment to fetch the latest version there
     target_conn = get_db_connection(request.target_env)
@@ -139,7 +138,7 @@ def certify_widget(request: CertifyRequest, w: WorkspaceClient = Depends(get_db_
     row = c.fetchone()
     if row:
         domain = row['domain'] if hasattr(row, 'keys') else row[0]
-        require_domain_editor(w, domain, 'prod')
+        require_domain_editor(w, domain)
     
     c.execute("UPDATE widgets SET is_certified = 1 WHERE id = %s AND version = %s AND is_deprecated = 0", (request.widget_id, request.version))
         
@@ -271,9 +270,8 @@ def app_preflight(c_source, c_target, app: Dict[str, Any], *, require_certified:
     }
 
 
-def _require_promoter(w, app: Dict[str, Any], target_env: str) -> None:
-    # RBAC Enforcement: must be editor/admin in the target environment for this domain
-    require_domain_editor(w, app.get("domain") or "General", target_env)
+def _require_promoter(w, app: Dict[str, Any]) -> None:
+    require_domain_editor(w, app.get("domain") or "General")
 
 
 @router.post("/transfer_app/preflight")
@@ -290,7 +288,7 @@ def transfer_app_preflight(request: AppTransferRequest, w: WorkspaceClient = Dep
     try:
         c_source = source_conn.cursor()
         app = _source_app(c_source, request)
-        _require_promoter(w, app, request.target_env)
+        _require_promoter(w, app)
         target_conn = get_db_connection(request.target_env)
         found = app_preflight(
             c_source, target_conn.cursor(), app,
@@ -334,9 +332,9 @@ def transfer_app(request: AppTransferRequest, w: WorkspaceClient = Depends(get_d
     finally:
         source_conn.close()
 
-    _require_promoter(w, app, request.target_env)
+    _require_promoter(w, app)
     for widget in widgets:
-        require_domain_editor(w, widget.get("domain") or "General", request.target_env)
+        require_domain_editor(w, widget.get("domain") or "General")
 
     target_conn = get_db_connection(request.target_env)
     try:

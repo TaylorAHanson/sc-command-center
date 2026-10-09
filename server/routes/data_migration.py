@@ -67,18 +67,22 @@ def _source(env: str) -> Dict[str, Any]:
     }
 
 
+#: Tables kept once per deployment rather than once per workspace.
+DEPLOYMENT_TABLES = frozenset({"app_settings", "role_mappings"})
+
+
 def _partition(specs: List[dm.TableSpec], env: str) -> Dict[str, List[dm.TableSpec]]:
     """Which env's schema each table is read from or written to.
 
-    Settings are deployment-global and live in `APP_SETTINGS_ENV`'s schema whatever
-    env the rest of the data is in (see `settings_store`), so `app_settings` goes
-    wherever that is — otherwise an import would write settings into a schema
-    nothing reads them from.
+    Settings and role mappings are deployment-global and live in
+    `APP_SETTINGS_ENV`'s schema whatever env the rest of the data is in (see
+    `settings_store` and `roles.roles_env`), so they go wherever that is —
+    otherwise an import would write them into a schema nothing reads them from.
     """
     settings_env = settings_store.settings_env()
     out: Dict[str, List[dm.TableSpec]] = {}
     for spec in specs:
-        target = settings_env if spec.group == "settings" else env
+        target = settings_env if spec.name in DEPLOYMENT_TABLES else env
         out.setdefault(target, []).append(spec)
     return out
 
@@ -86,7 +90,7 @@ def _partition(specs: List[dm.TableSpec], env: str) -> Dict[str, List[dm.TableSp
 @router.get("/groups")
 def list_groups(env: str = "dev", w: WorkspaceClient = Depends(get_db_client)):
     env = _check_env(env)
-    require_global_admin(w, env)
+    require_global_admin(w)
     return {"groups": dm.GROUPS, "modes": list(dm.MODES), "this_app": _source(env)}
 
 
@@ -94,7 +98,7 @@ def list_groups(env: str = "dev", w: WorkspaceClient = Depends(get_db_client)):
 def summary(env: str = "dev", w: WorkspaceClient = Depends(get_db_client)):
     """What an export of `env` would contain, table by table."""
     env = _check_env(env)
-    require_global_admin(w, env)
+    require_global_admin(w)
     tables: List[Dict[str, Any]] = []
     for target, specs in _partition(dm.TABLES, env).items():
         conn = get_db_connection(target)
@@ -111,7 +115,7 @@ def summary(env: str = "dev", w: WorkspaceClient = Depends(get_db_client)):
 def export_snapshot(env: str = "dev", groups: Optional[str] = None,
                     w: WorkspaceClient = Depends(get_db_client)):
     env = _check_env(env)
-    require_global_admin(w, env)
+    require_global_admin(w)
     picked = _groups(groups)
     username = _get_current_username(w)
 
@@ -201,7 +205,7 @@ def import_snapshot(
     what an import would do, not a guess at it.
     """
     env = _check_env(env)
-    require_global_admin(w, env)
+    require_global_admin(w)
     if mode not in dm.MODES:
         raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(dm.MODES)}")
     snapshot = _read_snapshot(file)
@@ -222,7 +226,8 @@ def import_snapshot(
             connections.append(conn)
             cur = conn.cursor()
             report.extend(dm.import_tables(cur, snapshot["tables"], specs, mode))
-            if target == env and mode == "replace" and "access" in picked and not _still_admin(cur, w):
+            replaces_roles = mode == "replace" and any(s.name == "role_mappings" for s in specs)
+            if replaces_roles and not _still_admin(cur, w):
                 raise HTTPException(status_code=409, detail=(
                     "This import would replace the role mappings with ones that don't make you a "
                     "global admin, locking you out of this page. Add your group as a global admin "

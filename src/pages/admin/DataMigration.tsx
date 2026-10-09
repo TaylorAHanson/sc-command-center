@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowRightLeft, Download, FileUp, Loader2, RefreshCw, Upload } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from '../../components/ConfirmModal';
+import { getContentEnv } from '../../contentEnv';
 
 /**
  * Admin Panel → Data Migration. Moves a deployment's data to another app — dev's
@@ -50,7 +51,7 @@ export const DataMigration: React.FC = () => {
     const [loadError, setLoadError] = useState<string | null>(null);
 
     // --- export
-    const [exportEnv, setExportEnv] = useState<Env>('dev');
+    const [exportEnv, setExportEnv] = useState<Env>(getContentEnv);
     const [exportGroups, setExportGroups] = useState<string[]>([]);
     const [summary, setSummary] = useState<TableSummary[] | null>(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
@@ -59,7 +60,7 @@ export const DataMigration: React.FC = () => {
 
     // --- import
     const [file, setFile] = useState<File | null>(null);
-    const [importEnv, setImportEnv] = useState<Env>('dev');
+    const [importEnv, setImportEnv] = useState<Env>(getContentEnv);
     const [mode, setMode] = useState<Mode>('merge');
     const [importGroups, setImportGroups] = useState<string[]>([]);
     const [busy, setBusy] = useState<'preview' | 'import' | null>(null);

@@ -22,6 +22,20 @@
 
 # Release Notes
 
+## 1.15.0 — 2026-10-09
+
+### Added
+
+- **Switch Dev, Test and Prod in this app.** **Workspace** in the sidebar shows that workspace's widgets and views and reopens on the one you last chose; Dev and Test need Editor or Admin.
+- **Links open the workspace they were copied in.** Send a Test link to testers and a Prod link to users; without access to Dev or Test, a link opens Prod and says so.
+- **One set of permissions for the whole app.** A role mapping applies in Dev, Test and Prod alike, whichever workspace you had selected when adding it.
+- **Ask Widget Studio for runtime parameters.** The agent can add validated text, number, choice and long-text fields and make settings optional or required before placement.
+
+### Changed
+
+- **Save writes to the workspace you're in.** Widget Studio no longer always saves to Dev — pick Dev in **Workspace** to author, then promote.
+- **Widget settings are per workspace.** Required parameters open when a widget is dropped; use each promoted card's gear for values that differ in Dev, Test and Prod.
+
 ## 1.14.0 — 2026-10-05
 
 ### Added

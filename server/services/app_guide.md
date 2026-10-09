@@ -280,8 +280,11 @@ description.
    or to page in SQL.
 2. **The agent** — describe the widget in the chat and it writes the TSX. Asking
    for a change edits the existing code in place rather than rewriting the whole
-   component. After generating, it also proposes Configuration-tab values;
-   anything already filled in by hand is left alone. While it works, **Thinking**
+   component. After generating, it also proposes Configuration-tab values,
+   including runtime parameter fields and whether they are Allowed or Required.
+   A parameter it creates is read from `props.data` in the code as well as added
+   to the placed widget's gear. Existing fields are kept rather than redefined,
+   and anything filled in by hand during this studio session is left alone. While it works, **Thinking**
    can be expanded to see what it decided — how it read the request, the steps it
    planned, and anything it skipped — and that stays with the answer afterwards.
    On a large or vague request it may ask up to three questions first rather than
@@ -359,6 +362,14 @@ description.
    applied. **Stop after this step**, on multi-step builds, lets the current step
    finish first.
 
+**Parameters in Dev, Test and Prod.** Parameter values belong to the card placed
+in the current **Workspace**. For a catalog, schema, threshold or other value
+that differs between workspaces, ask the studio for a **Required** parameter
+without a default. Dropping the widget in each workspace opens **Widget
+settings** before it is placed; the card's gear changes it later. Promoting a
+whole view copies its card settings with the view, so open each promoted card's
+gear in the target workspace when those values must differ.
+
 Layout: only the agent settings sit above the chat. Everything about the widget
 is in the right-hand header — the tabs, then **History**, **Reload**,
 **Promote** (see *Environments and promoting work*), a **⋯** menu with *Import
@@ -382,11 +393,14 @@ Access is role-based, per domain, at three levels:
 | Level | Can do |
 | --- | --- |
 | Viewer | See and interact with that domain's global views and widgets |
-| Editor | Everything a Viewer can, plus create, edit, and reorganize the domain's widgets and global views, and promote, roll back and certify them in environments where they hold Editor |
+| Editor | Everything a Viewer can, plus create, edit, and reorganize the domain's widgets and global views, open the Dev and Test workspaces, and promote, roll back and certify |
 | Admin | Everything an Editor can, plus manage that domain's role mappings |
 
 Key rules:
 
+- **One set of permissions for the whole app.** There is no separate Dev, Test or
+  Prod permission: a mapping applies in every workspace, whichever one the admin
+  had selected when saving it.
 - **The highest level wins.** Permissions are additive: a user mapped to both
   Viewer and Editor on the same domain gets Editor. Being a Viewer on one domain
   never limits Editor rights on another.
@@ -421,8 +435,17 @@ and is granted in Databricks itself, not here.
 
 ## Environments and promoting work
 
-There are three environments — **Dev**, **Test**, and **Prod** — so
-work in progress cannot disrupt production users.
+Each Command Center **app** (the Databricks App you opened — our Dev, Stage or
+Prod deploy) has three **workspaces** — **Dev**, **Test**, and **Prod** — so
+work in progress cannot disrupt production users. Switch with **Workspace** in
+the sidebar; it reopens on the workspace you last chose. Opening Dev or Test
+needs Editor or Admin on a domain — without that, those buttons stay disabled
+and you remain on Prod. A copied link (Share, Copy link, or the address bar)
+carries `?env=` and opens the workspace it was copied in, so send Test
+links to testers and Prod links to users. Someone without Dev/Test access who
+opens such a link sees Prod and a note saying so. The amber badge in the tab title names the deploy, not the
+workspace. Our own Dev app is a real development deploy and still has all three
+workspaces; in production the three workspaces are for the people using that app.
 
 - Saving a widget in Dev increments its version, giving an immutable history.
 - Promote a widget from **Widget Studio** — the **Promote** button in its header
@@ -456,8 +479,9 @@ work in progress cannot disrupt production users.
   shows the status read-only.
 
 Promotion moves single widgets and views between Dev, Test and Prod *inside one
-app*. Moving everything to a different app — which has a database of its own — is
-**Moving data to another app**, below.
+app* (the workspace switcher). Moving everything to a different Command Center
+deploy — which has a database of its own — is **Moving data to another app**,
+below.
 
 ## Moving data to another app
 

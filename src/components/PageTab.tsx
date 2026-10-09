@@ -42,7 +42,7 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
     if (widget && !confirmed) { setConfirming({ kind: 'replace', type }); return; }
     const config: Record<string, unknown> = { ...(next.defaultProps || {}) };
     next.configSchema?.forEach(f => { if (f.defaultValue !== undefined) config[f.key] = f.defaultValue; });
-    if (next.configurationMode === 'config_required') openConfigModal(type, c => addWidget(app.id, tab.id, type, undefined, c));
+    if (next.configurationMode === 'config_required') openConfigModal(type, c => addWidget(app.id, tab.id, type, undefined, { ...config, ...c }));
     else addWidget(app.id, tab.id, type, undefined, config);
   };
 

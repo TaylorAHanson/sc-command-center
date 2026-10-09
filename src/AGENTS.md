@@ -13,6 +13,20 @@ Always use relative `/api/...` paths. `src/api.ts` sets `const API_BASE =
 production FastAPI serves this bundle from `dist/`, so the same relative paths
 work with no origin config. Never introduce a hardcoded host or port.
 
+Stored-data calls take `env` (`dev` / `test` / `prod`) for the **workspace**
+inside this app — not `APP_ENVIRONMENT`. `src/contentEnv.ts` stamps it on
+`fetch` unless the URL already has `env=` (promotion loads all three). Don't
+hardcode `env=dev`. The **Workspace** switcher is `ContentEnvSwitch`, in the
+sidebar only. `resolveWorkspace` settles the workspace before `Root` mounts any
+provider — the link's `?env=`, else the person's last choice
+(`sccc-content-env:<username>`) — so nothing fetches from a workspace the user
+is about to be moved out of. Dev/Test are locked unless the user is Editor or
+Admin on a domain (permissions are deployment-wide, the same in every
+workspace). `appLink` writes `?env=` so every copied link opens where it was
+copied; keep it on any new link you build. The page's `?env=` and the API's
+`env` are the same name on purpose; `#/workspace/<view>` in the hash is
+unrelated (open in the editor).
+
 **No secrets, ever.** No API keys, tokens, or connection strings in `src/` —
 not in code, not in `localStorage`. Anything requiring a credential goes through
 a backend route. Client-side integration is acceptable only for embeds that
@@ -193,9 +207,11 @@ Two behaviors there are easy to break by accident:
   every field on a widget opened for editing or imported from a file; a field is
   also considered theirs once a suggestion has filled it. `applySuggestedSettings`
   skips anything in that set, and the keys are sent to the backend as
-  `locked_settings` so the model doesn't even propose them. If you add a
-  Configuration field, wire `markSettingTouched` into its `onChange` or the agent
-  will start clobbering it.
+  `locked_settings` so the model doesn't even propose them. Runtime
+  `configSchema` is the additive exception: agent turns may add new keys but
+  never redefine an existing key; once the person edits the schema or mode in
+  this session, those are locked too. If you add a Configuration field, wire
+  `markSettingTouched` into its `onChange` or the agent will start clobbering it.
 - **Reload re-fires the widget without changing its code.** `previewNonce` is a
   dependency of the compile effect, so bumping it recompiles; the new component
   function is a different type to React, which remounts and therefore re-runs
@@ -453,14 +469,15 @@ the file opens with a comment holding the authoring conventions.
 
 ## Browser tab title
 
-`index.html` ships `Command Center`; `App.tsx` then appends the deployment
-environment (`Command Center - Dev`) for anything that is not prod. An app shown
+`index.html` ships `Command Center`; `App.tsx` then appends the **deployment**
+(`Command Center - Dev`) for anything that is not the prod app. That is
+`APP_ENVIRONMENT`, not the Dev/Test/Prod workspace switcher. An app shown
 on its own uses its branded title instead (`<title> - Dev`), plus a badge in its
 header, and puts the tab's title and favicon back when it closes. Both read
 `getEnvironmentBadge()` in `api.ts`. The
-environment comes from `GET /api/health` (`APP_ENVIRONMENT` on the server, set
+deployment comes from `GET /api/health` (`APP_ENVIRONMENT` on the server, set
 per bundle target) rather than a `import.meta.env` constant, because the same
-built assets are promoted from dev to stage to prod — a build-time value would
+built assets are promoted from our Dev app to stage to prod — a build-time value would
 lie everywhere except where it was built. `npm run dev` assumes `local`.
 
 ## State and cross-widget communication

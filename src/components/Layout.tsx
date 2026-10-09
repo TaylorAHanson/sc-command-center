@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow, Compass } from 'lucide-react';
+import { ContentEnvSwitch } from './ContentEnvSwitch';
 import clsx from 'clsx';
 import { WidgetTray } from './WidgetTray';
 import { AgentDrawer } from './AgentDrawer';
@@ -247,14 +248,30 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         "bg-brand-navy text-white transition-all duration-300 flex flex-col border-r border-gray-800",
         isSidebarOpen ? "w-64" : "w-16"
       )}>
-        <div className="h-14 flex items-center px-4 border-b border-gray-700 bg-opacity-50">
-          <div className="flex items-center gap-2 font-bold text-lg truncate">
-            {isSidebarOpen && <span>Command Center</span>}
-          </div>
-          <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="ml-auto text-gray-400 hover:text-white">
-            <Menu className="w-5 h-5" />
-          </button>
+        <div className={clsx("border-b border-gray-700 bg-opacity-50", isSidebarOpen ? "h-14 flex items-center px-4" : "px-1 py-2 flex flex-col items-center gap-2")}>
+          {isSidebarOpen ? (
+            <>
+              <div className="flex items-center gap-2 font-bold text-lg truncate">
+                <span>Command Center</span>
+              </div>
+              <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="ml-auto text-gray-400 hover:text-white">
+                <Menu className="w-5 h-5" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="text-gray-400 hover:text-white">
+                <Menu className="w-5 h-5" />
+              </button>
+              <ContentEnvSwitch compact />
+            </>
+          )}
         </div>
+        {isSidebarOpen && (
+          <div className="px-3 py-2 border-b border-gray-700">
+            <ContentEnvSwitch />
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto flex flex-col">
           {isSidebarOpen ? (
@@ -556,8 +573,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         {/* Top Header */}
         {!isFullScreenStudio && (
           <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
-            <div className="flex items-center gap-4">
-              <h1 className="text-lg font-semibold text-brand-navy">
+            <div className="flex items-center gap-4 min-w-0">
+              <h1 className="text-lg font-semibold text-brand-navy truncate">
                 {currentPage === 'admin' ? 'Admin Panel' : (
                   activeApp?.is_global && !isAdmin
                     ? `${activeApp.name} (Read-Only)`

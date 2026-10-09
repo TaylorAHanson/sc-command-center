@@ -44,8 +44,12 @@ Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
 
 `/api/health` is the one unauthenticated route, so it doubles as the SPA's source
 for `APP_ENVIRONMENT` (`config.settings.get_app_environment()` — local/dev/stage/
-prod, set per bundle target). Do not confuse it with the `env` query parameter,
-which picks *which stored data* a route reads; one deployment serves all three.
+prod, set per bundle target: which Databricks App this is). Do not confuse it
+with the `env` query parameter, which picks the **workspace** (`dev` / `test` /
+`prod` schema) a route reads. Each physical app serves all three; the browser
+**Workspace** switcher sets `env`. Dev and Test need Editor or Admin on a
+domain; the last choice is stored per person. Our Dev app is a real Dev deploy
+and still has those three workspaces.
 
 ## Auth (`middleware/auth.py`)
 
@@ -68,6 +72,16 @@ spend* for why. Two consequences: never mutate a client you are handed (its conf
 is shared with other requests on the same credential), and never key a cache on
 anything but the credential itself — a key derived from a username would hand one
 user's client to another.
+
+**Permissions are deployment-wide.** `require_global_admin(w)`,
+`require_domain_editor(w, domain)` and `_get_user_permissions(w)` take no `env`:
+`role_mappings` is read from one schema, `roles.roles_env()` (the
+`APP_SETTINGS_ENV` one), whatever workspace the request is in. Don't add an
+`env` back — an Editor is an Editor in Dev, Test and Prod. Startup moves any
+mappings still in the other two schemas into it once and clears them there
+(`database._gather_role_mappings`, pinned by `tests/test_role_mappings_home.py`).
+The taxonomy is still per workspace, so a mapping's domain is valid if any
+workspace has it.
 
 ## Database (`database.py`)
 
@@ -571,9 +585,10 @@ outage falls back to the env var instead of breaking chat.
 
 Two things to keep in mind when touching this:
 
-- **Settings are global, not per-env.** Everything else in the database is scoped
-  to a dev/test/prod schema; these live in one (`APP_SETTINGS_ENV`, default `dev`)
-  because they describe the deployment, not the data it addresses.
+- **Settings are global, not per-env.** Almost everything else in the database is
+  scoped to a dev/test/prod schema; these live in one (`APP_SETTINGS_ENV`, default
+  `dev`) because they describe the deployment, not the data it addresses. Role
+  mappings live there too (`roles.roles_env()`), for the same reason.
 - **The base path is derived from the model name**, by `base_path_for_model`. A
   `system.ai.…` name is an AI Gateway name and 404s (`ENDPOINT_NOT_FOUND`) on
   `/serving-endpoints`; a bare endpoint name works there and also on the gateway.
@@ -1095,7 +1110,7 @@ PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 6 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_stream.py  # 10 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_code_patch.py           # 22 passed
-PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 5 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_helper.py  # 24 passed
@@ -1122,6 +1137,7 @@ PYTHONPATH=server .venv/bin/python tests/test_db_pool.py              # 14 passe
 PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 24 passed
 PYTHONPATH=server .venv/bin/python tests/test_data_migration.py       # 21 passed
 PYTHONPATH=server .venv/bin/python tests/test_promotion.py            # 16 passed
+PYTHONPATH=server .venv/bin/python tests/test_role_mappings_home.py   # 5 passed
 ```
 
 The last two need the venv interpreter, not a bare `python3`: they exercise

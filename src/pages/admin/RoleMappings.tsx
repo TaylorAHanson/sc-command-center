@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Shield, RefreshCw, Pencil, Check, X, AlertTriangle } from 'lucide-react';
 import { ConfirmModal } from '../../components/ConfirmModal';
+import { CONTENT_ENVS } from '../../contentEnv';
 
 // Domains that mean "every domain" to the permission check (`roles.py`), so they
 // are valid on a mapping without being taxonomy entries.
@@ -40,13 +41,17 @@ export const RoleMappings: React.FC = () => {
     const [domains, setDomains] = useState<string[] | null>(null);
     const [domainError, setDomainError] = useState<string | null>(null);
 
+    // A mapping applies in every workspace while each keeps its own taxonomy, so
+    // a domain any of them has can be mapped — the server checks the same way.
     const fetchDomains = async () => {
         try {
-            const res = await fetch('/api/taxonomy/domains');
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
-            const names: string[] = (data.domains || []).map((d: { name?: string }) => d.name).filter(Boolean);
-            setDomains(names);
+            const lists = await Promise.all(CONTENT_ENVS.map(async env => {
+                const res = await fetch(`/api/taxonomy/domains?env=${env}`);
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+                return (data.domains || []).map((d: { name?: string }) => d.name).filter(Boolean) as string[];
+            }));
+            setDomains([...new Set(lists.flat())].sort((a, b) => a.localeCompare(b)));
             setDomainError(null);
         } catch (e) {
             // Keep whatever list we had: an empty picker reads as "no domains exist".
@@ -214,6 +219,9 @@ export const RoleMappings: React.FC = () => {
                         </h2>
                         <p className="text-sm text-gray-500 mt-1">
                             Map external AD/LDAP roles to dashboard Domains. Users with these roles will be able to manage widgets in the assigned Domain.
+                        </p>
+                        <p className="text-sm text-gray-500 mt-1">
+                            Mappings apply to the whole app — Dev, Test and Prod alike — whichever workspace you have selected.
                         </p>
                     </div>
                     <button

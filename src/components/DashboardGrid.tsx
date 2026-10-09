@@ -228,6 +228,10 @@ export const DashboardGrid: React.FC = () => {
     const appId = activeApp.id;
     const tabId = activeAppTab.id;
     const def = widgetRegistry[widgetType];
+    const initialConfig: Record<string, any> = { ...(def?.defaultProps || {}) };
+    def?.configSchema?.forEach(field => {
+      if (field.defaultValue !== undefined) initialConfig[field.key] = field.defaultValue;
+    });
     if (def?.configurationMode === 'config_required') {
       openConfigModal(widgetType, (config) => {
         addWidget(appId, tabId, widgetType, {
@@ -235,21 +239,9 @@ export const DashboardGrid: React.FC = () => {
           y: gridY,
           w,
           h
-        }, config);
+        }, { ...initialConfig, ...config });
       });
     } else {
-      const initialConfig: Record<string, any> = {};
-      // Merge in any defaultProps from the widget definition (e.g., dataSource for custom widgets)
-      if (def?.defaultProps) {
-        Object.assign(initialConfig, def.defaultProps);
-      }
-      if (def?.configSchema) {
-        def.configSchema.forEach(field => {
-          if (field.defaultValue !== undefined) {
-            initialConfig[field.key] = field.defaultValue;
-          }
-        });
-      }
       addWidget(appId, tabId, widgetType, {
         x: gridX,
         y: gridY,

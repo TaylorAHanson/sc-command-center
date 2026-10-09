@@ -315,7 +315,7 @@ export const UserGuidePage: React.FC = () => {
               <li>Click <strong>Add Mapping</strong>. The backend applies this permission to any user belonging to that Databricks group upon their next session.</li>
             </ol>
             <p className="text-sm text-gray-700 mt-4">
-              A mapping only applies to someone whose group or username matches it <strong>exactly, capitals included</strong>, and the name is saved as you typed it, so copy it from the workspace's Groups page rather than retyping it. A mapping whose domain has since been renamed or removed is marked <em>not a domain</em> in the table.
+              A mapping only applies to someone whose group or username matches it <strong>exactly, capitals included</strong>, and the name is saved as you typed it, so copy it from the workspace's Groups page rather than retyping it. A mapping whose domain has since been renamed or removed is marked <em>not a domain</em> in the table. Mappings apply to the whole app: there is no separate Dev, Test or Prod permission, so it doesn't matter which <strong>Workspace</strong> is selected when you add one.
             </p>
           </div>
         </div>
@@ -330,14 +330,14 @@ export const UserGuidePage: React.FC = () => {
         <div className="space-y-6">
           <h2 className="text-2xl font-bold text-gray-900">Promoting Work</h2>
           <p className="text-gray-600">
-            The Command Center supports a multi-environment lifecycle (Dev, Test, Prod) to ensure experimental changes don't disrupt production end-users.
+            Each Command Center app has three <strong>workspaces</strong> — Dev, Test and Prod — so experimental widgets don't land on operators until they are promoted. Switch between them with <strong>Workspace</strong> in the sidebar; the app reopens on the one you last chose. You need Editor or Admin on a domain to open Dev or Test — otherwise those choices stay disabled and you remain on Prod. A copied link opens the workspace it was copied in, so a Test link is for testers and a Prod link for users; someone without access to Dev or Test who opens such a link sees Prod, with a note saying so. A view shown on its own page names its workspace beside the title when it isn't Prod. That is not the same as which Command Center was deployed: our Dev app is a real Dev app, and it still has all three workspaces for trying the lifecycle. In production, those three workspaces are for the people using that app.
           </p>
 
           <div className="space-y-4 mt-6">
             <div className="bg-white p-5 border rounded-lg shadow-sm">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Versioning and Promoting Widgets</h3>
               <p className="text-sm text-gray-600 mb-3">
-                Every time a custom widget's code or configuration is modified and saved in the <strong>Dev</strong> environment, its version number increments automatically. This immutable version history acts as an audit trail and enables seamless environment transitions.
+                Every time a custom widget's code or configuration is saved in the current workspace, its version number increments automatically. Author in <strong>Dev</strong>, then promote. This immutable version history acts as an audit trail and enables seamless workspace transitions.
               </p>
               <ul className="list-disc pl-5 text-sm text-gray-700 space-y-2 mb-3">
                 <li><strong>Where:</strong> from inside <strong>Widget Studio</strong> — the <strong>Promote</strong> button in the header opens a Dev → Test → Prod panel for the widget you're editing — or for every widget at once on the Admin Panel's <strong>Widget Promotion</strong> screen. Both do the same thing.</li>
@@ -476,7 +476,7 @@ export const UserGuidePage: React.FC = () => {
                 <li><strong>Domain:</strong> Assign the widget to a Domain to enforce RBAC.</li>
                 <li><strong>Data Source:</strong> Choose None, API, Databricks API, or SQL. <strong>Test &amp; Extract Schema</strong> shows the schema — real column types for SQL — and a few sample rows, and the agent is given both when it writes your widget. Tests run with your own permissions. A SQL statement that changes data is never run to test it; the studio tells you so instead. An external API is called from your browser, the same way the widget will call it, so if the API blocks requests from this app you find out here. Testing a SQL source also counts the rows it returns, and that number changes how the widget gets built. Searching, sorting and paging can happen in the browser or in the query, and both work at any row count; what decides is how much data the browser would have to download, roughly 10 MB. Under that the widget fetches everything once and works locally, which is fastest. Over it, all of that is pushed into SQL so the widget only ever holds the page you are looking at. An untested source is assumed to be large. By default a query returns its first 500 rows; a widget that works on the whole result asks for more, and says so when it is showing only part of the data.</li>
                 <li><strong>Is Executable Action:</strong> Toggle this to indicate whether the widget performs an action (e.g., submitting a form). This is essential for telemetry collection. If your SQL data source changes data — INSERT, UPDATE, DELETE, MERGE — this is required, and saving is refused without it, because it's what records each change in Action Logs along with who made it.</li>
-                <li><strong>Configuration Mode:</strong> Dictate if end-users can provide runtime inputs (like changing a URL or a parameter threshold) to the widget when placing it on a dashboard.</li>
+                <li><strong>Configuration Mode:</strong> Choose whether people may set runtime parameters from the gear, or must set them before the widget is placed. The agent can create these fields too: ask for a configurable threshold, catalog, label or choice and it adds the field, reads it through <code>props.data</code>, and selects <strong>Allowed</strong> or <strong>Required</strong>. Required fields open <strong>Widget settings</strong> when the widget is dropped.</li>
               </ul>
             </div>
 
@@ -504,6 +504,9 @@ export const UserGuidePage: React.FC = () => {
               </p>
               <p className="text-gray-700 mt-2">
                 A widget whose tiles or buttons go somewhere specific, like a hub page's <em>Sales</em> and <em>Operations</em> tiles, has named <strong>links</strong>, and you decide where each one goes. Open the widget's gear on your view: each link has a choice of the view's tabs, <strong>Not set</strong>, or <strong>Web address…</strong> (http or https). That choice belongs to this card, so the same widget can go to different tabs on different views. Renaming a tab keeps its links; deleting it leaves them going nowhere, and the gear says so. A web address opens in a new browser tab. A tile whose link isn't set yet looks muted and does nothing. The studio adds the links when it builds such a widget, or you can add a settings field of type <strong>Link</strong> yourself.
+              </p>
+              <p className="text-gray-700 mt-2">
+                Parameter values also belong to the placed card in the current <strong>Workspace</strong>. For values that differ in Dev, Test and Prod, ask the studio to make them <strong>Required</strong> without a default. Drop the promoted widget in each workspace and fill in <strong>Widget settings</strong> there; use its gear later to change them. Promoting a whole view copies its existing card settings, so open each promoted card's gear when those values must differ in the target workspace.
               </p>
             </div>
 
@@ -553,7 +556,7 @@ export const UserGuidePage: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-2">5. Save and Publish</h3>
               <p className="text-gray-700">
-                <strong>Save</strong> (or <strong>Publish</strong>, the first time) writes your code to the Dev environment database and increments the version, and it is immediately available in the Widget Library for users with Dev access to test. Saving leaves you in the studio, so you can keep working and save as often as you like. The <strong>X</strong> closes the studio when you have finished with the widget.
+                <strong>Save</strong> (or <strong>Publish</strong>, the first time) writes your code to the workspace selected in the sidebar (Dev, Test or Prod) and increments the version. It is immediately available in that workspace's Widget Library. Saving leaves you in the studio, so you can keep working and save as often as you like. The <strong>X</strong> closes the studio when you have finished with the widget.
               </p>
               <p className="text-gray-700 mt-2">
                 Controls for the widget sit on the right, above the preview: <strong>History</strong>, <strong>Reload</strong>, <strong>Promote</strong> (see <em>Promoting Work</em>), the <strong>⋯</strong> menu with Import, Export and Reset studio, then Save and close. Only the agent's own settings sit above the chat.

@@ -40,7 +40,7 @@ class SettingsUpdate(BaseModel):
 @router.get("")
 @router.get("/")
 def get_settings(w: WorkspaceClient = Depends(get_db_client)):
-    require_global_admin(w, settings_env())
+    require_global_admin(w)
     return {
         "settings": describe_settings(),
         "groups": SETTING_GROUPS,
@@ -51,7 +51,7 @@ def get_settings(w: WorkspaceClient = Depends(get_db_client)):
 @router.put("")
 @router.put("/")
 def update_settings(body: SettingsUpdate, w: WorkspaceClient = Depends(get_db_client)):
-    require_global_admin(w, settings_env())
+    require_global_admin(w)
     try:
         result = save_settings(body.settings or {}, _get_current_username(w))
     except Exception as e:  # noqa: BLE001

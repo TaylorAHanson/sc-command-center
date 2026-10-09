@@ -449,6 +449,87 @@ def _open_connection(env: str):
     _store_conn_kwargs(env, conn_kwargs)
     return conn
 
+#: The mapping init_db seeds when a deployment has no global admin. Never moved
+#: between schemas: carried into one whose admins have since replaced it, it
+#: would hand every user global admin again.
+_SEEDED_ADMIN = ("users", "global", "admin")
+
+
+def _gather_role_mappings(conn, env: str) -> None:
+    """Move role mappings out of the other workspaces' schemas into this one.
+
+    Each workspace used to keep its own mappings, so a deployment can arrive here
+    with some in test or prod (from a snapshot import, or an admin who had that
+    workspace selected). Only `env`'s are read now, so those would silently stop
+    granting anything. Each is copied unless an identical one is here, then
+    deleted at its source — deleted, not left, or a mapping an admin later
+    removes here would come back on the next restart.
+
+    Runs under `env`'s init lock. A schema that is really this same one (an
+    `APP_DB_SCHEMA` override points all three at one schema) is skipped, or the
+    copy-then-delete would empty the table.
+    """
+    def row_of(r):
+        return tuple(r.values()) if hasattr(r, "keys") else tuple(r)
+
+    c = conn.cursor()
+    try:
+        c.execute("SELECT current_database(), current_schema()")
+        here = row_of(c.fetchone())
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        logging.warning(f"Could not identify the role mappings schema ({env}): {e}")
+        return
+
+    for other in ("dev", "test", "prod"):
+        if other == env:
+            continue
+        src = None
+        try:
+            src = get_db_connection(other, pooled=False)
+            s = src.cursor()
+            s.execute("SELECT current_database(), current_schema()")
+            if row_of(s.fetchone()) == here:
+                src.rollback()
+                continue
+            s.execute("SELECT id, external_role, domain, permission_level FROM role_mappings")
+            rows = [row_of(r) for r in s.fetchall()]
+            if not rows:
+                src.rollback()
+                continue
+            moved = 0
+            for _id, role, domain, level in rows:
+                if (role, (domain or "").lower(), level) == _SEEDED_ADMIN:
+                    continue
+                c.execute(
+                    "SELECT 1 FROM role_mappings WHERE external_role = %s AND domain = %s AND permission_level = %s",
+                    (role, domain, level),
+                )
+                if c.fetchone():
+                    continue
+                c.execute(
+                    "INSERT INTO role_mappings (external_role, domain, permission_level) VALUES (%s, %s, %s)",
+                    (role, domain, level),
+                )
+                moved += 1
+            conn.commit()
+            s.execute("DELETE FROM role_mappings WHERE id = ANY(%s)", ([r[0] for r in rows],))
+            src.commit()
+            logging.warning(
+                f"Role mappings now live only in env={env}: moved {moved} from env={other} "
+                f"and cleared its {len(rows)} row(s)."
+            )
+        except Exception as e:  # noqa: BLE001 - a schema not yet initialized has nothing to move
+            conn.rollback()
+            if src is not None:
+                src.rollback()
+            logging.info(f"No role mappings moved from env={other}: {e}")
+        finally:
+            if src is not None:
+                src.close()
+
+
 def _advisory_lock_key(env: str) -> int:
     """Stable per-env key for the schema-init advisory lock (see init_db)."""
     base = 918273645  # arbitrary constant, just needs to be app-unique
@@ -880,13 +961,22 @@ def init_db(env: str = "dev"):
         conn.rollback()
         pass
 
+    # Role mappings are deployment-wide and read from one schema only (see
+    # `routes.roles.roles_env`); the other two keep an unused, empty table.
+    from services.settings_store import settings_env
+    holds_roles = env == settings_env()
+    if holds_roles:
+        _gather_role_mappings(conn, env)
+
     # Seed default global admin if none exists yet
     try:
-        c.execute(
-            "SELECT COUNT(*) FROM role_mappings WHERE LOWER(domain) IN ('global', 'all', 'app') AND permission_level = 'admin'"
-        )
-        count = c.fetchone()[0]
-        if count == 0:
+        count = 0
+        if holds_roles:
+            c.execute(
+                "SELECT COUNT(*) FROM role_mappings WHERE LOWER(domain) IN ('global', 'all', 'app') AND permission_level = 'admin'"
+            )
+            count = c.fetchone()[0]
+        if holds_roles and count == 0:
             # Lockout prevention: a deployment with no global admin has nobody who
             # can create the first role mapping, and no way back in. The cost is
             # that `users` contains essentially everyone, so until an admin
