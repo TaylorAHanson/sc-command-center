@@ -245,6 +245,18 @@ SETTING_SPECS: Dict[str, Spec] = {
         help="On, a view shared with everyone can only hold widgets an admin has certified. Leave off in dev and test, where nothing is certified yet.",
         group="tools",
     ),
+    "widget_query_max_rows": Spec(
+        env="WIDGET_QUERY_MAX_ROWS",
+        # A stop for a query that returns far more than anyone meant, not a size
+        # anyone should design to: the browser struggles long before this, and
+        # Widget Studio steers anything that big into paging in SQL.
+        default="1000000",
+        kind="int",
+        label="Most rows one widget query can return",
+        help="Ceiling for a widget that asks for every row of its query. A result past it arrives cut to this many and marked as partial, so the widget can say so.",
+        minimum=1000,
+        maximum=10000000,
+    ),
     "enable_native_file_passthrough": Spec(
         env="AGENT_TOOLS_ENABLE_NATIVE_FILES",
         default="true",

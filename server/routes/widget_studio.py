@@ -428,7 +428,10 @@ def _size_guidance(req: GenerateRequest) -> str:
             "\n\nThe size of this result set is unknown — the data source hasn't been "
             "tested, so treat it as potentially large. Add a `LIMIT` to what you display "
             "and do the filtering, sorting and aggregating in SQL rather than in the "
-            "component. Never fetch a whole table in order to reduce it in JavaScript."
+            "component. Never fetch a whole table in order to reduce it in JavaScript. "
+            "Any query whose rows the component does filter, sort, total or chart must "
+            "send `all_rows: true`, never a guessed `max_rows`, so the work is done over "
+            "every row rather than the first few hundred."
         )
 
     columns = _column_count(req)
@@ -436,17 +439,17 @@ def _size_guidance(req: GenerateRequest) -> str:
     size = f"about {rows:,} rows x {columns} columns, roughly {megabytes:.1f} MB as JSON"
 
     if megabytes <= CLIENT_SIDE_MAX_MB:
-        # The response is capped at 500 rows unless the request names a larger
-        # `max_rows`, so "fetch it all once" only works if the widget says so. The
-        # headroom is for rows added after the data source was tested.
-        want = int(rows * 1.1) + 100
+        # A count from when the source was tested goes stale as the table grows, so
+        # it must not become the widget's `max_rows`: that is how a widget that
+        # worked when it was built starts dropping rows months later.
         return (
             f"\n\nThis query returns {size}, which is comfortable to fetch once. Sort, "
             "filter and page in the component over the rows you already have — a round "
             "trip per keystroke would be slower, not faster. Keep the query's own `WHERE` "
             "doing the coarse work, and cap how many rows you render at once.\n"
-            f"`/api/sql/execute-raw` returns at most 500 rows unless you ask for more, so "
-            f"send `max_rows: {want}` in the request body. If the response has "
+            "`/api/sql/execute-raw` returns at most 500 rows unless you ask for more, so "
+            "send `all_rows: true` in the request body — not a `max_rows` sized to this "
+            "count, which drops rows once the table grows. If the response has "
             "`truncated: true`, tell the user the table is showing part of the data; "
             "never present it as the whole."
         )

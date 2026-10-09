@@ -1081,13 +1081,29 @@ count — which is why it is advice in the prompt and not a cap. Tune the two
 constants, not the prose.
 
 **The 500-row default is the thing people call "the query limit".**
-`/api/sql/execute-raw` returns 500 rows unless the body sets `max_rows`, and until
+`/api/sql/execute-raw` returns 500 rows unless the body asks for more, and until
 `truncated` / `total_rows` were added it said nothing about the rest: `row_count`
-was just the length of what arrived. A widget sorting "the table" in the browser
-was sorting its first 500 rows. `gather_rows` now follows result chunks (reading
-only `data_array` gave the first chunk, so a larger `max_rows` changed nothing),
-and `_size_guidance` tells the model to send `max_rows` when it fetches everything.
-`tests/test_sql_rows.py` pins both.
+was just the length of what arrived. Asking for a number didn't fix it either: a
+`max_rows` sized to the data the day the widget was built drops rows as the table
+grows, and past 25 MiB the warehouse refuses to return a result inline at all.
+So a widget that works on the whole result sends `all_rows: true`, bounded only by
+the `widget_query_max_rows` setting, and `_size_guidance`, the generation contract
+and `widgetLint.ts` (`fixed-row-cap`) all steer to it.
+
+`_run_statement` tries plans in order (`fetch_plans`): INLINE, then INLINE with a
+`row_limit`, then EXTERNAL_LINKS, moving on only when the warehouse answers
+"inline byte limit exceeded". A capped read therefore runs exactly as it always
+did. External links are presigned cloud-storage URLs, fetched with only the
+headers the link carries — the Databricks token must not go to storage. The body
+is streamed (`result_body`) in the same JSON shape as before, gzipped when the
+browser accepts it, so neither the server nor the browser's runtime log
+(`readSummary`, which reads only the trailing summary) holds a second copy. A
+failure part-way still closes the JSON, with `error` set and `truncated: true`.
+Writes take only the first plan: re-running one to fetch its result differently
+would apply it twice. Unverified on a deployed App: that its egress reaches the
+storage URLs (it answers 502 with that explanation if not), and how the Apps proxy
+treats a large streamed body. The 50 s `wait_timeout` still bounds the statement
+itself. `tests/test_sql_rows.py` pins all of it with a fake statement API.
 
 **Trace (`_trace` / `_settle`).** The studio's "Thinking" is narration the job
 writes about its own decisions, not model reasoning — the current models keep that
@@ -1113,13 +1129,13 @@ PYTHONPATH=server .venv/bin/python tests/test_code_patch.py           # 22 passe
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
-PYTHONPATH=server .venv/bin/python tests/test_widget_agent_helper.py  # 24 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_helper.py  # 25 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_context.py # 23 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
 PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_caller_identity.py      # 11 passed
-PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 14 passed
+PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_llm_params.py           # 17 passed
 PYTHONPATH=server .venv/bin/python tests/test_llm_client.py           # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_sql_errors.py           # 10 passed
@@ -1129,7 +1145,7 @@ PYTHONPATH=server .venv/bin/python tests/test_app_spec.py             # 46 passe
 PYTHONPATH=server .venv/bin/python tests/test_app_links.py            # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_look_helper.py          # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 38 passed
-PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 10 passed
+PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 26 passed
 .venv/bin/python tests/test_file_extract.py                           # 22 passed
 .venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server .venv/bin/python tests/test_conversation_store.py   # 5 passed

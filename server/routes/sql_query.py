@@ -4,16 +4,21 @@ SQL Query Router - Execute SQL queries with OBO authentication.
 This router provides endpoints to execute pre-configured SQL queries
 using the user's Databricks token (On-Behalf-Of authentication).
 """
+import itertools
+import json
 import os
 import re
 import logging
+import time
+import zlib
+import httpx
 from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import DatabricksError, STATUS_CODE_MAPPING
-from databricks.sdk.service.sql import StatementExecutionAPI, Disposition, StatementState
-from typing import Optional, List, Dict, Any
+from databricks.sdk.service.sql import StatementExecutionAPI, Disposition, Format, StatementState
+from typing import Optional, List, Dict, Any, Iterable, Iterator
 
 from config.sql_queries import get_sql_query_config, get_all_sql_query_configs, SqlQueryConfig
 from middleware.auth import get_user_token
@@ -303,33 +308,74 @@ def _raise_if_unsuccessful(statement, sql: str) -> None:
 
 
 #: Rows a response carries when the caller doesn't say how many it wants. A widget
-#: that fetches a whole table to work on it in the browser has to ask for more with
-#: `max_rows`, and the response says (`truncated`) whenever it still got less.
+#: that works on the whole result in the browser sends `all_rows: true`; `max_rows`
+#: is for a deliberate cap, and the response says (`truncated`) whenever it got less.
 DEFAULT_MAX_ROWS = 500
 
 # A result bigger than one chunk arrives as a first chunk plus a pointer to the
-# next. The bound only exists so a warehouse that never stops pointing can't hold
-# a request open; a real result runs out of chunks long before it.
+# next. When the manifest doesn't say how many chunks there are, this bound is what
+# stops a warehouse that never stops pointing from holding a request open.
 MAX_CHUNK_HOPS = 200
 
+#: How the warehouse refuses an INLINE result over 25 MiB. It fails the statement
+#: rather than truncating it, so a large enough result was an error at any
+#: `max_rows`; the only way to the whole of it is EXTERNAL_LINKS.
+INLINE_LIMIT_ERROR = "inline byte limit exceeded"
 
-def gather_rows(first, fetch_chunk, max_rows: int):
-    """Rows of an inline result, following chunks until `max_rows` are in hand.
+#: Rows per piece of a streamed response.
+STREAM_BATCH_ROWS = 2000
 
-    `first` is the statement's `result`. Reading only its `data_array` returns the
-    first chunk and nothing else, so a large result looked complete when it wasn't
-    and no `max_rows` could get past it. Returns `(rows, more)`, where `more` says
-    there were rows beyond what was handed back.
+#: Fast rather than small: the rows repeat every key, so even level 1 shrinks a
+#: result several times over, and this runs on the request thread.
+GZIP_LEVEL = 1
+
+#: Seconds to download one external chunk (about 20 MB).
+EXTERNAL_CHUNK_TIMEOUT = 120.0
+
+_ROW_DECODER = json.JSONDecoder()
+
+
+def iter_json_rows(text: str) -> Iterator[list]:
+    """The rows of a JSON_ARRAY chunk (`[["a","b"],["c",null]]`), one at a time.
+
+    An external chunk is about 20 MB of JSON, and decoded whole it costs several
+    times that in Python objects for every request, several of which a dashboard
+    fires at once. A row at a time holds the text and one row.
     """
-    rows = list(getattr(first, "data_array", None) or [])
-    next_chunk = getattr(first, "next_chunk_index", None)
-    hops = 0
-    while next_chunk is not None and len(rows) < max_rows and hops < MAX_CHUNK_HOPS:
-        chunk = fetch_chunk(next_chunk)
-        rows.extend(getattr(chunk, "data_array", None) or [])
-        next_chunk = getattr(chunk, "next_chunk_index", None)
+    i = text.find("[") + 1
+    if i == 0:
+        return
+    end = len(text)
+    while True:
+        while i < end and text[i] in " \t\r\n,":
+            i += 1
+        if i >= end or text[i] == "]":
+            return
+        row, i = _ROW_DECODER.raw_decode(text, i)
+        yield row
+
+
+def iter_rows(first, fetch_chunk, download, max_hops: int = MAX_CHUNK_HOPS) -> Iterator[list]:
+    """Every row of a result, following its chunks, inline or behind external links.
+
+    `first` is the statement's `result`. An inline chunk carries its rows in
+    `data_array` and points at the next with `next_chunk_index`; an external one
+    carries links instead, and each link names the chunk after it. Reading only the
+    first `data_array` is what made a large result look complete when it wasn't.
+    One chunk is held at a time, so the result can be far larger than this server's
+    memory.
+    """
+    result, hops = first, 0
+    while result is not None:
+        yield from (getattr(result, "data_array", None) or [])
+        following = getattr(result, "next_chunk_index", None)
+        for link in getattr(result, "external_links", None) or []:
+            yield from iter_json_rows(download(link))
+            following = getattr(link, "next_chunk_index", None)
+        if following is None or hops >= max_hops:
+            return
+        result = fetch_chunk(following)
         hops += 1
-    return rows[:max_rows], next_chunk is not None or len(rows) > max_rows
 
 
 def result_window(returned: int, total: Optional[int], more: bool, warehouse_truncated: bool = False) -> Dict[str, Any]:
@@ -337,11 +383,104 @@ def result_window(returned: int, total: Optional[int], more: bool, warehouse_tru
 
     Additive fields on the response, so widgets written before they existed are
     unaffected. `total_rows` is `None` when the warehouse didn't say and there is
-    more than we fetched; a widget should treat that like `truncated`.
+    more than we fetched; a widget should treat that like `truncated`. A result the
+    warehouse cut (`row_limit`) has no total: its count stops where its rows did.
     """
+    if warehouse_truncated:
+        return {"total_rows": None, "truncated": True}
     if total is not None:
-        return {"total_rows": total, "truncated": bool(warehouse_truncated or total > returned)}
-    return {"total_rows": None if more else returned, "truncated": bool(warehouse_truncated or more)}
+        return {"total_rows": total, "truncated": bool(total > returned)}
+    return {"total_rows": None if more else returned, "truncated": bool(more)}
+
+
+def fetch_plans(cap: int, all_rows: bool) -> List[Dict[str, Any]]:
+    """How to execute a read, in order, each tried only if the last was too big to return inline.
+
+    A capped read first runs as it always has, so a result that fits keeps its exact
+    `total_rows`. Asked again with `row_limit`, the warehouse stops at the cap and
+    says it did, which fits inline unless the cap itself is over 25 MiB of rows.
+    Past that the rows exist only as external links.
+    """
+    plans: List[Dict[str, Any]] = []
+    if not all_rows:
+        plans.append({"disposition": Disposition.INLINE})
+    plans.append({"disposition": Disposition.INLINE, "row_limit": cap})
+    plans.append({"disposition": Disposition.EXTERNAL_LINKS, "format": Format.JSON_ARRAY, "row_limit": cap})
+    return plans
+
+
+def too_big_for_inline(statement) -> bool:
+    status = getattr(statement, "status", None)
+    if getattr(status, "state", None) != StatementState.FAILED:
+        return False
+    message = getattr(getattr(status, "error", None), "message", "") or ""
+    return INLINE_LIMIT_ERROR in message.lower()
+
+
+def row_object(columns: List[str], row: list) -> Dict[str, Any]:
+    return {name: row[i] if i < len(row) else None for i, name in enumerate(columns)}
+
+
+def result_body(columns: List[str], rows: Iterable[list], cap: int, total: Optional[int],
+                warehouse_truncated: bool, statement_id: Optional[str],
+                summary: Optional[Dict[str, Any]] = None) -> Iterator[str]:
+    """The response JSON, written as the rows are read; the counts come last, once known.
+
+    The same object this endpoint has always returned, so widgets parse it as they
+    did. A failure part-way through can no longer change the status, which was
+    sent with the first byte, so the body ends with `truncated: true` and an
+    `error` saying where it stopped. `summary` receives the final counts.
+    """
+    yield json.dumps({"columns": columns, "statement_id": statement_id}, ensure_ascii=False)[:-1] + ', "rows": ['
+    returned, more, problem, batch = 0, False, None, []
+    try:
+        for row in rows:
+            if returned >= cap:
+                more = True
+                break
+            batch.append(json.dumps(row_object(columns, row), ensure_ascii=False))
+            returned += 1
+            if len(batch) >= STREAM_BATCH_ROWS:
+                yield ("," if returned > len(batch) else "") + ",".join(batch)
+                batch = []
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("SQL result stopped after %d rows: %s", returned + len(batch), exc)
+        problem = f"The result stopped after {returned:,} rows: {exc}"
+    if batch:
+        yield ("," if returned > len(batch) else "") + ",".join(batch)
+    tail: Dict[str, Any] = {"row_count": returned, **result_window(returned, total, more, warehouse_truncated)}
+    if problem:
+        tail.update(truncated=True, error=problem)
+    if summary is not None:
+        summary.update(tail)
+    yield "], " + json.dumps(tail, ensure_ascii=False)[1:]
+
+
+def gzip_stream(pieces: Iterable[bytes], level: int = GZIP_LEVEL) -> Iterator[bytes]:
+    packer = zlib.compressobj(level, zlib.DEFLATED, 31)  # wbits 31: a gzip container
+    for piece in pieces:
+        out = packer.compress(piece)
+        if out:
+            yield out
+    yield packer.flush()
+
+
+def _download(link) -> str:
+    """One external chunk. The link is presigned, and storage refuses a request that
+    carries a second credential, so it goes with only the headers the link names."""
+    response = httpx.get(
+        link.external_link,
+        headers=dict(getattr(link, "http_headers", None) or {}),
+        timeout=EXTERNAL_CHUNK_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.content.decode("utf-8")
+
+
+def _row_ceiling() -> int:
+    from services.settings_store import get_int_setting
+
+    return get_int_setting("widget_query_max_rows")
 
 
 class RawSqlRequest(BaseModel):
@@ -349,6 +488,10 @@ class RawSqlRequest(BaseModel):
     sql: Optional[str] = None
     raw_query: Optional[str] = None  # Alias accepted for convenience
     max_rows: Optional[int] = DEFAULT_MAX_ROWS
+    #: Every row of the result, up to the deployment's `widget_query_max_rows`. What a
+    #: widget that filters, sorts or totals in the browser needs: a `max_rows` sized
+    #: to today's data silently drops rows once the data grows past it.
+    all_rows: bool = False
     #: Correlation handle from the action confirmation, recorded in `action_logs`.
     #: Prepended to the statement as a comment so the same id appears in
     #: Databricks' own query history and the two records can be joined.
@@ -358,6 +501,7 @@ class RawSqlRequest(BaseModel):
 @router.post("/execute-raw", summary="Execute a read-only SQL string against Databricks")
 def execute_raw_sql(
     req: RawSqlRequest,
+    request: Request,
     w: WorkspaceClient = Depends(get_db_client)
 ):
     """
@@ -383,12 +527,13 @@ def execute_raw_sql(
         # would throw on `undefined`, taking a live panel down over a refusal.
         return SqlStatementError(status_code=400, detail=refusal).response()
 
-    return _run_statement(sql_statement, req, w)
+    return _run_statement(sql_statement, req, w, request, retryable=True)
 
 
 @router.post("/execute-write", summary="Execute a data-modifying SQL statement")
 def execute_write_sql(
     req: RawSqlRequest,
+    request: Request,
     w: WorkspaceClient = Depends(get_db_client)
 ):
     """
@@ -413,13 +558,16 @@ def execute_write_sql(
         if safe:
             sql_statement = f"/* cc-action: {safe} */\n{sql_statement}"
 
-    return _run_statement(sql_statement, req, w)
+    # Never retried: re-running a write to fetch its result differently would apply it twice.
+    return _run_statement(sql_statement, req, w, request, retryable=False)
 
 
 def _run_statement(
     sql_statement: str,
     req: RawSqlRequest,
     w: WorkspaceClient,
+    request: Request,
+    retryable: bool,
 ):
     """Shared execution for both raw endpoints, so they cannot drift apart."""
     import traceback
@@ -431,52 +579,80 @@ def _run_statement(
             detail="No SQL Warehouse ID configured. Set SQL_WAREHOUSE_ID in environment."
         )
 
+    ceiling = _row_ceiling()
+    cap = ceiling if req.all_rows else max(1, min(req.max_rows or DEFAULT_MAX_ROWS, ceiling))
+    plans = fetch_plans(cap, req.all_rows)
+    if not retryable:
+        plans = plans[:1]
+
     try:
         sql_api = StatementExecutionAPI(w.api_client)
+        started = time.monotonic()
 
-        statement = sql_api.execute_statement(
-            warehouse_id=warehouse_id,
-            statement=sql_statement,
-            wait_timeout="50s",
-            disposition=Disposition.INLINE,
-        )
+        for plan in plans:
+            statement = sql_api.execute_statement(
+                warehouse_id=warehouse_id,
+                statement=sql_statement,
+                wait_timeout="50s",
+                **plan,
+            )
+            if not too_big_for_inline(statement):
+                break
         _raise_if_unsuccessful(statement, sql_statement)
 
         columns = []
-        rows = []
-
         if statement.manifest and statement.manifest.schema and statement.manifest.schema.columns:
             columns = [col.name for col in statement.manifest.schema.columns]
 
-        max_rows = req.max_rows or DEFAULT_MAX_ROWS
-        more = False
-        if statement.result:
-            data_array, more = gather_rows(
-                statement.result,
-                lambda index: sql_api.get_statement_result_chunk_n(statement.statement_id, index),
-                max_rows,
-            )
-            for row_data in data_array:
-                row_dict = {}
-                for i, col_name in enumerate(columns):
-                    row_dict[col_name] = row_data[i] if i < len(row_data) else None
-                rows.append(row_dict)
-
         manifest = statement.manifest
-        window = result_window(
-            len(rows),
+        rows = iter_rows(
+            statement.result,
+            lambda index: sql_api.get_statement_result_chunk_n(statement.statement_id, index),
+            _download,
+            getattr(manifest, "total_chunk_count", None) or MAX_CHUNK_HOPS,
+        )
+        external = plan["disposition"] == Disposition.EXTERNAL_LINKS
+        try:
+            # Read before anything is sent, so a result that can't be downloaded
+            # at all is an error status rather than a 200 with no rows.
+            first = list(itertools.islice(rows, 1))
+        except httpx.HTTPError as e:
+            raise SqlStatementError(
+                status_code=502,
+                detail="This result is over 25 MB, so the warehouse hands it over as files in "
+                       f"cloud storage, and the app couldn't download them ({type(e).__name__}). "
+                       "Aggregate or filter in the query, or ask an admin whether this app may "
+                       "reach the workspace's storage.",
+            ) from e
+
+        summary: Dict[str, Any] = {}
+        body = result_body(
+            columns,
+            itertools.chain(first, rows),
+            cap,
             getattr(manifest, "total_row_count", None),
-            more,
             bool(getattr(manifest, "truncated", False)),
+            statement.statement_id,
+            summary,
         )
 
-        return {
-            "columns": columns,
-            "rows": rows,
-            "row_count": len(rows),
-            **window,
-            "statement_id": statement.statement_id,
-        }
+        def encoded() -> Iterator[bytes]:
+            yield from (piece.encode("utf-8") for piece in body)
+            logging.info(
+                "SQL result: %s rows (%s %s)%s in %.1fs, %s",
+                f"{summary.get('row_count', 0):,}",
+                "all_rows, ceiling" if req.all_rows else "max_rows",
+                f"{cap:,}",
+                ", truncated" if summary.get("truncated") else "",
+                time.monotonic() - started,
+                "external links" if external else "inline",
+            )
+
+        headers = {"Vary": "Accept-Encoding"}
+        if "gzip" in (request.headers.get("accept-encoding") or "").lower():
+            headers["Content-Encoding"] = "gzip"
+            return StreamingResponse(gzip_stream(encoded()), media_type="application/json", headers=headers)
+        return StreamingResponse(encoded(), media_type="application/json", headers=headers)
     except SqlStatementError as e:
         return e.response()
     except DatabricksError as e:

@@ -246,6 +246,11 @@ export class RuntimeRecorder {
     }
 
     private async recordResponse(response: Response, label: string, sql: string | null, query: string) {
+        if (response.ok) {
+            this.recordRows(await readSummary(response), label, query);
+            return;
+        }
+
         let payload: unknown = null;
         try {
             payload = await response.json();
@@ -253,30 +258,78 @@ export class RuntimeRecorder {
             // Not JSON; the status alone has to do.
         }
         const body = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+        const status = response.status;
+        const detail = typeof body.detail === 'string' ? body.detail : response.statusText;
+        const configured = this.configuredSql();
+        const isConfigured = !!sql && !!configured.trim() && normalizeSql(sql) === normalizeSql(configured);
+        const permission = status === 401 || status === 403;
+        let text = `${label} returned HTTP ${status}${query}: ${squash(detail || '', 300)}`;
+        if (isConfigured) text += ' — this is the configured data source run as written, so the fix belongs on the Configuration tab';
+        else if (permission) text += ' — a permission problem for this user, not something code can fix';
+        this.add({
+            kind: 'request', level: 'error', text,
+            fixable: status >= 400 && status < 500 && !permission && status !== 429 && !isConfigured,
+        });
+    }
 
-        if (!response.ok) {
-            const status = response.status;
-            const detail = typeof body.detail === 'string' ? body.detail : response.statusText;
-            const configured = this.configuredSql();
-            const isConfigured = !!sql && !!configured.trim() && normalizeSql(sql) === normalizeSql(configured);
-            const permission = status === 401 || status === 403;
-            let text = `${label} returned HTTP ${status}${query}: ${squash(detail || '', 300)}`;
-            if (isConfigured) text += ' — this is the configured data source run as written, so the fix belongs on the Configuration tab';
-            else if (permission) text += ' — a permission problem for this user, not something code can fix';
+    private recordRows(body: Record<string, unknown> | null, label: string, query: string) {
+        if (!body || typeof body.row_count !== 'number') return;
+        const rows = body.row_count;
+        const plural = rows === 1 ? '' : 's';
+        if (typeof body.error === 'string') {
             this.add({
-                kind: 'request', level: 'error', text,
-                fixable: status >= 400 && status < 500 && !permission && status !== 429 && !isConfigured,
+                kind: 'request', level: 'error', fixable: false,
+                text: `${label} stopped after ${rows.toLocaleString()} row${plural}${query}: ${squash(body.error, 300)}`,
             });
-            return;
-        }
-
-        if (typeof body.row_count === 'number') {
-            const rows = body.row_count;
+        } else if (body.truncated === true) {
+            const of = typeof body.total_rows === 'number' ? `of ${body.total_rows.toLocaleString()}` : 'and left the rest out';
+            this.add({
+                kind: 'request', level: 'warn', fixable: false,
+                text: `${label} returned only the first ${rows.toLocaleString()} row${plural} ${of}${query} — anything computed from them covers part of the data; \`all_rows: true\` asks for every row`,
+            });
+        } else {
             this.add({
                 kind: 'request', level: rows === 0 ? 'warn' : 'info', fixable: false,
-                text: `${label} returned ${rows} row${rows === 1 ? '' : 's'}${query}`,
+                text: `${label} returned ${rows} row${plural}${query}`,
             });
         }
+    }
+}
+
+const SUMMARY_TAIL_CHARS = 16_384;
+
+/**
+ * A response's top-level fields, read without holding the body: a result asked
+ * for with `all_rows` can be hundreds of MB, and this copy is read alongside the
+ * widget's own. A SQL result ends with its summary, so the tail is enough.
+ */
+async function readSummary(response: Response): Promise<Record<string, unknown> | null> {
+    const reader = response.body?.getReader();
+    if (!reader) return null;
+    const decoder = new TextDecoder();
+    let tail = '';
+    let whole = true;
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            tail += decoder.decode(value, { stream: true });
+            if (tail.length > SUMMARY_TAIL_CHARS) {
+                tail = tail.slice(-SUMMARY_TAIL_CHARS);
+                whole = false;
+            }
+        }
+        tail += decoder.decode();
+    } catch {
+        return null;
+    }
+    const start = whole ? 0 : tail.lastIndexOf('"row_count":');
+    if (start < 0) return null;
+    try {
+        const parsed: unknown = JSON.parse(whole ? tail : `{${tail.slice(start)}`);
+        return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+    } catch {
+        return null;
     }
 }
 

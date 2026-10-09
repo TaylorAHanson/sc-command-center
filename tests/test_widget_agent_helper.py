@@ -146,12 +146,19 @@ def test_a_small_result_set_is_left_to_the_browser():
 
 
 def test_a_result_the_browser_can_hold_is_fetched_whole_and_the_widget_is_told_how():
-    """The endpoint answers 500 rows unless asked, so "fetch it once" needs `max_rows`."""
+    """The endpoint answers 500 rows unless asked, so "fetch it once" needs `all_rows`."""
     guidance = _size_guidance(_req(data_source_type="sql", data_source_row_estimate=8000))
     assert "comfortable to fetch once" in guidance
-    # Headroom over the tested count, for rows added since.
-    assert "max_rows: 8900" in guidance
+    assert "all_rows: true" in guidance
+    # The tested count goes stale as the table grows; a number sized to it is the bug.
+    assert "max_rows: 8" not in guidance
     assert "truncated: true" in guidance
+
+
+def test_an_untested_source_that_is_reduced_in_the_browser_asks_for_every_row():
+    guidance = _size_guidance(_req(data_source_type="sql"))
+    assert "all_rows: true" in guidance
+    assert "never a guessed `max_rows`" in guidance
 
 
 def test_the_line_is_the_payload_not_the_row_count():
@@ -329,6 +336,7 @@ if __name__ == "__main__":
         test_a_big_result_set_is_told_to_work_in_the_database,
         test_a_small_result_set_is_left_to_the_browser,
         test_an_untested_source_is_treated_as_large,
+        test_an_untested_source_that_is_reduced_in_the_browser_asks_for_every_row,
         test_an_attachment_is_looked_up_without_an_owner_filter,
         test_a_file_still_being_read_or_missing_is_not_sent,
         test_a_turn_carries_its_files_and_stays_plain_without_them,

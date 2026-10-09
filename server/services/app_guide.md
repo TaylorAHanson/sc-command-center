@@ -276,8 +276,13 @@ description.
    the widget only ever holds one page. An untested source is treated as large.
    A query returns its first 500 rows unless the widget asks for more, and the
    response says when rows were left out; a user who "hit a row limit" usually
-   means this, and the fix is to ask the studio agent to fetch the whole result
-   or to page in SQL.
+   means this. A widget can ask for every row (`all_rows: true` in its request),
+   however large the result — the only stop is the admin's **Most rows one widget
+   query can return** setting (Admin Panel → Settings, default 1,000,000). A
+   widget that asks for a fixed number such as 5,000 or 10,000 instead goes wrong
+   quietly once the data grows past it, and Widget Studio flags that number. The
+   fix for either is to ask the studio agent to fetch every row, or to page in
+   SQL.
 2. **The agent** — describe the widget in the chat and it writes the TSX. Asking
    for a change edits the existing code in place rather than rewriting the whole
    component. After generating, it also proposes Configuration-tab values,

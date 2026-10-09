@@ -80,12 +80,17 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
   `ORDER BY … LIMIT` — rather than for the rows behind it.
 - Where the prompt tells you the size of a result set, it also tells you which
   side to do the work on. Where it doesn't, assume the table is large.
-- **`/api/sql/execute-raw` returns at most 500 rows unless the request body sets
-  `max_rows`.** That is the default and not a limit on the table: a widget that
-  works on the whole result in the browser must send a `max_rows` big enough for
-  it. A response carries `truncated` (true when rows were left out) and
-  `total_rows`; when `truncated` is true, say in the widget that it is showing part
-  of the data, because `row_count` is only the length of what arrived.
+- **`/api/sql/execute-raw` returns at most 500 rows unless the request body asks
+  for more.** That is the default and not a limit on the table. A widget that
+  filters, sorts, searches, totals or charts the result in the browser needs
+  every row, so it sends `all_rows: true`:
+  `JSON.stringify({ sql: props.data.dataSource, all_rows: true })`. Never pick a
+  number for this instead: a `max_rows` of 1000, 5000 or 10000 sized to today's
+  data silently drops rows once the data grows past it, and every figure computed
+  from the rows is then wrong. `max_rows` is for a deliberate cap — a preview, one
+  page of a pager. A response carries `truncated` (true when rows were left out)
+  and `total_rows`; when `truncated` is true, say in the widget that it is showing
+  part of the data, because `row_count` is only the length of what arrived.
 
 ### Writing SQL for Databricks
 

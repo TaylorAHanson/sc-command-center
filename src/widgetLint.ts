@@ -235,6 +235,18 @@ export function lintWidget(code: string, options: LintOptions = {}): LintFinding
             'The SQL response is read without checking `res.ok`, so a refused query shows up as "no data" instead of its reason.');
     }
 
+    // A number sized to the data on the day the widget was built: correct then,
+    // silently short once the table grows past it. A pager's page size is fine.
+    if (read >= 0 && !/\bOFFSET\b/i.test(code)) {
+        for (const match of code.matchAll(/\bmax_rows['"]?\s*:\s*(\d[\d_]*)/g)) {
+            const rows = Number(match[1].replace(/_/g, ''));
+            if (rows < 1000) continue;
+            add('fixed-row-cap', 'warning', match.index ?? 0,
+                `\`max_rows: ${match[1]}\` keeps only the first ${rows.toLocaleString()} rows, so anything filtered, totalled or charted from them goes wrong once the data passes that. Send \`all_rows: true\` to get every row.`);
+            break;
+        }
+    }
+
     if (options.dataSourceType && options.dataSourceType !== 'none' && !/\bdataSource\b/.test(code)) {
         add('hardcoded-data-source', 'warning', 0,
             'A data source is configured but the code never reads `props.data.dataSource`, so the configured source is ignored.');

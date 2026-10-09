@@ -30,11 +30,17 @@
 - **Links open the workspace they were copied in.** Send a Test link to testers and a Prod link to users; without access to Dev or Test, a link opens Prod and says so.
 - **One set of permissions for the whole app.** A role mapping applies in Dev, Test and Prod alike, whichever workspace you had selected when adding it.
 - **Ask Widget Studio for runtime parameters.** The agent can add validated text, number, choice and long-text fields and make settings optional or required before placement.
+- **Widgets can fetch every row.** A widget that filters, totals or charts its query gets the whole result, however large; admins set the ceiling in **Admin Panel → Settings**.
 
 ### Changed
 
 - **Save writes to the workspace you're in.** Widget Studio no longer always saves to Dev — pick Dev in **Workspace** to author, then promote.
 - **Widget settings are per workspace.** Required parameters open when a widget is dropped; use each promoted card's gear for values that differ in Dev, Test and Prod.
+- **Widget Studio flags fixed row counts.** Code asking for a set number of rows gets a warning, since its results go wrong once the data grows past it.
+
+### Fixed
+
+- **Large query results no longer fail.** A widget query returning more than about 25 MB now loads instead of erroring.
 
 ## 1.14.0 — 2026-10-05
 
