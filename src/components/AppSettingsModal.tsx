@@ -222,12 +222,12 @@ export const AppSettingsModal: React.FC<{
                       <section className="space-y-3">
                         <div>
                           <h3 className="text-sm font-semibold text-gray-800">On its own, it shows</h3>
-                          <p className="text-xs text-gray-500">Used only when the view opens on its own; inside Command Center it keeps its name.</p>
+                          <p className="text-xs text-gray-500">The header shows them while you edit the view here too; the sidebar keeps its name.</p>
                         </div>
                         <div>
                           <FieldLabel
                             label="Header"
-                            help="The bar across the top with the title, logo, Copy link and Edit. Drop it when the view’s page draws a title bar of its own; Copy link and Edit then sit in a small bar at the bottom left, for the people who get them."
+                            help="The bar across the top with the title, logo, Copy link and Edit. Drop it when the view’s page draws a title bar of its own; Copy link and Edit then sit in a small bar at the bottom left, for the people who get them. While you edit the view, Preview, Settings, Share and its other editing buttons sit there too."
                             className="text-sm font-medium text-gray-700 mb-1"
                           />
                           <div className="flex gap-2">

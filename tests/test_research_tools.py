@@ -40,7 +40,26 @@ def test_an_empty_query_is_refused():
 
 def test_a_ping_is_answered_without_the_warehouse():
     for sql in ("SELECT 1", "select 1;", "SELECT 1 AS ok, 'x' y", "/* check */ SELECT TRUE", "SELECT -1.5"):
-        assert rt.run_sql(ExplodingClient(), sql).startswith("Not run: that query reads no table"), sql
+        out = rt.run_sql(ExplodingClient(), sql)
+        assert out.endswith(rt.PING_NOTE) and "Not run" not in out, sql
+
+
+def test_a_ping_gets_the_result_the_warehouse_would_give():
+    # A refusal read as a failure, and the agent sent the same SELECT 1 again.
+    assert rt.ping_result("SELECT 1").startswith("1 row(s):\n\n| 1 |\n| --- |\n| 1 |")
+    assert "| ok | flag |" in rt.ping_result("select 1 as ok, true flag")
+    assert "| 1 | TRUE |" in rt.ping_result("select 1 as ok, true flag")
+    # String literals are stripped before parsing, so their values aren't known.
+    assert rt.ping_result("SELECT 'x' AS y") == rt.PING_NOTE
+
+
+def test_a_second_ping_in_one_run_is_told_to_stop():
+    from types import SimpleNamespace as NS
+    lines = []
+    (run_sql,) = with_switches(True, False, lambda: rt.langchain_tools(ExplodingClient(), note=lines.append))
+    assert run_sql.invoke({"query": "SELECT 1"}).endswith(rt.PING_NOTE)
+    assert run_sql.invoke({"query": "select 1"}) == rt.PING_REPEATED
+    assert lines == ["answered a constant SELECT without the warehouse (it reads no table)"]
 
 
 def test_queries_that_read_something_are_not_pings():
@@ -118,7 +137,7 @@ def test_no_user_client_means_no_tools():
 
 def test_a_tool_out_of_time_declines_instead_of_starting():
     tools = with_switches(True, False, lambda: rt.langchain_tools(ExplodingClient(), seconds_left=lambda: 3))
-    assert tools[0].invoke({"query": "select 1"}).startswith("No time left")
+    assert tools[0].invoke({"query": "select count(*) from a.b.c"}).startswith("No time left")
 
 
 def test_genie_gets_the_question_and_the_callers_clock():

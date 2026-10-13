@@ -12,7 +12,7 @@ import { FilterBar } from './FilterBar';
 import { assistantLabel, useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
-import { isPage, layoutSwitch, shownTab, themeVariables } from '../store/appSpec';
+import { darkBars, isPage, layoutSwitch, showsHeader, shownTab, themeVariables } from '../store/appSpec';
 import { WorkspaceToolsContext, type WorkspaceTools } from '../contexts/WorkspaceTools';
 import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
 import { useCanvasLook } from '../hooks/useCanvasLook';
@@ -105,6 +105,17 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const assistantDoor = useAssistantDoorFor(agentChat.prefill, setAgentOpen, !viewHasNoAssistant);
   const look = useCanvasLook(activeApp, activeAppTab);
   const viewLook = { ...themeVariables(look.theme), ...(look.fontStack ? { fontFamily: look.fontStack } : {}) } as React.CSSProperties;
+  // The header is drawn as the view's own when the view is what's on screen, so
+  // editing it looks like Preview. Title, logo and "No header" are branding,
+  // which only a view that opens on its own has; the header color is its Look.
+  const viewOnScreen = currentPage === null && activeApp ? activeApp : null;
+  const branded = viewOnScreen && isStandalone(viewOnScreen) ? viewOnScreen.spec.branding || {} : null;
+  const viewHeader = !branded || showsHeader(viewOnScreen);
+  const darkHeader = Boolean(viewOnScreen && viewHeader && darkBars(viewOnScreen));
+  const headerButton = clsx(
+    'flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors',
+    darkHeader ? 'text-white/80 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-brand-blue hover:bg-gray-100',
+  );
 
   // Fetch the pages behind the sidebar buttons once the dashboard has settled.
   // Splitting them out of the bundle is what makes the first load quick; pulling
@@ -569,25 +580,19 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Top Header */}
-        {!isFullScreenStudio && (
-          <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
-            <div className="flex items-center gap-4 min-w-0">
-              <h1 className="text-lg font-semibold text-brand-navy truncate">
-                {currentPage === 'admin' ? 'Admin Panel' : (
-                  activeApp?.is_global && !isAdmin
-                    ? `${activeApp.name} (Read-Only)`
-                    : activeApp?.name || 'Command Center'
-                )}
-              </h1>
-            </div>
-
-            <div className="flex items-center gap-3">
+        {!isFullScreenStudio && (() => {
+          const name = branded?.title || activeApp?.name;
+          const title = currentPage === 'admin' ? 'Admin Panel' : (
+            activeApp?.is_global && !isAdmin ? `${name} (Read-Only)` : name || 'Command Center'
+          );
+          const actions = (
+            <>
               {!currentPage && activeApp && isStandalone(activeApp) && (
                 <button
                   onClick={() => shell.present(activeApp, linkTab(activeApp, activeAppTab), null, true)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                  className={headerButton}
                   title="See this view on its own, as people with its link do"
                 >
                   <AppWindow className="w-4 h-4" />
@@ -604,7 +609,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     button={open => (
                       <button
                         onClick={open}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                        className={headerButton}
                         title="Give this view a second tab"
                       >
                         <Plus className="w-4 h-4" />
@@ -628,7 +633,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               {!currentPage && activeApp && canEditApp(activeApp) && (
                 <button
                   onClick={() => setSettingsOpen(true)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                  className={headerButton}
                   title="How this view opens from its link, its title and logo, and its assistant"
                 >
                   <Settings2 className="w-4 h-4" />
@@ -643,7 +648,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         toggleLock(activeApp.id);
                       }
                     }}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                    className={headerButton}
                     title={activeApp?.locked ? "Unlock View" : "Lock View"}
                   >
                     {activeApp?.locked ? (
@@ -679,7 +684,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         }
                       }
                     }}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-brand-blue hover:bg-gray-100 rounded-md transition-colors"
+                    className={headerButton}
                     title="Share View"
                   >
                     {shareLinkCopied ? (
@@ -696,10 +701,37 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   </button>
                 </>
               )}
-
+            </>
+          );
+          return viewHeader ? (
+            <header
+              className={clsx(
+                'h-14 border-b flex items-center justify-between px-6 shadow-sm z-10',
+                darkHeader ? 'bg-brand-navy border-white/10' : 'bg-white border-gray-200',
+              )}
+              style={viewOnScreen ? viewLook : undefined}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                {branded?.logo && (
+                  <img src={branded.logo} alt="" className="h-8 w-auto max-w-[8rem] object-contain shrink-0" />
+                )}
+                <h1 className={clsx('text-lg font-semibold truncate', darkHeader ? 'text-white' : 'text-brand-navy')}>{title}</h1>
+              </div>
+              <div className="flex items-center gap-3">{actions}</div>
+            </header>
+          ) : (
+            // The view draws its own title bar, as it does on its own, so the
+            // editing controls sit bottom left, clear of the assistant's button.
+            <div
+              role="toolbar"
+              aria-label="View controls"
+              className="absolute bottom-4 left-4 z-30 flex items-center gap-1 px-1 py-1 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg shadow-md"
+              style={viewLook}
+            >
+              {actions}
             </div>
-          </header>
-        )}
+          );
+        })()}
 
         {/* Dashboard Canvas or Page */}
         {currentPage ? (
@@ -716,8 +748,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </React.Suspense>
           </main>
         ) : (
-          // The view's theme covers its own tabs, filters and canvas; the sidebar
-          // and header are Command Center's, so switching views doesn't repaint them.
+          // The view's theme covers its own tabs, filters and canvas, and the header
+          // above them; the sidebar is Command Center's, so switching views doesn't
+          // repaint it.
           <div className="flex-1 flex flex-col min-h-0 relative" style={{ ...viewLook, ...look.areaStyle }}>
             <TabBar placement="top" />
             <FilterBar />
@@ -777,6 +810,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             isOpen={isAgentOpen}
             onOpenChange={setAgentOpen}
             backdrop={currentPage === null ? look.theme.background : undefined}
+            dark={darkHeader}
             spotlight={showWelcome && welcomeSpot === 'assistant'}
           />
         </div>

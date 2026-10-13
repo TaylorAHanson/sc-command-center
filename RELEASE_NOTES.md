@@ -35,6 +35,8 @@
 
 ### Changed
 
+- **The assistant's message box grows as you type.** It shows up to about nine lines before scrolling, instead of one.
+- **Editing a view looks like its Preview.** The header takes the view's title, logo, font and header color, and **No header** moves the editing buttons to the bottom left.
 - **Save writes to the workspace you're in.** Widget Studio no longer always saves to Dev — pick Dev in **Workspace** to author, then promote.
 - **Widget settings are per workspace.** Required parameters open when a widget is dropped; use each promoted card's gear for values that differ in Dev, Test and Prod.
 - **Widget Studio flags fixed row counts.** Code asking for a set number of rows gets a warning, since its results go wrong once the data grows past it.
@@ -44,6 +46,8 @@
 - **Large query results no longer fail.** A widget query returning more than about 25 MB now loads instead of erroring.
 - **Long Agent Studio drafts no longer end in "network error".** A draft that researches with Genie for minutes now finishes and lands in the editor.
 - **Agent Studio no longer flags Genie's poll tool as missing.** The app waits for Genie's answer itself, so drafts don't need it.
+- **A dark Header now saves.** **Settings → Look → Header** keeps **The dark color** after Save instead of going back to White.
+- **Widget Studio stops repeating `SELECT 1`.** A styling or layout edit no longer stalls on connectivity checks in the Thinking panel.
 
 ## 1.14.0 — 2026-10-05
 

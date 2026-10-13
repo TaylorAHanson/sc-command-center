@@ -159,7 +159,7 @@ export const LookEditor: React.FC<{
           <div>
             <FieldLabel
               label="Header"
-              help="The bar along the top with the view’s title, and the assistant’s beside it, when the view is opened on its own. Inside Command Center, Command Center’s header is used. The tabs sit on the background below either way."
+              help="The bar along the top with the view’s title, and the assistant’s beside it, whether the view is opened on its own or in Command Center. The tabs sit on the background below either way."
               className="text-sm font-medium text-gray-700 mb-1"
             />
             <select

@@ -104,14 +104,17 @@ per-user unless they are global.
   always opened. **On its own** opens just that view: no sidebar, no Widget
   Library, no studios, under the title, logo and browser-tab icon set there; those
   three fields only appear once **On its own** is chosen. The assistant appears
-  too, unless the view's agent is **No agent**. Branding is only used on its
-  own; inside Command Center the view keeps its name.
+  too, unless the view's agent is **No agent**. While the view is edited inside
+  Command Center its header shows the same title and logo, so editing looks like
+  Preview; the sidebar keeps the view's name.
   **Header** there can be **No header: the page has its own**, for a view whose
   page draws its own title bar. On its own the view then starts straight with
   its tabs (or its page), the logo field goes away, and the title is used only on
   the browser tab. **Copy link**, **Edit** (or **Back to editing** in a preview)
   and the environment label move to a small bar at the bottom left, shown only
-  to people who get at least one of them. Inside Command Center nothing changes.
+  to people who get at least one of them. Inside Command Center the header goes
+  too, and the view's editing buttons (**Preview**, **Add tab**, **Settings**,
+  **Lock**, **Share**) sit in the same bar at the bottom left.
 - Each field in **Settings** has a **?** beside it; hovering it (or tabbing to
   it) explains what the field does.
 - **Assistant** in **Settings** has the **Agent** picker: the agent the view
@@ -135,17 +138,16 @@ per-user unless they are global.
   assistant's messages and message box. Text drawn straight on a dark
   background (tab names, filter labels, "This tab is empty", the assistant's
   small print) turns light by itself. **Header** (White or The dark color) colors
-  the bar along the top when the view is opened on its own, and the assistant's
-  header beside it, which is always the same height so the two make one line;
-  inside Command Center, Command Center's header is used. **Cards** sets their
+  the bar along the top, on its own and inside Command Center alike, and the
+  assistant's header beside it, which is always the same height so the two make
+  one line. **Cards** sets their
   corners, edges (flat, outlined, shadowed), title (in a gray bar, in an
   accent-color or dark-color bar with a white title, plain, or **No title**,
   which leaves the title off and shows the card's buttons only on hover) and
   **Spacing** between them (compact, standard, roomy); a card's body stays
-  white so widgets stay readable. Inside Command Center the look covers the
-  view's tabs, filter bar, background and the assistant panel, while the
-  sidebar and header stay Command Center's; opened on its own, the whole page
-  uses it. A view with no look, and every page that isn't a view (studios, User
+  white so widgets stay readable. Inside Command Center the look covers
+  everything but the sidebar: the header, the view's tabs, filter bar,
+  background and the assistant panel; opened on its own, the whole page uses it. A view with no look, and every page that isn't a view (studios, User
   Guide, Admin Panel), keeps Command Center's colors. A page tab has no cards,
   and its widget usually paints over the background. A preview beside the
   choices shows the result.

@@ -780,7 +780,10 @@ check" on edits that touched no SQL, so two things enforce it. `_may_need_data`
 binds no research tools to an edit of a widget with no data source and no
 queries in its code, unless the request names a table or asks to look at data;
 a new widget always gets them. And `run_sql` answers a SELECT of constants only
-(`research_tools.is_ping`) itself, without the warehouse.
+(`research_tools.is_ping`) itself, without the warehouse. It answers with the
+result (`ping_result`: the row, then `PING_NOTE`), not a refusal: told "Not run",
+the agent read a failed check and sent the same `SELECT 1` again. A second ping
+in one run gets `PING_REPEATED`, which tells it to return the code.
 
 ## Moving data between apps (`services/data_migration.py`, `routes/data_migration.py`)
 
@@ -1182,7 +1185,7 @@ PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 26 passe
 .venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server .venv/bin/python tests/test_conversation_store.py   # 5 passed
 PYTHONPATH=server .venv/bin/python tests/test_db_pool.py              # 14 passed
-PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 24 passed
+PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 30 passed
 PYTHONPATH=server .venv/bin/python tests/test_data_migration.py       # 21 passed
 PYTHONPATH=server .venv/bin/python tests/test_promotion.py            # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_role_mappings_home.py   # 5 passed

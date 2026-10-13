@@ -172,7 +172,9 @@ def format_result(columns: List[str], rows: List[List[Any]], limit: int,
     return f"{head}:\n\n" + "\n".join(lines) + note
 
 
-_CONSTANT_ITEM = re.compile(r"^(?:[-+]?\d+(?:\.\d+)?|''|true|false|null)(?:\s+(?:as\s+)?[a-z_][a-z0-9_]*)?$")
+_CONSTANT_ITEM = re.compile(
+    r"^(?P<value>[-+]?\d+(?:\.\d+)?|''|true|false|null)(?:\s+(?:as\s+)?(?P<alias>[a-z_][a-z0-9_]*))?$"
+)
 
 
 def is_ping(sql: str) -> bool:
@@ -183,10 +185,46 @@ def is_ping(sql: str) -> bool:
     "connectivity check" on edits that touched no SQL despite being told not to,
     so it is answered here rather than left to the prompt.
     """
+    items = _ping_items(sql)
+    return items is not None and all(_CONSTANT_ITEM.match(item) for item in items)
+
+
+def _ping_items(sql: str) -> Optional[List[str]]:
     cleaned = " ".join(sql_safety.strip_noise(sql).lower().split()).rstrip(";").strip()
     if not cleaned.startswith("select "):
-        return False
-    return all(_CONSTANT_ITEM.match(item.strip()) for item in cleaned[len("select "):].split(","))
+        return None
+    return [item.strip() for item in cleaned[len("select "):].split(",")]
+
+
+PING_NOTE = (
+    "Answered by the app, not the warehouse: a query that reads no table returns its "
+    "own constants, so it proves nothing about the tables, permissions or this "
+    "widget's queries, and no connectivity check is needed. Carry on with the change; "
+    "query again only to run a statement your code sends or to see data you need."
+)
+PING_REPEATED = (
+    "Already answered: that query reads no table, so running it again checks nothing. "
+    "Do not query again unless this change adds or edits a SQL statement — return the code."
+)
+
+
+def ping_result(sql: str) -> str:
+    """What the warehouse would say to a SELECT of constants, without asking it.
+
+    It used to be refused ("Not run: …"), and a model holding a checklist read the
+    refusal as a failure and sent the same `SELECT 1` again. A result ends that:
+    the check it wanted has an answer. String literals are stripped before
+    parsing, so a row is only shown when every value is known exactly.
+    """
+    columns, row = [], []
+    for item in _ping_items(sql) or []:
+        match = _CONSTANT_ITEM.match(item)
+        if not match or match.group("value") == "''":
+            return PING_NOTE
+        value = match.group("value")
+        columns.append(match.group("alias") or value)
+        row.append(value.upper() if value in ("true", "false", "null") else value)
+    return format_result(columns, [row], limit=DEFAULT_ROWS) + "\n\n" + PING_NOTE
 
 
 def refusal(sql: str) -> Optional[str]:
@@ -194,13 +232,6 @@ def refusal(sql: str) -> Optional[str]:
     kind, verb = sql_safety.classify_statement(sql)
     if kind == "empty":
         return "run_sql needs a query."
-    if kind == "read" and is_ping(sql):
-        return (
-            "Not run: that query reads no table, so it checks nothing — the warehouse "
-            "needs no connectivity check. Query only a statement your code sends or data "
-            "you need to see. If this change adds or edits no SQL, return the code without "
-            "querying."
-        )
     if kind == "write":
         named = f" ('{verb.upper()}')" if verb else ""
         return (
@@ -220,6 +251,8 @@ def run_sql(ws, sql: str, max_rows: Any = DEFAULT_ROWS) -> str:
     refused = refusal(sql)
     if refused:
         return refused
+    if is_ping(sql):
+        return ping_result(sql)
     warehouse_id = os.environ.get("SQL_WAREHOUSE_ID", "")
     if not warehouse_id:
         return "run_sql is unavailable: no SQL warehouse is configured for this app (SQL_WAREHOUSE_ID)."
@@ -342,6 +375,7 @@ def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
         return None
 
     tools: List[Any] = []
+    pings: List[str] = []
 
     if allowed.get("run_sql"):
         @tool("run_sql")
@@ -359,6 +393,12 @@ def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
             data is refused. Returns up to `max_rows` rows (default 50, at most 200)
             as a table.
             """
+            if is_ping(query or ""):
+                pings.append(query)
+                if len(pings) > 1:
+                    return PING_REPEATED
+                say("answered a constant SELECT without the warehouse (it reads no table)")
+                return ping_result(query)
             late = out_of_time()
             if late:
                 return late

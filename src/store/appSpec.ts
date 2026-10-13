@@ -311,6 +311,7 @@ export const savedLook = (theme: AppTheme): AppTheme | null => {
   if (theme.dark) out.dark = theme.dark;
   if (theme.background) out.background = theme.background;
   if (theme.font) out.font = theme.font;
+  if (theme.bars) out.bars = theme.bars;
   const cards = Object.fromEntries(Object.entries(theme.cards || {}).filter(([, v]) => v)) as CardStyle;
   if (Object.keys(cards).length) out.cards = cards;
   return Object.keys(out).length ? out : null;
