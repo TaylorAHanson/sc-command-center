@@ -31,6 +31,7 @@
 - **One set of permissions for the whole app.** A role mapping applies in Dev, Test and Prod alike, whichever workspace you had selected when adding it.
 - **Ask Widget Studio for runtime parameters.** The agent can add validated text, number, choice and long-text fields and make settings optional or required before placement.
 - **Widgets can fetch every row.** A widget that filters, totals or charts its query gets the whole result, however large; admins set the ceiling in **Admin Panel → Settings**.
+- **Give an agent a Genie space.** Agent Studio's tool list now includes every Genie space you can open; switch on **Genie spaces** above the list to see them.
 
 ### Changed
 
@@ -41,6 +42,8 @@
 ### Fixed
 
 - **Large query results no longer fail.** A widget query returning more than about 25 MB now loads instead of erroring.
+- **Long Agent Studio drafts no longer end in "network error".** A draft that researches with Genie for minutes now finishes and lands in the editor.
+- **Agent Studio no longer flags Genie's poll tool as missing.** The app waits for Genie's answer itself, so drafts don't need it.
 
 ## 1.14.0 — 2026-10-05
 

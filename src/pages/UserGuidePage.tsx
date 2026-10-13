@@ -445,6 +445,13 @@ export const UserGuidePage: React.FC = () => {
           </div>
 
           <div className="bg-white border rounded-lg p-6 shadow-sm">
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Choosing an agent's tools</h3>
+            <p className="text-sm text-gray-700">
+              Agent Studio's tool list holds every AI Gateway tool you can reach, including each Genie space you can open. Chips above the list show or hide a source: <strong>Genie spaces</strong> start hidden because there can be hundreds, and <strong>Internal</strong> shows tools the app drives itself, such as Genie's poll tool, which can't be attached. Your choice is remembered in this browser, and a tool you've selected stays visible whatever the chips say. <strong>Refresh</strong> fetches the list again, for example after you've been given a new Genie space.
+            </p>
+          </div>
+
+          <div className="bg-white border rounded-lg p-6 shadow-sm">
             <h3 className="text-lg font-semibold text-gray-900 mb-3">Who should be allowed to author Python tools</h3>
             <p className="text-sm text-gray-700">
               A Python tool written in Agent Studio runs on the server whenever its agent decides to call it. It runs in a restricted subprocess with the app's credentials removed and limits on time and memory, which prevents the common accidents — but that's a validation sandbox, not a jail, and it doesn't replace review.

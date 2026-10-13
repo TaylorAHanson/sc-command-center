@@ -332,6 +332,28 @@ Two behaviors that look odd but are intentional:
   answer. Handing the model a handle is useless, so `_exec_genie` drives the
   poll loop internally and `genie_poll_response` is hidden from the tool list
   the model sees (`AGENT_RUNTIME_GENIE_TIMEOUT`, `AGENT_RUNTIME_GENIE_POLL_MS`).
+  Genie's own description of `genie_ask` still says to poll, so
+  `discover_mcp_tools` puts a note in front of it saying the call waits for
+  the answer itself. Without that, Agent Studio's authoring assistant reported
+  the hidden poll tool under `review.missing` (`tests/test_mcp_catalog.py`).
+  Each Genie space also has a server of its own (`/api/2.0/mcp/genie/<id>`)
+  whose tool names needn't match the general one's, so discovery records each
+  ask tool's `poll_tool` and `_exec_mcp` polls with that.
+- **The tool catalog is unfiltered; the picker filters.** `discover_mcp_tools`
+  asks the configured servers (`AGENT_STUDIO_MCP_SERVERS`) and, with
+  `genie_spaces=True`, one server per Genie space the caller can list
+  (`AGENT_STUDIO_MAX_GENIE_SPACES`, 200). Nothing is dropped: plumbing such as
+  Genie's poll tool comes back with `internal: true`, and every entry carries a
+  `source` the Agent Studio picker hides or shows by (Genie spaces start hidden).
+  Servers are listed in parallel and each list is cached per credential for
+  `AGENT_STUDIO_MCP_CACHE_SECONDS` (300; `GET /tools?refresh=true` bypasses it),
+  because the runtime rebuilds its tools every turn and a cold list is a session
+  per server. That is also why the runtime never lists every space: a saved
+  agent's tool ids name their servers (`server_for_tool_id`, `genie.<id>/…` →
+  `/api/2.0/mcp/genie/<id>`), so it opens only those, and the default agent
+  stays on the configured servers. AI Gateway services under `system.ai`
+  (`/ai-gateway/mcp-services/…`) are not discovered yet: listing them needs the
+  `unity-catalog` user scope, which the App doesn't request.
   Status comes from `structuredContent`; the reply *text* is markdown for a model
   (`**Status:** completed`, "Still running…"), and `_genie_status` reads that
   header as a fallback — without it, a reply missing structuredContent never
@@ -625,10 +647,10 @@ The last layer does the work: a rejection names its cause ("unsupported paramete
 'temperature'", "max_tokens: 32000 > 8192", "reasoning: Field required"), so `adapt`
 reads it, changes the policy and the call is retried — `with_adaptation` is that
 loop, and every LLM call site goes through it. The exception is Agent Studio's
-streamed draft, which can't be rerun from the top once text has reached the
-browser: it runs the same `adapt` loop itself, and only until the first frame is
-sent (`tests/test_agent_studio_stream.py`). The lesson is remembered per process.
-That stream's `final` frame also carries `draft_error` when the reply attempted a
+authoring run, which can't be rerun from the top once a poll may have shown its
+text: it runs the same `adapt` loop itself, and only until prose or a tool pill is
+on the job (`tests/test_agent_studio_authoring.py`). The lesson is remembered per
+process. The settled job also carries `draft_error` when the reply attempted a
 draft (a ```json fence or a `"prompt"` key) that `_read_draft` couldn't use: cut
 off (the model's `finish_reason` says whether by the length limit) or invalid JSON
 with its position. The studio shows it; without it the run looked like a success.
@@ -833,9 +855,18 @@ back off, and `_settle` always forces the final one — and `cancelled` is its o
 column, which saves never write, so progress can't undo a Stop. Read cancellation
 with `generation_jobs.is_cancelled(job_id)`, never `job.get("cancelled")`: the
 flag may have been set on the other worker. Standalone tests set
-`generation_jobs.persist = False`. Agent Studio avoids the question by streaming
-each run over the request that started it (`/generate/stream`); its old polled
-job pair, held in one worker's memory, was unused and has been removed.
+`generation_jobs.persist = False`.
+
+Agent Studio's authoring runs use a second `JobStore` over the same table
+(`authoring_jobs`; job ids are UUIDs, so they can't collide): `POST /generate`
+answers with a job id, `GET` / `DELETE /generate/{id}` poll and stop it. It used
+to stream each run over the request that started it, and a run with Genie
+research outlasted something between the browser and the app: the connection was
+cut, the studio showed "network error", and the run was cancelled with it, even
+though keepalives were going out every 10 s. A poll that fails is now retried for
+a minute before the studio gives up. The prose is the job's `text`, written
+through at most once a second (`_AUTHORING_SAVE_SECS`), and Stop is checked
+between the agent's messages, so it can't cut into a tool call already running.
 
 It responds in one of two shapes, and the difference is the fix for large widgets
 failing:
@@ -1123,8 +1154,9 @@ settles as *completed* with an apology: the user's code is already fine.
 
 ```bash
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 6 passed
-PYTHONPATH=server .venv/bin/python tests/test_agent_studio_stream.py  # 10 passed
+PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 9 passed
+PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 12 passed
 PYTHONPATH=server .venv/bin/python tests/test_code_patch.py           # 22 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed

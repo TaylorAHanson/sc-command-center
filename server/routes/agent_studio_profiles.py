@@ -11,7 +11,7 @@ Two surfaces:
 
   * **CRUD** (``/profiles*``, ``/locations``) — list/read/save/delete profiles,
     delegated to :class:`AgentStudioStore`, scoped by OBO.
-  * **Authoring** (``/tools``, ``/generate/stream``) — an AI-assisted draft
+  * **Authoring** (``/tools``, ``/generate``) — an AI-assisted draft
     loop. A Claude (sonnet) agent proposes an ``AGENT.md`` +
     skills, *grounded* in (a) the tools actually exposed by the Unity Catalog AI
     Gateway MCP and (b) live schema probes against SQL/Genie. It returns a draft
@@ -25,11 +25,13 @@ the Review reflects what *this user* can actually see and run.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
 import re
+import threading
+import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -37,8 +39,7 @@ from typing import Any, Dict, List, Optional, Tuple
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from databricks.sdk import WorkspaceClient
@@ -60,6 +61,7 @@ from routes.roles import (
     require_global_admin,
 )
 from services import llm_params, research_tools
+from services.generation_jobs import JobStore
 from services.llm_client import reply_text
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
 
@@ -132,33 +134,79 @@ def _mcp_server_urls(host: str) -> List[str]:
     Genie spaces — restored after a refactor dropped it.
     """
     raw = os.environ.get("AGENT_STUDIO_MCP_SERVERS", "/api/2.0/mcp/sql,/api/2.0/mcp/genie")
-    urls: List[str] = []
-    for entry in raw.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        if entry.startswith("http://") or entry.startswith("https://"):
-            urls.append(entry.rstrip("/"))
-        elif host:
-            urls.append(f"{host.rstrip('/')}/{entry.lstrip('/')}")
-    return urls
+    return [u for u in (_absolute_url(host, e) for e in raw.split(",")) if u]
+
+
+def _absolute_url(host: str, entry: str) -> str:
+    entry = (entry or "").strip()
+    if entry.startswith("http://") or entry.startswith("https://"):
+        return entry.rstrip("/")
+    if entry and host:
+        return f"{host.rstrip('/')}/{entry.lstrip('/')}".rstrip("/")
+    return ""
+
+
+def _mcp_path(server_url: str) -> str:
+    from urllib.parse import urlparse
+
+    return (urlparse(server_url or "").path or "").rstrip("/")
+
+
+def _source_of(server_url: str) -> str:
+    """Which kind of MCP server a URL is, for the picker's source filters.
+
+    ``genie`` is the general server that searches every space the caller can see;
+    ``genie_space`` is one space's own server (``/api/2.0/mcp/genie/<space_id>``).
+    """
+    parts = [p for p in _mcp_path(server_url).split("/") if p]
+    if "mcp" not in parts or parts.index("mcp") + 1 >= len(parts):
+        return "other"
+    tail = parts[parts.index("mcp") + 1:]
+    if tail[0] == "genie":
+        return "genie_space" if len(tail) > 1 else "genie"
+    if tail[0] in ("sql", "functions", "vector-search", "external"):
+        return tail[0]
+    return "other"
+
+
+def _is_genie_server(server_url: str) -> bool:
+    return "/mcp/genie" in _mcp_path(server_url)
 
 
 def _is_internal_mcp_tool(server_url: str, name: str) -> bool:
     """True for tools that are an INTERNAL transport mechanism, not an
-    agent-facing capability — so they're hidden from Agent Studio's picker, the
-    authoring assistant's catalog, AND the runtime.
+    agent-facing capability. They are still listed, marked ``internal``, so the
+    picker can show them on request; the authoring assistant's catalog and the
+    runtime leave them out.
 
-    The Genie MCP server exposes ``genie_poll_response`` purely to drain an async
-    query started by ``genie_ask``. The runtime drives that poll loop itself (see
-    ``services.agent_runtime._exec_genie``, which calls it directly — it does not
-    rely on discovery), so an author should never see or select it: it takes no
-    meaningful arguments on its own and would just be a dead reference.
+    A Genie MCP server (the general one and each space's own) exposes a poll
+    tool purely to drain an async query started by its ask tool. The runtime
+    drives that poll loop itself (``services.agent_runtime._exec_genie``, told the
+    poll tool's name by discovery), so it is never a capability an agent picks.
     """
-    from urllib.parse import urlparse
+    return _is_genie_server(server_url) and "poll" in (name or "").lower()
 
-    is_genie = "/mcp/genie" in (urlparse(server_url or "").path or "")
-    return is_genie and "poll" in (name or "").lower()
+
+GENIE_POLLED_NOTE = (
+    "In this app the call waits for Genie and returns the finished answer: the"
+    " runtime polls for it itself, which is why the poll tool is not offered. "
+)
+
+
+def _tool_description(server_url: str, name: str, description: str) -> str:
+    """The description an author and a model read for one discovered tool.
+
+    Genie's own text for its ask tool says to poll the poll tool, which
+    :func:`_is_internal_mcp_tool` keeps from agents. Left as it was, the authoring
+    assistant reported the poll tool as a missing capability and wrote agents told
+    to poll by hand, so the description is corrected where the catalog is built.
+    The note goes first because the runtime truncates descriptions.
+    """
+    from services.agent_runtime import _is_genie_ask_tool
+
+    if _is_genie_server(server_url) and _is_genie_ask_tool(name):
+        return GENIE_POLLED_NOTE + description
+    return description
 
 
 def _readable(exc: BaseException, depth: int = 0) -> str:
@@ -176,16 +224,141 @@ def _readable(exc: BaseException, depth: int = 0) -> str:
     return f"{type(exc).__name__}: {str(exc).strip() or 'no message'}"
 
 
-def discover_mcp_tools(ws: WorkspaceClient) -> List[Dict[str, Any]]:
-    """List tools exposed by the configured AI Gateway MCP servers under OBO.
+# Discovery opens an MCP session per server, and with every Genie space included
+# that is dozens of round trips; the chat runtime also builds its tool list on
+# every turn. So each server's tools (and the list of Genie spaces) are cached per
+# credential, and servers are asked in parallel.
+_MCP_CACHE_SECONDS = float(os.environ.get("AGENT_STUDIO_MCP_CACHE_SECONDS", "300") or "300")
+_MAX_GENIE_SPACES = int(os.environ.get("AGENT_STUDIO_MAX_GENIE_SPACES", "200") or "200")
+_DISCOVERY_WORKERS = 8
+_mcp_cache: Dict[Tuple[str, str], Tuple[float, Any]] = {}
+_mcp_cache_lock = threading.Lock()
+
+
+def _credential_key(ws: WorkspaceClient) -> str:
+    """Whose view of the catalog this is: a hash of the token, never a name."""
+    from middleware.auth import _token_key
+
+    try:
+        token = ws.config.token
+        if token:
+            return _token_key("mcp", token)
+        return f"mcp:{ws.config.host}:{ws.config.auth_type}"
+    except Exception:  # noqa: BLE001
+        return f"mcp:{id(ws)}"
+
+
+def _cached(ws: WorkspaceClient, what: str, fresh: bool, build):
+    """`build()`, remembered per credential for `_MCP_CACHE_SECONDS`. Failures aren't kept."""
+    key = (_credential_key(ws), what)
+    now = time.monotonic()
+    if not fresh:
+        with _mcp_cache_lock:
+            hit = _mcp_cache.get(key)
+        if hit and now - hit[0] < _MCP_CACHE_SECONDS:
+            return hit[1]
+    value = build()
+    with _mcp_cache_lock:
+        if len(_mcp_cache) > 5000:
+            _mcp_cache.clear()
+        _mcp_cache[key] = (now, value)
+    return value
+
+
+def _genie_space_servers(ws: WorkspaceClient, host: str, fresh: bool = False) -> Dict[str, str]:
+    """{server url: space title} for each Genie space the caller can see."""
+    def build() -> Dict[str, str]:
+        spaces: Dict[str, str] = {}
+        token = None
+        while len(spaces) < _MAX_GENIE_SPACES:
+            page = ws.genie.list_spaces(page_size=100, page_token=token)
+            for space in page.spaces or []:
+                if space.space_id:
+                    spaces[_absolute_url(host, f"/api/2.0/mcp/genie/{space.space_id}")] = space.title or space.space_id
+            token = page.next_page_token
+            if not token:
+                break
+        return dict(list(spaces.items())[:_MAX_GENIE_SPACES])
+
+    try:
+        return _cached(ws, "genie-spaces", fresh, build)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Listing Genie spaces failed: %s", _readable(exc))
+        return {}
+
+
+def _server_tools(ws: WorkspaceClient, server_url: str, title: str, fresh: bool) -> List[Dict[str, Any]]:
+    """One server's tools, as catalog entries. An unreachable server lists none."""
+    from databricks_mcp import DatabricksMCPClient
+    from services.agent_runtime import _is_genie_ask_tool
+
+    def build() -> List[Dict[str, Any]]:
+        client = DatabricksMCPClient(server_url=server_url, workspace_client=ws)
+        tools = [t for t in client.list_tools() if getattr(t, "name", None)]
+        label = _server_label(server_url)
+        source = _source_of(server_url)
+        genie = _is_genie_server(server_url)
+        poll_tool = next((t.name for t in tools if genie and "poll" in t.name.lower()), None)
+        entries = []
+        for tool in tools:
+            name = tool.name
+            entry = {
+                # Canonical, server-qualified identifier authored profiles store
+                # (``<server>/<tool>``). Unambiguous when two servers expose the
+                # same tool name, which every Genie space does; the runtime
+                # matches on this id or, as a fallback, the bare ``name``.
+                "id": f"{label}/{name}",
+                "name": name,
+                "server_label": label,
+                "server_title": title,
+                "source": source,
+                "internal": _is_internal_mcp_tool(server_url, name),
+                "description": _tool_description(server_url, name, getattr(tool, "description", "") or ""),
+                "server": server_url,
+                "input_schema": getattr(tool, "inputSchema", None)
+                or getattr(tool, "input_schema", None)
+                or {},
+            }
+            if genie and poll_tool and _is_genie_ask_tool(name):
+                entry["poll_tool"] = poll_tool
+            entries.append(entry)
+        return entries
+
+    try:
+        return _cached(ws, f"tools:{server_url}", fresh, build)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("MCP list_tools failed for %s: %s", server_url, _readable(exc))
+        return []
+
+
+def server_for_tool_id(tool_id: str) -> Optional[str]:
+    """The workspace-relative MCP path a ``<server label>/<tool>`` id came from.
+
+    The inverse of :func:`_server_label` for the managed URL shapes, so the chat
+    runtime can open only the servers an agent's tools live on rather than
+    listing every Genie space on every turn. None for a bare tool name.
+    """
+    label, sep, _name = (tool_id or "").rpartition("/")
+    if not sep or not label:
+        return None
+    return "/api/2.0/mcp/" + "/".join(label.split("."))
+
+
+def discover_mcp_tools(ws: WorkspaceClient, *, genie_spaces: bool = False,
+                       servers: Optional[List[str]] = None, fresh: bool = False) -> List[Dict[str, Any]]:
+    """List tools exposed by AI Gateway MCP servers under the caller's OBO token.
+
+    Always the configured servers (``AGENT_STUDIO_MCP_SERVERS``); with
+    ``genie_spaces``, also every Genie space the caller can see, each its own
+    server; plus any ``servers`` named (absolute or workspace-relative). Nothing
+    is dropped: plumbing tools come back marked ``internal`` and it is each
+    caller's choice whether to show them. ``fresh`` skips the cache.
 
     Degrades gracefully: a missing ``databricks-mcp`` package or an unreachable
     server yields a partial/empty catalog rather than failing the request.
-
-    Internal transport-only tools (e.g. Genie's ``genie_poll_response``) are
-    filtered out — see :func:`_is_internal_mcp_tool` — so authors only ever see
-    real agent-facing capabilities like ``genie_ask``.
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     host = ""
     try:
         host = ws.config.host or ""
@@ -193,41 +366,30 @@ def discover_mcp_tools(ws: WorkspaceClient) -> List[Dict[str, Any]]:
         host = os.environ.get("DATABRICKS_HOST", "")
 
     try:
-        from databricks_mcp import DatabricksMCPClient
+        import databricks_mcp  # noqa: F401
     except Exception as exc:  # noqa: BLE001
         logger.warning("databricks-mcp not installed; tool discovery disabled: %s", exc)
         return []
 
-    out: List[Dict[str, Any]] = []
-    for server_url in _mcp_server_urls(host):
-        label = _server_label(server_url)
-        try:
-            client = DatabricksMCPClient(server_url=server_url, workspace_client=ws)
-            for tool in client.list_tools():
-                name = getattr(tool, "name", None) or ""
-                if not name:
-                    continue
-                if _is_internal_mcp_tool(server_url, name):
-                    continue
-                out.append(
-                    {
-                        # Canonical, server-qualified identifier authored profiles
-                        # store (``<server>/<tool>``). Unambiguous when two servers
-                        # expose the same tool name; the runtime matches on this id
-                        # or, as a fallback, the bare ``name`` suffix.
-                        "id": f"{label}/{name}",
-                        "name": name,
-                        "server_label": label,
-                        "description": getattr(tool, "description", "") or "",
-                        "server": server_url,
-                        "input_schema": getattr(tool, "inputSchema", None)
-                        or getattr(tool, "input_schema", None)
-                        or {},
-                    }
-                )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("MCP list_tools failed for %s: %s", server_url, _readable(exc))
-    return out
+    titles: Dict[str, str] = {}
+    for url in _mcp_server_urls(host):
+        titles.setdefault(url, "")
+    # A configured server with an unusual URL can't be recovered from its label,
+    # so a named server whose label is already configured is that one.
+    configured = {_server_label(url) for url in titles}
+    for entry in servers or []:
+        url = _absolute_url(host, entry)
+        if url and _server_label(url) not in configured:
+            titles.setdefault(url, "")
+    if genie_spaces:
+        for url, title in _genie_space_servers(ws, host, fresh).items():
+            titles[url] = title
+
+    if not titles:
+        return []
+    with ThreadPoolExecutor(max_workers=min(_DISCOVERY_WORKERS, len(titles))) as pool:
+        lists = list(pool.map(lambda item: _server_tools(ws, item[0], item[1], fresh), titles.items()))
+    return [entry for tools in lists for entry in tools]
 
 
 def _server_label(server_url: str) -> str:
@@ -573,7 +735,7 @@ def _make_tools(ws: WorkspaceClient, confirm_schema: bool):
 
     def _catalog() -> List[Dict[str, Any]]:
         if "tools" not in _catalog_cache:
-            _catalog_cache["tools"] = discover_mcp_tools(ws)
+            _catalog_cache["tools"] = [t for t in discover_mcp_tools(ws, genie_spaces=True) if not t.get("internal")]
         return _catalog_cache["tools"]
 
     @tool
@@ -589,7 +751,11 @@ def _make_tools(ws: WorkspaceClient, confirm_schema: bool):
             catalog = [t for t in catalog if q in t["name"].lower() or q in t["description"].lower()]
         if not catalog:
             return "No MCP tools discovered. Do not reference any tools; record needs under review.missing."
-        lines = [f"- {t['id']}: {t['description']}" for t in catalog[:100]]
+        lines = [
+            f"- {t['id']}: " + (f"[Genie space: {t['server_title']}] " if t.get("source") == "genie_space" else "")
+            + t["description"]
+            for t in catalog[:100]
+        ]
         return (
             "Available AI Gateway MCP tools. Reference tools by their exact id "
             "(the server-qualified value before the colon) in the profile's "
@@ -774,16 +940,12 @@ def _llm_credentials(sp_client: WorkspaceClient) -> tuple[str, str]:
     return api_key, base_url
 
 
-def _sse(payload: Dict[str, Any]) -> bytes:
-    """Render one SSE frame (``data: {json}\\n\\n``)."""
-    return f"data: {json.dumps(payload)}\n\n".encode("utf-8")
+# Authoring runs, readable from either worker; see `start_authoring`. Same table
+# as Widget Studio's jobs, which is safe because job ids are UUIDs.
+authoring_jobs = JobStore()
 
-
-# How long the authoring stream may stay silent before we emit an SSE comment
-# heartbeat. Long tool calls (each governed SQL probe waits up to 50s) and slow
-# model turns produce byte-free gaps; without a keepalive an idle intermediary
-# or the browser drops the connection and the client sees "network error".
-_AUTHORING_HEARTBEAT_SECS = float(os.environ.get("AGENT_STUDIO_HEARTBEAT_SECS", "10") or "10")
+#: The shortest gap between two writes of a run's prose to the job table.
+_AUTHORING_SAVE_SECS = 1.0
 
 
 _FRIENDLY_TOOL = {
@@ -901,11 +1063,16 @@ def _read_draft(content: str, finish_reason: Optional[str] = None) -> Tuple[Opti
 # --------------------------------------------------------------------- routes
 
 @router.get("/tools")
-def list_tools(obo_token: Optional[str] = Depends(get_user_token)):
-    """Catalog of tools the current user can use via the AI Gateway MCP."""
+def list_tools(refresh: bool = False, obo_token: Optional[str] = Depends(get_user_token)):
+    """Every tool the current user can reach through the AI Gateway MCP.
+
+    Unfiltered on purpose, Genie spaces and internal tools included: the picker
+    decides what to show by default (`source`, `internal`), and the author can
+    widen it. ``refresh`` re-asks every server instead of using the cache.
+    """
     store = get_agent_studio_store()
     ws = store._client(obo_token)
-    return {"tools": discover_mcp_tools(ws)}
+    return {"tools": discover_mcp_tools(ws, genie_spaces=True, fresh=refresh)}
 
 
 def _authorize_write(w: WorkspaceClient, visibility: str, domain: str, env: str) -> None:
@@ -1038,182 +1205,199 @@ def delete_profile(
     return {"status": "deleted"}
 
 
-@router.post("/generate/stream")
-async def stream_authoring(
+class _Stopped(Exception):
+    """Stop was pressed (on either worker); the run ends with what it has."""
+
+
+async def _run_authoring(job_id: str, req: AuthorRequest, api_key: str, base_url: str,
+                         obo_token: Optional[str]) -> None:
+    """Run one authoring turn, writing its progress onto ``authoring_jobs[job_id]``.
+
+    ``text`` is the prose so far, before the JSON payload, and ``tool_calls`` the
+    tool pills; both are replaced rather than appended to, because a poll copies
+    the job from a request thread while this one is writing it. Prose is written
+    through to the table (which a poll on the other worker reads) at most every
+    ``_AUTHORING_SAVE_SECS``; tool pills and the settled state go at once.
+    The run settles as ``completed`` (with ``draft``, ``draft_error`` and
+    ``explanation``), ``failed`` (``error``) or ``cancelled``.
+    """
+    job = authoring_jobs.get(job_id)
+    last_save = 0.0
+
+    def progress(force: bool = False, **fields: Any) -> None:
+        nonlocal last_save
+        job.update(fields)
+        now = time.monotonic()
+        if force or now - last_save >= _AUTHORING_SAVE_SECS:
+            last_save = now
+            authoring_jobs.save(job_id)
+
+    def settle(**fields: Any) -> None:
+        authoring_jobs.replace(job_id, {**job, **fields}, final=True)
+
+    full = ""
+    try:
+        from langchain_core.messages import AIMessage, HumanMessage
+        from langgraph.prebuilt import create_react_agent
+
+        store = get_agent_studio_store()
+        ws = store._client(obo_token)
+
+        history = req.history[-6:] if len(req.history) > 6 else req.history
+        lc_history: List[Any] = []
+        for m in history:
+            if m.role == "user":
+                lc_history.append(HumanMessage(content=m.content))
+            else:
+                lc_history.append(AIMessage(content=m.content))
+
+        # A parameter the endpoint refuses fails the first request, before
+        # anything is shown, so that failure is learned from (`llm_params.adapt`)
+        # and the run started again — the same recovery `with_adaptation` gives
+        # the other callers. Once prose or a tool pill is on the job a poll may
+        # already have shown it, and a retry would show it twice, so from then on
+        # a failure is reported.
+        model_name = get_setting("authoring_model")
+        last_note = ""
+        for remaining in range(2, -1, -1):
+            params = llm_params.langchain_params(model_name, _agent_studio_max_tokens())
+            agent = create_react_agent(
+                model=_build_authoring_llm(api_key, base_url, params),
+                tools=_make_tools(ws, req.confirm_schema),
+                prompt=_build_authoring_system_prompt(req),
+            )
+            full = ""
+            finish_reason: Optional[str] = None
+            tool_calls: List[Dict[str, str]] = []
+            tool_seen: set[str] = set()
+            # Track which message produced the last prose so we can insert a
+            # paragraph break between separate AI messages (the ReAct loop emits
+            # one per step); otherwise their text runs together with no space.
+            last_content_id: Optional[str] = None
+            try:
+                async for msg, _meta in agent.astream(
+                    {"messages": lc_history + [HumanMessage(content=req.prompt)]},
+                    stream_mode="messages",
+                ):
+                    # A tool call already running (Genie can take minutes) can't be
+                    # interrupted, so Stop lands at the next message.
+                    if authoring_jobs.is_cancelled(job_id):
+                        raise _Stopped()
+
+                    # A tool finished -> flip its pill to done.
+                    if getattr(msg, "type", None) == "tool":
+                        name = getattr(msg, "name", None)
+                        if name:
+                            label = _FRIENDLY_TOOL.get(name, name)
+                            tool_calls = [{**tc, "status": "done"} if tc["tool_name"] == label else tc
+                                          for tc in tool_calls]
+                            progress(force=True, tool_calls=tool_calls)
+                        continue
+
+                    # New tool call requested by the model.
+                    for tcc in getattr(msg, "tool_call_chunks", None) or []:
+                        nm = tcc.get("name")
+                        if nm and nm not in tool_seen:
+                            tool_seen.add(nm)
+                            tool_calls = [*tool_calls, {"tool_name": _FRIENDLY_TOOL.get(nm, nm), "status": "running"}]
+                            progress(force=True, tool_calls=tool_calls)
+
+                    finish_reason = (getattr(msg, "response_metadata", None) or {}).get("finish_reason") or finish_reason
+                    content = reply_text(msg)
+                    if not content:
+                        continue
+                    msg_id = getattr(msg, "id", None)
+                    if last_content_id is not None and msg_id != last_content_id:
+                        full += "\n\n"
+                    last_content_id = msg_id
+                    full += content
+                    # Show only the prose before the JSON payload. The boundary
+                    # (`{` or a ``` fence) is detected by _prose_cut and never
+                    # shown. The only thing that could leak is the START of a
+                    # fence, so hold back ONLY a trailing run of 1-2 backticks (a
+                    # partial ```); everything else is shown verbatim.
+                    cut = _prose_cut(full)
+                    if cut != -1:
+                        shown = full[:cut]
+                    else:
+                        stripped = full.rstrip("`")
+                        trailing_ticks = len(full) - len(stripped)
+                        shown = stripped if 0 < trailing_ticks < 3 else full
+                    if len(shown) > len(job.get("text") or ""):
+                        progress(text=shown)
+                break
+            except _Stopped:
+                raise
+            except Exception as exc:  # noqa: BLE001 — re-raised unless it taught us something
+                sent = bool(job.get("text") or job.get("tool_calls"))
+                note = None if sent else llm_params.adapt(
+                    model_name, str(exc), llm_params.requested_tokens(params))
+                if not note or not remaining or note == last_note:
+                    raise
+                last_note = note
+                logger.info("Agent Studio authoring retrying: %s.", note)
+
+        draft, draft_error = _read_draft(full, finish_reason)
+        explanation = _split_explanation(full) or "Draft updated."
+        settle(status="completed", draft=draft, draft_error=draft_error, explanation=explanation)
+    except _Stopped:
+        settle(status="cancelled")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Authoring run failed")
+        settle(status="failed", error=str(exc))
+
+
+def _authoring_task(job_id: str, req: AuthorRequest, api_key: str, base_url: str,
+                    obo_token: Optional[str]) -> None:
+    # A plain function, so FastAPI runs it on its thread pool: the run blocks on
+    # the job table and on sync tools, and must not hold up the worker's loop.
+    asyncio.run(_run_authoring(job_id, req, api_key, base_url, obo_token))
+
+
+@router.post("/generate")
+def start_authoring(
     req: AuthorRequest,
+    background_tasks: BackgroundTasks,
     obo_token: Optional[str] = Depends(get_user_token),
     sp_client: WorkspaceClient = Depends(get_db_client_sp),
 ):
-    """Stream the AI-assisted authoring run as SSE.
+    """Start an AI-assisted authoring run; poll ``GET /generate/{job_id}``.
 
-    Streams the model's prose as ``chunk`` events for immediate feedback, tool
-    activity as ``tool_calls`` events, and concludes with a single ``final``
-    event carrying the parsed ``draft`` + cleaned ``explanation``. The request
-    stays open for the whole run, so there is no job store and no cross-replica
-    polling gap. LLM uses the SP credential; tools/probes use the caller's OBO.
+    A job rather than a stream held open for the whole run: a run with Genie
+    research takes minutes, and somewhere between the browser and the app a
+    connection held that long was being cut ("network error"), which lost the
+    draft even though the run was still going. A poll that fails is just tried
+    again. LLM uses the SP credential; tools/probes use the caller's OBO.
 
-    This is the only authoring endpoint. A background-job + polling pair used to
-    sit beside it, holding jobs in one worker's memory, so with two workers half
-    its polls 404'd. Nothing called it; don't bring back a polled job here without
-    the shared store in ``services/generation_jobs.py``.
+    Jobs live in the store Widget Studio uses (``services/generation_jobs.py``),
+    because with two workers half the polls and Stops reach the one that isn't
+    running the job.
     """
     try:
         api_key, base_url = _llm_credentials(sp_client)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"LLM client init failed: {exc}")
+    job_id = str(uuid.uuid4())
+    authoring_jobs.create(job_id, {"status": "running", "text": "", "tool_calls": []})
+    background_tasks.add_task(_authoring_task, job_id, req, api_key, base_url, obo_token)
+    return {"job_id": job_id}
 
-    async def produce(queue: "asyncio.Queue[Optional[bytes]]") -> None:
-        """Run the authoring agent, pushing SSE frames onto ``queue``.
 
-        Runs as its own task so the outer generator can interleave heartbeat
-        comments during byte-free gaps (long tool calls / model turns). A final
-        ``None`` sentinel signals completion.
-        """
-        try:
-            from langchain_core.messages import AIMessage, HumanMessage
-            from langgraph.prebuilt import create_react_agent
+@router.get("/generate/{job_id}")
+def get_authoring(job_id: str):
+    job = authoring_jobs.snapshot(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
-            store = get_agent_studio_store()
-            ws = store._client(obo_token)
 
-            history = req.history[-6:] if len(req.history) > 6 else req.history
-            lc_history: List[Any] = []
-            for m in history:
-                if m.role == "user":
-                    lc_history.append(HumanMessage(content=m.content))
-                else:
-                    lc_history.append(AIMessage(content=m.content))
-
-            sent = False
-
-            async def emit(frame: bytes) -> None:
-                nonlocal sent
-                sent = True
-                await queue.put(frame)
-
-            # A parameter the endpoint refuses fails the first request, before
-            # anything streams, so that failure is learned from (`llm_params.adapt`)
-            # and the run started again — the same recovery `with_adaptation` gives
-            # the non-streaming callers. Once anything has reached the browser a
-            # retry would show it twice, so from then on a failure is reported.
-            model_name = get_setting("authoring_model")
-            last_note = ""
-            for remaining in range(2, -1, -1):
-                params = llm_params.langchain_params(model_name, _agent_studio_max_tokens())
-                agent = create_react_agent(
-                    model=_build_authoring_llm(api_key, base_url, params),
-                    tools=_make_tools(ws, req.confirm_schema),
-                    prompt=_build_authoring_system_prompt(req),
-                )
-                full = ""
-                finish_reason: Optional[str] = None
-                emitted = 0
-                tool_calls: List[Dict[str, str]] = []
-                tool_seen: set[str] = set()
-                # Track which message produced the last prose so we can insert a
-                # paragraph break between separate AI messages (the ReAct loop emits
-                # one per step); otherwise their text runs together with no space.
-                last_content_id: Optional[str] = None
-                try:
-                    async for msg, _meta in agent.astream(
-                        {"messages": lc_history + [HumanMessage(content=req.prompt)]},
-                        stream_mode="messages",
-                    ):
-                        # A tool finished -> flip its pill to done.
-                        if getattr(msg, "type", None) == "tool":
-                            name = getattr(msg, "name", None)
-                            if name:
-                                label = _FRIENDLY_TOOL.get(name, name)
-                                for tc in tool_calls:
-                                    if tc["tool_name"] == label:
-                                        tc["status"] = "done"
-                                await emit(_sse({"type": "tool_calls", "content": tool_calls}))
-                            continue
-
-                        # New tool call requested by the model.
-                        for tcc in getattr(msg, "tool_call_chunks", None) or []:
-                            nm = tcc.get("name")
-                            if nm and nm not in tool_seen:
-                                tool_seen.add(nm)
-                                tool_calls.append({"tool_name": _FRIENDLY_TOOL.get(nm, nm), "status": "running"})
-                                await emit(_sse({"type": "tool_calls", "content": tool_calls}))
-
-                        finish_reason = (getattr(msg, "response_metadata", None) or {}).get("finish_reason") or finish_reason
-                        content = reply_text(msg)
-                        if not content:
-                            continue
-                        msg_id = getattr(msg, "id", None)
-                        if last_content_id is not None and msg_id != last_content_id:
-                            full += "\n\n"
-                        last_content_id = msg_id
-                        full += content
-                        # Stream only the prose before the JSON payload. The boundary
-                        # (`{` or a ``` fence) is detected by _prose_cut and never
-                        # emitted. The only thing that could leak across chunks is the
-                        # START of a fence, so hold back ONLY a trailing run of 1-2
-                        # backticks (a partial ```); everything else is emitted verbatim.
-                        # (The old `prose[:-2]` dropped the last 2 chars of every chunk,
-                        # which surfaced as the final 1-2 letters going missing.)
-                        cut = _prose_cut(full)
-                        if cut != -1:
-                            emittable = full[:cut]
-                        else:
-                            stripped = full.rstrip("`")
-                            trailing_ticks = len(full) - len(stripped)
-                            emittable = stripped if 0 < trailing_ticks < 3 else full
-                        if len(emittable) > emitted:
-                            await emit(_sse({"type": "chunk", "content": emittable[emitted:]}))
-                            emitted = len(emittable)
-                    break
-                except Exception as exc:  # noqa: BLE001 — re-raised unless it taught us something
-                    note = None if sent else llm_params.adapt(
-                        model_name, str(exc), llm_params.requested_tokens(params))
-                    if not note or not remaining or note == last_note:
-                        raise
-                    last_note = note
-                    logger.info("Agent Studio authoring retrying: %s.", note)
-
-            draft, draft_error = _read_draft(full, finish_reason)
-            explanation = _split_explanation(full) or "Draft updated."
-            await queue.put(_sse({"type": "final", "draft": draft, "draft_error": draft_error,
-                                  "explanation": explanation}))
-            await queue.put(b"data: [DONE]\n\n")
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Authoring stream failed")
-            await queue.put(_sse({"type": "error", "content": str(exc)}))
-            await queue.put(b"data: [DONE]\n\n")
-        finally:
-            await queue.put(None)
-
-    async def event_stream():
-        queue: "asyncio.Queue[Optional[bytes]]" = asyncio.Queue()
-        task = asyncio.create_task(produce(queue))
-        try:
-            while True:
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=_AUTHORING_HEARTBEAT_SECS)
-                except asyncio.TimeoutError:
-                    # SSE comment (line starting with ':'). Clients ignore it,
-                    # but it keeps the connection warm through long silent gaps.
-                    yield b": keepalive\n\n"
-                    continue
-                if item is None:
-                    break
-                yield item
-        finally:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+@router.delete("/generate/{job_id}")
+def stop_authoring(job_id: str):
+    """Stop a run. Recorded on the job's row, so it reaches the other worker too."""
+    job = authoring_jobs.cancel(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": job.get("status", "running"), "cancelled": True}
 
 
 # --------------------------------------------------------------------- helper

@@ -4,7 +4,7 @@ Run from the repo root with the server's interpreter:
 
     .venv/bin/python tools/authoring_repro.py ["your prompt"]
 
-Builds the same client, tools and system prompt `POST /generate/stream` builds,
+Builds the same client, tools and system prompt `POST /generate` builds,
 streams one turn, and prints a summary of every request payload — role, content
 type and tool calls — so a rejection like "Content in ChatMessage must have type
 in String or List[ContentItem]" can be traced to the message that caused it.

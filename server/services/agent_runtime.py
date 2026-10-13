@@ -412,8 +412,9 @@ def _tool_is_disabled(server_url: str) -> bool:
 
 
 def _is_genie_ask_tool(name: str) -> bool:
+    # `query_space_<id>` is how a Genie space's own server has named its ask tool.
     n = (name or "").lower()
-    return n in ("genie_ask", "ask_your_data") or n.endswith("_ask")
+    return n in ("genie_ask", "ask_your_data") or n.endswith("_ask") or n.startswith("query_space")
 
 
 _GENIE_URL_FIELDS = (
@@ -518,12 +519,15 @@ def _genie_start(client, ask_tool: str, args: Dict[str, Any]) -> Tuple[Optional[
     return (str(conv), str(resp)), ""
 
 
-def _genie_wait(client, conv: str, resp: str, budget: float) -> Tuple[str, bool]:
+def _genie_wait(client, conv: str, resp: str, budget: float,
+                poll_tool: Optional[str] = None) -> Tuple[str, bool]:
     """Poll one Genie response until it ends or `budget` runs out.
 
     Returns (text, still_running). `still_running` means Genie had not finished at
     the deadline — the question is still being answered, and polling the same
-    handle later picks the answer up without asking again.
+    handle later picks the answer up without asking again. `poll_tool` is the
+    name the server lists its poll tool under (discovery finds it, since a Genie
+    space's own server needn't use the general server's name).
     """
     import time
 
@@ -535,7 +539,7 @@ def _genie_wait(client, conv: str, resp: str, budget: float) -> Tuple[str, bool]
         time.sleep(interval)
         polls += 1
         pstruct, ptext, perr = _parse_mcp_result(
-            client.call_tool("genie_poll_response", {"conversation_id": conv, "response_id": resp})
+            client.call_tool(poll_tool or "genie_poll_response", {"conversation_id": conv, "response_id": resp})
         )
         if perr:
             return f"Genie poll error: {ptext or 'unknown error'}", False
@@ -571,7 +575,8 @@ def _genie_wait(client, conv: str, resp: str, budget: float) -> Tuple[str, bool]
     ), True
 
 
-def _exec_genie(client, ask_tool: str, args: Dict[str, Any], timeout: Optional[float] = None) -> str:
+def _exec_genie(client, ask_tool: str, args: Dict[str, Any], timeout: Optional[float] = None,
+                poll_tool: Optional[str] = None) -> str:
     """Run the full Genie ask->poll->answer cycle and return the answer text.
 
     `timeout` caps the poll loop below the chat setting, for callers that work to a
@@ -580,17 +585,18 @@ def _exec_genie(client, ask_tool: str, args: Dict[str, Any], timeout: Optional[f
     handle, problem = _genie_start(client, ask_tool, args)
     if handle is None:
         return problem
-    return _genie_wait(client, *handle, _genie_budget(timeout))[0]
+    return _genie_wait(client, *handle, _genie_budget(timeout), poll_tool)[0]
 
 
-def _exec_mcp(ws, server_url: str, real_name: str, args: Dict[str, Any]) -> str:
+def _exec_mcp(ws, server_url: str, real_name: str, args: Dict[str, Any],
+              poll_tool: Optional[str] = None) -> str:
     from databricks_mcp import DatabricksMCPClient
 
     client = DatabricksMCPClient(server_url=server_url, workspace_client=ws)
 
     # Genie: one ask call, driven to completion internally (see note above).
     if _is_genie_server(server_url) and _is_genie_ask_tool(real_name):
-        return _exec_genie(client, real_name, args)[:8000]
+        return _exec_genie(client, real_name, args, poll_tool=poll_tool)[:8000]
 
     structured, text, is_err = _parse_mcp_result(client.call_tool(real_name, args or {}))
     out = text or (json.dumps(structured) if structured else "(tool returned no content)")
@@ -626,7 +632,7 @@ def _build_tools(
     ``dispatch`` maps a sanitized function name to a descriptor:
       {"kind": "mcp"|"python"|"upload", "friendly": str, ...invocation fields}
     """
-    from routes.agent_studio_profiles import discover_mcp_tools
+    from routes.agent_studio_profiles import discover_mcp_tools, server_for_tool_id
 
     specs: List[Dict[str, Any]] = []
     dispatch: Dict[str, Dict[str, Any]] = {}
@@ -663,13 +669,16 @@ def _build_tools(
             }
 
     # --- MCP tools (AI Gateway) -------------------------------------------
+    wanted = list((profile or {}).get("tools") or [])
+    # Only the servers this agent's tools live on, beyond the configured ones —
+    # listing every Genie space on every turn would cost a session per space.
+    extra = sorted({s for s in (server_for_tool_id(str(ref)) for ref in wanted) if s})
     try:
-        catalog = discover_mcp_tools(ws)
+        catalog = discover_mcp_tools(ws, servers=extra)
     except Exception as exc:  # noqa: BLE001
         logger.warning("MCP discovery failed: %s", exc)
         catalog = []
 
-    wanted = list((profile or {}).get("tools") or [])
     if wanted:
         by_id = {t["id"]: t for t in catalog}
         by_name = {t["name"]: t for t in catalog}
@@ -680,14 +689,14 @@ def _build_tools(
                 selected.append(entry)
     else:
         # Default agent: expose the whole discovered catalog (bounded).
-        selected = catalog[: _default_tool_cap()]
+        selected = [t for t in catalog if not t.get("internal")][: _default_tool_cap()]
 
     for entry in selected:
         server_url = entry.get("server") or ""
-        # Genie's poll tool is an internal mechanism — `genie_ask` drives it for
+        # Genie's poll tool is an internal mechanism — the ask tool drives it for
         # us (see _exec_genie). Never expose it to the model, or it will try to
         # poll by hand and burn tool-call rounds on a handle it can't manage.
-        if _is_genie_server(server_url) and _is_genie_poll_tool(entry["name"]):
+        if entry.get("internal") or (_is_genie_server(server_url) and _is_genie_poll_tool(entry["name"])):
             continue
         # An admin switch beats a profile's tool list: a saved agent naming a
         # Genie tool must not reintroduce Genie on a deployment that turned it off.
@@ -713,6 +722,7 @@ def _build_tools(
             "friendly": "Asking Genie" if is_genie_ask else (entry.get("name") or entry["id"]),
             "server_url": server_url,
             "real_name": entry["name"],
+            "poll_tool": entry.get("poll_tool"),
         }
 
     # --- Author-written Python tools --------------------------------------
@@ -767,7 +777,7 @@ def _run_tool(ws, desc: Dict[str, Any], args: Dict[str, Any]) -> str:
         if desc["kind"] == "app_help":
             out = app_help(str((args or {}).get("question") or ""))
         elif desc["kind"] == "mcp":
-            out = _exec_mcp(ws, desc["server_url"], desc["real_name"], args)
+            out = _exec_mcp(ws, desc["server_url"], desc["real_name"], args, desc.get("poll_tool"))
         elif desc["kind"] == "upload":
             from services.upload_tools import run_tool as run_upload_tool
 

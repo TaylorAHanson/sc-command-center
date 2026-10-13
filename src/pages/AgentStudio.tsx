@@ -38,7 +38,34 @@ interface ToolInfo {
     description: string;
     server?: string;
     server_label?: string;
+    server_title?: string; // a Genie space's title
+    source?: string;       // sql | genie | genie_space | functions | vector-search | external | other
+    internal?: boolean;    // plumbing the app drives itself (Genie's poll tool); listed, never attached
 }
+
+const TOOL_SOURCE_LABELS: Record<string, string> = {
+    sql: 'SQL',
+    genie: 'Genie',
+    genie_space: 'Genie spaces',
+    functions: 'UC functions',
+    'vector-search': 'Vector search',
+    external: 'External',
+    other: 'Other',
+};
+// Genie spaces can number in the hundreds, so they start hidden; the author
+// turns them on when building an agent around one.
+const DEFAULT_HIDDEN_SOURCES = ['genie_space'];
+const TOOL_FILTER_KEY = 'agentStudio.toolFilters';
+
+interface ToolFilters { hidden: string[]; internal: boolean }
+
+const loadToolFilters = (): ToolFilters => {
+    try {
+        const v = JSON.parse(localStorage.getItem(TOOL_FILTER_KEY) || 'null');
+        if (v && Array.isArray(v.hidden)) return { hidden: v.hidden, internal: !!v.internal };
+    } catch { /* fall through to defaults */ }
+    return { hidden: DEFAULT_HIDDEN_SOURCES, internal: false };
+};
 
 type Visibility = 'personal' | 'domain' | 'global';
 
@@ -64,6 +91,19 @@ interface ReviewReport {
 }
 
 const API = '/api/agent/studio';
+
+// An authoring run is a job the studio polls, not a stream held open: runs with
+// Genie research take minutes, and a connection held that long was being cut.
+// A failed poll is tried again until polls have failed for POLL_GIVE_UP_MS in a row.
+const POLL_MS = 1000;
+const POLL_GIVE_UP_MS = 60_000;
+
+const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+    if (signal.aborted) { reject(signal.reason); return; }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+});
+
 const DEFAULT_PROMPT = '# New Agent\n\nDescribe how this agent should behave, what data it can access, and the tone it should use.';
 
 type RightTab = 'prompt' | 'skills' | 'pytools' | 'review' | 'settings' | 'tryit';
@@ -179,6 +219,11 @@ export const AgentStudio: React.FC = () => {
     const [tools, setTools] = useState<ToolInfo[]>([]);
     const [toolsLoading, setToolsLoading] = useState(false);
     const [toolFilter, setToolFilter] = useState('');
+    const [toolFilters, setToolFiltersState] = useState<ToolFilters>(loadToolFilters);
+    const setToolFilters = (next: ToolFilters) => {
+        setToolFiltersState(next);
+        try { localStorage.setItem(TOOL_FILTER_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+    };
     const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
     const [showProfileMenu, setShowProfileMenu] = useState(false);
     const profileMenuRef = useRef<HTMLDivElement>(null);
@@ -257,10 +302,10 @@ export const AgentStudio: React.FC = () => {
         } catch (e) { console.error('list domains failed', e); }
     };
 
-    const refreshTools = async () => {
+    const refreshTools = async (fresh = false) => {
         setToolsLoading(true);
         try {
-            const r = await fetch(`${API}/tools`);
+            const r = await fetch(`${API}/tools${fresh ? '?refresh=true' : ''}`);
             const d = await r.json();
             if (r.ok) setTools(d.tools || []);
         } catch (e) {
@@ -396,13 +441,14 @@ export const AgentStudio: React.FC = () => {
         if (composerRef.current) composerRef.current.style.height = 'auto';
         setIsGenerating(true);
 
-        // Stream the authoring run as SSE: prose arrives as `chunk` events and we
-        // render it live; a single `final` event carries the parsed draft.
+        // Start the run, then poll it: `text` is the prose so far, rendered live,
+        // and the settled job carries the parsed draft.
         let assistantText = '';
         let gotFinal = false;
+        let jobId: string | null = null;
         const renderAssistant = () => setMessages([...baseMessages, { role: 'assistant' as const, content: assistantText }]);
         try {
-            const resp = await fetch(`${API}/generate/stream`, {
+            const resp = await fetch(`${API}/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 signal: controller.signal,
@@ -415,61 +461,69 @@ export const AgentStudio: React.FC = () => {
                     confirm_schema: true,
                 }),
             });
-            if (!resp.ok || !resp.body) {
+            if (!resp.ok) {
                 let detail = resp.statusText;
                 try { detail = (await resp.json()).detail || detail; } catch { /* non-JSON */ }
                 if (generationRef.current !== controller) return;
                 setMessages([...baseMessages, { role: 'system', content: `Server Error: ${detail}` }]);
                 return;
             }
-            const reader = resp.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
+            jobId = (await resp.json()).job_id as string;
+            let failingSince: number | null = null;
             for (;;) {
-                const { done, value } = await reader.read();
-                controller.signal.throwIfAborted();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const frames = buffer.split('\n\n');
-                buffer = frames.pop() || '';
-                for (const frame of frames) {
-                    const line = frame.split('\n').find(l => l.startsWith('data:'));
-                    if (!line) continue;
-                    const payload = line.slice('data:'.length).trim();
-                    if (payload === '[DONE]') continue;
-                    let evt: any;
-                    try { evt = JSON.parse(payload); } catch { continue; }
-                    if (evt.type === 'chunk') {
-                        assistantText += evt.content || '';
-                        renderAssistant();
-                    } else if (evt.type === 'final') {
-                        gotFinal = true;
-                        applyDraft(evt.draft);
-                        if (evt.draft?.review) setRightTab('review');
-                        assistantText = evt.explanation || assistantText || 'Draft updated.';
-                        renderAssistant();
-                        if (evt.draft_error) {
-                            setMessages(prev => [...prev, {
-                                role: 'system',
-                                content: `${evt.draft_error} Nothing in the editor changed, so the agent above was not built. Ask again to get a new draft.`,
-                            }]);
-                        }
-                    } else if (evt.type === 'error') {
-                        setMessages([...baseMessages, { role: 'system', content: `Generation Error: ${evt.content}` }]);
-                    }
+                await sleep(POLL_MS, controller.signal);
+                let job: any;
+                try {
+                    const r = await fetch(`${API}/generate/${jobId}`, { signal: controller.signal });
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    job = await r.json();
+                    failingSince = null;
+                } catch (e) {
+                    if (controller.signal.aborted) throw e;
+                    failingSince ??= Date.now();
+                    if (Date.now() - failingSince < POLL_GIVE_UP_MS) continue;
+                    throw e;
                 }
+                if (job.text && job.text !== assistantText) {
+                    assistantText = job.text;
+                    renderAssistant();
+                }
+                if (job.status === 'running') continue;
+                jobId = null;
+                if (job.status === 'completed') {
+                    gotFinal = true;
+                    applyDraft(job.draft);
+                    if (job.draft?.review) setRightTab('review');
+                    assistantText = job.explanation || assistantText || 'Draft updated.';
+                    renderAssistant();
+                    if (job.draft_error) {
+                        setMessages(prev => [...prev, {
+                            role: 'system',
+                            content: `${job.draft_error} Nothing in the editor changed, so the agent above was not built. Ask again to get a new draft.`,
+                        }]);
+                    }
+                } else if (job.status === 'cancelled') {
+                    setMessages([...baseMessages, { role: 'assistant', content: assistantText ? `${assistantText}\n\n_Stopped._` : '_Stopped._' }]);
+                } else {
+                    setMessages([...baseMessages, { role: 'system', content: `Generation Error: ${job.error || 'the run failed'}` }]);
+                }
+                break;
             }
         } catch (e) {
+            // Stopped, superseded, unmounted or given up on: the run would
+            // otherwise go on spending on a draft nobody will see.
+            if (jobId) fetch(`${API}/generate/${jobId}`, { method: 'DELETE' }).catch(() => { /* best effort */ });
             if (generationRef.current !== controller) return;
             if (controller.signal.aborted) {
-                // No `final` means no draft to apply, so the editor stays as it
-                // was; a draft that did land before the Stop is kept as is.
+                // No settled job means no draft to apply, so the editor stays as
+                // it was; a draft that did land before the Stop is kept as is.
                 if (!gotFinal) {
                     const stopped = assistantText ? `${assistantText}\n\n_Stopped._` : '_Stopped._';
                     setMessages([...baseMessages, { role: 'assistant', content: stopped }]);
                 }
             } else {
-                setMessages([...baseMessages, { role: 'system', content: `Network Error: ${e}` }]);
+                const lost = jobId ? 'The server could not be reached for a minute, so the run was stopped. ' : '';
+                setMessages([...baseMessages, { role: 'system', content: `Network Error: ${lost}${e}` }]);
             }
         } finally {
             if (generationRef.current === controller) {
@@ -980,7 +1034,7 @@ export const AgentStudio: React.FC = () => {
                                                 <span className="ml-2 text-xs font-normal text-indigo-300">{selectedTools.length} selected</span>
                                             )}
                                         </label>
-                                        <button onClick={refreshTools} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+                                        <button onClick={() => refreshTools(true)} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
                                             <RefreshCw size={12} className={toolsLoading ? 'animate-spin' : ''} /> Refresh
                                         </button>
                                     </div>
@@ -1000,6 +1054,42 @@ export const AgentStudio: React.FC = () => {
                                             />
                                         </div>
                                     )}
+                                    {tools.length > 0 && (() => {
+                                        const counts = new Map<string, number>();
+                                        for (const t of tools) {
+                                            if (t.internal) continue;
+                                            const s = t.source || 'other';
+                                            counts.set(s, (counts.get(s) || 0) + 1);
+                                        }
+                                        const internalCount = tools.filter(t => t.internal).length;
+                                        const chip = (on: boolean) =>
+                                            `text-[11px] px-2 py-0.5 rounded-full border transition-colors ${on
+                                                ? 'bg-indigo-500/15 border-indigo-500/50 text-indigo-200'
+                                                : 'bg-slate-900 border-slate-700 text-slate-500 hover:text-slate-300'}`;
+                                        return (
+                                            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                                                {Object.keys(TOOL_SOURCE_LABELS).filter(s => counts.has(s)).map(s => {
+                                                    const on = !toolFilters.hidden.includes(s);
+                                                    return (
+                                                        <button key={s} type="button" className={chip(on)}
+                                                            onClick={() => setToolFilters({
+                                                                ...toolFilters,
+                                                                hidden: on ? [...toolFilters.hidden, s] : toolFilters.hidden.filter(x => x !== s),
+                                                            })}>
+                                                            {TOOL_SOURCE_LABELS[s]} · {counts.get(s)}
+                                                        </button>
+                                                    );
+                                                })}
+                                                {internalCount > 0 && (
+                                                    <button type="button" className={chip(toolFilters.internal)}
+                                                        title="Tools the app drives itself, such as Genie's poll tool. Shown for reference; they can't be attached."
+                                                        onClick={() => setToolFilters({ ...toolFilters, internal: !toolFilters.internal })}>
+                                                        Internal · {internalCount}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
                                     <div className="border border-slate-700 rounded-lg max-h-[28rem] overflow-y-auto divide-y divide-slate-800">
                                         {tools.length === 0 ? (
                                             <div className="p-3 text-xs text-slate-500 italic">
@@ -1007,25 +1097,51 @@ export const AgentStudio: React.FC = () => {
                                             </div>
                                         ) : (() => {
                                             const q = toolFilter.trim().toLowerCase();
-                                            const shown = q
-                                                ? tools.filter(t => `${t.name} ${t.id} ${t.description}`.toLowerCase().includes(q))
+                                            const matching = q
+                                                ? tools.filter(t => `${t.name} ${t.id} ${t.server_title || ''} ${t.description}`.toLowerCase().includes(q))
                                                 : tools;
+                                            // A selected tool stays visible whatever the filters say, so
+                                            // nobody saves an agent with tools they can't see.
+                                            const shown = matching.filter(t => toolIsSelected(t) || (t.internal
+                                                ? toolFilters.internal
+                                                : !toolFilters.hidden.includes(t.source || 'other')));
+                                            const hiddenCount = matching.length - shown.length;
+                                            const hiddenNote = hiddenCount > 0 && (
+                                                <div className="p-2 text-[11px] text-slate-500 italic">
+                                                    {hiddenCount} more {q ? 'matching ' : ''}tool{hiddenCount === 1 ? '' : 's'} in sources switched off above.
+                                                </div>
+                                            );
                                             if (shown.length === 0) {
-                                                return <div className="p-3 text-xs text-slate-500 italic">No tools match “{toolFilter}”.</div>;
+                                                return (
+                                                    <>
+                                                        <div className="p-3 text-xs text-slate-500 italic">
+                                                            {q ? <>No tools match “{toolFilter}”.</> : 'Every source is switched off.'}
+                                                        </div>
+                                                        {hiddenNote}
+                                                    </>
+                                                );
                                             }
-                                            return shown.map(t => {
+                                            return <>{shown.map(t => {
                                                 const selected = toolIsSelected(t);
+                                                const locked = !!t.internal && !selected;
                                                 const expanded = expandedTools.has(t.id);
                                                 const longDesc = (t.description || '').length > 120;
                                                 return (
                                                     <div key={t.id} className={`flex items-start gap-3 p-3 transition-colors ${selected ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'}`}>
-                                                        <input type="checkbox" checked={selected} onChange={() => toggleTool(t)}
-                                                            className="mt-1 shrink-0 text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-600 rounded cursor-pointer" />
+                                                        <input type="checkbox" checked={selected} disabled={locked} onChange={() => toggleTool(t)}
+                                                            title={locked ? 'The app calls this itself; agents never need it.' : undefined}
+                                                            className={`mt-1 shrink-0 text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-600 rounded ${locked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`} />
                                                         <div className="min-w-0 flex-1">
                                                             <div className="flex items-center gap-2 flex-wrap">
-                                                                <span onClick={() => toggleTool(t)} className="text-sm text-slate-100 font-mono font-medium cursor-pointer hover:text-indigo-300">{t.name}</span>
-                                                                {t.server_label && (
+                                                                <span onClick={() => { if (!locked) toggleTool(t); }}
+                                                                    className={`text-sm font-mono font-medium ${locked ? 'text-slate-500' : 'text-slate-100 cursor-pointer hover:text-indigo-300'}`}>{t.name}</span>
+                                                                {t.source === 'genie_space' && t.server_title ? (
+                                                                    <span className="text-[10px] tracking-wide px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-200 border border-violet-500/40">Genie space: {t.server_title}</span>
+                                                                ) : t.server_label && (
                                                                     <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-700/70 text-slate-300 border border-slate-600/60">{t.server_label}</span>
+                                                                )}
+                                                                {t.internal && (
+                                                                    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">internal</span>
                                                                 )}
                                                             </div>
                                                             <div className="text-[10px] text-slate-500 font-mono truncate">{t.id}</div>
@@ -1051,7 +1167,7 @@ export const AgentStudio: React.FC = () => {
                                                         </div>
                                                     </div>
                                                 );
-                                            });
+                                            })}{hiddenNote}</>;
                                         })()}
                                     </div>
                                     {selectedTools.filter(sel => !tools.some(av => av.id === sel || av.name === sel)).length > 0 && (

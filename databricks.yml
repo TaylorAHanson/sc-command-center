@@ -218,8 +218,10 @@ resources:
           #   authoring assistant introspects for available tools. Entries are
           #   workspace-relative paths (joined to the host) or absolute URLs. Add
           #   resource-scoped servers to expose more tools, e.g.
-          #   "/api/2.0/mcp/functions/<catalog>/<schema>" (UC functions) or
-          #   "/api/2.0/mcp/genie/<genie_space_id>" (a specific Genie space).
+          #   "/api/2.0/mcp/functions/<catalog>/<schema>" (UC functions). Every
+          #   Genie space the user can see is discovered on its own, so a space
+          #   needn't be listed here (AGENT_STUDIO_MAX_GENIE_SPACES caps how
+          #   many; AGENT_STUDIO_MCP_CACHE_SECONDS sets how long lists are kept).
           - name: AGENT_STUDIO_MCP_SERVERS
             value: "${var.agent_studio_mcp_servers}"
 
