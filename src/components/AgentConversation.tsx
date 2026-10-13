@@ -84,6 +84,14 @@ export const AgentConversation: React.FC<{
     const tone = canvasTone(backdrop);
     // Text drawn straight on the backdrop; anything in a white box keeps its gray.
     const loose = tone === 'dark' ? 'text-white/70' : tone === 'image' ? 'w-fit px-1.5 rounded bg-white/90 text-gray-600' : 'text-gray-400';
+    // On a dark backdrop the agent's messages, the notice and the message box are
+    // glass rather than white, as a dark view's own cards usually are; a white
+    // bubble on navy was the brightest thing on the page. Charts keep their white
+    // card, and a light or image backdrop keeps white boxes for contrast.
+    const glass = tone === 'dark';
+    const replyBox = glass
+        ? 'bg-white/10 border border-white/15 text-slate-100 backdrop-blur-sm'
+        : `${backdrop ? 'bg-white' : 'bg-gray-50'} border border-gray-200 text-gray-800`;
     const {
         messages, input, setInput, isLoading, send, stop,
         attachments = [], attachFiles, removeAttachment, isUploading, uploadError, clearUploadError,
@@ -147,7 +155,8 @@ export const AgentConversation: React.FC<{
                     <div
                         role="status"
                         className={`sticky top-0 z-10 rounded-md border px-2.5 py-1.5 text-[11px] leading-snug shadow-sm ${
-                            notice.warn ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-white border-gray-200 text-gray-600'
+                            notice.warn ? 'bg-amber-50 border-amber-200 text-amber-800'
+                                : glass ? 'bg-white/10 border-white/15 text-white/80 backdrop-blur-sm' : 'bg-white border-gray-200 text-gray-600'
                         }`}
                     >
                         {notice.text}
@@ -169,7 +178,7 @@ export const AgentConversation: React.FC<{
                                     ? 'bg-brand-blue text-white'
                                     : msg.isError
                                         ? 'bg-rose-50 border border-rose-200 text-rose-700'
-                                        : `${backdrop ? 'bg-white' : 'bg-gray-50'} border border-gray-200 text-gray-800`
+                                        : replyBox
                             }`}
                         >
                             {msg.role === 'user' ? (
@@ -193,9 +202,10 @@ export const AgentConversation: React.FC<{
                                             text={thinkingText}
                                             label={working ? 'Thinking…' : 'Thoughts'}
                                             defaultOpen={working}
+                                            variant={glass ? 'dark' : 'light'}
                                         />
                                     )}
-                                    <div className="prose prose-sm max-w-none leading-relaxed break-words [overflow-wrap:anywhere] [&_code]:[overflow-wrap:anywhere] [&_code]:break-words [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:overflow-x-auto [&_table]:block [&_table]:overflow-x-auto">
+                                    <div className={`prose prose-sm ${glass && !msg.isError ? 'prose-invert' : ''} max-w-none leading-relaxed break-words [overflow-wrap:anywhere] [&_code]:[overflow-wrap:anywhere] [&_code]:break-words [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:overflow-x-auto [&_table]:block [&_table]:overflow-x-auto`}>
                                         {msg.isError ? (
                                             <div className="flex items-start gap-1.5">
                                                 <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -212,11 +222,11 @@ export const AgentConversation: React.FC<{
                                         )}
                                     </div>
                                     {msg.tool_calls && msg.tool_calls.length > 0 && (
-                                        <div className="mt-2 pt-2 border-t border-gray-100">
-                                            <p className="text-[10px] font-semibold text-gray-400 mb-1">TOOLS USED</p>
+                                        <div className={`mt-2 pt-2 border-t ${glass ? 'border-white/10' : 'border-gray-100'}`}>
+                                            <p className={`text-[10px] font-semibold mb-1 ${glass ? 'text-white/50' : 'text-gray-400'}`}>TOOLS USED</p>
                                             <div className="flex flex-wrap gap-1">
                                                 {msg.tool_calls.map((tc, tIdx) => (
-                                                    <span key={tIdx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">
+                                                    <span key={tIdx} className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${glass ? 'bg-white/10 text-white/70' : 'bg-gray-100 text-gray-500'}`}>
                                                         {tc.tool_name}
                                                     </span>
                                                 ))}
@@ -246,7 +256,7 @@ export const AgentConversation: React.FC<{
                 {attachments.length > 0 && (
                     <div className="mb-2 flex flex-wrap gap-1.5">
                         {attachments.map(file => (
-                            <AttachmentChip key={file.id} file={file} onRemove={removeAttachment!} />
+                            <AttachmentChip key={file.id} file={file} onRemove={removeAttachment!} variant={glass ? 'dark' : 'light'} />
                         ))}
                     </div>
                 )}
@@ -299,7 +309,11 @@ export const AgentConversation: React.FC<{
                         }}
                         rows={1}
                         placeholder={placeholder}
-                        className="flex-1 resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue max-h-48 overflow-y-auto"
+                        className={`flex-1 resize-none rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue max-h-48 overflow-y-auto ${
+                            glass
+                                ? 'border-white/20 bg-white/10 text-white placeholder-white/50 backdrop-blur-sm'
+                                : 'border-gray-300 bg-white text-gray-800'
+                        }`}
                     />
                     <SendStopButton
                         running={isLoading}

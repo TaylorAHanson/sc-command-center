@@ -67,7 +67,10 @@ export interface AppTheme {
   background?: CanvasBackground | null;
   /** One of `FONTS` in fonts.ts. */
   font?: string | null;
-  /** The header and tab bar: white, or the dark colour with white text. */
+  /**
+   * The header, and the tab and filter bars when there is no background:
+   * white, or the dark colour with white text. The assistant's header follows it.
+   */
   bars?: 'light' | 'dark' | null;
   cards?: CardStyle | null;
 }
@@ -88,21 +91,30 @@ export interface CardStyle {
 
 export const darkBars = (app?: App | null): boolean => effectiveTheme(app).bars === 'dark';
 
+export type BarSurface = 'plain' | 'navy' | 'light' | 'dark' | 'image';
+
 /**
- * What the tab and filter bars are drawn on: Command Center's white band with no
- * background, else the background itself, behind a pale band only over an image.
+ * What the tab and filter bars are drawn on: the background itself when there is
+ * one (behind a pale band only over an image); without one, a band in the
+ * header's color, so a dark header and the tabs under it read as one block.
  */
-export const barSurface = (app?: App | null): 'plain' | 'light' | 'dark' | 'image' => {
-  const background = effectiveTheme(app).background;
-  return background ? canvasTone(background) : 'plain';
+export const barSurfaceOf = (theme: AppTheme): BarSurface => {
+  if (theme.background) return canvasTone(theme.background);
+  return theme.bars === 'dark' ? 'navy' : 'plain';
 };
 
-export const BAR_SURFACE = {
+export const barSurface = (app?: App | null): BarSurface => barSurfaceOf(effectiveTheme(app));
+
+/** Whether text on the bars has to be light. */
+export const barsAreDark = (surface: BarSurface): boolean => surface === 'dark' || surface === 'navy';
+
+export const BAR_SURFACE: Record<BarSurface, string> = {
   plain: 'bg-white border-gray-200',
+  navy: 'bg-brand-navy border-white/10',
   light: 'border-black/10',
   dark: 'border-white/15',
   image: 'bg-white/85 backdrop-blur-sm border-gray-200',
-} as const;
+};
 
 /** The gap between cards and around the grid, in pixels. */
 export const cardSpacing = (cards?: CardStyle | null): { margin: [number, number]; padding: [number, number] } => {

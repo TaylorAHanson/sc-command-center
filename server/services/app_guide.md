@@ -137,10 +137,17 @@ per-user unless they are global.
   on white bands of their own, and so do the cards, a page tab's widget and the
   assistant's messages and message box. Text drawn straight on a dark
   background (tab names, filter labels, "This tab is empty", the assistant's
-  small print) turns light by itself. **Header** (White or The dark color) colors
+  small print) turns light by itself. On a dark background the assistant's
+  replies, its pinned-agent note and the message box turn to translucent glass
+  with light text instead of white boxes (a chart in a reply keeps its white
+  card); on a light background or an image they stay white. **Header** (White or The dark color) colors
   the bar along the top, on its own and inside Command Center alike, and the
   assistant's header beside it, which is always the same height so the two make
-  one line. **Cards** sets their
+  one line. With Command Center's light gray **Background**, the tab bar and
+  filter bar take the dark color too, so the top of the view is one dark block;
+  with a background of your own they sit on it instead. On a view set to **No
+  header** (Opening) there is no bar along the top, so it colors the assistant's
+  header and those bars, and the Look section says so under the field. **Cards** sets their
   corners, edges (flat, outlined, shadowed), title (in a gray bar, in an
   accent-color or dark-color bar with a white title, plain, or **No title**,
   which leaves the title off and shows the card's buttons only on hover) and

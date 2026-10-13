@@ -284,7 +284,8 @@ export const AppSettingsModal: React.FC<{
                         the accent and dark colors, so each must be dark enough to read it on.
                       </p>
                     </div>
-                    <LookEditor value={look} onChange={setLook} page={oneTab && isPage(app.spec.tabs[0])} />
+                    <LookEditor value={look} onChange={setLook} page={oneTab && isPage(app.spec.tabs[0])}
+                      noHeader={standalone && !header} />
                   </section>
                   <section className="space-y-2">
                     <div>

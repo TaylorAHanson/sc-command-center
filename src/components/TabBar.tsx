@@ -3,7 +3,7 @@ import { FileText, LayoutGrid, Plus, X } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from './ConfirmModal';
 import { useDashboardStore } from '../store/dashboardStore';
-import { BAR_SURFACE, barSurface, layoutSwitch, MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel, type TabLayout } from '../store/appSpec';
+import { BAR_SURFACE, barSurface, barsAreDark, layoutSwitch, MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel, type TabLayout } from '../store/appSpec';
 
 const NEW_TAB = '\u0000new';
 
@@ -144,9 +144,10 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
   const tabs = app.spec.tabs;
   const editable = canEditLayout(app);
   // The tabs sit on the view's background rather than a band of their own, so
-  // the header stays the only line across the view and the assistant beside it.
+  // the header stays the only line across the view and the assistant beside it;
+  // with no background they take the header's color (see barSurfaceOf).
   const surface = barSurface(app);
-  const dark = surface === 'dark';
+  const dark = barsAreDark(surface);
   const quiet = dark ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-brand-blue hover:bg-gray-100';
   // Roving focus: one tab is in the Tab order, the arrow keys move between them.
   const activeIndex = tabs.findIndex(t => t.id === activeAppTab?.id);

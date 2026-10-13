@@ -810,7 +810,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             isOpen={isAgentOpen}
             onOpenChange={setAgentOpen}
             backdrop={currentPage === null ? look.theme.background : undefined}
-            dark={darkHeader}
+            dark={Boolean(viewOnScreen && darkBars(viewOnScreen))}
             spotlight={showWelcome && welcomeSpot === 'assistant'}
           />
         </div>

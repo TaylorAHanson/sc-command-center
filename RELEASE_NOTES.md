@@ -47,6 +47,8 @@
 - **Long Agent Studio drafts no longer end in "network error".** A draft that researches with Genie for minutes now finishes and lands in the editor.
 - **Agent Studio no longer flags Genie's poll tool as missing.** The app waits for Genie's answer itself, so drafts don't need it.
 - **A dark Header now saves.** **Settings → Look → Header** keeps **The dark color** after Save instead of going back to White.
+- **The assistant blends into dark views.** On a dark background its replies and message box are translucent instead of bright white.
+- **A dark Header colors the tabs too.** Without a background of your own, the tab and filter bars and the assistant's header take the dark color, even with **No header**.
 - **Widget Studio stops repeating `SELECT 1`.** A styling or layout edit no longer stalls on connectivity checks in the Thinking panel.
 
 ## 1.14.0 — 2026-10-05

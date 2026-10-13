@@ -53,7 +53,8 @@ Rules:
   entirely, for cards whose content names itself; "accent" and "dark" put the
   title in white on a bar of that color. "spacing" is the gap between cards.
 - "bars": "dark" draws the header in the dark color with white text, for a bold,
-  branded look; "light" (the default) keeps it white.
+  branded look, and the tab and filter bars too when there is no background;
+  "light" (the default) keeps them white.
 - If a current look is given, change only what the description asks to change and
   return the whole resulting look.
 - No image backgrounds; no other keys; no comments in the JSON."""

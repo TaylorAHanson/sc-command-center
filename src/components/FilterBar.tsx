@@ -1,7 +1,7 @@
 import React from 'react';
 import { Filter } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { BAR_SURFACE, barSurface } from '../store/appSpec';
+import { BAR_SURFACE, barSurface, barsAreDark } from '../store/appSpec';
 
 /**
  * The view's own filters. Each sets the dashboard variable its key names, the
@@ -14,6 +14,7 @@ export const FilterBar: React.FC = () => {
   const filters = activeApp?.spec.filters;
   if (!filters?.length) return null;
   const surface = barSurface(activeApp);
+  const dark = barsAreDark(surface);
 
   return (
     <div
@@ -21,11 +22,11 @@ export const FilterBar: React.FC = () => {
       role="group"
       aria-label="Filters"
     >
-      <Filter className={`w-4 h-4 ${surface === 'dark' ? 'text-white/60' : 'text-gray-400'}`} aria-hidden />
+      <Filter className={`w-4 h-4 ${dark ? 'text-white/60' : 'text-gray-400'}`} aria-hidden />
       {filters.map(filter => {
         const current = variables[filter.key] == null ? '' : String(variables[filter.key]);
         return (
-          <label key={filter.key} className={`flex items-center gap-2 text-sm ${surface === 'dark' ? 'text-white/80' : 'text-gray-600'}`}>
+          <label key={filter.key} className={`flex items-center gap-2 text-sm ${dark ? 'text-white/80' : 'text-gray-600'}`}>
             <span className="font-medium">{filter.label}</span>
             <select
               value={current}

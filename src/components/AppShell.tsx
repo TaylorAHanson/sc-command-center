@@ -130,7 +130,8 @@ export const AppShell: React.FC = () => {
   const offersAssistant = activeApp.spec.assistant !== 'off';
   const header = showsHeader(activeApp);
   // Without the header its controls float over the page in a white bar, so the
-  // dark color, which belongs to the header, doesn't apply to them there.
+  // dark color doesn't apply to them there. The assistant's header still takes
+  // it: with no page header, that is all the setting has left to color.
   const dark = header && darkBars(activeApp);
   const canEdit = canEditApp(activeApp);
   // Prod is what people using the app expect; only the other two are named.
@@ -267,7 +268,7 @@ export const AppShell: React.FC = () => {
           isOpen={isAgentOpen}
           onOpenChange={setAgentOpen}
           backdrop={look.theme.background}
-          dark={dark}
+          dark={darkBars(activeApp)}
         />
       )}
     </div>
