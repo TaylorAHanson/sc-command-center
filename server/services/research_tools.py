@@ -294,9 +294,10 @@ def run_sql(ws, sql: str, max_rows: Any = DEFAULT_ROWS) -> str:
 def _genie_client(ws):
     """The Genie MCP client for this caller. Separate so tests can replace it."""
     from databricks_mcp import DatabricksMCPClient
+    from services.agent_runtime import GENIE_ONE_PATH
 
     host = (ws.config.host or os.environ.get("DATABRICKS_HOST", "")).rstrip("/")
-    return DatabricksMCPClient(server_url=f"{host}/api/2.0/mcp/genie", workspace_client=ws)
+    return DatabricksMCPClient(server_url=f"{host}{GENIE_ONE_PATH}", workspace_client=ws)
 
 
 def ask_genie(ws, question: str, conversation_id: str = "",

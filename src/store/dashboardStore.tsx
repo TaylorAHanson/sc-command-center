@@ -282,8 +282,8 @@ export const DashboardProvider: React.FC<{
   // Saves to one app go one at a time, in order. Each lands the next version
   // number, which the server reads off the newest row, so two in flight at once
   // claim the same number and Postgres refuses one — and if that was the newer,
-  // its change is gone. StrictMode runs the updaters that schedule saves twice in
-  // development, so there overlap is every save, not a rare one.
+  // its change is gone. Saves are started from handlers and from the effect on
+  // `apps`, never from inside a state updater, which StrictMode runs twice.
   const saveQueue = useRef(new Map<string, Promise<string | null>>());
   const apiSyncApp = (app: App, method: 'PUT' | 'POST' = 'PUT'): Promise<string | null> => {
     const previous = saveQueue.current.get(app.id) ?? Promise.resolve();
@@ -291,6 +291,10 @@ export const DashboardProvider: React.FC<{
     saveQueue.current.set(app.id, next);
     return next;
   };
+
+  // Apps whose widgets changed in a state update that has not been saved yet.
+  // Marking one is idempotent, so an updater that runs twice marks it twice.
+  const unsavedApps = useRef(new Set<string>());
 
   // Every save sends the whole spec, including tabs this screen doesn't show, so
   // a drag on the first tab can't drop the others. The server reads an absent
@@ -324,6 +328,17 @@ export const DashboardProvider: React.FC<{
       return 'The save did not reach the server.';
     }
   };
+
+  useEffect(() => {
+    if (unsavedApps.current.size === 0) return;
+    const ids = [...unsavedApps.current];
+    unsavedApps.current.clear();
+    for (const id of ids) {
+      const app = apps.find(a => a.id === id);
+      if (app) apiSyncApp(app);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apps]);
 
   const addApp = (name: string, domain?: string, is_global: boolean = false) => {
     const id = uuidv4();
@@ -547,32 +562,42 @@ export const DashboardProvider: React.FC<{
 
   // Changes one tab's widgets and saves the app. Shared apps are read-only to
   // their subscribers, so nothing here touches one.
+  // `change` runs inside a state updater, which React may run more than once
+  // (StrictMode always does, and a rebased update does in production), so it
+  // must be pure: no ids minted in it, no saves started from it. The save is
+  // left to the effect on `apps`, which sees each committed state once and saves
+  // that state, not whichever replay of the updater happened to run last.
   const changeWidgets = (appId: string, tabId: string, change: (widgets: WidgetLayout[], tab: AppTab) => WidgetLayout[] | null) => {
     const app = apps.find(a => a.id === appId);
     if (app?.is_shared) return;
 
     setApps(prevApps => {
-      let updatedApp: App | null = null;
+      let changed = false;
       const newApps = prevApps.map(a => {
         if (a.id !== appId) return a;
         const tab = a.spec.tabs.find(t => t.id === tabId);
         const widgets = tab ? change(tab.widgets, tab) : null;
         if (!widgets) return a;
-        updatedApp = withTab(a, tabId, t => ({ ...t, widgets }));
-        return updatedApp;
+        changed = true;
+        return withTab(a, tabId, t => ({ ...t, widgets }));
       });
-      if (!updatedApp) return prevApps;
-      setTimeout(() => apiSyncApp(updatedApp!), 0);
+      if (!changed) return prevApps;
+      unsavedApps.current.add(appId);
       return newApps;
     });
   };
 
   const addWidget = (appId: string, tabId: string, type: string, position?: { x: number; y: number; w?: number; h?: number }, props?: Record<string, any>) => {
+    // One id per call, minted here rather than in the updater: an updater that
+    // runs again finds this instance already placed and adds nothing, while a
+    // second call is a second drop and still gets its own widget.
+    const instanceId = uuidv4();
     changeWidgets(appId, tabId, (widgets, tab) => {
+      if (widgets.some(w => w.i === instanceId)) return null;
       const def = widgetRegistry[type];
-      if (isPage(tab)) return [{ i: uuidv4(), ...PAGE_WIDGET_PLACE, type, props: props || {} }];
+      if (isPage(tab)) return [{ i: instanceId, ...PAGE_WIDGET_PLACE, type, props: props || {} }];
       const newWidget: WidgetLayout = {
-        i: uuidv4(),
+        i: instanceId,
         x: position?.x ?? (widgets.length * 4) % 12,
         y: position?.y ?? Infinity,
         w: position?.w ?? def?.defaultW ?? 4,
@@ -629,7 +654,15 @@ export const DashboardProvider: React.FC<{
   });
 
   const openConfigModal = (widgetId: string, onSave: (config: any) => void, initialConfig?: any) => {
-    setConfigModal({ isOpen: true, widgetId, initialConfig: initialConfig ?? {}, onSave, editing: initialConfig !== undefined });
+    // Each opening saves at most once: for a dropped widget the callback adds it,
+    // so a Save that reaches it twice before the modal unmounts would add two.
+    let saved = false;
+    const saveOnce = (config: Parameters<typeof onSave>[0]) => {
+      if (saved) return;
+      onSave(config);
+      saved = true;
+    };
+    setConfigModal({ isOpen: true, widgetId, initialConfig: initialConfig ?? {}, onSave: saveOnce, editing: initialConfig !== undefined });
   };
 
   const closeConfigModal = () => {

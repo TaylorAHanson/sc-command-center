@@ -530,17 +530,23 @@ authored. An agent is a saved bundle of:
 
 - a **prompt** defining its persona and task instructions,
 - optional **skills** — named blocks of guidance layered onto the prompt,
-- selected **tools** from the AI Gateway MCP catalog (SQL, Genie, Unity Catalog,
-  and so on), including the tools of any **Genie space** the author can open,
+- selected **tools** from the AI Gateway MCP catalog (SQL, Genie, Unity Catalog
+  functions, vector search indexes, external MCP connections), including the
+  tools of any **Genie space** the author can open,
 - optional small **Python tools** the author writes for it.
 
-Chips above Agent Studio's tool list show or hide each source of tools. **Genie
-spaces** start hidden because there can be hundreds; turn the chip on to pick
-one. **Internal** lists plumbing the app drives itself, such as Genie's poll
-tool, which can't be attached. The choice is remembered in the browser, and a
-tool already selected stays visible whatever the chips say. The list is kept for
-five minutes; **Refresh** asks the servers again, for example after being given
-access to a new Genie space.
+Chips above Agent Studio's tool list show or hide each source of tools. Only
+**SQL** and **Genie** start shown; **Genie spaces**, **UC functions**, **Vector
+search**, **External** and the rest start hidden because there can be hundreds,
+so turn a chip on to pick from it. A Genie space is listed under its own name,
+not the internal tool name. **Internal** lists plumbing the app drives itself,
+such as Genie's poll tool, which can't be attached. The choice is remembered in
+the browser, and a tool already selected stays visible whatever the chips say.
+The list is kept for five minutes; **Refresh** asks the servers again, for
+example after being given access to a new Genie space. The list is what the
+author can reach as themselves in the workspace this app runs in, so a kind can
+be empty for them, and Genie spaces, functions or indexes in a different
+Databricks workspace are not listed.
 
 **Python tools carry real privilege, and authoring one is a trusted activity.**
 The code an author writes runs on the server whenever the agent decides to call

@@ -59,6 +59,8 @@ const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
+const handledDrops = new WeakSet<Event>();
+
 const ShareWidgetButton: React.FC<{ onShare: () => Promise<boolean> }> = ({ onShare }) => {
   const [copied, setCopied] = useState(false);
   return (
@@ -156,6 +158,10 @@ export const DashboardGrid: React.FC = () => {
   const handleNativeDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // One drop event adds one widget, however many handlers or mounted grids it reaches.
+    if (handledDrops.has(e.nativeEvent)) return;
+    handledDrops.add(e.nativeEvent);
 
     console.log('🎯 Native drop event triggered!', {
       draggedWidget,

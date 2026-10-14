@@ -32,9 +32,12 @@
 - **Ask Widget Studio for runtime parameters.** The agent can add validated text, number, choice and long-text fields and make settings optional or required before placement.
 - **Widgets can fetch every row.** A widget that filters, totals or charts its query gets the whole result, however large; admins set the ceiling in **Admin Panel → Settings**.
 - **Give an agent a Genie space.** Agent Studio's tool list now includes every Genie space you can open; switch on **Genie spaces** above the list to see them.
+- **More tools in Agent Studio.** The list now also offers Unity Catalog functions, vector search indexes and external MCP connections you can reach; they start hidden, so switch on a chip to see them.
 
 ### Changed
 
+- **Genie spaces show their real name.** In Agent Studio's tool list a space is named as you know it, instead of a long string of letters and digits.
+- **Genie moved to Databricks' new Genie One server.** The old one shuts down on October 31; your agents keep their Genie tools, and a question Genie can only partly answer now returns what it has instead of waiting out the clock.
 - **The assistant's message box grows as you type.** It shows up to about nine lines before scrolling, instead of one.
 - **Editing a view looks like its Preview.** The header takes the view's title, logo, font and header color, and **No header** moves the editing buttons to the bottom left.
 - **Save writes to the workspace you're in.** Widget Studio no longer always saves to Dev — pick Dev in **Workspace** to author, then promote.
@@ -43,6 +46,7 @@
 
 ### Fixed
 
+- **Dropping a widget adds it once.** A single drop can no longer place the same widget more than once.
 - **Large query results no longer fail.** A widget query returning more than about 25 MB now loads instead of erroring.
 - **Long Agent Studio drafts no longer end in "network error".** A draft that researches with Genie for minutes now finishes and lands in the editor.
 - **Agent Studio no longer flags Genie's poll tool as missing.** The app waits for Genie's answer itself, so drafts don't need it.

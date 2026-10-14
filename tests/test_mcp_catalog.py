@@ -19,8 +19,10 @@ from routes import agent_studio_profiles as ap  # noqa: E402
 
 ASK = "Ask Databricks Genie a question. Returns a handle; poll genie_poll_response for the answer."
 
+GENIE_ONE = "/ai-gateway/mcp-services/system.ai.genie_one_mcp"
+
 SERVERS = {
-    "/api/2.0/mcp/genie": [
+    GENIE_ONE: [
         ("genie_ask", ASK),
         ("genie_poll_response", "Fetch the latest state of an in-flight response."),
         ("genie_get_query_result", "Fetch the full SQL result."),
@@ -38,10 +40,14 @@ SERVERS = {
         ("query_space_s2", "Ask the Finance space."),
         ("poll_response_s2", "Poll a Finance space response."),
     ],
+    "/api/2.0/mcp/functions/main/sales": [("lookup_order", "Look up an order.")],
+    "/api/2.0/mcp/vector-search/main/docs": [("docs_index", "Search the docs index.")],
+    "/api/2.0/mcp/external/jira": [("search_issues", "Search Jira.")],
 }
 SPACES = [("s1", "Supply"), ("s2", "Finance")]
 
 listed = []
+ap._retry_sleep = lambda seconds: None  # a failing server is retried; don't wait for it here
 
 
 class FakeClient:
@@ -59,14 +65,56 @@ class FakeGenie:
         return types.SimpleNamespace(spaces=spaces, next_page_token=None)
 
 
+class FakeStatements:
+    """Answers the information_schema read that finds schemas holding functions."""
+    state = "SUCCEEDED"
+    rows = [["main", "sales"], ["a b", "odd name"]]
+    statements = []
+
+    def execute_statement(self, **kwargs):
+        from databricks.sdk.service.sql import StatementState
+
+        FakeStatements.statements.append(kwargs["statement"])
+        return types.SimpleNamespace(
+            status=types.SimpleNamespace(state=getattr(StatementState, FakeStatements.state)),
+            result=types.SimpleNamespace(data_array=FakeStatements.rows), statement_id="st1")
+
+    def cancel_execution(self, statement_id):
+        pass
+
+
+class FakeVectorEndpoints:
+    def list_endpoints(self):
+        return [types.SimpleNamespace(name="ep1")]
+
+
+class FakeVectorIndexes:
+    def list_indexes(self, endpoint_name):
+        return [types.SimpleNamespace(name="main.docs.handbook"), types.SimpleNamespace(name="main.docs.faq")]
+
+
+class FakeConnections:
+    def list(self):
+        from databricks.sdk.service.catalog import ConnectionType
+
+        mcp = {"is_mcp_connection": "true"}
+        return [
+            types.SimpleNamespace(name="jira", connection_type=ConnectionType.HTTP, options=mcp),
+            types.SimpleNamespace(name="plain_http", connection_type=ConnectionType.HTTP, options={}),
+            types.SimpleNamespace(name="warehouse", connection_type=ConnectionType.MYSQL, options=mcp),
+        ]
+
+
 def workspace(token="tok-a"):
     return types.SimpleNamespace(config=types.SimpleNamespace(host="https://host", token=token, auth_type="pat"),
-                                 genie=FakeGenie())
+                                 genie=FakeGenie(), statement_execution=FakeStatements(),
+                                 vector_search_endpoints=FakeVectorEndpoints(),
+                                 vector_search_indexes=FakeVectorIndexes(), connections=FakeConnections())
 
 
-def catalog(ws=None, **kwargs):
+def catalog(ws=None, configured=f"{GENIE_ONE},/api/2.0/mcp/sql", **kwargs):
     sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=FakeClient)
-    os.environ["AGENT_STUDIO_MCP_SERVERS"] = "/api/2.0/mcp/genie,/api/2.0/mcp/sql"
+    os.environ["AGENT_STUDIO_MCP_SERVERS"] = configured
     return {t["id"]: t for t in ap.discover_mcp_tools(ws or workspace(), **kwargs)}
 
 
@@ -123,7 +171,7 @@ def test_tool_lists_are_cached_per_credential():
     fresh_start()
     catalog()
     catalog()
-    assert sorted(listed) == ["/api/2.0/mcp/genie", "/api/2.0/mcp/sql"]
+    assert sorted(listed) == [GENIE_ONE, "/api/2.0/mcp/sql"]
     catalog(workspace(token="tok-b"))
     assert len(listed) == 4, "another person's token must not read the first person's cache"
 
@@ -147,6 +195,174 @@ def test_tool_ids_map_back_to_their_server():
     assert ap.server_for_tool_id("sql/execute_sql") == "/api/2.0/mcp/sql"
     assert ap.server_for_tool_id("functions.main.sales/lookup") == "/api/2.0/mcp/functions/main/sales"
     assert ap.server_for_tool_id("genie_ask") is None
+
+
+def test_genie_one_keeps_the_genie_label_so_saved_tool_ids_still_match():
+    assert ap.server_for_tool_id("genie/genie_ask") == GENIE_ONE
+    url = f"https://host{GENIE_ONE}"
+    assert ap._server_label(url) == "genie" and ap._source_of(url) == "genie"
+    assert ap._is_genie_server(url) and ap._is_genie_server("https://host/api/2.0/mcp/genie/s1")
+    assert not ap._is_genie_server("https://host/ai-gateway/mcp-services/system.ai.dbsql")
+
+
+def test_a_setting_that_still_names_the_old_genie_server_reads_as_genie_one():
+    fresh_start()
+    tools = catalog(configured="/api/2.0/mcp/genie,/api/2.0/mcp/sql")
+    assert "/api/2.0/mcp/genie" not in listed, "the sunset server must not be asked"
+    assert listed.count(GENIE_ONE) == 1
+    assert tools["genie/genie_ask"]["source"] == "genie"
+    assert tools["genie/genie_ask"]["poll_tool"] == "genie_poll_response"
+
+
+def test_naming_both_genie_servers_asks_genie_one_once():
+    fresh_start()
+    catalog(configured=f"/api/2.0/mcp/genie,{GENIE_ONE},https://host/api/2.0/mcp/genie")
+    assert listed == [GENIE_ONE]
+
+
+def test_the_default_servers_are_sql_and_genie_one():
+    os.environ.pop("AGENT_STUDIO_MCP_SERVERS", None)
+    assert ap._mcp_server_urls("https://host") == ["https://host/api/2.0/mcp/sql", f"https://host{GENIE_ONE}"]
+
+
+def test_the_research_tools_ask_genie_one():
+    from services import research_tools as rts
+
+    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=FakeClient)
+    client = rts._genie_client(types.SimpleNamespace(config=types.SimpleNamespace(host="https://host/")))
+    assert client.path == GENIE_ONE
+
+
+def test_an_incomplete_genie_response_ends_the_wait_with_what_it_has():
+    import json
+    from services import agent_runtime as rt
+
+    class Genie:
+        def call_tool(self, name, args):
+            body = ({"conversation_id": "c1", "response_id": "r1"} if name == "genie_ask"
+                    else {"status": "incomplete", "final_answer": "Top two regions only."})
+            return types.SimpleNamespace(content=[types.SimpleNamespace(text=json.dumps(body))],
+                                         structuredContent=body, isError=False)
+
+    interval, rt._genie_poll_interval = rt._genie_poll_interval, lambda: 0.0
+    try:
+        out = rt._exec_genie(Genie(), "genie_ask", {"question": "q"}, timeout=5)
+    finally:
+        rt._genie_poll_interval = interval
+    assert out.startswith("Top two regions only.") and "may be partial" in out
+
+
+def test_other_kinds_of_server_are_off_unless_asked_for():
+    fresh_start()
+    FakeStatements.statements.clear()
+    os.environ["SQL_WAREHOUSE_ID"] = "wh"
+    tools = catalog(genie_spaces=True)
+    assert not {"functions", "vector-search", "external"} & {t["source"] for t in tools.values()}
+    assert FakeStatements.statements == [], "nothing should touch the warehouse unless the picker asked"
+
+
+def test_every_other_kind_is_listed_with_its_own_source():
+    fresh_start()
+    os.environ["SQL_WAREHOUSE_ID"] = "wh"
+    tools = catalog(genie_spaces=True, extra_kinds=True)
+    assert tools["functions.main.sales/lookup_order"]["source"] == "functions"
+    assert tools["functions.main.sales/lookup_order"]["server_title"] == "main.sales"
+    assert tools["vector-search.main.docs/docs_index"]["source"] == "vector-search"
+    assert tools["external.jira/search_issues"]["source"] == "external"
+    assert not any(t.startswith("external.plain_http") or t.startswith("external.warehouse") for t in tools), \
+        "only HTTP connections flagged as MCP are servers"
+    assert not any("odd name" in t["server"] for t in tools.values()), "unaddressable names are skipped"
+
+
+def test_a_vector_schema_with_two_indexes_is_one_server():
+    fresh_start()
+    listed_vs = [p for p in ap.extra_mcp_servers(workspace(), "https://host") if "vector-search" in p]
+    assert listed_vs == ["https://host/api/2.0/mcp/vector-search/main/docs"]
+
+
+def test_a_kind_the_caller_cannot_list_contributes_nothing():
+    fresh_start()
+    os.environ["SQL_WAREHOUSE_ID"] = "wh"
+    ws = workspace()
+
+    def refused():
+        raise PermissionError("OAuth token does not have required scopes: catalog.connections")
+
+    ws.connections = types.SimpleNamespace(list=refused)
+    tools = catalog(ws, extra_kinds=True)
+    assert "functions.main.sales/lookup_order" in tools
+    assert not any(t["source"] == "external" for t in tools.values())
+
+
+def test_functions_are_skipped_without_a_warehouse_or_when_the_listing_does_not_finish():
+    fresh_start()
+    os.environ.pop("SQL_WAREHOUSE_ID", None)
+    assert not any(t["source"] == "functions" for t in catalog(extra_kinds=True).values())
+    fresh_start()
+    os.environ["SQL_WAREHOUSE_ID"] = "wh"
+    FakeStatements.state = "FAILED"
+    try:
+        assert not any(t["source"] == "functions" for t in catalog(extra_kinds=True).values())
+    finally:
+        FakeStatements.state = "SUCCEEDED"
+
+
+def test_gateway_services_and_custom_apps_get_their_own_source_and_distinct_labels():
+    gateway = "https://host/ai-gateway/mcp-services/system.ai.dbsql"
+    app_a, app_b = "https://mcp-orders-123.databricksapps.com/mcp", "https://mcp-stock-456.cloud.databricksapps.com/mcp"
+    assert ap._source_of(gateway) == "gateway" and ap._server_label(gateway) == "gateway.system.ai.dbsql"
+    assert ap._source_of(app_a) == "app" and ap._source_of(app_b) == "app"
+    assert ap._server_label(app_a) == "app.mcp-orders-123" and ap._server_label(app_b) == "app.mcp-stock-456"
+    assert ap._source_of("https://host/api/2.0/mcp/ai-search/main/docs/idx") == "vector-search"
+    assert ap.server_for_tool_id("gateway.system.ai.dbsql/execute") == "/ai-gateway/mcp-services/system.ai.dbsql"
+    assert ap.server_for_tool_id("app.mcp-orders-123/lookup") is None
+
+
+def test_a_kind_with_many_servers_cannot_crowd_out_the_others():
+    many = {f"https://host/api/2.0/mcp/functions/c/s{i}": f"c.s{i}" for i in range(ap._MAX_EXTRA_SERVERS)}
+    saved = (ap._uc_function_servers, ap._external_servers, ap._vector_search_servers)
+    ap._uc_function_servers = lambda ws, host, fresh: many
+    ap._vector_search_servers = lambda ws, host, fresh: {}
+    ap._external_servers = lambda ws, host, fresh: {"https://host/api/2.0/mcp/external/jira": "jira"}
+    try:
+        found = ap.extra_mcp_servers(workspace(), "https://host")
+    finally:
+        ap._uc_function_servers, ap._external_servers, ap._vector_search_servers = saved
+    assert "https://host/api/2.0/mcp/external/jira" in found and len(found) == len(many) + 1
+
+
+def test_a_server_that_refuses_once_is_listed_on_the_retry():
+    fresh_start()
+    attempts = []
+
+    class Flaky(FakeClient):
+        def list_tools(self):
+            attempts.append(self.path)
+            if self.path == "/api/2.0/mcp/sql" and attempts.count(self.path) == 1:
+                raise RuntimeError("Server returned an error response")
+            return super().list_tools()
+
+    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=Flaky)
+    os.environ["AGENT_STUDIO_MCP_SERVERS"] = "/api/2.0/mcp/sql"
+    tools = {t["id"] for t in ap.discover_mcp_tools(workspace())}
+    assert "sql/execute_sql" in tools and attempts.count("/api/2.0/mcp/sql") == 2
+
+
+def test_a_server_that_keeps_failing_is_given_up_on_after_a_few_tries():
+    fresh_start()
+    attempts = []
+
+    class Broken:
+        def __init__(self, server_url, workspace_client):
+            pass
+
+        def list_tools(self):
+            attempts.append(1)
+            raise RuntimeError("Server returned an error response")
+
+    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=Broken)
+    os.environ["AGENT_STUDIO_MCP_SERVERS"] = "/api/2.0/mcp/sql"
+    assert ap.discover_mcp_tools(workspace()) == [] and len(attempts) == ap._LIST_ATTEMPTS
 
 
 def test_an_unreachable_server_lists_nothing_and_the_rest_still_arrive():

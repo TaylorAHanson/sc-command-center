@@ -157,7 +157,7 @@ resources:
             value: "8"
           # AGENT_RUNTIME_GENIE_TIMEOUT — wall-clock budget (seconds) for the internal
           #   Genie ask->poll loop. Fallback only; admins set this in Admin Panel →
-          #   Settings. The Genie MCP server is async (genie_ask returns a handle; the
+          #   Settings. The Genie One MCP server is async (genie_ask returns a handle; the
           #   answer is drained by polling genie_poll_response), and the runtime drives
           #   that loop so the model gets a finished answer from one call. Genie
           #   typically takes 30-120s; the stream heartbeats during the wait.
@@ -244,6 +244,12 @@ resources:
         - "mcp.external"
         - "model-serving"
         - "ai-gateway"
+        # Agent Studio's tool picker lists vector search indexes and external MCP
+        # connections as the signed-in user. Without these two the lists come back
+        # empty (logged, not an error) and the rest of the picker is unaffected.
+        # Everyone re-consents to the app the next time they open it.
+        - "vector-search"
+        - "catalog.connections"
 
       permissions:
         - level: CAN_MANAGE
@@ -378,8 +384,8 @@ variables:
     description: "As agent_studio_llm_base_path, for the chat agent's LLM. Leave empty to derive the path from the model name; setting it pins every model to that path. Uncomment AGENT_RUNTIME_LLM_BASE_PATH in the app env when you set it."
     default: ""
   agent_studio_mcp_servers:
-    description: "Comma-separated AI Gateway MCP servers the authoring assistant introspects for tools (workspace-relative paths or absolute URLs). Add '/api/2.0/mcp/functions/<catalog>/<schema>' for UC functions or '/api/2.0/mcp/genie/<genie_space_id>' for a specific Genie space."
-    default: "/api/2.0/mcp/sql,/api/2.0/mcp/genie"
+    description: "Comma-separated AI Gateway MCP servers the authoring assistant introspects for tools (workspace-relative paths or absolute URLs). The default is SQL plus Genie One (system.ai.genie_one_mcp), which replaces the old /api/2.0/mcp/genie server sunset on 2026-10-31; the app reads an entry for the old one as Genie One. Add '/api/2.0/mcp/functions/<catalog>/<schema>' for UC functions or '/api/2.0/mcp/genie/<genie_space_id>' for a specific Genie space."
+    default: "/api/2.0/mcp/sql,/ai-gateway/mcp-services/system.ai.genie_one_mcp"
   agent_studio_max_tokens:
     description: "Output token budget for the Agent Studio authoring draft. Too low truncates the JSON profile and it fails to parse."
     default: "16000"

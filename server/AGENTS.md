@@ -327,7 +327,18 @@ Two behaviors that look odd but are intentional:
   reports them. `_stream_completion` retries a rejected turn once with the cap named
   in the error and remembers it per model for the life of the process, so picking a
   small model in the Admin Panel can't wedge chat.
-- **Genie is made synchronous.** The AI Gateway Genie MCP server is a polling
+- **The general Genie server is Genie One.** `AGENT_STUDIO_MCP_SERVERS` defaults
+  to `/api/2.0/mcp/sql` plus `/ai-gateway/mcp-services/system.ai.genie_one_mcp`
+  (`GENIE_ONE_PATH` in `agent_runtime.py`). It replaces `/api/2.0/mcp/genie`,
+  which is sunset on 2026-10-31: same four tools, same `question` /
+  `conversation_id` arguments, and it needs only the `ai-gateway` scope. A
+  setting that still names the old path is read as Genie One
+  (`_mcp_server_urls`), and Genie One keeps the label `genie`, so saved tool ids
+  (`genie/genie_ask`) keep matching. `research_tools._genie_client` uses it too.
+  Genie One can end a response as `incomplete`; `_genie_wait` treats that as
+  final and returns what it has. The per-space servers are still
+  `/api/2.0/mcp/genie/<id>`; no sunset date is announced for them.
+- **Genie is made synchronous.** The Genie MCP server is a polling
   API: `genie_ask` returns a handle and `genie_poll_response` retrieves the
   answer. Handing the model a handle is useless, so `_exec_genie` drives the
   poll loop internally and `genie_poll_response` is hidden from the tool list
@@ -351,9 +362,24 @@ Two behaviors that look odd but are intentional:
   per server. That is also why the runtime never lists every space: a saved
   agent's tool ids name their servers (`server_for_tool_id`, `genie.<id>/…` →
   `/api/2.0/mcp/genie/<id>`), so it opens only those, and the default agent
-  stays on the configured servers. AI Gateway services under `system.ai`
-  (`/ai-gateway/mcp-services/…`) are not discovered yet: listing them needs the
-  `unity-catalog` user scope, which the App doesn't request.
+  stays on the configured servers. The picker (`GET /tools`) alone also passes
+  `extra_kinds=True`, which adds `extra_mcp_servers`: UC function schemas (one
+  `system.information_schema.routines` read as the caller on `SQL_WAREHOUSE_ID`,
+  which can start the warehouse), vector-search schemas (endpoints → indexes) and
+  external MCP connections (UC HTTP connections with `is_mcp_connection`). Each
+  kind is cached and degrades to nothing on failure, so a missing user scope
+  (`vector-search`, `catalog.connections`) empties that kind and breaks nothing
+  else; `AGENT_STUDIO_MAX_EXTRA_SERVERS` (100) caps each kind separately (a total cap
+  once let 100 function schemas hide every external connection). A server that
+  refuses `list_tools` is retried twice with a short wait, since opening the
+  picker can list a couple of hundred at once and the workspace answers the
+  overflow with 429. They start hidden in the picker. AI Gateway services under `system.ai`
+  (`/ai-gateway/mcp-services/…`) and custom MCP apps are not *discovered*:
+  listing them needs the `unity-catalog` user scope, which the App doesn't
+  request, and an app's tools can't be reopened from its tool id. Name one in
+  `AGENT_STUDIO_MCP_SERVERS` and it is listed (sources `gateway` / `app`), and a
+  `gateway.` id round-trips through `server_for_tool_id`; an `app.` id doesn't.
+  Everything here is the app's own workspace.
   Status comes from `structuredContent`; the reply *text* is markdown for a model
   (`**Status:** completed`, "Still running…"), and `_genie_status` reads that
   header as a fallback — without it, a reply missing structuredContent never
@@ -1159,7 +1185,7 @@ settles as *completed* with an apology: the user's code is already fine.
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 6 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 9 passed
-PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 12 passed
+PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 27 passed
 PYTHONPATH=server .venv/bin/python tests/test_code_patch.py           # 22 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed

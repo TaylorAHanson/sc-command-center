@@ -497,8 +497,12 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     (`tests/test_apps_routes.py` round-trips them), so a 400 on save is a bug.
     Saves go through `apiSyncApp`, which runs them one at a time per app: each
     claims the next version number, so two in flight at once collide on the
-    primary key. StrictMode sends every save scheduled from an updater twice in
-    development; don't post to `/api/apps` around the queue.
+    primary key. Don't post to `/api/apps` around the queue, and don't start a
+    save, or mint an id, inside a `setApps` updater: React runs updaters more than
+    once (StrictMode always, a rebased update in production), which minted a
+    different widget id and queued another save each time. `changeWidgets` only
+    marks the app unsaved; an effect on `apps` saves the committed state once, and
+    `addWidget` mints its id before the updater so a replay adds nothing.
   - **The canvas shows `activeAppTab`**: the tab a link or `components/TabBar.tsx`
     selected, else the first. Read it rather than `spec.tabs[0]`. The bar only
     appears with two or more tabs; a one-tab app gets **Add tab** in Layout's

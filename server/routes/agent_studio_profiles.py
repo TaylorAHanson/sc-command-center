@@ -129,12 +129,26 @@ def _mcp_server_urls(host: str) -> List[str]:
 
     Configurable via ``AGENT_STUDIO_MCP_SERVERS`` (comma-separated). Entries may
     be absolute URLs or workspace-relative paths (joined to ``host``). Defaults
-    to the managed SQL MCP server **and** the general Genie MCP server
-    (``/api/2.0/mcp/genie``), which searches across the caller's accessible
-    Genie spaces — restored after a refactor dropped it.
+    to the managed SQL MCP server **and** the general Genie server (Genie One,
+    ``system.ai.genie_one_mcp``), which searches across the caller's accessible
+    Genie data.
+
+    The old general server (``/api/2.0/mcp/genie``) is sunset on 2026-10-31, and
+    a deployment's setting names it explicitly (the bundle variable's old
+    default), so an entry for it is read as Genie One rather than left to stop
+    working: same tools, same arguments, same tool ids.
     """
-    raw = os.environ.get("AGENT_STUDIO_MCP_SERVERS", "/api/2.0/mcp/sql,/api/2.0/mcp/genie")
-    return [u for u in (_absolute_url(host, e) for e in raw.split(",")) if u]
+    from services.agent_runtime import GENIE_ONE_PATH, LEGACY_GENIE_PATH
+
+    raw = os.environ.get("AGENT_STUDIO_MCP_SERVERS", f"/api/2.0/mcp/sql,{GENIE_ONE_PATH}")
+    urls: List[str] = []
+    for entry in raw.split(","):
+        url = _absolute_url(host, entry)
+        if url and _mcp_path(url) == LEGACY_GENIE_PATH:
+            url = _absolute_url(host, GENIE_ONE_PATH)
+        if url and url not in urls:
+            urls.append(url)
+    return urls
 
 
 def _absolute_url(host: str, entry: str) -> str:
@@ -155,10 +169,22 @@ def _mcp_path(server_url: str) -> str:
 def _source_of(server_url: str) -> str:
     """Which kind of MCP server a URL is, for the picker's source filters.
 
-    ``genie`` is the general server that searches every space the caller can see;
-    ``genie_space`` is one space's own server (``/api/2.0/mcp/genie/<space_id>``).
+    ``genie`` is the general server that searches every space the caller can see
+    (Genie One, or the old ``/api/2.0/mcp/genie``); ``genie_space`` is one
+    space's own server (``/api/2.0/mcp/genie/<space_id>``).
     """
-    parts = [p for p in _mcp_path(server_url).split("/") if p]
+    from urllib.parse import urlparse
+    from services.agent_runtime import GENIE_ONE_PATH
+
+    path = _mcp_path(server_url)
+    if path == GENIE_ONE_PATH:
+        return "genie"
+    # Neither of these sits under /api/2.0/mcp, so they'd otherwise all read "other".
+    if path.startswith("/ai-gateway/mcp-services/"):
+        return "gateway"
+    if (urlparse(server_url or "").hostname or "").endswith(".databricksapps.com"):
+        return "app"
+    parts = [p for p in path.split("/") if p]
     if "mcp" not in parts or parts.index("mcp") + 1 >= len(parts):
         return "other"
     tail = parts[parts.index("mcp") + 1:]
@@ -166,11 +192,16 @@ def _source_of(server_url: str) -> str:
         return "genie_space" if len(tail) > 1 else "genie"
     if tail[0] in ("sql", "functions", "vector-search", "external"):
         return tail[0]
+    # Databricks renamed Vector Search "AI Search" and moved its URL; same thing.
+    if tail[0] == "ai-search":
+        return "vector-search"
     return "other"
 
 
 def _is_genie_server(server_url: str) -> bool:
-    return "/mcp/genie" in _mcp_path(server_url)
+    from services.agent_runtime import _is_genie_server as is_genie
+
+    return is_genie(server_url)
 
 
 def _is_internal_mcp_tool(server_url: str, name: str) -> bool:
@@ -287,6 +318,154 @@ def _genie_space_servers(ws: WorkspaceClient, host: str, fresh: bool = False) ->
         return {}
 
 
+_MAX_EXTRA_SERVERS = int(os.environ.get("AGENT_STUDIO_MAX_EXTRA_SERVERS", "100") or "100")
+_PLAIN_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _extra_kind(ws: WorkspaceClient, what: str, fresh: bool, build) -> Dict[str, str]:
+    """One kind of extra server, cached like the rest. A kind the caller can't
+    list (a user scope the App wasn't granted, a feature the workspace lacks)
+    simply contributes nothing; the picker still works without it."""
+    try:
+        return _cached(ws, what, fresh, build)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Listing %s MCP servers failed: %s", what, _readable(exc))
+        return {}
+
+
+def _schema_servers(host: str, kind: str, pairs) -> Dict[str, str]:
+    """{server url: "catalog.schema"} for UC-scoped managed servers."""
+    out: Dict[str, str] = {}
+    for catalog, schema in pairs:
+        if len(out) >= _MAX_EXTRA_SERVERS:
+            break
+        # A backtick-quoted name with odd characters can't be put in a URL path
+        # or recovered from a tool id's label; skip it rather than guess.
+        if _PLAIN_NAME.match(catalog or "") and _PLAIN_NAME.match(schema or ""):
+            out[_absolute_url(host, f"/api/2.0/mcp/{kind}/{catalog}/{schema}")] = f"{catalog}.{schema}"
+    return out
+
+
+def _uc_function_servers(ws: WorkspaceClient, host: str, fresh: bool) -> Dict[str, str]:
+    """Schemas holding functions the caller can see, each a managed MCP server.
+
+    Read from information_schema as the caller rather than walking catalogs and
+    schemas through the SDK: one statement instead of a call per schema, and it
+    needs only the SQL scopes the App already has. It does use the app's
+    warehouse, which may start it.
+    """
+    def build() -> Dict[str, str]:
+        from databricks.sdk.service.sql import StatementState
+
+        warehouse_id = os.environ.get("SQL_WAREHOUSE_ID", "")
+        if not warehouse_id:
+            return {}
+        result = ws.statement_execution.execute_statement(
+            warehouse_id=warehouse_id,
+            statement=(
+                "SELECT DISTINCT routine_catalog, routine_schema FROM system.information_schema.routines "
+                "WHERE routine_schema <> 'information_schema' "
+                f"ORDER BY 1, 2 LIMIT {_MAX_EXTRA_SERVERS}"
+            ),
+            wait_timeout="20s",
+        )
+        state = getattr(getattr(result, "status", None), "state", None)
+        if state != StatementState.SUCCEEDED:
+            try:
+                ws.statement_execution.cancel_execution(result.statement_id)
+            except Exception:  # noqa: BLE001 — the warehouse times it out anyway
+                pass
+            raise RuntimeError(f"function listing ended {state}")
+        rows = (result.result.data_array if getattr(result, "result", None) else None) or []
+        return _schema_servers(host, "functions", [(r[0], r[1]) for r in rows])
+
+    return _extra_kind(ws, "uc-functions", fresh, build)
+
+
+def _vector_search_servers(ws: WorkspaceClient, host: str, fresh: bool) -> Dict[str, str]:
+    """Schemas holding vector indexes, from the endpoints the caller can list."""
+    def build() -> Dict[str, str]:
+        pairs: List[Tuple[str, str]] = []
+        for endpoint in ws.vector_search_endpoints.list_endpoints():
+            for index in ws.vector_search_indexes.list_indexes(endpoint.name):
+                parts = (index.name or "").split(".")
+                if len(parts) == 3 and (parts[0], parts[1]) not in pairs:
+                    pairs.append((parts[0], parts[1]))
+                if len(pairs) >= _MAX_EXTRA_SERVERS:
+                    return _schema_servers(host, "vector-search", pairs)
+        return _schema_servers(host, "vector-search", pairs)
+
+    return _extra_kind(ws, "vector-search", fresh, build)
+
+
+def _external_servers(ws: WorkspaceClient, host: str, fresh: bool) -> Dict[str, str]:
+    """External MCP servers: Unity Catalog HTTP connections flagged as MCP."""
+    def build() -> Dict[str, str]:
+        from databricks.sdk.service.catalog import ConnectionType
+
+        out: Dict[str, str] = {}
+        for conn in ws.connections.list():
+            if len(out) >= _MAX_EXTRA_SERVERS:
+                break
+            if conn.connection_type != ConnectionType.HTTP:
+                continue
+            if str((conn.options or {}).get("is_mcp_connection", "")).lower() != "true":
+                continue
+            if conn.name and _PLAIN_NAME.match(conn.name):
+                out[_absolute_url(host, f"/api/2.0/mcp/external/{conn.name}")] = conn.name
+        return out
+
+    return _extra_kind(ws, "external", fresh, build)
+
+
+def extra_mcp_servers(ws: WorkspaceClient, host: str, fresh: bool = False) -> Dict[str, str]:
+    """{server url: title} for every other kind of managed MCP server the caller
+    can reach, in parallel. Only the picker asks for this: the chat runtime and
+    the authoring assistant stay on the configured servers (plus an agent's own)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    finders = (_uc_function_servers, _vector_search_servers, _external_servers)
+    with ThreadPoolExecutor(max_workers=len(finders)) as pool:
+        found = list(pool.map(lambda find: find(ws, host, fresh), finders))
+    # Each kind is already capped on its own. A cap on the merged total once let a
+    # workspace with 100 function schemas push every external connection out of
+    # the picker, since functions come first.
+    merged: Dict[str, str] = {}
+    for servers in found:
+        merged.update(servers)
+    return merged
+
+
+_LIST_ATTEMPTS = 3
+
+
+def _retry_sleep(seconds: float) -> None:
+    import time
+
+    time.sleep(seconds)
+
+
+def _list_tools_with_retry(client) -> list:
+    """list_tools, tried again when the server refuses.
+
+    Opening the picker lists up to a couple of hundred servers at once, and the
+    workspace answers the overflow with 429. The MCP client reports that only as
+    "Server returned an error response", so a rate limit can't be told from a
+    server that is simply broken; both get a short, jittered wait and another
+    go, and a broken one costs about a second before it is given up on.
+    """
+    import random
+
+    for attempt in range(_LIST_ATTEMPTS):
+        try:
+            return client.list_tools()
+        except Exception:  # noqa: BLE001
+            if attempt == _LIST_ATTEMPTS - 1:
+                raise
+            _retry_sleep(0.4 * (2 ** attempt) + random.random() * 0.4)
+    return []
+
+
 def _server_tools(ws: WorkspaceClient, server_url: str, title: str, fresh: bool) -> List[Dict[str, Any]]:
     """One server's tools, as catalog entries. An unreachable server lists none."""
     from databricks_mcp import DatabricksMCPClient
@@ -294,7 +473,7 @@ def _server_tools(ws: WorkspaceClient, server_url: str, title: str, fresh: bool)
 
     def build() -> List[Dict[str, Any]]:
         client = DatabricksMCPClient(server_url=server_url, workspace_client=ws)
-        tools = [t for t in client.list_tools() if getattr(t, "name", None)]
+        tools = [t for t in _list_tools_with_retry(client) if getattr(t, "name", None)]
         label = _server_label(server_url)
         source = _source_of(server_url)
         genie = _is_genie_server(server_url)
@@ -341,16 +520,30 @@ def server_for_tool_id(tool_id: str) -> Optional[str]:
     label, sep, _name = (tool_id or "").rpartition("/")
     if not sep or not label:
         return None
+    if label.startswith("gateway."):
+        return "/ai-gateway/mcp-services/" + label[len("gateway."):]
+    # Saved agents hold `genie/<tool>`, which named the old general server; it is
+    # Genie One now, under the same label, so those agents need no edit.
+    if label == "genie":
+        from services.agent_runtime import GENIE_ONE_PATH
+
+        return GENIE_ONE_PATH
+    # A custom app's host can't be recovered from its label, so an agent that
+    # uses one has to find it through the configured servers.
+    if label.startswith("app."):
+        return None
     return "/api/2.0/mcp/" + "/".join(label.split("."))
 
 
-def discover_mcp_tools(ws: WorkspaceClient, *, genie_spaces: bool = False,
+def discover_mcp_tools(ws: WorkspaceClient, *, genie_spaces: bool = False, extra_kinds: bool = False,
                        servers: Optional[List[str]] = None, fresh: bool = False) -> List[Dict[str, Any]]:
     """List tools exposed by AI Gateway MCP servers under the caller's OBO token.
 
     Always the configured servers (``AGENT_STUDIO_MCP_SERVERS``); with
     ``genie_spaces``, also every Genie space the caller can see, each its own
-    server; plus any ``servers`` named (absolute or workspace-relative). Nothing
+    server; with ``extra_kinds``, also the Unity Catalog function schemas, vector
+    search schemas and external MCP connections the caller can reach; plus any
+    ``servers`` named (absolute or workspace-relative). Nothing
     is dropped: plumbing tools come back marked ``internal`` and it is each
     caller's choice whether to show them. ``fresh`` skips the cache.
 
@@ -384,6 +577,11 @@ def discover_mcp_tools(ws: WorkspaceClient, *, genie_spaces: bool = False,
     if genie_spaces:
         for url, title in _genie_space_servers(ws, host, fresh).items():
             titles[url] = title
+    if extra_kinds:
+        for url, title in extra_mcp_servers(ws, host, fresh).items():
+            # A configured server of the same label keeps its place.
+            if _server_label(url) not in configured:
+                titles.setdefault(url, title)
 
     if not titles:
         return []
@@ -401,8 +599,19 @@ def _server_label(server_url: str) -> str:
     ``/api/2.0/mcp/sql`` -> ``sql``. Falls back to the host for odd URLs.
     """
     s = (server_url or "").rstrip("/")
+    # Every custom app serves at /mcp, so the host is the only thing telling two
+    # of them apart; without it their tool ids collide.
+    app = re.match(r"^https?://([^/.]+)\.[^/]*databricksapps\.com(?:/|$)", s)
+    if app:
+        return f"app.{app.group(1)}"
     s = re.sub(r"^https?://[^/]+", "", s)  # strip scheme+host
+    # Keeps the label the old general server had, so tool ids already saved on an
+    # agent (`genie/genie_ask`) still match after the move to Genie One.
+    if s == "/ai-gateway/mcp-services/system.ai.genie_one_mcp":
+        return "genie"
     parts = [p for p in s.split("/") if p]
+    if len(parts) >= 3 and parts[:2] == ["ai-gateway", "mcp-services"]:
+        return f"gateway.{parts[2]}"
     if "mcp" in parts:
         tail = parts[parts.index("mcp") + 1:]
         if tail:
@@ -1066,13 +1275,14 @@ def _read_draft(content: str, finish_reason: Optional[str] = None) -> Tuple[Opti
 def list_tools(refresh: bool = False, obo_token: Optional[str] = Depends(get_user_token)):
     """Every tool the current user can reach through the AI Gateway MCP.
 
-    Unfiltered on purpose, Genie spaces and internal tools included: the picker
-    decides what to show by default (`source`, `internal`), and the author can
-    widen it. ``refresh`` re-asks every server instead of using the cache.
+    Unfiltered on purpose, Genie spaces, every other kind of managed server and
+    internal tools included: the picker decides what to show by default
+    (`source`, `internal`), and the author can widen it. ``refresh`` re-asks
+    every server instead of using the cache.
     """
     store = get_agent_studio_store()
     ws = store._client(obo_token)
-    return {"tools": discover_mcp_tools(ws, genie_spaces=True, fresh=refresh)}
+    return {"tools": discover_mcp_tools(ws, genie_spaces=True, extra_kinds=True, fresh=refresh)}
 
 
 def _authorize_write(w: WorkspaceClient, visibility: str, domain: str, env: str) -> None:

@@ -373,10 +373,19 @@ def _parse_python_signature(code: str) -> Tuple[Optional[str], List[str]]:
 # outer stream emits `: keepalive` heartbeats while this blocks, so the (30-120s)
 # wait never trips a proxy/browser timeout.
 
+# The general Genie server. The Beta one at /api/2.0/mcp/genie is sunset on
+# 2026-10-31; this Unity Gateway MCP replaces it, with the same tools and
+# arguments, and is governed by the `ai-gateway` user scope instead of `genie`.
+GENIE_ONE_PATH = "/ai-gateway/mcp-services/system.ai.genie_one_mcp"
+LEGACY_GENIE_PATH = "/api/2.0/mcp/genie"
+
+
 def _is_genie_server(url: str) -> bool:
     from urllib.parse import urlparse
 
-    return "/mcp/genie" in (urlparse(url or "").path or "")
+    path = (urlparse(url or "").path or "").rstrip("/")
+    # `/mcp/genie` also covers each space's own server (`/mcp/genie/<id>`).
+    return "/mcp/genie" in path or path == GENIE_ONE_PATH
 
 
 def _is_genie_poll_tool(name: str) -> bool:
@@ -471,6 +480,9 @@ _GENIE_TEXT_STATUS = re.compile(r"\*\*Status:\*\*\s*([A-Za-z_]+)")
 _GENIE_TEXT_LINK = re.compile(r"\[Explore in Databricks\]\((https?://[^)\s]+)\)")
 _GENIE_DONE = ("COMPLETED", "SUCCESS", "DONE")
 _GENIE_FAILED = ("FAILED", "ERROR", "CANCELLED", "CANCELED")
+# Genie One ends a response it could not finish as `incomplete`. It is over, so
+# polling on would only wait out the whole timeout for an answer that won't change.
+_GENIE_INCOMPLETE = ("INCOMPLETE",)
 
 
 def _genie_status(payload: Dict[str, Any], text: str) -> str:
@@ -559,6 +571,12 @@ def _genie_wait(client, conv: str, resp: str, budget: float,
             if link and link not in final:
                 final += f"\n\n[Open in Databricks Genie]({link})"
             return final, False
+        if status in _GENIE_INCOMPLETE:
+            partial = last_answer or _genie_answer_text(ptext)
+            note = "(Genie stopped before it finished this question, so the answer may be partial.)"
+            if link and link not in partial:
+                note += f"\n\n[Open in Databricks Genie]({link})"
+            return f"{partial}\n\n{note}" if partial else note, False
         if status in _GENIE_FAILED:
             return "Genie query failed: " + (
                 payload.get("error") or payload.get("error_message")

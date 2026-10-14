@@ -50,21 +50,30 @@ const TOOL_SOURCE_LABELS: Record<string, string> = {
     functions: 'UC functions',
     'vector-search': 'Vector search',
     external: 'External',
+    gateway: 'AI Gateway',
+    app: 'Custom apps',
     other: 'Other',
 };
-// Genie spaces can number in the hundreds, so they start hidden; the author
-// turns them on when building an agent around one.
-const DEFAULT_HIDDEN_SOURCES = ['genie_space'];
+// Genie spaces can number in the hundreds and the other kinds are rarely what
+// an agent needs, so only SQL and the general Genie server start shown; the
+// author turns the rest on when building an agent around one.
+const DEFAULT_HIDDEN_SOURCES = ['genie_space', 'functions', 'vector-search', 'external', 'gateway', 'app', 'other'];
 const TOOL_FILTER_KEY = 'agentStudio.toolFilters';
+// Bumped when kinds were added, so a browser that saved its chips before then
+// still starts the new kinds hidden instead of burying its list under them.
+const TOOL_FILTER_VERSION = 2;
 
-interface ToolFilters { hidden: string[]; internal: boolean }
+interface ToolFilters { hidden: string[]; internal: boolean; v?: number }
 
 const loadToolFilters = (): ToolFilters => {
     try {
         const v = JSON.parse(localStorage.getItem(TOOL_FILTER_KEY) || 'null');
-        if (v && Array.isArray(v.hidden)) return { hidden: v.hidden, internal: !!v.internal };
+        if (v && Array.isArray(v.hidden)) {
+            const hidden = v.v === TOOL_FILTER_VERSION ? v.hidden : Array.from(new Set([...v.hidden, ...DEFAULT_HIDDEN_SOURCES]));
+            return { hidden, internal: !!v.internal, v: TOOL_FILTER_VERSION };
+        }
     } catch { /* fall through to defaults */ }
-    return { hidden: DEFAULT_HIDDEN_SOURCES, internal: false };
+    return { hidden: DEFAULT_HIDDEN_SOURCES, internal: false, v: TOOL_FILTER_VERSION };
 };
 
 type Visibility = 'personal' | 'domain' | 'global';
@@ -1126,6 +1135,9 @@ export const AgentStudio: React.FC = () => {
                                                 const locked = !!t.internal && !selected;
                                                 const expanded = expandedTools.has(t.id);
                                                 const longDesc = (t.description || '').length > 120;
+                                                // A Genie space's tool is named `query_space_<hex id>`, which tells
+                                                // an author nothing; its space title is the name they know it by.
+                                                const spaceName = t.source === 'genie_space' ? t.server_title : undefined;
                                                 return (
                                                     <div key={t.id} className={`flex items-start gap-3 p-3 transition-colors ${selected ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'}`}>
                                                         <input type="checkbox" checked={selected} disabled={locked} onChange={() => toggleTool(t)}
@@ -1134,9 +1146,9 @@ export const AgentStudio: React.FC = () => {
                                                         <div className="min-w-0 flex-1">
                                                             <div className="flex items-center gap-2 flex-wrap">
                                                                 <span onClick={() => { if (!locked) toggleTool(t); }}
-                                                                    className={`text-sm font-mono font-medium ${locked ? 'text-slate-500' : 'text-slate-100 cursor-pointer hover:text-indigo-300'}`}>{t.name}</span>
-                                                                {t.source === 'genie_space' && t.server_title ? (
-                                                                    <span className="text-[10px] tracking-wide px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-200 border border-violet-500/40">Genie space: {t.server_title}</span>
+                                                                    className={`text-sm font-medium ${spaceName ? '' : 'font-mono '}${locked ? 'text-slate-500' : 'text-slate-100 cursor-pointer hover:text-indigo-300'}`}>{spaceName || t.name}</span>
+                                                                {spaceName ? (
+                                                                    <span className="text-[10px] tracking-wide px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-200 border border-violet-500/40">Genie space</span>
                                                                 ) : t.server_label && (
                                                                     <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-700/70 text-slate-300 border border-slate-600/60">{t.server_label}</span>
                                                                 )}
@@ -1144,7 +1156,7 @@ export const AgentStudio: React.FC = () => {
                                                                     <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">internal</span>
                                                                 )}
                                                             </div>
-                                                            <div className="text-[10px] text-slate-500 font-mono truncate">{t.id}</div>
+                                                            {!spaceName && <div className="text-[10px] text-slate-500 font-mono truncate">{t.id}</div>}
                                                             {t.description && (
                                                                 <>
                                                                     <p className={`text-xs text-slate-400 mt-1 whitespace-pre-wrap ${expanded ? '' : 'line-clamp-2'}`}>
