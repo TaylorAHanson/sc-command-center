@@ -414,7 +414,7 @@ says, so every agent gets both halves of `app_help.py`:
   knows it can ask for.
 
 `app_guide.md` describes app behavior and drifts silently when the app changes —
-update it alongside `src/pages/UserGuidePage.tsx`. Relevance is keyword scoring
+update it alongside `src/pages/guide/sections/*.tsx` (the human guide). Relevance is keyword scoring
 weighted by term rarity; the guide says "widget" everywhere, so without that
 weighting a question like "get my widget into prod" never reaches the promotion
 section. `tests/test_app_help.py` pins that and the topic list.

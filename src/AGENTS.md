@@ -726,5 +726,13 @@ hooks/                  useAgentChat, useChatUploads, useActionLogger,
 contexts/ store/        ActionContext, dashboardStore
 ```
 
+**The user guide** is `pages/guide/`: one file per page in `sections/<id>.tsx`
+(exporting `section`), ordered in `registry.ts`, built from the components in
+`kit.tsx`; `UserGuidePage.tsx` is only the shell (sidebar, search, routing at
+`#/user-guide/<section>/<heading>`). Pictures are `<Shot name="x" legend={[…]}/>`
+reading `public/guide/x.png`; the legend's order is the numbered rings in the
+image, so re-shoot the picture and its legend together. A `Shot` whose file is
+missing hides itself.
+
 Run `npm run lint` before finishing; `npm run build` type-checks via `tsc -b`
 and is the real gate, since dev mode won't surface every type error.

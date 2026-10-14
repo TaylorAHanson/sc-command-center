@@ -1137,7 +1137,13 @@ export const AgentStudio: React.FC = () => {
                                                 const longDesc = (t.description || '').length > 120;
                                                 // A Genie space's tool is named `query_space_<hex id>`, which tells
                                                 // an author nothing; its space title is the name they know it by.
-                                                const spaceName = t.source === 'genie_space' ? t.server_title : undefined;
+                                                // The title names the tool you'd attach. A space also has a poll
+                                                // tool the app drives itself; under the bare title it looked like a
+                                                // second copy of the same space, so it says what it is.
+                                                const spaceTitle = t.source === 'genie_space' ? t.server_title : undefined;
+                                                const spaceName = spaceTitle && t.internal
+                                                    ? `${spaceTitle} · ${t.name.replace(/_?[0-9a-f]{16,}$/i, '').replace(/_/g, ' ').trim() || 'internal'}`
+                                                    : spaceTitle;
                                                 return (
                                                     <div key={t.id} className={`flex items-start gap-3 p-3 transition-colors ${selected ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'}`}>
                                                         <input type="checkbox" checked={selected} disabled={locked} onChange={() => toggleTool(t)}

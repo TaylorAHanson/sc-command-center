@@ -128,7 +128,7 @@ changes nobody using the app could notice — refactors, tests, comments.
 ask the in-app assistant how things work, and it answers from
 `server/services/app_guide.md` (plus the primer in `services/app_help.py`), which
 nothing validates against reality. Rename a button or change who may promote a
-widget and you edit three files: `src/pages/UserGuidePage.tsx` for humans,
+widget and you edit three files: `src/pages/guide/sections/*.tsx` for humans (one file per page; `UserGuidePage.tsx` is only the shell),
 `app_guide.md` for the agent, `RELEASE_NOTES.md` for the changelog.
 
 ## Environments and the database model

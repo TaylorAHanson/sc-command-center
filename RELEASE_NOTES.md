@@ -34,6 +34,8 @@
 - **Give an agent a Genie space.** Agent Studio's tool list now includes every Genie space you can open; switch on **Genie spaces** above the list to see them.
 - **More tools in Agent Studio.** The list now also offers Unity Catalog functions, vector search indexes and external MCP connections you can reach; they start hidden, so switch on a chip to see them.
 
+- **A User Guide with pictures, search and links.** Open **Resources → User Guide** to follow screenshots step by step, search every page, and copy a link to any heading.
+
 ### Changed
 
 - **Genie spaces show their real name.** In Agent Studio's tool list a space is named as you know it, instead of a long string of letters and digits.
@@ -46,7 +48,10 @@
 
 ### Fixed
 
+- **The page header names the page.** User Guide, Release Notes, Getting Started and Admin Panel no longer show the last view you had open.
 - **Dropping a widget adds it once.** A single drop can no longer place the same widget more than once.
+- **Genie spaces and their internal tools no longer look alike.** In Agent Studio, a space's hidden poll tool now reads "Space name · poll response" instead of repeating the space's name.
+- **Many tools no longer hide others in Agent Studio.** Workspaces with a lot of function schemas now list their external MCP connections too, and tools that were refused while listing are retried.
 - **Large query results no longer fail.** A widget query returning more than about 25 MB now loads instead of erroring.
 - **Long Agent Studio drafts no longer end in "network error".** A draft that researches with Genie for minutes now finishes and lands in the editor.
 - **Agent Studio no longer flags Genie's poll tool as missing.** The app waits for Genie's answer itself, so drafts don't need it.

@@ -8,7 +8,7 @@
     * Keep it factual and user-facing: what the button is called, what happens
       when you click it, who is allowed to. No implementation detail — the model
       cannot see the code and must not speculate about it.
-    * This is a SEPARATE audience from src/pages/UserGuidePage.tsx (humans) and
+    * This is a SEPARATE audience from src/pages/guide/sections/*.tsx (humans) and
       RELEASE_NOTES.md (what changed). When you change app behavior, update the
       user guide and this file together, or the agent will confidently describe
       a version of the app that no longer exists.

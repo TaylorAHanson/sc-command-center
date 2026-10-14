@@ -588,7 +588,7 @@ the spec: strict on write, and on read a value that can't be used is dropped
 ### 4.4 Docs and tests (per AGENTS.md)
 
 - User-visible behavior → update `RELEASE_NOTES.md` in the same commit, plus
-  `src/pages/UserGuidePage.tsx` and `server/services/app_guide.md`.
+  `src/pages/guide/sections/*.tsx` and `server/services/app_guide.md`.
 - New pages → both `pageImports` and the prefetch list (and skip prefetch in
   standalone).
 - Tests are standalone Python under the venv (no pytest harness). Cover at

@@ -52,7 +52,9 @@ const PageLoading: React.FC = () => (
 // Every full-page screen `currentPage` can name. Reload and Back/Forward both
 // read this list, so a page missing from it is one the browser can't return to.
 const PAGES = ['admin', 'studio', 'agent-studio', 'settings', 'help', 'about', 'user-guide', 'release-notes'];
-const pageOf = (hash: string): string | null => PAGES.find(p => hash === `#/${p}`) ?? null;
+// `#/user-guide/<section>` is still the guide: a page may carry a path of its own
+// after its name, which that page reads itself (the guide's sections, for one).
+const pageOf = (hash: string): string | null => PAGES.find(p => hash === `#/${p}` || hash.startsWith(`#/${p}/`)) ?? null;
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<string | null>(() => pageOf(window.location.hash));
@@ -156,7 +158,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       if (!showing) newHash = appHash(activeApp, linkTab(activeApp, activeAppTab), null, standalone);
     }
 
-    if (newHash && window.location.hash !== newHash) {
+    // A page's own path ("#/user-guide/promotion") is that page's to keep.
+    const insidePage = !!currentPage && window.location.hash.startsWith(`#/${currentPage}/`);
+    if (newHash && !insidePage && window.location.hash !== newHash) {
       window.location.hash = newHash;
     }
   }, [currentPage, activeApp, activeAppTab]);
@@ -584,7 +588,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         {/* Top Header */}
         {!isFullScreenStudio && (() => {
           const name = branded?.title || activeApp?.name;
-          const title = currentPage === 'admin' ? 'Admin Panel' : (
+          // These pages are not views, so the header must not keep showing the last view's name.
+          const pageTitle = currentPage ? ({ admin: 'Admin Panel', 'user-guide': 'User Guide', 'release-notes': 'Release Notes', help: 'Getting Started' } as Record<string, string>)[currentPage] : undefined;
+          const title = pageTitle ? pageTitle : (
             activeApp?.is_global && !isAdmin ? `${name} (Read-Only)` : name || 'Command Center'
           );
           const actions = (
