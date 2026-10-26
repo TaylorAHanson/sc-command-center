@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
@@ -41,7 +42,7 @@ class Spec(NamedTuple):
     """One setting: where it falls back to, and what a valid value looks like."""
     env: str
     default: str
-    kind: str  # "endpoint" | "int" | "json" | "bool"
+    kind: str  # "endpoint" | "int" | "json" | "bool" | "hosts"
     label: str
     help: str
     minimum: Optional[int] = None
@@ -229,7 +230,20 @@ SETTING_SPECS: Dict[str, Spec] = {
         default="true",
         kind="bool",
         label="Enforce the Content Security Policy",
-        help="On, the browser blocks widget code from loading scripts or sending data anywhere except this app and the approved CDNs. Turn it off only to diagnose a widget that has stopped working — it downgrades the policy to report-only, so violations are logged in the browser console instead of blocked.",
+        help="On, the browser blocks widget code from loading scripts or sending data anywhere except this app, the approved CDNs, and the Databricks Apps listed below. Turn it off only to diagnose a widget that has stopped working — it downgrades the policy to report-only, so violations are logged in the browser console instead of blocked.",
+        group="tools",
+    ),
+    "widget_app_hosts": Spec(
+        env="WIDGET_APP_HOSTS",
+        # Empty, and exact hosts rather than a wildcard: databricksapps.com is
+        # shared by every Databricks customer, so `*.databricksapps.com` would let
+        # widget code send what it read to an app anyone can create. Each entry
+        # also goes into the CSP header, which is why entries are re-checked on
+        # read (`get_host_list_setting`), not only on save.
+        default="",
+        kind="hosts",
+        label="Databricks Apps widgets may embed or call",
+        help="One per line, e.g. my-app-1234567890.aws.databricksapps.com; pasting the app's URL works too. Widgets may embed these in an iframe or fetch from them, and saving a widget that names any other Databricks App is refused. Libraries still load only from the approved CDNs.",
         group="tools",
     ),
     "require_certified_for_global_views": Spec(
@@ -385,6 +399,54 @@ def get_bool_setting(key: str) -> bool:
     return SETTING_SPECS[key].default.strip().lower() in _TRUTHY
 
 
+APP_HOST_SUFFIX = ".databricksapps.com"
+MAX_APP_HOSTS = 50
+_HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+
+
+def parse_app_host(entry: str) -> Tuple[str, Optional[str]]:
+    """(host, error) for one entry of a `hosts` setting.
+
+    Accepts a bare host or a pasted URL. Only exact Databricks App hosts pass:
+    no wildcard, port, path-only value or other domain. The character check is
+    also what keeps a stored value from injecting into the CSP header.
+    """
+    text = (entry or "").strip().lower()
+    if "://" in text:
+        text = text.split("://", 1)[1]
+    text = text.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    if not text:
+        return "", "Empty entry"
+    if "*" in text:
+        return "", f"{entry.strip()}: wildcards are not allowed; list each app's host"
+    if ":" in text:
+        return "", f"{entry.strip()}: leave out the port"
+    if not text.endswith(APP_HOST_SUFFIX) or len(text) == len(APP_HOST_SUFFIX):
+        return "", f"{entry.strip()}: only Databricks App hosts (…{APP_HOST_SUFFIX}) may be listed"
+    if not all(_HOST_LABEL.match(label) for label in text.split(".")):
+        return "", f"{entry.strip()}: not a valid host name"
+    return text, None
+
+
+def _split_hosts(raw: str) -> List[str]:
+    return [part for part in re.split(r"[\s,]+", raw or "") if part]
+
+
+def get_host_list_setting(key: str) -> List[str]:
+    """Valid hosts from a `hosts` setting, deduplicated. Never raises.
+
+    Invalid entries are dropped rather than trusted: a row can arrive without
+    passing `validate_value` (a data-migration import, a hand-edited table), and
+    these values are written into a response header.
+    """
+    hosts: List[str] = []
+    for part in _split_hosts(get_setting(key)):
+        host, error = parse_app_host(part)
+        if not error and host not in hosts:
+            hosts.append(host)
+    return hosts[:MAX_APP_HOSTS]
+
+
 def get_int_setting(key: str) -> int:
     spec = SETTING_SPECS[key]
     raw = get_setting(key)
@@ -459,6 +521,21 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
         if lowered in _FALSEY:
             return "false", None
         return "", f"{spec.label} must be true or false"
+
+    if spec.kind == "hosts":
+        hosts: List[str] = []
+        problems: List[str] = []
+        for part in _split_hosts(text):
+            host, error = parse_app_host(part)
+            if error:
+                problems.append(error)
+            elif host not in hosts:
+                hosts.append(host)
+        if problems:
+            return "", "; ".join(problems[:3]) + ("; …" if len(problems) > 3 else "")
+        if len(hosts) > MAX_APP_HOSTS:
+            return "", f"At most {MAX_APP_HOSTS} hosts"
+        return "\n".join(hosts), None
 
     if spec.kind == "json":
         # Rejected here rather than at request time: a typo in this field would

@@ -648,9 +648,13 @@ Two things to keep in mind when touching this:
 
 New settings are one entry in `SETTING_SPECS`; the admin UI renders from that
 (label, help text, bounds, and which card it appears under via `group`) with no
-frontend change. `kind` is `endpoint` (model picker), `int` (bounded number) or
-`json` (validated on save, so a typo surfaces in the form and not later as an agent
-failing).
+frontend change. `kind` is `endpoint` (model picker), `int` (bounded number),
+`bool`, `json` (validated on save, so a typo surfaces in the form and not later as
+an agent failing), or `hosts` (one exact Databricks App host per line). A new kind
+needs a branch in `SettingsManager.tsx`, which otherwise renders it as a number.
+`hosts` values are written into the CSP header, so `get_host_list_setting`
+re-validates them on read: a row can arrive by data migration without passing
+`validate_value`.
 
 The limits that live here are the ones a big request runs into: tool and Genie
 timeouts for chat, and for Widget Studio a token ceiling and a wall-clock
@@ -1196,7 +1200,7 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_generation_jobs.py # 8 pass
 PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_caller_identity.py      # 11 passed
-PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 16 passed
+PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 20 passed
 PYTHONPATH=server .venv/bin/python tests/test_llm_params.py           # 17 passed
 PYTHONPATH=server .venv/bin/python tests/test_llm_client.py           # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_sql_errors.py           # 10 passed

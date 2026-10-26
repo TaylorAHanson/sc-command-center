@@ -131,8 +131,14 @@ const Body = () => (
       ]}
     />
     <Callout kind="warn" title="Leave the Content Security Policy on">
-      It is what stops widget code from sending data anywhere except this app and the approved CDNs. Report-only mode is for diagnosis, not for running.
+      It is what stops widget code from sending data anywhere except this app, the approved CDNs and the Databricks Apps listed below. Report-only mode is for diagnosis, not for running.
     </Callout>
+    <P>
+      <strong><UI>Databricks Apps widgets may embed or call</UI></strong> is empty to start with. Add one app per line,
+      either its host or its URL, such as <Code>my-app-1234567890.aws.databricksapps.com</Code>. Widgets may then show
+      that app in a frame or fetch from it. Saving a widget that names any other app is refused. Wildcards aren&apos;t
+      accepted, because every Databricks customer&apos;s apps share <Code>databricksapps.com</Code>.
+    </P>
 
     <H2 id="privacy">Retention and what the assistant sees</H2>
     <List>

@@ -17,6 +17,7 @@ from services.settings_store import (  # noqa: E402
     SERVING_BASE_PATH,
     SETTING_SPECS,
     base_path_for_model,
+    get_host_list_setting,
     get_int_setting,
     get_setting,
     validate_value,
@@ -156,6 +157,36 @@ def test_base_path_follows_the_model_name():
         assert base_path_for_model("databricks-claude-opus-5", "AGENT_RUNTIME_LLM_BASE_PATH") == SERVING_BASE_PATH
 
 
+APP = "smart-system-prod-1526721948438476.aws.databricksapps.com"
+
+
+def test_no_app_hosts_are_approved_by_default():
+    with stored({}, {"WIDGET_APP_HOSTS": None}):
+        assert get_host_list_setting("widget_app_hosts") == []
+
+
+def test_app_hosts_accept_a_pasted_url_and_normalise_it():
+    cleaned, error = validate_value("widget_app_hosts", f"https://{APP.upper()}/some/page?x=1\n{APP}, ")
+    assert error is None and cleaned == APP
+
+
+def test_app_hosts_refuse_anything_but_an_exact_databricks_app():
+    for raw in ("*.databricksapps.com",          # every customer's apps
+                "databricksapps.com",
+                "evil.example",
+                f"{APP}.evil.example",
+                f"{APP}:8443",
+                "a_b.aws.databricksapps.com"):
+        assert validate_value("widget_app_hosts", raw)[1], raw
+
+
+def test_a_stored_app_host_cannot_inject_into_the_csp_header():
+    # Rows can arrive without passing validation (a data-migration import), and
+    # each host is written into Content-Security-Policy.
+    with stored({"widget_app_hosts": f"{APP}\nx.databricksapps.com;script-src\n*"}, {"WIDGET_APP_HOSTS": None}):
+        assert get_host_list_setting("widget_app_hosts") == [APP]
+
+
 def test_explicit_base_path_env_var_wins():
     with stored({}, {"AGENT_RUNTIME_LLM_BASE_PATH": "custom/gateway"}):
         assert base_path_for_model("system.ai.claude-opus-5", "AGENT_RUNTIME_LLM_BASE_PATH") == "/custom/gateway"
@@ -178,6 +209,10 @@ if __name__ == "__main__":
         test_model_parameters_must_be_an_object_per_model,
         test_model_parameters_cannot_name_the_endpoint_or_the_credential,
         test_base_path_follows_the_model_name,
+        test_no_app_hosts_are_approved_by_default,
+        test_app_hosts_accept_a_pasted_url_and_normalise_it,
+        test_app_hosts_refuse_anything_but_an_exact_databricks_app,
+        test_a_stored_app_host_cannot_inject_into_the_csp_header,
         test_explicit_base_path_env_var_wins,
     ]
     for test in tests:

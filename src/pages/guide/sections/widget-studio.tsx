@@ -394,7 +394,7 @@ const Body = () => (
     <P>
       Saving is refused if the code uses <C>eval</C>, <C>new Function</C>, <C>document.write</C>,{' '}
       <C>innerHTML</C> or <C>dangerouslySetInnerHTML</C>, or if it references any address other than this app's
-      own <C>/api/...</C> paths and the approved CDNs.
+      own <C>/api/...</C> paths, the approved CDNs, and any Databricks App an admin has approved.
     </P>
     <Table
       head={['Approved CDNs']}
@@ -406,9 +406,13 @@ const Body = () => (
       ]}
     />
     <P>
-      The browser enforces the same list independently, so an off-list script won't load even if it reached the
-      database another way. If a save is refused, the message names what tripped it. The usual cause is a library
-      pulled from a CDN that isn't on the list: ask the agent for the jsDelivr copy instead.
+      To embed or call another Databricks App, a global admin adds its host to{' '}
+      <UI>Databricks Apps widgets may embed or call</UI> in{' '}
+      <GuideLink to="settings" anchor="reach">Settings</GuideLink>. Each app is listed by name, since every
+      Databricks customer&apos;s apps share <C>databricksapps.com</C>. Libraries still load only from the CDNs above. The browser
+      enforces the same rules independently, so an off-list script won&apos;t load even if it reached the database
+      another way. If a save is refused, the message names what tripped it. The usual cause is a library pulled
+      from a CDN that isn&apos;t on the list: ask the agent for the jsDelivr copy instead.
     </P>
     <Details summary="Writing or editing the code yourself">
       <List>

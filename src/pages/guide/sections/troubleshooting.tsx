@@ -91,7 +91,7 @@ const Body = () => (
       rows={[
         [
           'Saving a widget is refused.',
-          'Its code uses something not allowed, such as eval or innerHTML, or an address other than this app and the approved CDNs. The message names what tripped it.',
+          'Its code uses something not allowed, such as eval or innerHTML, or an address other than this app, the approved CDNs and the Databricks Apps an admin listed. The message names what tripped it.',
           <>Ask the agent for the jsDelivr copy of a library, or to remove the offending code. See <GuideLink to="widget-studio">Widget Studio</GuideLink>.</>,
         ],
         [
@@ -106,7 +106,7 @@ const Body = () => (
         ],
         [
           'A widget stopped loading a script or sending data.',
-          'The Content Security Policy blocks anything except this app and the approved CDNs.',
+          'The Content Security Policy blocks anything except this app, the approved CDNs and the Databricks Apps an admin listed.',
           <>Fix the widget. An admin may switch the policy to report-only briefly, to find the cause. See <GuideLink to="settings" anchor="reach">Settings &amp; models</GuideLink>.</>,
         ],
         [

@@ -22,6 +22,12 @@
 
 # Release Notes
 
+## 1.16.0 — 2026-10-26
+
+### Changed
+
+- **Embed other Databricks Apps in widgets.** Admins list allowed apps under **Admin Panel → Settings → Databricks Apps widgets may embed or call**; libraries still load only from approved CDNs.
+
 ## 1.15.0 — 2026-10-09
 
 ### Added
@@ -40,6 +46,7 @@
 
 - **Genie spaces show their real name.** In Agent Studio's tool list a space is named as you know it, instead of a long string of letters and digits.
 - **Genie moved to Databricks' new Genie One server.** The old one shuts down on October 31; your agents keep their Genie tools, and a question Genie can only partly answer now returns what it has instead of waiting out the clock.
+- **The assistant answers how-to questions from the new guide.** It now knows the Admin Panel tabs, Action Logs, the Settings limits, Agent Studio's tabs and the Widget Library, and no longer describes a "+" button or a shield icon that aren't there.
 - **The assistant's message box grows as you type.** It shows up to about nine lines before scrolling, instead of one.
 - **Editing a view looks like its Preview.** The header takes the view's title, logo, font and header color, and **No header** moves the editing buttons to the bottom left.
 - **Save writes to the workspace you're in.** Widget Studio no longer always saves to Dev — pick Dev in **Workspace** to author, then promote.

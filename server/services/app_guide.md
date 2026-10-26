@@ -42,7 +42,12 @@ X or Esc close it.
 A view is a named set of widgets, laid out on one or more tabs. Views are
 per-user unless they are global.
 
-- **New View** in the sidebar creates a blank one. The pencil icon renames it.
+- **New View** in the sidebar creates a blank one. The pencil icon (shown on
+  hover) renames it: type the name and press Enter, or Esc to cancel. Drag a
+  view by the grip beside its name to reorder My Views. The small **X** on
+  hover closes a view: for one the person made, that deletes it at once with no
+  confirmation and no undo (copy it first if it might be wanted back); on a view
+  sent to them under **Shared Views** it only removes it from their list.
 - **Add tab** (top right) gives a one-tab view a second tab, asking what to
   call the new tab and the one already there (left empty, that one becomes
   "Overview"); a tab bar then appears under the header with a **+** for more (up
@@ -84,11 +89,17 @@ per-user unless they are global.
   opens the first tab. Links with ids from before this still work.
 - **Global Views** are shared templates. A user only sees the global views whose
   domain they have at least Viewer access to. Hovering one and clicking the copy
-  icon duplicates it into My Views, where it becomes editable.
+  icon duplicates it into My Views, named "<name> (Copy)" with all its tabs,
+  where it becomes editable.
 - **Lock** (top right, on a view; not on the Admin Panel, guides or studios) freezes the layout so widgets cannot be dragged or
-  resized by accident; **Unlock** reverses it. A global view is read-only for
-  anyone who is not an admin.
-- **Share** (top right, on a view) copies a link to the current view. The share icon on an
+  resized by accident. Once locked the button reads **Locked**; clicking it
+  unlocks the view. A locked widget card loses its grip, version box and remove
+  button, and the Widget Library says "View is Locked" instead of adding
+  widgets. **Lock** and **Share** appear only on a view the person owns, and on
+  global views for admins; a view shared with them shows neither. A global view
+  is read-only for anyone who is not an admin.
+- **Share** (top right, on a view) copies a link to the current view; the button
+  reads **Copied!** for a moment. The chain-link icon on an
   individual widget copies a link that opens that widget full-screen. The address
   in the browser is the same link, so copying it from there works too.
 - Opening a link to someone else's personal view adds it to the opener's
@@ -96,10 +107,18 @@ per-user unless they are global.
   the usual sign-in, and a global view opens only for people with access to its
   domain. Links copied before the link format changed (`?shared_view=…`,
   `#/view/…`) keep working; new ones look like `#/app/…`.
-- **Settings** (top right, for anyone who may rename the view) has four
-  sections listed down its left side: **Opening**, **Look**, **Filters** and
-  **Assistant**. A red dot marks a section with something to fix, and the
-  footer names it, because **Save** stays off until it is fixed.
+- **Settings** (top right) is covered in the next section, *View settings*:
+  how the view opens, its look, its filters and its agent.
+
+## View settings
+
+**Settings** (top right of a view) is offered to the owner of a personal view and,
+for a global view, to an admin or an Editor in its domain; views shared with
+someone don't show it. It has four sections listed down its left side:
+**Opening**, **Look**, **Filters** and **Assistant**. A red dot marks a section
+with something to fix, and the footer names it, because **Save** stays off until
+it is fixed. Nothing is stored until **Save**.
+
 - **Opening** decides how the view's link opens. **Inside Command Center** is the default and how every view has
   always opened. **On its own** opens just that view: no sidebar, no Widget
   Library, no studios, under the title, logo and browser-tab icon set there; those
@@ -201,13 +220,23 @@ per-user unless they are global.
 Widgets are the building blocks of a view — charts, tables, text, forms, embedded
 pages, or buttons that perform an action.
 
-- Add one by dragging it out of the Widget Library onto the grid, or with the
-  `+` button on its library card.
-- Move a widget by its drag handle (the grip at its top-left); surrounding
-  widgets flow out of the way. Resize from the bottom-right corner.
-- The widget header carries per-widget controls: full-screen, copy link, remove,
-  and — when the widget was built to accept runtime inputs — a gear that opens
-  its settings. On a view someone can't change (locked, global, shared) a card
+- Add one from the Widget Library: **click its card** (there is no "+" button)
+  to add it, or drag the card onto the grid and drop it where wanted. The
+  library stays open after a click, so several can be added in a row. The tab
+  being shown receives it. A locked view refuses it.
+- Move a widget by holding its header, the bar with the grip and the title, and
+  dragging; surrounding widgets flow out of the way. Resize by hovering the
+  bottom-right corner until the handle shows. Layouts save as you go.
+- The widget header carries per-widget controls, depending on the widget:
+  **Widget Version** (a picker; a blue dot means "Update available"), **Open in
+  New Tab** (only for a widget with its own web address), **Copy direct link to
+  this widget**, **Help** (only for a widget with help text), a cog for **Widget
+  settings** (only for a widget built to accept runtime inputs), **Fullscreen**
+  (Esc or **Exit Fullscreen** returns) and **Remove Widget**. The X takes the
+  widget off the tab at once, with no confirmation, and its settings go with
+  it; it stays in the Widget Library. In full screen the X only leaves full
+  screen. A direct link doesn't work for a widget on a full-page tab, and the
+  person opening it needs access to the view. On a view someone can't change (locked, global, shared) a card
   shows only its title and full-screen, plus copy link; on its own, not even
   that. Long titles are cut short with "…"; hover for the whole name.
 - Widgets that exist in more than one version have a version picker in the
@@ -218,11 +247,16 @@ pages, or buttons that perform an action.
 importing one — is refused if its code uses `eval`, `new Function`,
 `document.write`, `innerHTML` or `dangerouslySetInnerHTML`, or if it references
 any address other than this app's own `/api/...` paths and the approved CDNs
-(cdn.jsdelivr.net, code.highcharts.com, unpkg.com, cdnjs.cloudflare.com). The
-browser enforces the same rule independently, so a widget that got round the save
-check still could not load a script or send data off-list. Widget code is
-generated from a prompt, and these two rules are what keep "generated" from
-meaning "can reach anywhere".
+(cdn.jsdelivr.net, code.highcharts.com, unpkg.com, cdnjs.cloudflare.com), plus
+any Databricks App a global admin has listed under Admin Panel → Settings →
+**Databricks Apps widgets may embed or call**. That list starts empty and takes
+exact hosts only (no wildcards, because every Databricks customer's apps share
+`databricksapps.com`); a widget may show a listed app in an iframe or fetch from
+it. Scripts still load only from the CDNs. The browser
+enforces the same rule independently, so a widget that got round the save check
+still could not load a script or send data off-list. Widget code is generated
+from a prompt, and these two rules are what keep "generated" from meaning "can
+reach anywhere".
 
 A widget whose SQL data source **changes** data (INSERT, UPDATE, DELETE, MERGE and
 so on) can only be saved if the widget is marked **Executable**. That is what
@@ -259,6 +293,30 @@ Opens from the **Widget Library** button in the sidebar, or by pressing `w`.
 It lists the widgets available to the user, filtered to the domains they can
 view, and is searchable. Widgets certified in production are flagged as such,
 and widgets built as pages are marked **PAGE**.
+
+A panel rises over the bottom three quarters of the screen; Esc, the X or a click
+outside closes it. It lists the widgets in the domain selected, most used first.
+
+- **Search widgets…** matches names and descriptions across every group,
+  ignoring the group picked on the left. **Categories** and **Domains** group the
+  list down the left side, each with a count.
+- **Grid View** shows cards with previews; **List View** a table of name,
+  creator, status, popularity and size.
+- **Certified** shows certified widgets plus the person's own, remembered in
+  that browser. **All**, **Accessible to me** and **Access Request Needed**
+  filter by whether the person may use the widget. **Top creators** lists who
+  builds the widgets people use; clicking a name shows only theirs.
+- A card shows a **CERTIFIED** badge and a **PAGE** badge where they apply, how
+  many times it has been added, its creator ("by you"), domain and default size.
+  A widget the person may not use yet shows a lock and **Access Restricted** and
+  can't be added. On a widget with no creator recorded, an editor of its domain
+  sees **Did you build this? Claim it**.
+- Hover icons: **Clone widget** opens a copy in Widget Studio, **Edit in Widget
+  Studio** appears for editors of the widget's domain, and **Delete widget**
+  appears for its author (or, for a widget with no creator recorded, anyone).
+  Delete removes the widget from the library for
+  everyone, after one confirmation, and can't be undone; to take a widget off
+  just one view, use the X on its card instead.
 
 ## Widget Studio
 
@@ -408,7 +466,7 @@ Access is role-based, per domain, at three levels:
 | --- | --- |
 | Viewer | See and interact with that domain's global views and widgets |
 | Editor | Everything a Viewer can, plus create, edit, and reorganize the domain's widgets and global views, open the Dev and Test workspaces, and promote, roll back and certify |
-| Admin | Everything an Editor can, plus manage that domain's role mappings |
+| Admin | Everything an Editor can, plus the **Admin Panel** appears in the sidebar, where global views are promoted, removed and restored. Changing who has access (role mappings, categories and domains) still needs a Global Admin |
 
 Key rules:
 
@@ -429,8 +487,9 @@ Key rules:
 ## Managing access and requesting access
 
 Global admins map roles in the UI, no database work required: **Admin Panel**
-(shield icon, under Resources) → **Role Mappings**. Type the Databricks group or
-user, pick the domain from the list and the level, then **Add Mapping**. **Assign
+(under Resources, at the bottom of the sidebar) → **Role Mappings**. Type the
+Databricks group or user, pick the domain from the list and the level (Editor or
+Admin), then **Add Mapping**. **Assign
 Global Administrator** at the top of the same page does the same for the `Global`
 domain.
 
@@ -446,6 +505,47 @@ flagged "not a domain" in the table.
 A user who is blocked should ask a global admin to add a mapping for a Databricks
 group they belong to. Access to *data* (a catalog, schema, or table) is separate
 and is granted in Databricks itself, not here.
+
+## The Admin Panel
+
+**Admin Panel** is under Resources at the bottom of the sidebar. It appears only
+for people who are Admin on at least one domain, and for Global Admins. Its tabs
+are **View Promotion**, **Widget Promotion**, **Categories & Domains**, **Role
+Mappings**, **Settings**, **Data Migration** and **Action Logs**. The line under
+its title says which follow the selected workspace: categories, domains and
+action logs do; role mappings and settings apply to the whole app; widget and
+view promotion list all three workspaces. **Settings** and **Data Migration**
+appear only for Global Admins; **Role Mappings** and **Categories & Domains**
+show for Admins too, but saving a change there is refused unless the person is a
+Global Admin.
+
+- **View Promotion** lists global views, with a column for Dev, Test and Prod,
+  then Preview, History and Remove. **Create Global View** makes a new one in the
+  workspace selected; **Archived** lists retired ones; a search box and a filter
+  narrow the list. Promoting and removing are described under *Environments and
+  promoting work*.
+- **Widget Promotion** lists every widget with a version picker per workspace
+  (or None), plus Preview and History. **Backfill missing** (its badge counts
+  them) makes thumbnails for widgets that lack one; **Regenerate all** remakes
+  every thumbnail, useful after large code changes.
+- **Categories & Domains**: *categories* group widgets by function (Monitoring,
+  Analytics…) in Widget Studio and the Widget Library; *domains* scope widgets,
+  views and agents to a business area and decide who gets in. Add a name and
+  click **Add Category** or **Add Domain**.
+- **Action Logs** (titled "Action Logs (Telemetry)") is the audit trail, kept per
+  workspace. Anyone who can open the Admin Panel can read it; it isn't narrowed
+  to their domains. Two kinds of event write a row: a button press in an
+  **Executable** widget (the widget, the action name, who pressed it, when, and
+  the view it was on) and a data migration export or import. Views, promotions
+  and role changes are not logged. The columns are Timestamp, Widget, Action,
+  User, Domain, User Explanation and Action ID; opening a row also shows a
+  **Request ID** and **Dashboard Context**, a snapshot of the view's name, tab
+  and every widget on the tab with its settings. **Search logs…** searches only
+  the 100 most recent entries; there are no date filters or export. The Request
+  ID is added as a comment (`cc-action: <id>`) at the front of the SQL an
+  executable widget runs, so searching Databricks query history for it finds the
+  exact statement. The row is written first; if it can't be, the action doesn't
+  run.
 
 ## Environments and promoting work
 
@@ -487,7 +587,7 @@ workspaces; in production the three workspaces are for the people using that app
   **Archived** button lists archived views, where **Restore** brings one back
   exactly as it was and **Delete permanently** removes every version for good. A
   global view must be archived before it can be deleted. A user's personal views
-  are closed from the sidebar, which deletes them.
+  are closed from the sidebar, which deletes them at once, without asking.
 - Promotion, rollback, and certification require Editor or Admin on the asset's
   domain in the environment being promoted into. Without it the studio panel
   shows the status read-only.
@@ -538,7 +638,10 @@ authored. An agent is a saved bundle of:
 Chips above Agent Studio's tool list show or hide each source of tools. Only
 **SQL** and **Genie** start shown; **Genie spaces**, **UC functions**, **Vector
 search**, **External** and the rest start hidden because there can be hundreds,
-so turn a chip on to pick from it. A Genie space is listed under its own name,
+so turn a chip on to pick from it. A chip only appears when it holds at least
+one tool the author can reach, and each shows a count; a line under the list says
+how many tools the chips are hiding, and a filter box narrows the list by name or
+description. A Genie space is listed under its own name,
 not the internal tool name. **Internal** lists plumbing the app drives itself,
 such as Genie's poll tool, which can't be attached. The choice is remembered in
 the browser, and a tool already selected stays visible whatever the chips say.
@@ -576,14 +679,37 @@ not valid JSON) and the editor is left as it was; asking again usually works. A
 draft cut off at the length limit means raising **Agent Studio response length
 limit** in Admin Panel → Settings.
 
-The **Try it** tab runs the draft agent exactly as the sidebar chat would.
+The agent's tabs, on the right, are **Prompt** (its instructions, written as
+markdown), **Skills**, **Python tools**, **Try it**, **Review** and **Settings**.
+The **Settings** tab holds **Agent Name** (required to save, and what the
+assistant's agent picker shows), **Description**, **Model**, **Sharing**, the
+tool list, and **Delete agent**. Clicking the agent's name above the tabs jumps
+to it.
+
+The **Review** tab shows what the authoring assistant concluded: **Suggested
+tools**, **Missing capabilities** (things asked for that no available tool
+provides), **Open questions**, **Schema checks** (the queries it ran, OK or
+FAILED) and **Python tool safety** notes. It reads **Review • stale** once the
+draft has been edited since; asking the assistant to refine the agent refreshes
+it. The **Try it** tab runs the current draft — unsaved edits included — exactly
+as the sidebar chat would, with tools limited to what the author can reach;
+nothing from that chat is saved, and **Clear** empties it. **Open** lists every
+agent the author can reach, with a **Shared** badge and the author's name on
+ones other people shared. If someone else saved the agent in the meantime,
+saving is refused with a message to reload first.
+
+Every agent also gets a tool for looking up how the Command Center itself works;
+it is always attached and isn't in the tool list.
+
 Saved agents have one of three visibilities: **personal** (only the author),
-**domain** (anyone with access to that domain; domain editors can edit), or
-**global** (everyone; only global admins can create or edit). Users pick which
+**domain** (anyone with access to that domain; domain editors can edit; a domain
+picker appears), or **global** (everyone; only global admins can create or edit;
+the option is greyed out for everyone else). A personal agent needs no domain
+role to save, only access to Agent Studio. Users pick which
 agent they are talking to from the agent picker in the chat panel; the default
 agent is used when none is chosen.
 
-## Which model the assistant uses
+## Admin Settings: models and limits
 
 Global admins choose the model in **Admin Panel → Settings**, from a searchable
 list of the workspace's chat-capable models. Four are set separately: the model
@@ -596,6 +722,27 @@ serve that model, the widget generation model is used instead. To use the
 generation model deliberately, enter its name as the helper. The same page holds the chat agent's limits — how many tool calls
 it may make in one turn, and how long a single answer may be.
 
+**Model parameter overrides** (optional JSON, per model, such as
+`{"gpt-5.6-luna": {"reasoning_effort": "medium"}}`; `null` stops sending one)
+adjust a model's parameters; any a model refuses are dropped automatically. A
+label above each Settings field says where its value comes from: **Set here**,
+**Built-in default** or **From the deployment configuration**.
+
+The limits, each a ceiling that costs nothing until something needs the room:
+
+| Setting | Starts at | Allowed |
+| --- | --- | --- |
+| Response length limit (tokens) | 16,000 | 256 to 128,000 |
+| Tool call timeout (seconds) | 90 | 5 to 600 |
+| Genie query timeout (seconds) | 150 | 10 to 900 |
+| Widget response length limit (tokens) | 16,000 | 1,000 to 128,000 |
+| Widget generation timeout (seconds) | 300 | 30 to 1,800 |
+| Agent Studio response length limit (tokens) | 16,000 | 1,000 to 128,000 |
+| Tool calls per turn | 8 | 1 to 30 |
+| Most rows one widget query can return | 1,000,000 | 1,000 to 10,000,000 |
+
+A deployment can start with other values, so the label above the field decides.
+
 The response length limit is a ceiling, not a target — raising it costs nothing
 until an answer needs the room, and models that allow less than the configured
 number are adjusted down to their own limit automatically.
@@ -607,8 +754,13 @@ settings, and there is nothing to configure for a normal user.
 
 ## The assistant panel
 
-This chat. It opens from the button at the bottom of the sidebar and knows which
-view and widgets are currently on screen. Tools run **on behalf of the signed-in
+This chat. It is the panel on the right of the screen; collapsed, it is the
+round button at the bottom right, named for the selected agent. It knows which
+view and widgets are on screen: the small print under the message box says how
+many it can see ("Sees 3 widgets on this tab"). What it sees is a summary of
+them — names, titles and configuration — not the rows or numbers drawn inside
+them; to answer from that data it has to query it with its tools, and it may say
+it can't tell which table feeds a widget. Tools run **on behalf of the signed-in
 user**, so results reflect that user's own Databricks permissions and no
 passwords or tokens are ever needed. A permission error from a tool describes the
 user's access, not the assistant's.
@@ -708,6 +860,17 @@ Admins can narrow what the assistant may reach, in Admin Panel → Settings:
 - **Send images and PDFs to the model directly** governs whether raw attachments
   are uploaded to the model. Off, files are only ever read through text
   extraction, so scanned documents and screenshots stop working.
+- Three settings are about the app rather than the assistant. **Enforce the
+  Content Security Policy** (on) makes the browser block widget code from loading
+  scripts or sending data anywhere except this app, the approved CDNs and the
+  listed Databricks Apps; off, it only reports violations in the browser console,
+  which is for diagnosing a widget that stopped rendering and shouldn't stay off.
+  **Databricks Apps widgets may embed or call** (empty to start) lists, one per
+  line, the other apps a widget may embed or fetch from; a pasted URL is reduced
+  to its host, and wildcards are refused. **Global
+  views may only contain certified widgets** (off by default) makes a view shared
+  with everyone hold only widgets an admin has certified, and refuses saving one
+  with others; leave it off in Dev and Test, where nothing is certified yet.
 - **Tell the assistant what is on screen** governs whether each question carries a
   summary of the current dashboard. Off, the assistant cannot answer "what am I
   looking at" but nothing about the layout leaves the app.

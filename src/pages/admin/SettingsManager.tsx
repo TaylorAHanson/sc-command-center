@@ -13,7 +13,7 @@ interface Setting {
     key: string;
     label: string;
     help: string;
-    kind: 'endpoint' | 'int' | 'json' | 'bool';
+    kind: 'endpoint' | 'int' | 'json' | 'bool' | 'hosts';
     /** Which card this belongs under; the backend decides the grouping. */
     group: string;
     /** Value in force right now, whatever its source. */
@@ -177,7 +177,7 @@ export const SettingsManager: React.FC = () => {
         .filter(card => card.items.length);
 
     const field = (setting: Setting) => (
-        <div key={setting.key} className={setting.kind === 'json' ? 'sm:col-span-2' : undefined}>
+        <div key={setting.key} className={setting.kind === 'json' || setting.kind === 'hosts' ? 'sm:col-span-2' : undefined}>
             <div className="mb-1 flex items-baseline justify-between gap-3">
                 <label className="text-sm font-medium text-gray-800">{setting.label}</label>
                 <span className="text-[11px] text-gray-400">{SOURCE_NOTE[setting.source]}</span>
@@ -197,6 +197,18 @@ export const SettingsManager: React.FC = () => {
                     aria-label={setting.label}
                     placeholder='{"model-name": {"reasoning_effort": "medium"}}'
                     className={`w-full rounded-md border px-3 py-2 font-mono text-xs text-gray-900 focus:outline-none ${jsonProblem(draft[setting.key]) ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-brand-blue'}`}
+                />
+            ) : setting.kind === 'hosts' ? (
+                // Checked on save, where a pasted URL is reduced to its host and
+                // anything that isn't one exact Databricks App is refused by name.
+                <textarea
+                    rows={3}
+                    spellCheck={false}
+                    value={draft[setting.key] ?? ''}
+                    onChange={e => edit(setting.key, e.target.value)}
+                    aria-label={setting.label}
+                    placeholder="my-app-1234567890.aws.databricksapps.com"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 focus:border-brand-blue focus:outline-none"
                 />
             ) : setting.kind === 'bool' ? (
                 // Written as an explicit "true"/"false" rather than cleared when

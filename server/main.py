@@ -141,7 +141,10 @@ app.add_middleware(
 # Hosts widget code is allowed to reach. Kept in step with ALLOWED_SCRIPT_HOSTS in
 # `src/hooks/useScript.ts` and ALLOWED_HOSTS in `services/widget_safety.py`: the
 # runtime refuses to load an off-list script, publishing refuses to store one, and
-# this stops the browser fetching one if both are somehow bypassed.
+# this stops the browser fetching one if both are somehow bypassed. The Databricks
+# Apps an admin lists (`widget_app_hosts`) are added to `connect-src` only — never
+# `script-src` — and only as exact hosts: a `*.databricksapps.com` wildcard would
+# admit an app any Databricks customer can create.
 _CDN_HOSTS = (
     "https://cdn.jsdelivr.net",
     "https://code.highcharts.com",
@@ -155,22 +158,24 @@ _CDN_HOSTS = (
 # controls above exist: if arbitrary code is going to run, the useful question is
 # not "can it run" but "where can it send what it read". `connect-src` is the
 # answer to that, and it is the directive to be most careful about relaxing.
-_CSP = "; ".join([
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-eval' " + " ".join(_CDN_HOSTS),
-    # react-grid-layout and the charting libraries set style attributes directly.
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https:",
-    "font-src 'self' data:",
-    "connect-src 'self' " + " ".join(_CDN_HOSTS),
-    # Embeds (a Tableau dashboard, for example) are a documented capability, and
-    # they authenticate themselves rather than borrowing this app's session.
-    "frame-src 'self' https:",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'self'",
-])
+def _content_security_policy(app_hosts) -> str:
+    connect = _CDN_HOSTS + tuple(f"https://{host}" for host in app_hosts)
+    return "; ".join([
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-eval' " + " ".join(_CDN_HOSTS),
+        # react-grid-layout and the charting libraries set style attributes directly.
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https:",
+        "font-src 'self' data:",
+        "connect-src 'self' " + " ".join(connect),
+        # Embeds (a Tableau dashboard, for example) are a documented capability, and
+        # they authenticate themselves rather than borrowing this app's session.
+        "frame-src 'self' https:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'self'",
+    ])
 
 
 @app.middleware("http")
@@ -190,8 +195,14 @@ async def content_security_policy(request: Request, call_next):
         enforce = get_bool_setting("enforce_content_security_policy")
     except Exception:  # noqa: BLE001
         enforce = True
+    try:
+        from services.widget_safety import approved_app_hosts
+
+        app_hosts = sorted(approved_app_hosts())
+    except Exception:  # noqa: BLE001
+        app_hosts = []
     header = "Content-Security-Policy" if enforce else "Content-Security-Policy-Report-Only"
-    response.headers.setdefault(header, _CSP)
+    response.headers.setdefault(header, _content_security_policy(app_hosts))
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     return response

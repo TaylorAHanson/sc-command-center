@@ -15,25 +15,60 @@ Two things worth knowing before changing it:
     which is how a checker like this ends up reporting nonsense about the most
     common line in a charting widget. `_scan` tracks string, template and comment
     state in one pass so neither can be mistaken for the other.
-  * **The host allowlist is duplicated in `src/hooks/useScript.ts`.** The runtime
+  * **Script hosts stay in step with `src/hooks/useScript.ts`.** The runtime
     refuses to load an off-allowlist script and this refuses to store one; the
     two must agree, or an author is told their widget saved and then watches it
     fail to load. Same arrangement as `creator_stats.py` and `creators.ts`.
+    Reach is a little wider: a widget may also name a Databricks App an admin
+    has listed (`widget_app_hosts` in `settings_store`), so it can embed or call
+    it. Those are exact hosts, never a `*.databricksapps.com` wildcard, because
+    that domain is shared by every Databricks customer. They are not script
+    sources — `useScript` and CSP `script-src` still refuse them. The list is
+    read at review time, so changing it needs no redeploy.
 """
 
 from __future__ import annotations
 
 import re
-from typing import List, Set, Tuple
+from typing import FrozenSet, Iterable, List, Optional, Set, Tuple
 
-#: Hosts a widget may reference. Keep in step with ALLOWED_SCRIPT_HOSTS in
-#: `src/hooks/useScript.ts` and the CDN rule in `routes/agent_instructions.md`.
+#: CDN hosts a widget may load a library from. Keep in step with
+#: ALLOWED_SCRIPT_HOSTS in `src/hooks/useScript.ts` and the CDN rule in
+#: `routes/agent_instructions.md`.
 ALLOWED_HOSTS = frozenset({
     "cdn.jsdelivr.net",
     "code.highcharts.com",
     "unpkg.com",
     "cdnjs.cloudflare.com",
 })
+
+_DATABRICKS_APP_SUFFIX = ".databricksapps.com"
+
+
+def approved_app_hosts() -> FrozenSet[str]:
+    """Databricks Apps an admin has listed. Empty if the setting can't be read:
+    a failure must narrow what widgets may reach, never widen it."""
+    try:
+        from services.settings_store import get_host_list_setting
+
+        return frozenset(get_host_list_setting("widget_app_hosts"))
+    except Exception:  # noqa: BLE001
+        return frozenset()
+
+
+def _resolve(app_hosts: Optional[Iterable[str]]) -> FrozenSet[str]:
+    if app_hosts is None:
+        return approved_app_hosts()
+    return frozenset(h.lower() for h in app_hosts)
+
+
+def host_is_allowed(host: str, app_hosts: Optional[Iterable[str]] = None) -> bool:
+    """Whether an absolute-URL host may appear in stored widget code."""
+    name = (host or "").lower()
+    if not name:
+        return False
+    return name in ALLOWED_HOSTS or name in _resolve(app_hosts)
+
 
 #: Constructs that execute text as code or write markup straight into the DOM.
 #: Each maps to what the author should do instead, because a refusal that does
@@ -47,7 +82,11 @@ BANNED_CONSTRUCTS: Tuple[Tuple[str, str], ...] = (
     ("importScripts(", "Loads code outside the runtime's control. Use useScript() instead."),
 )
 
-_URL = re.compile(r"https?://([^/\s'\"`)]+)", re.IGNORECASE)
+# The host ends where a browser's URL parser ends it. A backslash counts: the
+# parser treats it as `/`, so `https://evil.example\@cdn.jsdelivr.net` goes to
+# evil.example, and reading on to the `@` would approve it. A raw `\` also
+# starts any JS escape (`\u0040` is `@`), which ends the host the same way.
+_URL = re.compile(r"https?://([^/\\?#\s'\"`)]+)", re.IGNORECASE)
 
 
 def _scan(code: str) -> Tuple[str, List[str]]:
@@ -118,7 +157,7 @@ def _scan(code: str) -> Tuple[str, List[str]]:
     return "".join(out), literals
 
 
-def offending_hosts(code: str) -> Set[str]:
+def offending_hosts(code: str, app_hosts: Optional[Iterable[str]] = None) -> Set[str]:
     """Hosts referenced by absolute URLs in the code that are not allowlisted.
 
     Deliberately covers every absolute URL rather than only `useScript` calls:
@@ -126,21 +165,38 @@ def offending_hosts(code: str) -> Set[str]:
     one that loads a script from it, and relative `/api/...` paths — which is how
     a widget is supposed to reach its own backend — have no host to object to.
     """
+    approved = _resolve(app_hosts)
     _, literals = _scan(code)
     found: Set[str] = set()
     for literal in literals:
         for match in _URL.finditer(literal):
             host = match.group(1).split("@")[-1].split(":")[0].lower()
-            if host and host not in ALLOWED_HOSTS:
+            if host and not host_is_allowed(host, approved):
                 found.add(host)
     return found
 
 
-def review_widget_code(code: str) -> List[str]:
+def _reach_refusal(hosts: Set[str], app_hosts: FrozenSet[str]) -> str:
+    message = (
+        "Widgets may only reach this app (a relative /api/... path), an approved CDN "
+        f"({', '.join(sorted(ALLOWED_HOSTS))})"
+    )
+    if app_hosts:
+        message += f", or an approved Databricks App ({', '.join(sorted(app_hosts))})"
+    message += f". Found: {', '.join(sorted(hosts))}."
+    if any(h.endswith(_DATABRICKS_APP_SUFFIX) for h in hosts):
+        message += (" A global admin can approve a Databricks App under Admin Panel → Settings"
+                    " → Databricks Apps widgets may embed or call.")
+    return message
+
+
+def review_widget_code(code: str, app_hosts: Optional[Iterable[str]] = None) -> List[str]:
     """Blocking problems with a widget's TSX. Empty means it may be stored."""
     problems: List[str] = []
     if not (code or "").strip():
         return problems
+
+    approved = _resolve(app_hosts)
 
     stripped, _ = _scan(code)
     lowered = stripped.lower()
@@ -148,12 +204,9 @@ def review_widget_code(code: str) -> List[str]:
         if construct.lower() in lowered:
             problems.append(f"`{construct}` is not allowed in widget code. {advice}")
 
-    hosts = offending_hosts(code)
+    hosts = offending_hosts(code, approved)
     if hosts:
-        problems.append(
-            "Widgets may only reach this app (a relative /api/... path) or an approved CDN "
-            f"({', '.join(sorted(ALLOWED_HOSTS))}). Found: {', '.join(sorted(hosts))}."
-        )
+        problems.append(_reach_refusal(hosts, approved))
     return problems
 
 
@@ -162,6 +215,7 @@ def review_widget(
     data_source: str = "",
     data_source_type: str = "none",
     is_executable: bool = False,
+    app_hosts: Optional[Iterable[str]] = None,
 ) -> List[str]:
     """Every blocking problem with a widget about to be stored.
 
@@ -172,7 +226,7 @@ def review_widget(
     not executable would produce exactly the untracked modification the
     confirmation exists to prevent.
     """
-    problems = review_widget_code(code)
+    problems = review_widget_code(code, app_hosts=app_hosts)
 
     if (data_source_type or "").lower() == "sql" and (data_source or "").strip() and not is_executable:
         from services.sql_safety import classify_statement
