@@ -106,7 +106,7 @@ const Body = () => (
         ],
         [
           'A widget stopped loading a script or sending data.',
-          'The Content Security Policy blocks anything except this app, the approved CDNs and the Databricks Apps an admin listed.',
+          'The Content Security Policy blocks anything except this app, the approved CDNs and the Databricks Apps an admin listed. An app approved only through its whole workspace can be framed but not fetched from.',
           <>Fix the widget. An admin may switch the policy to report-only briefly, to find the cause. See <GuideLink to="settings" anchor="reach">Settings &amp; models</GuideLink>.</>,
         ],
         [

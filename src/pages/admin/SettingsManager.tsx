@@ -200,14 +200,15 @@ export const SettingsManager: React.FC = () => {
                 />
             ) : setting.kind === 'hosts' ? (
                 // Checked on save, where a pasted URL is reduced to its host and
-                // anything that isn't one exact Databricks App is refused by name.
+                // anything that isn't one Databricks App or one workspace is
+                // refused by name.
                 <textarea
                     rows={3}
                     spellCheck={false}
                     value={draft[setting.key] ?? ''}
                     onChange={e => edit(setting.key, e.target.value)}
                     aria-label={setting.label}
-                    placeholder="my-app-1234567890.aws.databricksapps.com"
+                    placeholder={'my-app-1234567890.aws.databricksapps.com\n*-1234567890.aws.databricksapps.com'}
                     className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 focus:border-brand-blue focus:outline-none"
                 />
             ) : setting.kind === 'bool' ? (

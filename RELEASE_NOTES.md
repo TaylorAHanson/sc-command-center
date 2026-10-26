@@ -26,7 +26,7 @@
 
 ### Changed
 
-- **Embed other Databricks Apps in widgets.** Admins list allowed apps under **Admin Panel → Settings → Databricks Apps widgets may embed or call**; libraries still load only from approved CDNs.
+- **Embed other Databricks Apps in widgets.** Admins list allowed apps, or whole workspaces, under **Admin Panel → Settings → Databricks Apps widgets may embed or call**.
 
 ## 1.15.0 — 2026-10-09
 

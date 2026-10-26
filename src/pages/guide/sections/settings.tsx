@@ -136,8 +136,11 @@ const Body = () => (
     <P>
       <strong><UI>Databricks Apps widgets may embed or call</UI></strong> is empty to start with. Add one app per line,
       either its host or its URL, such as <Code>my-app-1234567890.aws.databricksapps.com</Code>. Widgets may then show
-      that app in a frame or fetch from it. Saving a widget that names any other app is refused. Wildcards aren&apos;t
-      accepted, because every Databricks customer&apos;s apps share <Code>databricksapps.com</Code>.
+      that app in a frame or fetch from it. To allow every app in a workspace, add{' '}
+      <Code>*-&lt;workspace-id&gt;.&lt;region&gt;.databricksapps.com</Code>, such as{' '}
+      <Code>*-1234567890.aws.databricksapps.com</Code>. Widgets can show those apps in a frame, but can fetch only from an app
+      listed by its own host. Saving a widget that names any other app is refused. No other wildcard is accepted, because
+      every Databricks customer&apos;s apps share <Code>databricksapps.com</Code>.
     </P>
 
     <H2 id="privacy">Retention and what the assistant sees</H2>

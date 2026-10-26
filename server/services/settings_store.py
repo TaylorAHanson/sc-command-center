@@ -243,7 +243,7 @@ SETTING_SPECS: Dict[str, Spec] = {
         default="",
         kind="hosts",
         label="Databricks Apps widgets may embed or call",
-        help="One per line, e.g. my-app-1234567890.aws.databricksapps.com; pasting the app's URL works too. Widgets may embed these in an iframe or fetch from them, and saving a widget that names any other Databricks App is refused. Libraries still load only from the approved CDNs.",
+        help="One per line: an app, e.g. my-app-1234567890.aws.databricksapps.com (pasting its URL works too), or every app in a workspace, e.g. *-1234567890.aws.databricksapps.com. Widgets may embed these in an iframe; fetching from one needs that app listed by name. Saving a widget that names any other Databricks App is refused.",
         group="tools",
     ),
     "require_certified_for_global_views": Spec(
@@ -402,29 +402,45 @@ def get_bool_setting(key: str) -> bool:
 APP_HOST_SUFFIX = ".databricksapps.com"
 MAX_APP_HOSTS = 50
 _HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+_WORKSPACE_ID = re.compile(r"^[0-9]{6,20}$")
 
 
 def parse_app_host(entry: str) -> Tuple[str, Optional[str]]:
     """(host, error) for one entry of a `hosts` setting.
 
-    Accepts a bare host or a pasted URL. Only exact Databricks App hosts pass:
-    no wildcard, port, path-only value or other domain. The character check is
-    also what keeps a stored value from injecting into the CSP header.
+    Accepts a bare host or a pasted URL, or a whole workspace as
+    `*-<workspace-id>.<region>.databricksapps.com`. An app's host is
+    `<app-name>-<workspace-id>.<region>.databricksapps.com`, with the ID joined
+    to the name inside the first label, so that is the only wildcard that can
+    mean "this workspace" — `*.databricksapps.com` would mean every Databricks
+    customer. The character checks are also what keep a stored value from
+    injecting into the CSP header.
     """
-    text = (entry or "").strip().lower()
+    raw = (entry or "").strip()
+    text = raw.lower()
     if "://" in text:
         text = text.split("://", 1)[1]
     text = text.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
     if not text:
         return "", "Empty entry"
-    if "*" in text:
-        return "", f"{entry.strip()}: wildcards are not allowed; list each app's host"
     if ":" in text:
-        return "", f"{entry.strip()}: leave out the port"
+        return "", f"{raw}: leave out the port"
     if not text.endswith(APP_HOST_SUFFIX) or len(text) == len(APP_HOST_SUFFIX):
-        return "", f"{entry.strip()}: only Databricks App hosts (…{APP_HOST_SUFFIX}) may be listed"
-    if not all(_HOST_LABEL.match(label) for label in text.split(".")):
-        return "", f"{entry.strip()}: not a valid host name"
+        return "", f"{raw}: only Databricks App hosts (…{APP_HOST_SUFFIX}) may be listed"
+
+    labels = text.split(".")
+    if "*" in text:
+        first = labels[0]
+        if first == "*" and len(labels) > 1 and _WORKSPACE_ID.match(labels[1]):
+            fixed = "*-" + ".".join(labels[1:])
+            return "", (f"{raw}: an app's host joins the workspace ID to its name with a hyphen, "
+                        f"so a whole workspace is {fixed}")
+        if not (first.startswith("*-") and _WORKSPACE_ID.match(first[2:]) and "*" not in ".".join(labels[1:])):
+            return "", (f"{raw}: the only wildcard allowed is a whole workspace, "
+                        f"*-<workspace-id>.<region>{APP_HOST_SUFFIX}")
+        labels = labels[1:]
+    if not all(_HOST_LABEL.match(label) for label in labels):
+        return "", f"{raw}: not a valid host name"
     return text, None
 
 

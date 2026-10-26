@@ -170,8 +170,25 @@ def test_app_hosts_accept_a_pasted_url_and_normalise_it():
     assert error is None and cleaned == APP
 
 
+def test_a_whole_workspace_may_be_listed():
+    for raw in ("*-1526721948438476.aws.databricksapps.com",
+                "*-1526721948438476.7.azure.databricksapps.com"):
+        assert validate_value("widget_app_hosts", raw) == (raw, None), raw
+
+
+def test_a_dotted_workspace_wildcard_says_what_to_write_instead():
+    # The ID is joined to the app name with a hyphen, so this form matches nothing.
+    cleaned, error = validate_value("widget_app_hosts", "*.1526721948438476.aws.databricksapps.com")
+    assert cleaned == "" and "*-1526721948438476.aws.databricksapps.com" in error
+
+
 def test_app_hosts_refuse_anything_but_an_exact_databricks_app():
     for raw in ("*.databricksapps.com",          # every customer's apps
+                "*.aws.databricksapps.com",
+                "*-.aws.databricksapps.com",
+                "*-abc.aws.databricksapps.com",
+                "*-1526721948438476.*.databricksapps.com",
+                "x*-1526721948438476.aws.databricksapps.com",
                 "databricksapps.com",
                 "evil.example",
                 f"{APP}.evil.example",
@@ -211,6 +228,8 @@ if __name__ == "__main__":
         test_base_path_follows_the_model_name,
         test_no_app_hosts_are_approved_by_default,
         test_app_hosts_accept_a_pasted_url_and_normalise_it,
+        test_a_whole_workspace_may_be_listed,
+        test_a_dotted_workspace_wildcard_says_what_to_write_instead,
         test_app_hosts_refuse_anything_but_an_exact_databricks_app,
         test_a_stored_app_host_cannot_inject_into_the_csp_header,
         test_explicit_base_path_env_var_wins,

@@ -193,6 +193,36 @@ def test_a_lookalike_databricks_app_host_is_refused():
     )
 
 
+WORKSPACE = "*-1526721948438476.aws.databricksapps.com"
+
+
+def test_a_workspace_entry_admits_its_own_apps():
+    check(
+        "test_a_workspace_entry_admits_its_own_apps",
+        offending_hosts(f"'https://{APP}/'; 'https://other-app-1526721948438476.aws.databricksapps.com/'",
+                        app_hosts=[WORKSPACE]) == set(),
+    )
+
+
+def test_a_workspace_entry_admits_nothing_else():
+    # Another customer can name an app after our workspace ID, but Databricks
+    # appends *their* ID; and a dotted prefix or empty name is not an app.
+    for host in ("evil-1526721948438476-999999999.aws.databricksapps.com",
+                 "x-91526721948438476.aws.databricksapps.com",
+                 f"evil.{APP}",
+                 "-1526721948438476.aws.databricksapps.com",
+                 "x-1526721948438476.gcp.databricksapps.com"):
+        if offending_hosts(f"'https://{host}/'", app_hosts=[WORKSPACE]) != {host}:
+            check(f"test_a_workspace_entry_admits_nothing_else[{host}]", False)
+            return
+    check("test_a_workspace_entry_admits_nothing_else", True)
+
+
+def test_only_exact_app_hosts_reach_the_csp():
+    from services.widget_safety import csp_app_hosts
+    check("test_only_exact_app_hosts_reach_the_csp", csp_app_hosts([WORKSPACE, APP]) == [APP])
+
+
 def test_a_query_or_fragment_does_not_make_a_host():
     # A suffix rule read `evil.example?.databricksapps.com` as a Databricks App;
     # the browser sends it to evil.example.

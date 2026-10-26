@@ -249,10 +249,14 @@ importing one — is refused if its code uses `eval`, `new Function`,
 any address other than this app's own `/api/...` paths and the approved CDNs
 (cdn.jsdelivr.net, code.highcharts.com, unpkg.com, cdnjs.cloudflare.com), plus
 any Databricks App a global admin has listed under Admin Panel → Settings →
-**Databricks Apps widgets may embed or call**. That list starts empty and takes
-exact hosts only (no wildcards, because every Databricks customer's apps share
-`databricksapps.com`); a widget may show a listed app in an iframe or fetch from
-it. Scripts still load only from the CDNs. The browser
+**Databricks Apps widgets may embed or call**. That list starts empty. Each line
+is one app's host, or every app in a workspace written as
+`*-<workspace-id>.<region>.databricksapps.com` (an app's host is
+`<app-name>-<workspace-id>.<region>.databricksapps.com`, so `*.<workspace-id>…`
+matches nothing and is refused with the right form). No other wildcard is
+accepted, because every Databricks customer's apps share `databricksapps.com`.
+A widget may show any listed app in an iframe, but may fetch only from an app
+listed by its own host. Scripts still load only from the CDNs. The browser
 enforces the same rule independently, so a widget that got round the save check
 still could not load a script or send data off-list. Widget code is generated
 from a prompt, and these two rules are what keep "generated" from meaning "can
@@ -866,8 +870,10 @@ Admins can narrow what the assistant may reach, in Admin Panel → Settings:
   listed Databricks Apps; off, it only reports violations in the browser console,
   which is for diagnosing a widget that stopped rendering and shouldn't stay off.
   **Databricks Apps widgets may embed or call** (empty to start) lists, one per
-  line, the other apps a widget may embed or fetch from; a pasted URL is reduced
-  to its host, and wildcards are refused. **Global
+  line, the other apps a widget may embed or fetch from — one app's host (a pasted
+  URL is reduced to it) or a whole workspace as `*-<workspace-id>.<region>.databricksapps.com`.
+  A workspace entry allows embedding its apps; fetching needs the app listed
+  itself. **Global
   views may only contain certified widgets** (off by default) makes a view shared
   with everyone hold only widgets an admin has certified, and refuses saving one
   with others; leave it off in Dev and Test, where nothing is certified yet.

@@ -21,8 +21,9 @@ Two things worth knowing before changing it:
     fail to load. Same arrangement as `creator_stats.py` and `creators.ts`.
     Reach is a little wider: a widget may also name a Databricks App an admin
     has listed (`widget_app_hosts` in `settings_store`), so it can embed or call
-    it. Those are exact hosts, never a `*.databricksapps.com` wildcard, because
-    that domain is shared by every Databricks customer. They are not script
+    it. An entry is one app's host or one workspace (`*-<workspace-id>.…`), never
+    a `*.databricksapps.com` wildcard, because that domain is shared by every
+    Databricks customer. They are not script
     sources — `useScript` and CSP `script-src` still refuse them. The list is
     read at review time, so changing it needs no redeploy.
 """
@@ -62,12 +63,40 @@ def _resolve(app_hosts: Optional[Iterable[str]]) -> FrozenSet[str]:
     return frozenset(h.lower() for h in app_hosts)
 
 
+_APP_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+
+
+def _in_workspace(host: str, pattern: str) -> bool:
+    """`host` is one app in the workspace `*-<id>.<region>.databricksapps.com`.
+
+    The app name must be a single label: Databricks puts the workspace ID last
+    in the first label, so another workspace's app named `x-<our id>` gets a
+    host ending in its own ID, and a dot before the name is not an app at all.
+    """
+    tail = pattern[1:]
+    if not host.endswith(tail):
+        return False
+    return bool(_APP_NAME.match(host[: -len(tail)]))
+
+
 def host_is_allowed(host: str, app_hosts: Optional[Iterable[str]] = None) -> bool:
     """Whether an absolute-URL host may appear in stored widget code."""
     name = (host or "").lower()
     if not name:
         return False
-    return name in ALLOWED_HOSTS or name in _resolve(app_hosts)
+    if name in ALLOWED_HOSTS:
+        return True
+    approved = _resolve(app_hosts)
+    if name in approved:
+        return True
+    return any(p.startswith("*-") and _in_workspace(name, p) for p in approved)
+
+
+def csp_app_hosts(app_hosts: Optional[Iterable[str]] = None) -> List[str]:
+    """The approved apps the CSP can name. A host-source wildcard replaces whole
+    leftmost labels, so `*-<id>.…` has no CSP form: workspace entries are left
+    out, which still lets them be framed (`frame-src https:`) but not fetched."""
+    return sorted(h for h in _resolve(app_hosts) if "*" not in h)
 
 
 #: Constructs that execute text as code or write markup straight into the DOM.

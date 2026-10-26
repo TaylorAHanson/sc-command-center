@@ -406,10 +406,10 @@ const Body = () => (
       ]}
     />
     <P>
-      To embed or call another Databricks App, a global admin adds its host to{' '}
+      To embed or call another Databricks App, a global admin adds its host, or its whole workspace, to{' '}
       <UI>Databricks Apps widgets may embed or call</UI> in{' '}
-      <GuideLink to="settings" anchor="reach">Settings</GuideLink>. Each app is listed by name, since every
-      Databricks customer&apos;s apps share <C>databricksapps.com</C>. Libraries still load only from the CDNs above. The browser
+      <GuideLink to="settings" anchor="reach">Settings</GuideLink>. An app approved through its workspace can be shown
+      in an iframe; fetching data from it needs the app listed by its own host. Libraries still load only from the CDNs above. The browser
       enforces the same rules independently, so an off-list script won&apos;t load even if it reached the database
       another way. If a save is refused, the message names what tripped it. The usual cause is a library pulled
       from a CDN that isn&apos;t on the list: ask the agent for the jsDelivr copy instead.

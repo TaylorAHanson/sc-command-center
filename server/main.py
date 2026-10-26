@@ -144,7 +144,8 @@ app.add_middleware(
 # this stops the browser fetching one if both are somehow bypassed. The Databricks
 # Apps an admin lists (`widget_app_hosts`) are added to `connect-src` only — never
 # `script-src` — and only as exact hosts: a `*.databricksapps.com` wildcard would
-# admit an app any Databricks customer can create.
+# admit an app any Databricks customer can create. A whole-workspace entry
+# (`*-<id>.…`) has no CSP form and is left out; see `csp_app_hosts`.
 _CDN_HOSTS = (
     "https://cdn.jsdelivr.net",
     "https://code.highcharts.com",
@@ -196,9 +197,9 @@ async def content_security_policy(request: Request, call_next):
     except Exception:  # noqa: BLE001
         enforce = True
     try:
-        from services.widget_safety import approved_app_hosts
+        from services.widget_safety import csp_app_hosts
 
-        app_hosts = sorted(approved_app_hosts())
+        app_hosts = csp_app_hosts()
     except Exception:  # noqa: BLE001
         app_hosts = []
     header = "Content-Security-Policy" if enforce else "Content-Security-Policy-Report-Only"
