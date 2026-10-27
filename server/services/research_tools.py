@@ -326,7 +326,7 @@ def ask_genie(ws, question: str, conversation_id: str = "",
             args: Dict[str, Any] = {"question": question}
             if conversation_id:
                 args["conversation_id"] = conversation_id
-            handle, problem = rt._genie_start(client, "genie_ask", args)
+            handle, problem = rt._genie_start(client, rt.GENIE_ONE_ASK_TOOL, args)
             if handle is None:
                 return problem
         answer, still_running = rt._genie_wait(client, *handle, rt._genie_budget(timeout))

@@ -327,31 +327,44 @@ Two behaviors that look odd but are intentional:
   reports them. `_stream_completion` retries a rejected turn once with the cap named
   in the error and remembers it per model for the life of the process, so picking a
   small model in the Admin Panel can't wedge chat.
-- **The general Genie server is Genie One.** `AGENT_STUDIO_MCP_SERVERS` defaults
+- **The general Genie server is Genie One.** The server list (`mcp_servers`) defaults
   to `/api/2.0/mcp/sql` plus `/ai-gateway/mcp-services/system.ai.genie_one_mcp`
   (`GENIE_ONE_PATH` in `agent_runtime.py`). It replaces `/api/2.0/mcp/genie`,
   which is sunset on 2026-10-31: same four tools, same `question` /
   `conversation_id` arguments, and it needs only the `ai-gateway` scope. A
   setting that still names the old path is read as Genie One
   (`_mcp_server_urls`), and Genie One keeps the label `genie`, so saved tool ids
-  (`genie/genie_ask`) keep matching. `research_tools._genie_client` uses it too.
+  (`genie/…`) keep matching. `research_tools._genie_client` uses it too.
   Genie One can end a response as `incomplete`; `_genie_wait` treats that as
   final and returns what it has. The per-space servers are still
   `/api/2.0/mcp/genie/<id>`; no sunset date is announced for them.
+- **Genie One's ask tool is `genie_one` here and `genie_ask` on the server.**
+  Nobody using the app knows it by the server's name, so `_server_tools` lists it
+  as `genie/genie_one` (`GENIE_ONE_TOOL`) with `GENIE_ONE_DESCRIPTION`, and keeps
+  the server's name as the entry's `upstream_name`, which `_build_tools` puts in
+  `real_name` for the call (`agent_runtime.GENIE_ONE_ASK_TOOL`). Only the general
+  server's tool is renamed; a space's tools keep their own names. Agents saved
+  with `genie/genie_ask` (or bare `genie_ask`) are not migrated:
+  `agent_studio_store.canonical_tool_ids` maps them on read and on save, and the
+  runtime maps them again for a "Try it" draft. Rows are versioned in three
+  schemas and also arrive by promotion and snapshot import, so a read-time alias
+  covers what a migration would miss. The external agent
+  (`AGENT_LOCAL_RUNTIME=false`) is sent the servers' names (`upstream_tool_ids`).
 - **Genie is made synchronous.** The Genie MCP server is a polling
-  API: `genie_ask` returns a handle and `genie_poll_response` retrieves the
+  API: the ask tool returns a handle and `genie_poll_response` retrieves the
   answer. Handing the model a handle is useless, so `_exec_genie` drives the
   poll loop internally and `genie_poll_response` is hidden from the tool list
   the model sees (`AGENT_RUNTIME_GENIE_TIMEOUT`, `AGENT_RUNTIME_GENIE_POLL_MS`).
-  Genie's own description of `genie_ask` still says to poll, so
-  `discover_mcp_tools` puts a note in front of it saying the call waits for
-  the answer itself. Without that, Agent Studio's authoring assistant reported
-  the hidden poll tool under `review.missing` (`tests/test_mcp_catalog.py`).
+  Genie's own description of its ask tool says to poll, so `discover_mcp_tools`
+  replaces Genie One's and puts a note in front of each space's, saying the call
+  waits for the answer itself. Without that, Agent Studio's authoring assistant
+  reported the hidden poll tool under `review.missing` (`tests/test_mcp_catalog.py`).
   Each Genie space also has a server of its own (`/api/2.0/mcp/genie/<id>`)
   whose tool names needn't match the general one's, so discovery records each
   ask tool's `poll_tool` and `_exec_mcp` polls with that.
 - **The tool catalog is unfiltered; the picker filters.** `discover_mcp_tools`
-  asks the configured servers (`AGENT_STUDIO_MCP_SERVERS`) and, with
+  asks the configured servers (the `mcp_servers` setting, see *Deployment
+  settings*; `AGENT_STUDIO_MCP_SERVERS` is its fallback) and, with
   `genie_spaces=True`, one server per Genie space the caller can list
   (`AGENT_STUDIO_MAX_GENIE_SPACES`, 200). Nothing is dropped: plumbing such as
   Genie's poll tool comes back with `internal: true`, and every entry carries a
@@ -377,8 +390,16 @@ Two behaviors that look odd but are intentional:
   (`/ai-gateway/mcp-services/…`) and custom MCP apps are not *discovered*:
   listing them needs the `unity-catalog` user scope, which the App doesn't
   request, and an app's tools can't be reopened from its tool id. Name one in
-  `AGENT_STUDIO_MCP_SERVERS` and it is listed (sources `gateway` / `app`), and a
+  the server list and it is listed (sources `gateway` / `app`, both shown by
+  default in the picker since only an admin can put them there), and a
   `gateway.` id round-trips through `server_for_tool_id`; an `app.` id doesn't.
+  A gateway server that holds a per-user credential (`system.ai.atlassian`, i.e.
+  Jira and Confluence) refuses `list_tools` until that person signs in under AI
+  Gateway → MCPs. `needs_sign_in` spots the refusal, it is not retried, and
+  `GET /tools` returns it in `problems` with `sign_in: true` so the picker says
+  what to do instead of showing nothing. `problems` also names any *configured*
+  server that failed — an admin typed it, so silence reads as a typo nobody can
+  see — but not failing discovered servers, which can number in the hundreds.
   Everything here is the app's own workspace.
   Status comes from `structuredContent`; the reply *text* is markdown for a model
   (`**Status:** completed`, "Still running…"), and `_genie_status` reads that
@@ -651,11 +672,19 @@ New settings are one entry in `SETTING_SPECS`; the admin UI renders from that
 frontend change. `kind` is `endpoint` (model picker), `int` (bounded number),
 `bool`, `json` (validated on save, so a typo surfaces in the form and not later as
 an agent failing), or `hosts` (one Databricks App host, or one workspace as
-`*-<workspace-id>.<region>.databricksapps.com`, per line). A new kind
+`*-<workspace-id>.<region>.databricksapps.com`, per line), or `mcp_servers` (the
+MCP servers every agent gets, one per line). A new kind
 needs a branch in `SettingsManager.tsx`, which otherwise renders it as a number.
 `hosts` values are written into the CSP header, so `get_host_list_setting`
 re-validates them on read: a row can arrive by data migration without passing
-`validate_value`.
+`validate_value`. `get_mcp_server_list` re-validates for a different reason:
+every server on that list is opened with the caller's OBO token, so a row may
+name only this workspace — a `system.ai.<name>` gateway server, a path under
+`/api/2.0/mcp/` or `/ai-gateway/mcp-services/`, or a URL on `DATABRICKS_HOST`'s
+host, reduced to its path (`parse_mcp_server`). A custom MCP app is refused
+there, since `databricksapps.com` is every customer's; only the env var, which
+the deployer controls, may name one, and it passes through unchecked. A row with
+nothing usable left falls back to the env var rather than to no tools.
 
 The limits that live here are the ones a big request runs into: tool and Genie
 timeouts for chat, and for Widget Studio a token ceiling and a wall-clock
@@ -1138,6 +1167,14 @@ on every call including every step of a plan, and only a request with a tested
 source can be told anything specific. **`None` means "treat as large"** — reading
 silence as "small" is how a 40,000-row table ends up in a tab.
 
+The studio no longer offers a SQL data source, so the SQL branches of
+`/datasource/test` and `_size_guidance` now serve only widgets saved with one
+(the studio shows that query read-only and never tests it again). New widgets
+write their SQL in code and the agent sizes it itself with a `COUNT(*)` through
+`run_sql`, which `agent_instructions.md` asks for. Keep the stored `data_source`
+injected at runtime and keep `review_widget`'s write check: placed copies of those
+widgets still run, and may override, that query.
+
 The line between the two is a *payload*, not a row count: rows × columns ×
 `BYTES_PER_CELL` against `CLIENT_SIDE_MAX_MB` (10, a desktop-only rule of thumb), with
 the column count taken from the tested schema. It is the server-side versus
@@ -1190,7 +1227,7 @@ settles as *completed* with an apology: the user's code is already fine.
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 6 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 9 passed
-PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 27 passed
+PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 33 passed
 PYTHONPATH=server .venv/bin/python tests/test_code_patch.py           # 22 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
@@ -1201,7 +1238,7 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_generation_jobs.py # 8 pass
 PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_caller_identity.py      # 11 passed
-PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 22 passed
+PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 27 passed
 PYTHONPATH=server .venv/bin/python tests/test_llm_params.py           # 17 passed
 PYTHONPATH=server .venv/bin/python tests/test_llm_client.py           # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_sql_errors.py           # 10 passed

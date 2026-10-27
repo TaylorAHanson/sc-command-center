@@ -42,23 +42,15 @@ const Body = () => (
           overwrites a field you have typed in or chosen yourself.
         </P>
       </Step>
-      <Step title="Pick a data source and test it">
+      <Step title="Point it at an API, if it uses one">
         <P>
-          Still on <UI>Configuration</UI>, choose a <UI>Data Source</UI>: <UI>NONE</UI>, <UI>API</UI>,{' '}
-          <UI>DATABRICKS API</UI> or <UI>SQL</UI>. Enter the address or query, then click{' '}
-          <UI>Test &amp; Extract Schema</UI>. The agent is given the columns and a few sample rows when it
-          writes your widget. Skip this step if the widget has no data.
+          For data in Databricks tables, skip this step: name the table in your request and the agent writes the
+          SQL into the widget, running it first to check it (see{' '}
+          <GuideLink to="widget-studio" anchor="looks-at-data">It looks at your data first</GuideLink>). Only a
+          widget that calls an API needs a <UI>Data Source</UI> on <UI>Configuration</UI>: choose <UI>API</UI>{' '}
+          or <UI>DATABRICKS API</UI>, enter the address, then click <UI>Test &amp; Extract Schema</UI> so the
+          agent is given the fields and a few sample rows.
         </P>
-        <Shot
-          name="studio-data-source"
-          alt="The Data Source section of the Configuration tab with SQL selected"
-          caption="A SQL data source, ready to test."
-          legend={[
-            'The four data source types. This one is SQL.',
-            'The query the widget runs.',
-            'Test & Extract Schema runs it and reads back the columns and a few rows.',
-          ]}
-        />
       </Step>
       <Step title="Describe the widget to the agent">
         <P>
@@ -129,7 +121,7 @@ const Body = () => (
       caption="The Configuration tab, scrolled to the data source and the options below it."
       legend={[
         'Category and Domain.',
-        'Data Source: NONE, API, DATABRICKS API or SQL.',
+        'Data Source: NONE, API or DATABRICKS API.',
         'Is Executable Action.',
         'Configuration Mode.',
       ]}
@@ -140,23 +132,27 @@ const Body = () => (
       <li><UI>NONE</UI>: the widget has its own content or no data.</li>
       <li><UI>API</UI>: an address the widget calls. It is called from your browser, the same way the widget will call it, so if the API blocks requests from this app you find out when you test it.</li>
       <li><UI>DATABRICKS API</UI>: a Databricks REST path, for example a serving endpoint.</li>
-      <li><UI>SQL</UI>: a query that runs on the app's SQL warehouse as you.</li>
     </List>
     <P>
-      <UI>Test &amp; Extract Schema</UI> shows the schema, with real column types for SQL, and a few sample rows.
-      The agent is given both when it writes your widget. Tests run with your own permissions. A SQL statement
-      that changes data is never run to test it; the studio tells you so instead.
+      <UI>Test &amp; Extract Schema</UI> shows the schema and a few sample rows. The agent is given both when it
+      writes your widget. Tests run with your own permissions.
     </P>
-    <Details summary="How many rows a widget gets, and why testing matters">
+    <P>
+      There is no SQL data source. A widget that reads tables carries its SQL in its code, and the agent runs
+      that SQL itself, as you, to check it. A widget saved with a SQL data source before this keeps it: the
+      query shows read-only on <UI>Configuration</UI> and every placed copy keeps working. Ask the agent to
+      change it and the query moves into the code; <UI>Remove legacy SQL</UI> then clears the old one.
+    </P>
+    <Details summary="How many rows a widget gets">
       <P>
-        Testing a SQL source also counts the rows it returns, and that number changes how the widget gets built.
-        Searching, sorting and paging can happen in the browser or in the query, and both work at any row count.
-        What decides is how much data the browser would have to download, roughly 10 MB.
+        How many rows a query returns changes how the widget gets built, so the agent counts them when it is
+        unsure. Searching, sorting and paging can happen in the browser or in the query, and both work at any
+        row count. What decides is how much data the browser would have to download, roughly 10 MB.
       </P>
       <List>
         <li>Under that, the widget fetches everything once and works locally, which is fastest.</li>
         <li>Over it, all of that is pushed into SQL so the widget only ever holds the page you are looking at.</li>
-        <li>An untested source is assumed to be large.</li>
+        <li>A table whose size isn't known is assumed to be large.</li>
       </List>
       <P>
         By default a query returns its first 500 rows. A widget that works on the whole result asks for every
@@ -175,9 +171,11 @@ const Body = () => (
       audit trail, and it is also the telemetry the Command Center collects about what people do after they see
       data.
     </P>
-    <Callout kind="warn" title="Required for SQL that changes data">
-      If a SQL data source changes data (INSERT, UPDATE, DELETE, MERGE), this setting is required. Saving is
-      refused without it, because it is what records each change in the action logs along with who made it.
+    <Callout kind="warn" title="Turn it on for widgets that change data">
+      A widget that changes data (INSERT, UPDATE, DELETE, MERGE) does so through its action buttons, which
+      record each change in the action logs along with who made it, so turn this on for it.{' '}
+      <UI>Problems</UI> flags a write that skips the action buttons, and a widget whose legacy SQL data source
+      changes data can't be saved without this setting.
     </Callout>
 
     <H3 id="runtime-parameters">Configuration Mode and runtime parameters</H3>
@@ -246,8 +244,8 @@ const Body = () => (
       own, up to twice.
     </P>
     <P>
-      It leaves alone failures that code can't fix: a permission error, a server error, or your configured data
-      source itself failing, which you fix on the <UI>Configuration</UI> tab.
+      It leaves alone failures that code can't fix: a permission error, a server error, or a widget's legacy SQL
+      data source itself failing. For that last one it tells you, and you can ask it to replace the query.
     </P>
 
     <H3 id="problems">Problems and Fix with agent</H3>
@@ -515,6 +513,6 @@ export const section: GuideSection = {
   title: 'Widget Studio',
   summary: 'Build a widget by describing it, then save and promote it.',
   icon: Code,
-  keywords: 'create widget build generate code tsx data source sql preview agent page card configuration executable action',
+  keywords: 'create widget build generate code tsx data source sql legacy query api preview agent page card configuration executable action',
   Body,
 };

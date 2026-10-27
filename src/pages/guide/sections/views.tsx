@@ -97,12 +97,12 @@ const Body = () => (
     </P>
     <List>
       <li>
-        <UI>Add tab</UI> and the <UI>+</UI> ask which kind you want. On a view with one tab,{' '}
-        <UI>Add tab → Or make this whole view one full page</UI> turns the existing tab into a page.
+        <UI>Add tab</UI> and the <UI>+</UI> ask which kind a new tab should be.
       </li>
       <li>
-        The small grid or page icon on the tab you are looking at switches it. A grid with more than one widget cannot
-        become a full page until you remove the others.
+        To switch the tab you are looking at, use <UI>Grid</UI> / <UI>Full page</UI> in the top right of the header. It
+        is there whenever you may change the view's tabs, including on a view with only one tab. <UI>Full page</UI> is
+        grayed out on a grid holding more than one widget; hover it to see why, and remove all but one widget first.
       </li>
       <li>
         To fill a page, drag a widget from the Widget Library onto it. Dropping another widget replaces the first,
@@ -249,8 +249,8 @@ const Body = () => (
         <li>
           With <UI>No header</UI>, <UI>Copy link</UI>, <UI>Edit</UI> (or <UI>Back to editing</UI> in a preview) and the
           workspace label sit in a small bar at the bottom left, shown only to people who get at least one of them.
-          Inside the Command Center, the view's editing buttons (<UI>Preview</UI>, <UI>Add tab</UI>,{' '}
-          <UI>Settings</UI>, <UI>Lock</UI>, <UI>Share</UI>) move to that bar too.
+          Inside the Command Center, the view's editing buttons (<UI>Preview</UI>, <UI>Grid</UI> /{' '}
+          <UI>Full page</UI>, <UI>Add tab</UI>, <UI>Settings</UI>, <UI>Lock</UI>, <UI>Share</UI>) move to that bar too.
         </li>
         <li>
           While you edit the view inside the Command Center, its header shows the same title and logo, so editing looks

@@ -14,10 +14,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 from services import settings_store  # noqa: E402
 from services.settings_store import (  # noqa: E402
     AI_GATEWAY_BASE_PATH,
+    GENIE_ONE_SERVER,
     SERVING_BASE_PATH,
     SETTING_SPECS,
     base_path_for_model,
     get_host_list_setting,
+    get_mcp_server_list,
     get_int_setting,
     get_setting,
     validate_value,
@@ -204,6 +206,60 @@ def test_a_stored_app_host_cannot_inject_into_the_csp_header():
         assert get_host_list_setting("widget_app_hosts") == [APP]
 
 
+MCP_ENV = SETTING_SPECS["mcp_servers"].env
+WORKSPACE = "https://adb-123.11.azuredatabricks.net"
+
+
+def test_the_default_mcp_servers_are_sql_and_genie_one():
+    from services.agent_runtime import GENIE_ONE_PATH
+
+    assert GENIE_ONE_SERVER == GENIE_ONE_PATH
+    with stored({}, {MCP_ENV: None}):
+        assert get_mcp_server_list() == ["/api/2.0/mcp/sql", GENIE_ONE_PATH]
+
+
+def test_mcp_servers_accept_a_name_a_path_or_this_workspaces_url():
+    with stored({}, {"DATABRICKS_HOST": WORKSPACE}):
+        cleaned, error = validate_value(
+            "mcp_servers",
+            f"system.ai.atlassian\n/api/2.0/mcp/sql/, api/2.0/mcp/functions/main/sales\n"
+            f"{WORKSPACE}/ai-gateway/mcp-services/system.ai.atlassian?x=1",
+        )
+    assert error is None
+    assert cleaned == ("/ai-gateway/mcp-services/system.ai.atlassian\n/api/2.0/mcp/sql\n"
+                       "/api/2.0/mcp/functions/main/sales")
+
+
+def test_mcp_servers_refuse_anything_that_would_send_the_token_elsewhere():
+    # Every listed server is opened with the signed-in user's token.
+    with stored({}, {"DATABRICKS_HOST": WORKSPACE}):
+        for raw in ("https://evil.example/api/2.0/mcp/sql",
+                    "https://adb-999.11.azuredatabricks.net/api/2.0/mcp/sql",
+                    "https://my-mcp-123.aws.databricksapps.com/mcp",
+                    "atlassian",
+                    "/api/2.0/sql",
+                    "/api/2.0/mcp/",
+                    "/api/2.0/mcp/../../oidc/token",
+                    "/api/2.0/mcp/sql;x"):
+            assert validate_value("mcp_servers", raw)[1], raw
+    with stored({}, {"DATABRICKS_HOST": None}):
+        # Without the workspace's address there is nothing to check a URL against.
+        assert validate_value("mcp_servers", "https://host/api/2.0/mcp/sql")[1]
+
+
+def test_a_stored_mcp_list_is_rechecked_and_an_unusable_one_falls_back():
+    with stored({"mcp_servers": "system.ai.atlassian\nhttps://evil.example/x"}, {MCP_ENV: "/api/2.0/mcp/sql"}):
+        assert get_mcp_server_list() == ["/ai-gateway/mcp-services/system.ai.atlassian"]
+    with stored({"mcp_servers": "https://evil.example/x"}, {MCP_ENV: "/api/2.0/mcp/sql"}):
+        assert get_mcp_server_list() == ["/api/2.0/mcp/sql"]
+
+
+def test_the_deployments_mcp_list_may_still_name_an_app():
+    app = "https://my-mcp-123.aws.databricksapps.com/mcp"
+    with stored({}, {MCP_ENV: f"/api/2.0/mcp/sql,{app}"}):
+        assert get_mcp_server_list() == ["/api/2.0/mcp/sql", app]
+
+
 def test_explicit_base_path_env_var_wins():
     with stored({}, {"AGENT_RUNTIME_LLM_BASE_PATH": "custom/gateway"}):
         assert base_path_for_model("system.ai.claude-opus-5", "AGENT_RUNTIME_LLM_BASE_PATH") == "/custom/gateway"
@@ -232,6 +288,11 @@ if __name__ == "__main__":
         test_a_dotted_workspace_wildcard_says_what_to_write_instead,
         test_app_hosts_refuse_anything_but_an_exact_databricks_app,
         test_a_stored_app_host_cannot_inject_into_the_csp_header,
+        test_the_default_mcp_servers_are_sql_and_genie_one,
+        test_mcp_servers_accept_a_name_a_path_or_this_workspaces_url,
+        test_mcp_servers_refuse_anything_that_would_send_the_token_elsewhere,
+        test_a_stored_mcp_list_is_rechecked_and_an_unusable_one_falls_back,
+        test_the_deployments_mcp_list_may_still_name_an_app,
         test_explicit_base_path_env_var_wins,
     ]
     for test in tests:

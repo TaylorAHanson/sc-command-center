@@ -53,6 +53,25 @@ DEFAULT_DOMAIN = "General"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
+# Tool ids an agent may have been saved with -> the id the catalog lists today.
+# Genie One's ask tool is `genie_ask` on the server and `genie_one` in this app;
+# agents saved before the rename hold the server's name. Mapping on read, rather
+# than migrating, leaves versioned rows alone in every schema and also covers rows
+# that arrive later by promotion or snapshot import.
+TOOL_ID_ALIASES = {"genie/genie_ask": "genie/genie_one", "genie_ask": "genie_one"}
+_UPSTREAM_TOOL_IDS = {new: old for old, new in TOOL_ID_ALIASES.items()}
+
+
+def canonical_tool_ids(tools: List[Any]) -> List[str]:
+    """An agent's tool ids under their current names, deduplicated, order kept."""
+    ids = (TOOL_ID_ALIASES.get(t, t) for t in tools or [] if isinstance(t, str))
+    return list(dict.fromkeys(ids))
+
+
+def upstream_tool_ids(tools: List[Any]) -> List[str]:
+    """The reverse, for a runtime that only knows the servers' own names."""
+    return [_UPSTREAM_TOOL_IDS.get(t, t) for t in tools or [] if isinstance(t, str)]
+
 
 def _max_bytes() -> int:
     try:
@@ -452,7 +471,7 @@ class AgentStudioStore:
             name=row.get("name") or "",
             description=row.get("description") or "",
             model=row.get("model") or "",
-            tools=[t for t in tools if isinstance(t, str)],
+            tools=canonical_tool_ids(tools),
             base=row.get("base") or "full",
             version=int(row.get("version") or 0),
             domain=row.get("domain") or DEFAULT_DOMAIN,
@@ -620,7 +639,7 @@ class AgentStudioStore:
         if not name or not name.strip():
             raise AgentStudioError("Profile name is required.")
 
-        tools = [t for t in (tools or []) if isinstance(t, str) and t.strip()]
+        tools = canonical_tool_ids([t for t in (tools or []) if isinstance(t, str) and t.strip()])
         visibility = _norm_visibility(visibility)
         domain = _norm_domain(domain)
         base = (base or "full").strip() or "full"

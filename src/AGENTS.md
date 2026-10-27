@@ -336,8 +336,8 @@ confusion. The load also guards against races with a run counter.
 
 ## Code editing (`components/CodeEditor.tsx`)
 
-Every code box in the app — the Widget Studio TSX editor, its SQL data-source
-field, Agent Studio's Python tool editor — is this one component: a transparent
+Every code box in the app — the Widget Studio TSX editor, its read-only legacy
+SQL data-source view, Agent Studio's Python tool editor — is this one component: a transparent
 `<textarea>` over a highlight.js-rendered `<pre>`, plus a line-number gutter. It
 stays a textarea deliberately, so the value is controlled exactly as the plain
 textareas it replaced were, without adopting an editor framework.

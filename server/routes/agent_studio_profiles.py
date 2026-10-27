@@ -127,8 +127,9 @@ class AuthorRequest(BaseModel):
 def _mcp_server_urls(host: str) -> List[str]:
     """Resolve the AI Gateway MCP server URLs to introspect.
 
-    Configurable via ``AGENT_STUDIO_MCP_SERVERS`` (comma-separated). Entries may
-    be absolute URLs or workspace-relative paths (joined to ``host``). Defaults
+    The ``mcp_servers`` setting (Admin Panel → Settings), falling back to
+    ``AGENT_STUDIO_MCP_SERVERS`` (comma-separated). Entries are workspace-relative
+    paths (joined to ``host``), or from the env var also absolute URLs. Defaults
     to the managed SQL MCP server **and** the general Genie server (Genie One,
     ``system.ai.genie_one_mcp``), which searches across the caller's accessible
     Genie data.
@@ -139,10 +140,10 @@ def _mcp_server_urls(host: str) -> List[str]:
     working: same tools, same arguments, same tool ids.
     """
     from services.agent_runtime import GENIE_ONE_PATH, LEGACY_GENIE_PATH
+    from services.settings_store import get_mcp_server_list
 
-    raw = os.environ.get("AGENT_STUDIO_MCP_SERVERS", f"/api/2.0/mcp/sql,{GENIE_ONE_PATH}")
     urls: List[str] = []
-    for entry in raw.split(","):
+    for entry in get_mcp_server_list():
         url = _absolute_url(host, entry)
         if url and _mcp_path(url) == LEGACY_GENIE_PATH:
             url = _absolute_url(host, GENIE_ONE_PATH)
@@ -223,6 +224,30 @@ GENIE_POLLED_NOTE = (
     " runtime polls for it itself, which is why the poll tool is not offered. "
 )
 
+# Genie One's ask tool, under the name people know it by. The server lists it as
+# `genie_ask` (agent_runtime.GENIE_ONE_ASK_TOOL); the entry keeps that as
+# `upstream_name`, which is what the runtime calls.
+GENIE_ONE_TOOL = "genie_one"
+GENIE_ONE_DESCRIPTION = (
+    "Genie One: ask a question in plain language about the data you can access in"
+    " Unity Catalog, and get Genie's answer back. It runs as the signed-in user, so"
+    " it sees only the tables and rows their permissions allow. Put the whole"
+    " question in `question`; to follow up on an earlier answer, pass the"
+    " `conversation_id` that came with it. The call waits for the finished answer"
+    " itself (often 30 seconds to a couple of minutes), so there is nothing to"
+    " poll; if Genie stops early, the answer says it may be partial."
+)
+
+
+def _shown_name(server_url: str, name: str) -> str:
+    """The name the catalog lists a server's tool under."""
+    from services.agent_runtime import GENIE_ONE_ASK_TOOL
+
+    # Only the general server's: a Genie space's own server is not Genie One.
+    if name == GENIE_ONE_ASK_TOOL and _server_label(server_url) == "genie":
+        return GENIE_ONE_TOOL
+    return name
+
 
 def _tool_description(server_url: str, name: str, description: str) -> str:
     """The description an author and a model read for one discovered tool.
@@ -231,10 +256,14 @@ def _tool_description(server_url: str, name: str, description: str) -> str:
     :func:`_is_internal_mcp_tool` keeps from agents. Left as it was, the authoring
     assistant reported the poll tool as a missing capability and wrote agents told
     to poll by hand, so the description is corrected where the catalog is built.
-    The note goes first because the runtime truncates descriptions.
+    The note goes first because the runtime truncates descriptions. Genie One's
+    text is replaced outright: it names the tool by its server name, which the
+    catalog doesn't use.
     """
     from services.agent_runtime import _is_genie_ask_tool
 
+    if _shown_name(server_url, name) == GENIE_ONE_TOOL:
+        return GENIE_ONE_DESCRIPTION
     if _is_genie_server(server_url) and _is_genie_ask_tool(name):
         return GENIE_POLLED_NOTE + description
     return description
@@ -438,6 +467,24 @@ def extra_mcp_servers(ws: WorkspaceClient, host: str, fresh: bool = False) -> Di
 
 _LIST_ATTEMPTS = 3
 
+# What an AI Gateway server that holds a per-user credential (Atlassian, for one)
+# answers until that person has signed in: "Credential for user identity … is not
+# found for the connection 'atlassian'. Please login first…". The sign-in link in
+# it arrives cut short, so the picker gives directions instead of the link.
+_SIGN_IN_MARKERS = ("please login first", "please log in first", "credential for user identity")
+
+
+def needs_sign_in(reason: str) -> bool:
+    text = (reason or "").lower()
+    return any(marker in text for marker in _SIGN_IN_MARKERS)
+
+
+def _server_name(server_url: str) -> str:
+    """What to call a server when telling a person about it."""
+    path = _mcp_path(server_url)
+    prefix = "/ai-gateway/mcp-services/"
+    return path[len(prefix):] if path.startswith(prefix) else _server_label(server_url)
+
 
 def _retry_sleep(seconds: float) -> None:
     import time
@@ -459,15 +506,18 @@ def _list_tools_with_retry(client) -> list:
     for attempt in range(_LIST_ATTEMPTS):
         try:
             return client.list_tools()
-        except Exception:  # noqa: BLE001
-            if attempt == _LIST_ATTEMPTS - 1:
+        except Exception as exc:  # noqa: BLE001
+            # Asking again won't sign anyone in.
+            if attempt == _LIST_ATTEMPTS - 1 or needs_sign_in(_readable(exc)):
                 raise
             _retry_sleep(0.4 * (2 ** attempt) + random.random() * 0.4)
     return []
 
 
-def _server_tools(ws: WorkspaceClient, server_url: str, title: str, fresh: bool) -> List[Dict[str, Any]]:
-    """One server's tools, as catalog entries. An unreachable server lists none."""
+def _server_tools(ws: WorkspaceClient, server_url: str, title: str, fresh: bool,
+                  problems: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """One server's tools, as catalog entries. An unreachable server lists none,
+    and is recorded in ``problems`` when the caller passes a list."""
     from databricks_mcp import DatabricksMCPClient
     from services.agent_runtime import _is_genie_ask_tool
 
@@ -481,13 +531,14 @@ def _server_tools(ws: WorkspaceClient, server_url: str, title: str, fresh: bool)
         entries = []
         for tool in tools:
             name = tool.name
+            shown = _shown_name(server_url, name)
             entry = {
                 # Canonical, server-qualified identifier authored profiles store
                 # (``<server>/<tool>``). Unambiguous when two servers expose the
                 # same tool name, which every Genie space does; the runtime
                 # matches on this id or, as a fallback, the bare ``name``.
-                "id": f"{label}/{name}",
-                "name": name,
+                "id": f"{label}/{shown}",
+                "name": shown,
                 "server_label": label,
                 "server_title": title,
                 "source": source,
@@ -498,6 +549,8 @@ def _server_tools(ws: WorkspaceClient, server_url: str, title: str, fresh: bool)
                 or getattr(tool, "input_schema", None)
                 or {},
             }
+            if shown != name:
+                entry["upstream_name"] = name
             if genie and poll_tool and _is_genie_ask_tool(name):
                 entry["poll_tool"] = poll_tool
             entries.append(entry)
@@ -506,7 +559,14 @@ def _server_tools(ws: WorkspaceClient, server_url: str, title: str, fresh: bool)
     try:
         return _cached(ws, f"tools:{server_url}", fresh, build)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("MCP list_tools failed for %s: %s", server_url, _readable(exc))
+        reason = _readable(exc)
+        logger.warning("MCP list_tools failed for %s: %s", server_url, reason)
+        if problems is not None:
+            problems.append({
+                "server": server_url,
+                "name": title or _server_name(server_url),
+                "sign_in": needs_sign_in(reason),
+            })
         return []
 
 
@@ -536,16 +596,22 @@ def server_for_tool_id(tool_id: str) -> Optional[str]:
 
 
 def discover_mcp_tools(ws: WorkspaceClient, *, genie_spaces: bool = False, extra_kinds: bool = False,
-                       servers: Optional[List[str]] = None, fresh: bool = False) -> List[Dict[str, Any]]:
+                       servers: Optional[List[str]] = None, fresh: bool = False,
+                       problems: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """List tools exposed by AI Gateway MCP servers under the caller's OBO token.
 
-    Always the configured servers (``AGENT_STUDIO_MCP_SERVERS``); with
+    Always the configured servers (the ``mcp_servers`` setting); with
     ``genie_spaces``, also every Genie space the caller can see, each its own
     server; with ``extra_kinds``, also the Unity Catalog function schemas, vector
     search schemas and external MCP connections the caller can reach; plus any
     ``servers`` named (absolute or workspace-relative). Nothing
     is dropped: plumbing tools come back marked ``internal`` and it is each
     caller's choice whether to show them. ``fresh`` skips the cache.
+
+    ``problems``, when given, collects the servers that listed nothing because
+    they failed: every configured one (an admin named it, so silence would look
+    like a typo nobody can see) and any that wants the caller to sign in. Other
+    discovered servers failing stays a log line; there can be hundreds.
 
     Degrades gracefully: a missing ``databricks-mcp`` package or an unreachable
     server yields a partial/empty catalog rather than failing the request.
@@ -585,8 +651,11 @@ def discover_mcp_tools(ws: WorkspaceClient, *, genie_spaces: bool = False, extra
 
     if not titles:
         return []
+    failed: List[Dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=min(_DISCOVERY_WORKERS, len(titles))) as pool:
-        lists = list(pool.map(lambda item: _server_tools(ws, item[0], item[1], fresh), titles.items()))
+        lists = list(pool.map(lambda item: _server_tools(ws, item[0], item[1], fresh, failed), titles.items()))
+    if problems is not None:
+        problems.extend(p for p in failed if p["sign_in"] or _server_label(p["server"]) in configured)
     return [entry for tools in lists for entry in tools]
 
 
@@ -606,7 +675,7 @@ def _server_label(server_url: str) -> str:
         return f"app.{app.group(1)}"
     s = re.sub(r"^https?://[^/]+", "", s)  # strip scheme+host
     # Keeps the label the old general server had, so tool ids already saved on an
-    # agent (`genie/genie_ask`) still match after the move to Genie One.
+    # agent (`genie/...`) still match after the move to Genie One.
     if s == "/ai-gateway/mcp-services/system.ai.genie_one_mcp":
         return "genie"
     parts = [p for p in s.split("/") if p]
@@ -1278,11 +1347,14 @@ def list_tools(refresh: bool = False, obo_token: Optional[str] = Depends(get_use
     Unfiltered on purpose, Genie spaces, every other kind of managed server and
     internal tools included: the picker decides what to show by default
     (`source`, `internal`), and the author can widen it. ``refresh`` re-asks
-    every server instead of using the cache.
+    every server instead of using the cache. ``problems`` names servers that
+    listed nothing, and whether signing in to them would fix it.
     """
     store = get_agent_studio_store()
     ws = store._client(obo_token)
-    return {"tools": discover_mcp_tools(ws, genie_spaces=True, extra_kinds=True, fresh=refresh)}
+    problems: List[Dict[str, Any]] = []
+    tools = discover_mcp_tools(ws, genie_spaces=True, extra_kinds=True, fresh=refresh, problems=problems)
+    return {"tools": tools, "problems": problems}
 
 
 def _authorize_write(w: WorkspaceClient, visibility: str, domain: str, env: str) -> None:

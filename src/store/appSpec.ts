@@ -36,7 +36,9 @@ export const layoutSwitch = (tab: AppTab): { to: TabLayout; title: string; block
   const blocked = tab.widgets.length > 1;
   return {
     to: 'page',
-    title: blocked ? 'A full page holds one widget; remove the others first' : 'Make this tab a full page: one widget filling the tab',
+    title: blocked
+      ? `A full page holds one widget and this tab has ${tab.widgets.length}; remove all but one first`
+      : 'Make this tab a full page: one widget filling the tab',
     blocked,
   };
 };

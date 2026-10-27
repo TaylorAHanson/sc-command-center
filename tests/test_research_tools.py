@@ -154,6 +154,7 @@ def test_genie_gets_the_question_and_the_callers_clock():
         out = rt.ask_genie(object(), "what counts as late?", timeout=30)
     finally:
         rt._genie_client = original
+    # The server's own name for the tool; only the catalog calls it `genie_one`.
     assert seen["calls"][0] == ("genie_ask", {"question": "what counts as late?"})
     assert out.startswith("Genie is unavailable")
 

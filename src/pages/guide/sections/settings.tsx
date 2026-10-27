@@ -142,6 +142,15 @@ const Body = () => (
       listed by its own host. Saving a widget that names any other app is refused. No other wildcard is accepted, because
       every Databricks customer&apos;s apps share <Code>databricksapps.com</Code>.
     </P>
+    <P>
+      <strong><UI>MCP servers agents can use</UI></strong> lists the servers every agent gets: the assistant uses each
+      one, and Agent Studio lists their tools. It starts with SQL and Genie One. Add one per line, either a built-in
+      server by name, such as <Code>system.ai.atlassian</Code> for Jira and Confluence, or a path in this workspace,
+      such as <Code>/api/2.0/mcp/functions/main/sales</Code>. A pasted URL on this workspace is reduced to its path.
+      Anything on another host is refused, because each server is called with the signed-in person&apos;s own access.
+      Some servers, Atlassian among them, also need each person to sign in once under <UI>AI Gateway → MCPs</UI>;
+      until they do, Agent Studio tells them so.
+    </P>
 
     <H2 id="privacy">Retention and what the assistant sees</H2>
     <List>
@@ -215,6 +224,6 @@ export const section: GuideSection = {
   title: 'Settings & models',
   summary: 'Choose models, limits and what the assistant may reach.',
   icon: Settings,
-  keywords: 'model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint',
+  keywords: 'model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence',
   Body,
 };

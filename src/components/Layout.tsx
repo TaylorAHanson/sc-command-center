@@ -7,12 +7,12 @@ import { WidgetTray } from './WidgetTray';
 import { AgentDrawer } from './AgentDrawer';
 import { WelcomeOverlay, type WelcomeSpot } from './WelcomeOverlay';
 import { AppSettingsModal } from './AppSettingsModal';
-import { AddTabMenu, TabBar } from './TabBar';
+import { AddTabMenu, TabBar, TabLayoutSwitch } from './TabBar';
 import { FilterBar } from './FilterBar';
 import { assistantLabel, useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
-import { darkBars, isPage, layoutSwitch, showsHeader, shownTab, themeVariables } from '../store/appSpec';
+import { darkBars, isPage, showsHeader, shownTab, themeVariables } from '../store/appSpec';
 import { WorkspaceToolsContext, type WorkspaceTools } from '../contexts/WorkspaceTools';
 import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
 import { useCanvasLook } from '../hooks/useCanvasLook';
@@ -60,7 +60,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [currentPage, setCurrentPage] = useState<string | null>(() => pageOf(window.location.hash));
   // Pages that take over the full screen (no header, no agent drawer).
   const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
-  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp, canEditLayout, addTab, setTabLayout, isLoading } = useDashboardStore();
+  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp, canEditLayout, addTab, isLoading } = useDashboardStore();
   const shell = useShell();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
@@ -605,37 +605,24 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <span>Preview</span>
                 </button>
               )}
-              {!currentPage && activeApp && activeAppTab && activeApp.spec.tabs.length === 1 && canEditLayout(activeApp) && (() => {
-                const swap = layoutSwitch(activeAppTab);
-                return (
-                  <AddTabMenu
-                    align="right"
-                    naming={{ suggested: 'Tab 2', first: activeAppTab.name ? undefined : 'Overview' }}
-                    onChoose={(layout, names) => addTab(activeApp.id, names?.name || 'Tab 2', layout, names?.first)}
-                    button={open => (
-                      <button
-                        onClick={open}
-                        className={headerButton}
-                        title="Give this view a second tab"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>Add tab</span>
-                      </button>
-                    )}
-                    extra={(
-                      <button
-                        type="button"
-                        disabled={swap.blocked}
-                        onClick={() => setTabLayout(activeApp.id, activeAppTab.id, swap.to)}
-                        className="w-full px-3 py-2 text-left text-xs text-gray-600 hover:bg-gray-50 disabled:text-gray-300 disabled:hover:bg-transparent"
-                        title={swap.title}
-                      >
-                        {swap.to === 'page' ? 'Or make this whole view one full page' : 'Or put this view back on a grid of cards'}
-                      </button>
-                    )}
-                  />
-                );
-              })()}
+              {!currentPage && <TabLayoutSwitch dark={darkHeader} />}
+              {!currentPage && activeApp && activeAppTab && activeApp.spec.tabs.length === 1 && canEditLayout(activeApp) && (
+                <AddTabMenu
+                  align="right"
+                  naming={{ suggested: 'Tab 2', first: activeAppTab.name ? undefined : 'Overview' }}
+                  onChoose={(layout, names) => addTab(activeApp.id, names?.name || 'Tab 2', layout, names?.first)}
+                  button={open => (
+                    <button
+                      onClick={open}
+                      className={headerButton}
+                      title="Give this view a second tab"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add tab</span>
+                    </button>
+                  )}
+                />
+              )}
               {!currentPage && activeApp && canEditApp(activeApp) && (
                 <button
                   onClick={() => setSettingsOpen(true)}

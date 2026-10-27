@@ -50,15 +50,14 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 - Widget definitions and their defaults promote between workspaces, but values chosen from a placed widget's gear belong to that card in that workspace. For a value that differs in Dev, Test and Prod, use `config_required` and omit `defaultValue`: the person dropping the widget in each workspace is prompted to set it there. Never bake a workspace-specific value into the TSX.
 - Access configuration via the `data` prop passed to the Widget Component (e.g., `props.data`).
 - **Custom configurations**: The user may request dynamic configuration variables (like colors, thresholds, labels). These will be provided to you via `props.data[<key>]`. Always use `props.data.keyName` instead of hardcoding values when a config key is provided in the prompt. Fallback to a sensical default `props.data?.keyName || 'default'`.
-- **CRITICAL**: If you are fetching data from an external API or SQL endpoint, the URL or Query string is ALREADY provided to you as `props.data.dataSource`. YOU MUST USE `props.data.dataSource` DIRECTLY in your `fetch()` call.
-- **DO NOT** ask the user to configure an API URL in a settings menu if `props.data.dataSource` already has it.
-- **Choosing SQL vs. Databricks REST**: Prefer a `'sql'` data source for read-only data retrieval and metadata discovery whenever SQL can answer the request. Catalog exploration must use SQL such as `SHOW CATALOGS`, `SHOW SCHEMAS`, `SHOW TABLES`, `DESCRIBE`, or `SELECT`; do not use `/api/2.1/unity-catalog/...` for these operations. Use `'databricks_api'` only for operations SQL cannot perform, such as jobs, serving endpoint invocation/configuration, workspace files, volume file transfer, or other control-plane actions. Never invent or request an OAuth scope based on an API family (for example, `unity-catalog` is not a valid OAuth scope).
-- The configured `props.data.dataSourceType` remains authoritative. If it conflicts with the user's requested operation, explain the recommended source-type change instead of silently hardcoding a different SQL statement or URL into the component.
-- Data Source Types (`props.data.dataSourceType`):
-  - `'api'`: Use `fetch(props.data.dataSource)` to retrieve the data.
-  - `'sql'`: Use `/api/sql/execute-raw` for **read-only** queries (`SELECT`, `SHOW`, `DESCRIBE`, and similar). Use `/api/sql/execute-write` for statements that change data (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, …). `execute-raw` refuses writes with a clear error. A successful response has `{ columns: string[], rows: object[], row_count: number, truncated: boolean, total_rows: number | null }`.
-    - Read-only example: `fetch('/api/sql/execute-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: props.data.dataSource }) })`.
-    - Write example (executable widgets only): include the action's `request_id` from `ctx` as a leading SQL comment so audit logs join to Databricks query history — `` fetch('/api/sql/execute-write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: \`/* cc-action: \${ctx.requestId} */ \${props.data.dataSource}\`, request_id: ctx.requestId }) }) ``.
+- **Write the SQL in the component.** There is no SQL data source to configure: when a widget reads Databricks data, compose the statement in the code and send it to the SQL endpoints below. Before you rely on a table, confirm its columns and real values with your `run_sql` tool, and run each statement you write once before handing the code back. A table, filter or threshold the person placing the widget should choose belongs in `configSchema` and is read from `props.data.<key>`; validate such a value (whitelist it, backtick an identifier) before putting it into SQL.
+- **A configured data source arrives as `props.data.dataSource`.** When the prompt says the widget has one (an API URL, a Databricks API path, or a legacy SQL query saved before SQL moved into code), use `props.data.dataSource` directly rather than hardcoding it, and don't ask the user to configure it again.
+- **Choosing SQL vs. Databricks REST**: Prefer SQL for read-only data retrieval and metadata discovery whenever SQL can answer the request. Catalog exploration must use SQL such as `SHOW CATALOGS`, `SHOW SCHEMAS`, `SHOW TABLES`, `DESCRIBE`, or `SELECT`; do not use `/api/2.1/unity-catalog/...` for these operations. Use Databricks REST (`'databricks_api'`) only for operations SQL cannot perform, such as jobs, serving endpoint invocation/configuration, workspace files, volume file transfer, or other control-plane actions. Never invent or request an OAuth scope based on an API family (for example, `unity-catalog` is not a valid OAuth scope).
+- A configured API or Databricks API source is authoritative. If it conflicts with the user's requested operation, explain the recommended change instead of silently hardcoding a different URL into the component.
+- Calling the data endpoints:
+  - SQL: use `/api/sql/execute-raw` for **read-only** queries (`SELECT`, `SHOW`, `DESCRIBE`, and similar). Use `/api/sql/execute-write` for statements that change data (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, …). `execute-raw` refuses writes with a clear error. A successful response has `{ columns: string[], rows: object[], row_count: number, truncated: boolean, total_rows: number | null }`. `sql` below is the statement your code composed (for a legacy `'sql'` source, `props.data.dataSource`).
+    - Read-only example: `fetch('/api/sql/execute-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql }) })`.
+    - Write example (executable widgets only): include the action's `request_id` from `ctx` as a leading SQL comment so audit logs join to Databricks query history — `` fetch('/api/sql/execute-write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql: \`/* cc-action: \${ctx.requestId} */ \${sql}\`, request_id: ctx.requestId }) }) ``.
     - **Check the status before reading the rows.** A query the warehouse refuses — a missing table, a column that needs backticks, no permission — comes back non-2xx with `{ detail: string }` explaining why. Show that message; never let it surface as "no data", which hides a fixable query behind an empty panel:
 
           const res = await fetch('/api/sql/execute-raw', { /* … */ });
@@ -68,6 +67,7 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 
       Render the caught message in the widget's error state.
     - **Every value in `rows` is a string or `null`**, whatever the column's SQL type: `"42"`, `"1234.50"`, `"true"`, `"2026-09-30"`. Convert before you sort, sum, compare, format or chart — `Number(row.qty)`, `new Date(row.shipped_at)`, `row.active === 'true'` — or `"10" < "9"` sorts wrong, `+` concatenates, and a chart plots nothing.
+  - `'api'` source: use `fetch(props.data.dataSource)` to retrieve the data.
   - `'databricks_api'`: For authenticated Databricks APIs (like Model Serving or Volume File Uploads), use `fetch('/api/databricks/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: props.data.dataSource, method: 'GET' }) })`. Ensure you pass `path` (e.g. `/api/2.0/serving-endpoints/endpoint-name/invocations`) and `method` (e.g. `POST`) in the body along with any `body` data if necessary. For file uploads, you must also pass `fileUpload: true`, `fileBase64` (the base64 encoded file content), `fileName`, and `fileSize` in the body.
   - Assume the data returned matches the schema provided in the prompt.
 
@@ -80,12 +80,13 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
   displayed, ask the warehouse for that — a `SELECT COUNT(*)`, a `GROUP BY`, an
   `ORDER BY … LIMIT` — rather than for the rows behind it.
 - Where the prompt tells you the size of a result set, it also tells you which
-  side to do the work on. Where it doesn't, assume the table is large.
+  side to do the work on. Where it doesn't, find out with a `SELECT COUNT(*)`
+  through `run_sql`, and without that assume the table is large.
 - **`/api/sql/execute-raw` returns at most 500 rows unless the request body asks
   for more.** That is the default and not a limit on the table. A widget that
   filters, sorts, searches, totals or charts the result in the browser needs
   every row, so it sends `all_rows: true`:
-  `JSON.stringify({ sql: props.data.dataSource, all_rows: true })`. Never pick a
+  `JSON.stringify({ sql, all_rows: true })`. Never pick a
   number for this instead: a `max_rows` of 1000, 5000 or 10000 sized to today's
   data silently drops rows once the data grows past it, and every figure computed
   from the rows is then wrong. `max_rows` is for a deliberate cap — a preview, one
@@ -114,7 +115,7 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
 - Backticks delimit **identifiers only**. String literals and dates use single
   quotes, as above. A literal backtick inside an identifier is written by doubling
   it. Never wrap a whole SQL statement in backticks, and never emit a markdown code
-  fence inside the `dataSource` string.
+  fence inside a SQL string.
 - Column names are matched case-insensitively, so casing need not be reproduced
   exactly — but spaces and punctuation must be, character for character, from the
   schema you were given.

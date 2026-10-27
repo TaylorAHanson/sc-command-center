@@ -425,8 +425,8 @@ def _size_guidance(req: GenerateRequest) -> str:
     rows = req.data_source_row_estimate
     if rows is None:
         return (
-            "\n\nThe size of this result set is unknown — the data source hasn't been "
-            "tested, so treat it as potentially large. Add a `LIMIT` to what you display "
+            "\n\nThe size of this result set is unknown, so treat it as potentially large "
+            "unless a `SELECT COUNT(*)` over it with `run_sql` says otherwise. Add a `LIMIT` to what you display "
             "and do the filtering, sorting and aggregating in SQL rather than in the "
             "component. Never fetch a whole table in order to reduce it in JavaScript. "
             "Any query whose rows the component does filter, sort, total or chart must "
@@ -531,16 +531,24 @@ def _build_system_prompt(req: GenerateRequest) -> str:
                 "as described in Output Format. Do not re-send the parts you aren't changing."
             )
 
-    if req.data_source:
-        # Always tell the LLM what data source is configured so it can wire it up correctly
-        if req.data_source_type == "sql":
-            ds_label = "SQL query"
-        elif req.data_source_type == "databricks_api":
-            ds_label = "Databricks API path"
-        else:
-            ds_label = "API endpoint URL"
-        system_prompt += f"\n\nThe widget has a configured data source ({ds_label}):\n```\n{req.data_source}\n```\nYou MUST use `props.data.dataSource` directly in your fetch/query call — do NOT hardcode the SQL or URL."
+    if req.data_source and req.data_source_type == "sql":
+        # The studio no longer offers a SQL data source; this is a widget saved
+        # with one. Its placed copies run the stored query through
+        # `props.data.dataSource` and may override it from their gear, so the code
+        # must keep reading it unless the person asks to change the query.
+        system_prompt += (
+            "\n\nThis widget was saved with a legacy SQL data source, which the studio no longer "
+            "offers. The stored query reaches the code as `props.data.dataSource`, and placed "
+            "copies of the widget may have overridden it from their settings:\n"
+            f"```sql\n{req.data_source}\n```\n"
+            "Keep reading `props.data.dataSource` for that query so existing placements keep "
+            "working. Only if the request is to change what it queries, write the new SQL in "
+            "the component like any other query and stop reading `props.data.dataSource`."
+        )
         system_prompt += _size_guidance(req)
+    elif req.data_source:
+        ds_label = "Databricks API path" if req.data_source_type == "databricks_api" else "API endpoint URL"
+        system_prompt += f"\n\nThe widget has a configured data source ({ds_label}):\n```\n{req.data_source}\n```\nYou MUST use `props.data.dataSource` directly in your fetch call — do NOT hardcode the URL."
 
     if req.data_source_schema:
         schema_str = json.dumps(req.data_source_schema, indent=2)
@@ -647,9 +655,9 @@ def _sql_check_hint(tools: List[Any]) -> str:
         "the code back, and fix it until it succeeds and returns the columns your code "
         "reads. A change that leaves every statement as it was (layout, styling, wording, "
         "behaviour) needs no query at all, not even a connectivity check. Check read "
-        "statements only — never run an INSERT, UPDATE, MERGE or DELETE to test it. The "
-        "configured data source was already run when it was tested, so it needs no check "
-        "of its own."
+        "statements only — never run an INSERT, UPDATE, MERGE or DELETE to test it. A "
+        "legacy SQL data source the widget already reads needs no check of its own unless "
+        "this change is about that query."
     )
 
 

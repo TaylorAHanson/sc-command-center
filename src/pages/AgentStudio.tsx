@@ -43,6 +43,13 @@ interface ToolInfo {
     internal?: boolean;    // plumbing the app drives itself (Genie's poll tool); listed, never attached
 }
 
+/** A server that listed no tools: a configured one that failed, or one waiting for the user to sign in. */
+interface ToolProblem {
+    server: string;
+    name: string;
+    sign_in: boolean;
+}
+
 const TOOL_SOURCE_LABELS: Record<string, string> = {
     sql: 'SQL',
     genie: 'Genie',
@@ -54,14 +61,17 @@ const TOOL_SOURCE_LABELS: Record<string, string> = {
     app: 'Custom apps',
     other: 'Other',
 };
-// Genie spaces can number in the hundreds and the other kinds are rarely what
-// an agent needs, so only SQL and the general Genie server start shown; the
-// author turns the rest on when building an agent around one.
-const DEFAULT_HIDDEN_SOURCES = ['genie_space', 'functions', 'vector-search', 'external', 'gateway', 'app', 'other'];
+// Genie spaces can number in the hundreds and the other discovered kinds are
+// rarely what an agent needs, so they start hidden; the author turns them on when
+// building an agent around one. AI Gateway and custom-app servers are never
+// discovered, only named in the server list, so they start shown.
+const DEFAULT_HIDDEN_SOURCES = ['genie_space', 'functions', 'vector-search', 'external', 'other'];
+const NAMED_SOURCES = ['gateway', 'app'];
 const TOOL_FILTER_KEY = 'agentStudio.toolFilters';
 // Bumped when kinds were added, so a browser that saved its chips before then
 // still starts the new kinds hidden instead of burying its list under them.
-const TOOL_FILTER_VERSION = 2;
+// Version 3 unhid the named kinds, which version 2 hid before they could hold anything.
+const TOOL_FILTER_VERSION = 3;
 
 interface ToolFilters { hidden: string[]; internal: boolean; v?: number }
 
@@ -69,7 +79,9 @@ const loadToolFilters = (): ToolFilters => {
     try {
         const v = JSON.parse(localStorage.getItem(TOOL_FILTER_KEY) || 'null');
         if (v && Array.isArray(v.hidden)) {
-            const hidden = v.v === TOOL_FILTER_VERSION ? v.hidden : Array.from(new Set([...v.hidden, ...DEFAULT_HIDDEN_SOURCES]));
+            const hidden: string[] = v.v === TOOL_FILTER_VERSION ? v.hidden : Array.from(new Set(
+                [...v.hidden, ...(v.v === 2 ? [] : DEFAULT_HIDDEN_SOURCES)].filter((s: string) => !NAMED_SOURCES.includes(s)),
+            ));
             return { hidden, internal: !!v.internal, v: TOOL_FILTER_VERSION };
         }
     } catch { /* fall through to defaults */ }
@@ -227,6 +239,7 @@ export const AgentStudio: React.FC = () => {
     const [isAdmin, setIsAdmin] = useState<boolean>(false);
     const [tools, setTools] = useState<ToolInfo[]>([]);
     const [toolsLoading, setToolsLoading] = useState(false);
+    const [toolProblems, setToolProblems] = useState<ToolProblem[]>([]);
     const [toolFilter, setToolFilter] = useState('');
     const [toolFilters, setToolFiltersState] = useState<ToolFilters>(loadToolFilters);
     const setToolFilters = (next: ToolFilters) => {
@@ -316,7 +329,10 @@ export const AgentStudio: React.FC = () => {
         try {
             const r = await fetch(`${API}/tools${fresh ? '?refresh=true' : ''}`);
             const d = await r.json();
-            if (r.ok) setTools(d.tools || []);
+            if (r.ok) {
+                setTools(d.tools || []);
+                setToolProblems(d.problems || []);
+            }
         } catch (e) {
             console.error('list tools failed', e);
         } finally {
@@ -1052,6 +1068,24 @@ export const AgentStudio: React.FC = () => {
                                         views, roles, promotion) — that tool is always attached and is not
                                         listed here.
                                     </p>
+                                    {toolProblems.map(p => (
+                                        <div key={p.server} className="mb-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                                            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                                            {p.sign_in ? (
+                                                <span>
+                                                    <strong>{p.name}</strong> needs you to sign in once before its tools can be listed.
+                                                    In Databricks, open <strong>AI Gateway → MCPs</strong>, choose <strong>{p.name}</strong> and
+                                                    sign in, then click Refresh.
+                                                </span>
+                                            ) : (
+                                                <span>
+                                                    <strong>{p.name}</strong> didn't answer, so its tools aren't listed. Click Refresh to
+                                                    try again; if it keeps failing, an admin can check the name under
+                                                    <strong> Admin Panel → Settings → MCP servers agents can use</strong>.
+                                                </span>
+                                            )}
+                                        </div>
+                                    ))}
                                     {tools.length > 0 && (
                                         <div className="relative mb-2">
                                             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />

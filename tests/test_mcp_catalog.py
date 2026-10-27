@@ -16,6 +16,10 @@ import types
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 from routes import agent_studio_profiles as ap  # noqa: E402
+from services import settings_store  # noqa: E402
+
+# No settings table here: the server list resolves to AGENT_STUDIO_MCP_SERVERS.
+settings_store._read_rows = lambda: {}
 
 ASK = "Ask Databricks Genie a question. Returns a handle; poll genie_poll_response for the answer."
 
@@ -141,22 +145,34 @@ def test_genie_poll_tools_are_listed_but_internal():
     tools = catalog(genie_spaces=True)
     assert tools["genie/genie_poll_response"]["internal"] is True
     assert tools["genie.s1/poll_response_s1"]["internal"] is True
-    assert tools["genie/genie_ask"]["internal"] is False
+    assert tools["genie/genie_one"]["internal"] is False
     assert tools["genie/genie_cancel_response"]["internal"] is False
 
 
 def test_each_ask_tool_knows_its_own_servers_poll_tool():
     fresh_start()
     tools = catalog(genie_spaces=True)
-    assert tools["genie/genie_ask"]["poll_tool"] == "genie_poll_response"
+    assert tools["genie/genie_one"]["poll_tool"] == "genie_poll_response"
     assert tools["genie.s1/query_space_s1"]["poll_tool"] == "poll_response_s1"
     assert "poll_tool" not in tools["sql/execute_sql"]
+
+
+def test_genie_ones_ask_tool_is_listed_as_genie_one_and_called_by_its_server_name():
+    fresh_start()
+    tools = catalog(genie_spaces=True)
+    one = tools["genie/genie_one"]
+    assert one["name"] == "genie_one" and one["upstream_name"] == "genie_ask"
+    assert "genie/genie_ask" not in tools
+    assert "upstream_name" not in tools["genie.s1/query_space_s1"], "a space's tools keep their own names"
+    assert "upstream_name" not in tools["genie/genie_poll_response"]
 
 
 def test_genie_ask_tools_say_the_app_polls_for_them():
     fresh_start()
     tools = catalog(genie_spaces=True)
-    assert tools["genie/genie_ask"]["description"] == ap.GENIE_POLLED_NOTE + ASK
+    description = tools["genie/genie_one"]["description"]
+    assert description == ap.GENIE_ONE_DESCRIPTION and "genie_ask" not in description
+    assert "poll" in description and len(description) <= 1024, "the runtime truncates at 1024"
     assert tools["genie.s1/query_space_s1"]["description"].startswith(ap.GENIE_POLLED_NOTE)
 
 
@@ -194,10 +210,11 @@ def test_tool_ids_map_back_to_their_server():
     assert ap.server_for_tool_id("genie.s1/query_space_s1") == "/api/2.0/mcp/genie/s1"
     assert ap.server_for_tool_id("sql/execute_sql") == "/api/2.0/mcp/sql"
     assert ap.server_for_tool_id("functions.main.sales/lookup") == "/api/2.0/mcp/functions/main/sales"
-    assert ap.server_for_tool_id("genie_ask") is None
+    assert ap.server_for_tool_id("genie_one") is None
 
 
 def test_genie_one_keeps_the_genie_label_so_saved_tool_ids_still_match():
+    assert ap.server_for_tool_id("genie/genie_one") == GENIE_ONE
     assert ap.server_for_tool_id("genie/genie_ask") == GENIE_ONE
     url = f"https://host{GENIE_ONE}"
     assert ap._server_label(url) == "genie" and ap._source_of(url) == "genie"
@@ -210,8 +227,8 @@ def test_a_setting_that_still_names_the_old_genie_server_reads_as_genie_one():
     tools = catalog(configured="/api/2.0/mcp/genie,/api/2.0/mcp/sql")
     assert "/api/2.0/mcp/genie" not in listed, "the sunset server must not be asked"
     assert listed.count(GENIE_ONE) == 1
-    assert tools["genie/genie_ask"]["source"] == "genie"
-    assert tools["genie/genie_ask"]["poll_tool"] == "genie_poll_response"
+    assert tools["genie/genie_one"]["source"] == "genie"
+    assert tools["genie/genie_one"]["poll_tool"] == "genie_poll_response"
 
 
 def test_naming_both_genie_servers_asks_genie_one_once():
@@ -398,6 +415,96 @@ def test_a_space_ask_is_polled_with_that_spaces_poll_tool():
     finally:
         rt._genie_poll_interval = interval
     assert out == "42" and calls == ["query_space_s1", "poll_response_s1"]
+
+
+def test_an_agent_saved_with_the_old_genie_ask_id_gets_genie_one():
+    from services import agent_runtime as rt
+
+    fresh_start()
+    entries = list(catalog().values())
+    saved = (ap.discover_mcp_tools, rt._tool_is_disabled)
+    ap.discover_mcp_tools = lambda ws, **kwargs: entries
+    rt._tool_is_disabled = lambda url: False
+    try:
+        for tools in (["genie/genie_ask"], ["genie_ask"], ["genie/genie_one"]):
+            specs, dispatch = rt._build_tools(workspace(), {"tools": tools})
+            names = [s["function"]["name"] for s in specs if s["function"]["name"] != "app_help"]
+            assert names == ["genie_genie_one"], tools
+            assert dispatch["genie_genie_one"]["real_name"] == "genie_ask", "the server only answers to genie_ask"
+            assert dispatch["genie_genie_one"]["friendly"] == "Asking Genie One"
+    finally:
+        ap.discover_mcp_tools, rt._tool_is_disabled = saved
+
+
+def test_saved_agents_read_the_old_genie_id_as_genie_one():
+    import json
+    import agent_studio_store as store
+
+    old = ["genie/genie_ask", "sql/execute_sql", "genie/genie_one", "genie_ask"]
+    assert store.canonical_tool_ids(old) == ["genie/genie_one", "sql/execute_sql", "genie_one"]
+    ref = store.AgentStudioStore()._row_to_ref({"id": "a1", "tools_json": json.dumps(old)}, "me")
+    assert ref.tools == ["genie/genie_one", "sql/execute_sql", "genie_one"]
+    # The external agent (AGENT_LOCAL_RUNTIME=false) is sent the servers' own names.
+    assert store.upstream_tool_ids(["genie/genie_one", "sql/execute_sql"]) == ["genie/genie_ask", "sql/execute_sql"]
+
+
+ATLASSIAN = "/ai-gateway/mcp-services/system.ai.atlassian"
+NOT_SIGNED_IN = ("Credential for user identity 123 is not found for the connection 'atlassian'. "
+                 "Please login first at https://host/explore/conn")
+
+
+def test_a_server_waiting_for_sign_in_is_reported_and_not_retried():
+    fresh_start()
+    attempts = []
+
+    class NeedsSignIn(FakeClient):
+        def list_tools(self):
+            if self.path == ATLASSIAN:
+                attempts.append(1)
+                raise RuntimeError(NOT_SIGNED_IN)
+            return super().list_tools()
+
+    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=NeedsSignIn)
+    os.environ["AGENT_STUDIO_MCP_SERVERS"] = f"/api/2.0/mcp/sql,{ATLASSIAN}"
+    problems = []
+    tools = {t["id"] for t in ap.discover_mcp_tools(workspace(), problems=problems)}
+    assert "sql/execute_sql" in tools
+    # Asking again can't sign anyone in, so it costs one round trip, not three.
+    assert len(attempts) == 1
+    assert problems == [{"server": f"https://host{ATLASSIAN}", "name": "system.ai.atlassian", "sign_in": True}]
+
+
+def test_a_configured_server_that_fails_is_reported_but_a_discovered_one_is_not():
+    fresh_start()
+
+    class SomeFail(FakeClient):
+        def list_tools(self):
+            if self.path in ("/api/2.0/mcp/sql", "/api/2.0/mcp/genie/s1"):
+                raise RuntimeError("Server returned an error response")
+            return super().list_tools()
+
+    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=SomeFail)
+    os.environ["AGENT_STUDIO_MCP_SERVERS"] = "/api/2.0/mcp/sql"
+    problems = []
+    ap.discover_mcp_tools(workspace(), genie_spaces=True, problems=problems)
+    # An admin named the SQL server, so its silence must be visible; a Genie
+    # space failing is one of possibly hundreds and stays in the log.
+    assert [(p["name"], p["sign_in"]) for p in problems] == [("sql", False)]
+
+
+def test_the_server_list_saved_in_settings_replaces_the_deployments():
+    fresh_start()
+    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=FakeClient)
+    os.environ["AGENT_STUDIO_MCP_SERVERS"] = "/api/2.0/mcp/sql"
+    settings_store._read_rows = lambda: {"mcp_servers": f"{GENIE_ONE}\nhttps://elsewhere.example/mcp"}
+    settings_store.invalidate()
+    try:
+        urls = ap._mcp_server_urls("https://host")
+    finally:
+        settings_store._read_rows = lambda: {}
+        settings_store.invalidate()
+    # The off-workspace entry can't have been saved through the form; dropped on read.
+    assert urls == [f"https://host{GENIE_ONE}"]
 
 
 if __name__ == "__main__":

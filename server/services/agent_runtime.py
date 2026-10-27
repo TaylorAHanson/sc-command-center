@@ -369,15 +369,19 @@ def _parse_python_signature(code: str) -> Tuple[Optional[str], List[str]]:
 # polling `genie_poll_response`. `DatabricksMCPClient.call_tool` does a single
 # round-trip (no polling), so a naive synchronous call hands the model a useless
 # handle. We therefore detect Genie and drive the poll loop INSIDE tool
-# execution — the model calls `genie_ask` once and gets the finished answer. The
-# outer stream emits `: keepalive` heartbeats while this blocks, so the (30-120s)
-# wait never trips a proxy/browser timeout.
+# execution — the model calls the ask tool (`genie_one`, for Genie One) once and
+# gets the finished answer. The outer stream emits `: keepalive` heartbeats while
+# this blocks, so the (30-120s) wait never trips a proxy/browser timeout.
 
 # The general Genie server. The Beta one at /api/2.0/mcp/genie is sunset on
 # 2026-10-31; this Unity Gateway MCP replaces it, with the same tools and
 # arguments, and is governed by the `ai-gateway` user scope instead of `genie`.
 GENIE_ONE_PATH = "/ai-gateway/mcp-services/system.ai.genie_one_mcp"
 LEGACY_GENIE_PATH = "/api/2.0/mcp/genie"
+# What the Genie One server calls its ask tool. The catalog shows it to authors
+# and models as `genie_one` (routes.agent_studio_profiles.GENIE_ONE_TOOL), but
+# the server only answers to this name, so every call is made with it.
+GENIE_ONE_ASK_TOOL = "genie_ask"
 
 
 def _is_genie_server(url: str) -> bool:
@@ -650,7 +654,8 @@ def _build_tools(
     ``dispatch`` maps a sanitized function name to a descriptor:
       {"kind": "mcp"|"python"|"upload", "friendly": str, ...invocation fields}
     """
-    from routes.agent_studio_profiles import discover_mcp_tools, server_for_tool_id
+    from agent_studio_store import canonical_tool_ids
+    from routes.agent_studio_profiles import GENIE_ONE_TOOL, discover_mcp_tools, server_for_tool_id
 
     specs: List[Dict[str, Any]] = []
     dispatch: Dict[str, Dict[str, Any]] = {}
@@ -687,7 +692,9 @@ def _build_tools(
             }
 
     # --- MCP tools (AI Gateway) -------------------------------------------
-    wanted = list((profile or {}).get("tools") or [])
+    # Ids are canonicalized here as well as on read from the store, because a
+    # "Try it" draft or an older client can still send `genie/genie_ask`.
+    wanted = canonical_tool_ids((profile or {}).get("tools") or [])
     # Only the servers this agent's tools live on, beyond the configured ones —
     # listing every Genie space on every turn would cost a session per space.
     extra = sorted({s for s in (server_for_tool_id(str(ref)) for ref in wanted) if s})
@@ -726,7 +733,9 @@ def _build_tools(
         schema = entry.get("input_schema") or {"type": "object", "properties": {}}
         if "type" not in schema:
             schema = {"type": "object", "properties": schema.get("properties", {})}
-        is_genie_ask = _is_genie_server(server_url) and _is_genie_ask_tool(entry["name"])
+        # The name the server knows the tool by; the catalog may show another.
+        real_name = entry.get("upstream_name") or entry["name"]
+        is_genie_ask = _is_genie_server(server_url) and _is_genie_ask_tool(real_name)
         specs.append({
             "type": "function",
             "function": {
@@ -737,9 +746,10 @@ def _build_tools(
         })
         dispatch[fn] = {
             "kind": "mcp",
-            "friendly": "Asking Genie" if is_genie_ask else (entry.get("name") or entry["id"]),
+            "friendly": ("Asking Genie One" if entry["name"] == GENIE_ONE_TOOL else "Asking Genie")
+            if is_genie_ask else (entry.get("name") or entry["id"]),
             "server_url": server_url,
-            "real_name": entry["name"],
+            "real_name": real_name,
             "poll_tool": entry.get("poll_tool"),
         }
 

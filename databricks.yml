@@ -157,9 +157,10 @@ resources:
             value: "8"
           # AGENT_RUNTIME_GENIE_TIMEOUT — wall-clock budget (seconds) for the internal
           #   Genie ask->poll loop. Fallback only; admins set this in Admin Panel →
-          #   Settings. The Genie One MCP server is async (genie_ask returns a handle; the
-          #   answer is drained by polling genie_poll_response), and the runtime drives
-          #   that loop so the model gets a finished answer from one call. Genie
+          #   Settings. The Genie One MCP server is async (its ask tool, genie_ask on
+          #   the server and genie_one in the app, returns a handle; the answer is
+          #   drained by polling genie_poll_response), and the runtime drives that
+          #   loop so the model gets a finished answer from one call. Genie
           #   typically takes 30-120s; the stream heartbeats during the wait.
           - name: AGENT_RUNTIME_GENIE_TIMEOUT
             value: "150"
@@ -214,9 +215,12 @@ resources:
           #   Multi-skill agents need a generous cap.
           - name: AGENT_STUDIO_MAX_TOKENS
             value: "${var.agent_studio_max_tokens}"
-          # AGENT_STUDIO_MCP_SERVERS — comma-separated AI Gateway MCP servers the
-          #   authoring assistant introspects for available tools. Entries are
-          #   workspace-relative paths (joined to the host) or absolute URLs. Add
+          # AGENT_STUDIO_MCP_SERVERS — comma-separated MCP servers every agent gets
+          #   and Agent Studio lists. Only the fallback: a global admin edits the
+          #   list under Admin Panel → Settings → "MCP servers agents can use",
+          #   which replaces this value. Entries are workspace-relative paths
+          #   (joined to the host) or absolute URLs; only this file may name a
+          #   custom MCP app, since the Settings form takes this workspace only. Add
           #   resource-scoped servers to expose more tools, e.g.
           #   "/api/2.0/mcp/functions/<catalog>/<schema>" (UC functions). Every
           #   Genie space the user can see is discovered on its own, so a space

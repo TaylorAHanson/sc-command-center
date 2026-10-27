@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Terminal, Code, Eye, RefreshCw, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X, Paperclip, Camera, Sliders, Loader2, Wrench, Lightbulb, MoreHorizontal, Rocket, Eraser } from 'lucide-react';
-import { toPng } from 'html-to-image';
+import { toBlob, toPng } from 'html-to-image';
 import { getContentEnv } from '../contentEnv';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
@@ -247,6 +247,11 @@ const MAX_RUNTIME_RETRIES = 2;
 // review; past this it is left off rather than slowing the request.
 const MAX_SCREENSHOT_CHARS = 3_000_000;
 
+// html-to-image inlines every <img> by fetching it, and one it can't fetch fails
+// the whole capture. Under the CSP that is any off-site image (connect-src
+// doesn't list it), so those are drawn as this transparent pixel instead.
+const CAPTURE_IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 // Studio preferences, per person and per browser rather than per deployment:
 // whether to review after a change is a working style, not something an admin
 // should decide for everyone (and app_settings is deployment-global by design).
@@ -489,6 +494,13 @@ const BASIC_SETTING_KEYS = ['name', 'description', 'helpText', 'category', 'doma
 const SETTING_KEYS = [...BASIC_SETTING_KEYS, 'configurationMode', 'configSchema'];
 const DEFAULT_WIDGET_NAME = "New Custom Widget";
 
+// A widget with a data source offers it on its gear as `dataSource`, which placed
+// copies may already have overridden. A saved widget's schema carries that field,
+// so it is added only when missing; adding it on every save stacked duplicates.
+const DATA_SOURCE_FIELD: ConfigField = { key: 'dataSource', label: 'Data Source', type: 'textarea' };
+const withDataSourceField = (schema: ConfigField[]): ConfigField[] =>
+    schema.some(f => f.key === DATA_SOURCE_FIELD.key) ? schema : [DATA_SOURCE_FIELD, ...schema];
+
 // Basic skeleton for the page
 export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneWidgetId, onClose }) => {
     // Helper to genericize session storage retrieval
@@ -563,6 +575,22 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     };
     const [pageWidth, setPageWidth] = useState<PageWidth>('laptop');
     const previewApp = usePreviewApp();
+    // The card preview's width inside the pane's padding. The card is capped to it,
+    // or dragging its corner past the pane's edge leaves the handle out of reach
+    // with nothing to drag it back by. Observed rather than read once because the
+    // pane changes width with the window, and it remounts on every tab switch.
+    const [previewRoom, setPreviewRoom] = useState<number | null>(null);
+    const previewPaneRef = React.useCallback((el: HTMLDivElement | null) => {
+        if (!el) return;
+        const measure = () => {
+            const style = getComputedStyle(el);
+            setPreviewRoom(el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
     const [dataSourceType, setDataSourceType] = useState<"none" | "api" | "sql" | "databricks_api">(sessionState?.dataSourceType || "none");
     const [dataSource, setDataSource] = useState(sessionState?.dataSource || "");
     const [dataSourceSchema, setDataSourceSchema] = useState<any>(sessionState?.dataSourceSchema || null);
@@ -675,6 +703,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // Pattern checks only — a few regexes over the file, cheap enough to run on
     // every change rather than waiting for the compile.
     const lintFindings = React.useMemo(() => lintWidget(code, { dataSourceType, layoutKind }), [code, dataSourceType, layoutKind]);
+    const codeReadsDataSource = /\bdataSource\b/.test(code);
 
     // Latest values for the compile effect further down. That effect must run when
     // the code changes and at no other time, but the auto-fix inside it still needs
@@ -1185,9 +1214,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         data_source_type: dataSourceType !== 'none' ? dataSourceType : null,
         data_source_row_estimate: rowEstimate,
         configuration_mode: configMode,
-        config_schema: dataSourceType !== 'none'
-            ? [{ key: 'dataSource', label: 'Data Source', type: 'textarea' }, ...configSchema]
-            : configSchema,
+        config_schema: dataSourceType !== 'none' ? withDataSourceField(configSchema) : configSchema,
         available_categories: availableCategories,
         available_domains: availableDomains,
         locked_settings: SETTING_KEYS.filter(k => touchedSettingsRef.current.has(k)),
@@ -1214,7 +1241,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         const area = document.getElementById('widget-preview-capture-area');
         if (!area) return undefined;
         try {
-            const url = await toPng(area, { cacheBust: true, pixelRatio: layoutKindRef.current === 'page' ? 0.75 : 1 });
+            const url = await toPng(area, { cacheBust: true, imagePlaceholder: CAPTURE_IMAGE_PLACEHOLDER, pixelRatio: layoutKindRef.current === 'page' ? 0.75 : 1 });
             return url.length <= MAX_SCREENSHOT_CHARS ? url : undefined;
         } catch {
             // A cross-origin image or canvas can't be captured; the text still goes.
@@ -1531,8 +1558,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 ? "The widget compiled and rendered, but it went wrong when it ran in the preview, "
                   + "or broke a rule the studio checks for — see the error above and what it did "
                   + "when it last ran. Fix the cause in the code. If a failing statement is the "
-                  + "configured data source run as written, don't work around it: say it needs "
-                  + "fixing on the Configuration tab."
+                  + "widget's stored SQL data source run as written, don't work around it: say "
+                  + "that query is failing and offer to replace it with a corrected one in the code."
                 : errorKind === 'render'
                     ? "The widget compiled but threw while React was rendering it. Fix the cause of "
                       + "that error. The syntax is fine — look at what runs on mount and on first paint."
@@ -1676,7 +1703,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     default_w: defaultW,
                     default_h: defaultH,
                     configurationMode: configMode,
-                    configSchema: dataSourceType !== 'none' ? JSON.stringify([{ key: 'dataSource', label: 'Data Source', type: 'textarea' }, ...configSchema]) : JSON.stringify(configSchema)
+                    configSchema: JSON.stringify(dataSourceType !== 'none' ? withDataSourceField(configSchema) : configSchema)
                 })
             });
             
@@ -1718,8 +1745,20 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         }
     };
 
+    // Offered only once the code stops reading it: placed copies run the stored
+    // query through `props.data.dataSource`, so clearing it under code that still
+    // does would blank every one of them.
+    const handleRemoveLegacySql = () => {
+        setDataSourceType('none');
+        setDataSource('');
+        setDataSourceSchema(null);
+        setDataSourceSample(null);
+        setRowEstimate(null);
+        setConfigSchema(schema => schema.filter(f => f.key !== DATA_SOURCE_FIELD.key));
+    };
+
     const handleTestDataSource = async () => {
-        if (dataSourceType === "none" || !dataSource) return;
+        if (dataSourceType === "none" || dataSourceType === "sql" || !dataSource) return;
         setIsTestingDataSource(true);
         setDataSourceTestError(null);
         setDataSourceTestNote(null);
@@ -1784,8 +1823,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setIsCapturing(true);
         clearUploadError();
         try {
-            const dataUrl = await toPng(captureArea, { cacheBust: true, pixelRatio: layoutKindRef.current === 'page' ? 0.75 : 1 });
-            const blob = await (await fetch(dataUrl)).blob();
+            // A Blob straight from the canvas, never `fetch(dataUrl)`: the CSP's
+            // connect-src has no `data:`, so the browser refuses that fetch.
+            const blob = await toBlob(captureArea, { cacheBust: true, imagePlaceholder: CAPTURE_IMAGE_PLACEHOLDER, pixelRatio: layoutKindRef.current === 'page' ? 0.75 : 1 });
+            if (!blob) throw new Error('the browser produced an empty image');
 
             // Drop the previous screenshot first, so repeatedly grabbing one
             // during a back-and-forth can't exhaust the attachment limit.
@@ -1800,8 +1841,10 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             }]);
         } catch (e) {
             // Unlike the publish snapshot, a failure here is the whole point of
-            // the button, so it has to be visible rather than logged.
-            setUploadError(`Could not capture the widget: ${errorText(e)}. A widget drawing from a cross-origin image or canvas can't be captured.`);
+            // the button, so it has to be visible rather than logged. html-to-image
+            // rejects with a bare load Event when its intermediate image won't draw.
+            const reason = e instanceof Event ? 'the rendered image would not load' : errorText(e);
+            setUploadError(`Could not take a picture of the preview (${reason}). A canvas that draws images from another site can't be captured; describe what you see instead.`);
         } finally {
             setIsCapturing(false);
         }
@@ -2420,8 +2463,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                 </div>
                             )}
                         </div>
-                        <div className={`flex-1 min-h-0 p-8 overflow-auto w-full flex items-start ${layoutKind === 'page' ? 'justify-start' : 'justify-center'}`}>
-                            <div className={`min-h-min pb-16 ${layoutKind === 'page' ? 'w-full min-w-0' : 'min-w-min'}`}>
+                        {/* The card is centred with auto margins, not justify-center: a
+                            centred item wider than its scroller overflows to the left as
+                            well, and nothing can scroll there, so it shows clipped and
+                            off-centre. Auto margins drop to zero instead and it scrolls. */}
+                        <div ref={previewPaneRef} className="flex-1 min-h-0 p-8 overflow-auto w-full flex items-start justify-start">
+                            <div className={`min-h-min pb-16 ${layoutKind === 'page' ? 'w-full min-w-0' : 'min-w-min mx-auto'}`}>
                                 {previewError ? (
                                     <div className="w-full max-w-2xl bg-rose-950/40 border border-rose-900/50 rounded-xl p-6 text-rose-200">
                                         <div className="flex items-center gap-2 mb-4">
@@ -2443,6 +2490,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                     // Assume ~80px width per grid column, ~60px height per row to give a rough feel for Grid layout.
                                                     width: `${Math.max(300, defaultW * 80)}px`,
                                                     height: `${Math.max(200, defaultH * 60)}px`,
+                                                    maxWidth: previewRoom && previewRoom > 0 ? previewRoom : undefined,
                                                     resize: 'both',
                                                     overflow: 'auto'
                                                 }}
@@ -2599,8 +2647,42 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                     </div>
                                     <div className="col-span-2">
                                         <label className="block text-sm font-medium text-slate-300 mb-1.5">Data Source</label>
+                                        {dataSourceType === 'sql' ? (
+                                            <div className="space-y-3 p-4 border border-amber-800/60 rounded-lg bg-amber-950/20">
+                                                <div className="text-sm font-medium text-amber-200">Legacy SQL data source</div>
+                                                <p className="text-xs text-slate-400">
+                                                    The studio no longer offers a SQL data source: queries live in the widget's code, and the agent runs and checks them itself.
+                                                    This widget was saved with one, so it is kept as it is and every copy already placed on a view keeps working.
+                                                    To change the query, ask the agent and it will move the SQL into the code.
+                                                </p>
+                                                <CodeEditor
+                                                    value={dataSource}
+                                                    language="sql"
+                                                    className="h-24 w-full rounded-lg border border-slate-600 bg-slate-900"
+                                                    ariaLabel="Legacy SQL query (read-only)"
+                                                />
+                                                <div className="flex items-center gap-3">
+                                                    <button
+                                                        onClick={handleRemoveLegacySql}
+                                                        disabled={codeReadsDataSource}
+                                                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition-colors w-max"
+                                                    >
+                                                        Remove legacy SQL
+                                                    </button>
+                                                    {codeReadsDataSource && (
+                                                        <span className="text-xs text-slate-500">
+                                                            The code still reads <code>props.data.dataSource</code>, so removing it now would break the widget.
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                        <>
+                                        <p className="text-xs text-slate-500 mb-2">
+                                            For Databricks tables, leave this on NONE and name the table in the chat: the agent writes the SQL into the widget and runs it to check it.
+                                        </p>
                                         <div className="flex gap-4 mb-4">
-                                            {["none", "api", "databricks_api", "sql"].map(type => (
+                                            {["none", "api", "databricks_api"].map(type => (
                                                 <label key={type} className="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
                                                     <input
                                                         type="radio"
@@ -2619,28 +2701,19 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                 </label>
                                             ))}
                                         </div>
+                                        </>
+                                        )}
 
-                                        {dataSourceType !== "none" && (
+                                        {(dataSourceType === 'api' || dataSourceType === 'databricks_api') && (
                                             <div className="space-y-4 p-4 border border-slate-600 rounded-lg bg-slate-800/50">
                                                 <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                                                    {dataSourceType === 'api' ? 'API Endpoint URL' : dataSourceType === 'databricks_api' ? 'Databricks API Path' : 'SQL Query'}
+                                                    {dataSourceType === 'api' ? 'API Endpoint URL' : 'Databricks API Path'}
                                                 </label>
-                                                {dataSourceType === 'api' || dataSourceType === 'databricks_api' ? (
-                                                    <input
-                                                        value={dataSource} onChange={e => setDataSource(e.target.value)}
-                                                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
-                                                        placeholder={dataSourceType === 'api' ? "https://api.example.com/data" : "/api/2.0/serving-endpoints/endpoint-name/invocations"}
-                                                    />
-                                                ) : (
-                                                    <CodeEditor
-                                                        value={dataSource}
-                                                        onChange={setDataSource}
-                                                        language="sql"
-                                                        className="h-24 w-full rounded-lg border border-slate-600 bg-slate-900 focus-within:border-indigo-500"
-                                                        placeholder="SELECT * FROM table_name LIMIT 10"
-                                                        ariaLabel="SQL query"
-                                                    />
-                                                )}
+                                                <input
+                                                    value={dataSource} onChange={e => setDataSource(e.target.value)}
+                                                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                                                    placeholder={dataSourceType === 'api' ? "https://api.example.com/data" : "/api/2.0/serving-endpoints/endpoint-name/invocations"}
+                                                />
 
                                                 <button
                                                     onClick={handleTestDataSource}

@@ -22,6 +22,25 @@
 
 # Release Notes
 
+## 1.17.0 — 2026-10-27
+
+### Added
+
+- **Choose the MCP servers agents can use.** Admins add servers such as `system.ai.atlassian` (Jira and Confluence) under **Admin Panel → Settings**, with no redeploy.
+- **Agent Studio says when a server needs you to sign in.** A note names the server instead of leaving its tools missing.
+
+### Changed
+
+- **Switch a tab between grid and full page from the header.** **Grid / Full page** is always shown to editors, even on a view with one tab.
+- **SQL is no longer a Widget Studio data source.** The agent writes and checks its own queries; widgets already saved with SQL keep working and show it read-only.
+- **Genie's ask tool is now Genie One.** Agent Studio lists it as `genie_one`, and agents saved with the old `genie_ask` keep working.
+
+### Fixed
+
+- **Send screenshot to agent works again.** Images from other sites in a widget no longer make the capture fail.
+- **Widget Studio's preview stays centred and resizable.** A card can't be dragged wider than the preview area, so you can always shrink it again.
+- **Re-saving a widget no longer duplicates its Data Source setting** in the gear of placed cards.
+
 ## 1.16.0 — 2026-10-26
 
 ### Changed

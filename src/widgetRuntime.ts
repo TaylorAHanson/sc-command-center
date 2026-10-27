@@ -22,8 +22,8 @@ export type RuntimeEntry = {
     /**
      * Whether changing the widget's code is the likely fix. A 400 from a query the
      * widget composed is; a 403 (the user's grants), a 5xx (the server), a network
-     * failure, or the configured data source failing verbatim (the Configuration
-     * tab) is not — auto-fixing those would send the agent rewriting working code.
+     * failure, or a stored SQL data source failing verbatim (the query, not the code)
+     * is not — auto-fixing those would send the agent rewriting working code.
      */
     fixable: boolean;
     count: number;
@@ -264,7 +264,7 @@ export class RuntimeRecorder {
         const isConfigured = !!sql && !!configured.trim() && normalizeSql(sql) === normalizeSql(configured);
         const permission = status === 401 || status === 403;
         let text = `${label} returned HTTP ${status}${query}: ${squash(detail || '', 300)}`;
-        if (isConfigured) text += ' — this is the configured data source run as written, so the fix belongs on the Configuration tab';
+        if (isConfigured) text += " — this is the widget's stored SQL data source run as written, so the query itself needs changing, not the code around it";
         else if (permission) text += ' — a permission problem for this user, not something code can fix';
         this.add({
             kind: 'request', level: 'error', text,

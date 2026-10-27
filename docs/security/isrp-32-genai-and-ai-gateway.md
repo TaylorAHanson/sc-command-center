@@ -6,7 +6,8 @@ status legend, and the list of primary controls already in the product.
 ## The finding
 
 The app uses Databricks-hosted foundation models and MCP tools such as `dbsql`
-and `genie_ask`, and may operate against Red CCI datasets accessible to the
+and `genie_ask` (Genie One's ask tool, shown in the app as `genie_one`), and may
+operate against Red CCI datasets accessible to the
 user. Although the app states that company data does not leave Databricks and
 relies on Databricks compliance commitments, no application-specific controls
 were identified governing what data may be submitted to AI services, how prompts
@@ -50,9 +51,12 @@ server/services/settings_store.py::base_path_for_model
   AGENT_RUNTIME_LLM_BASE_PATH / AGENT_STUDIO_LLM_BASE_PATH override both
 ```
 
-MCP servers are likewise a configured list (`AGENT_STUDIO_MCP_SERVERS`, default
-`/api/2.0/mcp/sql,/api/2.0/mcp/genie`), and the model each caller uses is an
-admin-editable row in `app_settings`.
+MCP servers are likewise a configured list, and like the model each caller uses
+it is an admin-editable row in `app_settings` (**MCP servers agents can use**,
+falling back to `AGENT_STUDIO_MCP_SERVERS`; default `/api/2.0/mcp/sql` plus Genie
+One). An admin may list only servers on the app's own workspace: each is called
+with the signed-in user's token, so anything off-host is refused on save and
+dropped on read, and a custom MCP app can be named only in the deployment.
 
 So "all AI traffic is governed" becomes a deployment posture that a reviewer can
 verify from configuration, rather than a behaviour they have to trust us about.
@@ -70,7 +74,7 @@ Beta question — lead with the GA column.
 | Monitoring for exposure / usage | **Usage tracking** to `system.serving.endpoint_usage` | `system.ai_gateway.usage`, plus token-level cost attribution and per-user budget alerts |
 | Restrictions on what may be submitted | **Guardrails: PII detection (Presidio) and safety filtering (Llama Guard)** on inputs and outputs | LLM-judge service policies: PII redaction or blocking, unsafe content, jailbreak/prompt-injection, hallucination |
 | Company-specific rules (CCI markers, codenames) | Not available as a gateway policy — use the ABAC design below | **Custom service policies**: SQL UDFs evaluated `ON CALL` and `ON RESULT`, versioned in Unity Catalog |
-| Limiting which tools an agent may invoke | App-side per-agent tool lists, and the `AGENT_STUDIO_MCP_SERVERS` list | **Service policies for MCP**, keyed on identity and request context, not editable by an app admin |
+| Limiting which tools an agent may invoke | App-side per-agent tool lists, and the admin's MCP server list (workspace servers only) | **Service policies for MCP**, keyed on identity and request context, not editable by an app admin |
 | Runaway or anomalous usage | **Rate limits** (QPM/TPM per user, group, or service principal) and fallbacks | Same, plus enforced budget thresholds |
 
 Sources, confirmed August 2026:

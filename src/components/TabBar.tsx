@@ -3,14 +3,62 @@ import { FileText, LayoutGrid, Plus, X } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from './ConfirmModal';
 import { useDashboardStore } from '../store/dashboardStore';
-import { BAR_SURFACE, barSurface, barsAreDark, layoutSwitch, MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel, type TabLayout } from '../store/appSpec';
+import { BAR_SURFACE, barSurface, barsAreDark, isPage, layoutSwitch, MAX_NAME_LENGTH, MAX_TABS, navStyle, tabLabel, type TabLayout } from '../store/appSpec';
 
 const NEW_TAB = '\u0000new';
 
-const LAYOUT_CHOICES: { layout: TabLayout; label: string; hint: string; icon: typeof LayoutGrid }[] = [
-  { layout: 'canvas', label: 'Cards on a grid', hint: 'Several widgets, each in a card you can move and resize', icon: LayoutGrid },
-  { layout: 'page', label: 'Full page', hint: 'One widget that fills the whole tab', icon: FileText },
+const LAYOUT_CHOICES: { layout: TabLayout; label: string; short: string; hint: string; icon: typeof LayoutGrid }[] = [
+  { layout: 'canvas', label: 'Cards on a grid', short: 'Grid', hint: 'Several widgets, each in a card you can move and resize', icon: LayoutGrid },
+  { layout: 'page', label: 'Full page', short: 'Full page', hint: 'One widget that fills the whole tab', icon: FileText },
 ];
+
+/**
+ * Grid or full page, for the tab on screen. It sits in the header for whoever
+ * may change the view's tabs, however many tabs there are: as a hover icon on
+ * the tab bar, a one-tab view (which has no bar) had no way to become a page
+ * short of a line at the foot of the Add tab menu.
+ */
+export const TabLayoutSwitch: React.FC<{ dark?: boolean }> = ({ dark }) => {
+  const { activeApp, activeAppTab, setTabLayout, canEditLayout } = useDashboardStore();
+  if (!activeApp || !activeAppTab || !canEditLayout(activeApp)) return null;
+  const app = activeApp;
+  const tab = activeAppTab;
+  const current: TabLayout = isPage(tab) ? 'page' : 'canvas';
+  const swap = layoutSwitch(tab);
+  return (
+    <div
+      role="group"
+      aria-label="This tab’s layout"
+      className={clsx('flex items-center p-0.5 rounded-lg border', dark ? 'bg-white/5 border-white/20' : 'bg-gray-100 border-gray-200')}
+    >
+      {LAYOUT_CHOICES.map(({ layout, label, short, icon: Icon }) => {
+        const on = layout === current;
+        const blocked = !on && swap.blocked;
+        return (
+          <button
+            key={layout}
+            type="button"
+            aria-pressed={on}
+            aria-disabled={blocked || undefined}
+            onClick={() => { if (!on && !blocked) setTabLayout(app.id, tab.id, layout); }}
+            title={on ? `This tab is ${label.toLowerCase()}` : swap.title}
+            className={clsx(
+              'flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-md transition-all',
+              on
+                ? (dark ? 'bg-white/15 text-white' : 'bg-white text-brand-blue shadow-sm')
+                : blocked
+                  ? clsx(dark ? 'text-white/30' : 'text-gray-300', 'cursor-not-allowed')
+                  : (dark ? 'text-white/70 hover:text-white' : 'text-gray-500 hover:text-gray-700'),
+            )}
+          >
+            <Icon className="w-4 h-4" />
+            <span>{short}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 /** The names a view's tabs get when it first has two: what the view was, and what was added. */
 export interface NewTabNames { name: string; first?: string }
@@ -24,9 +72,8 @@ export const AddTabMenu: React.FC<{
   onChoose: (layout: TabLayout, names?: NewTabNames) => void;
   button: (open: (e: React.MouseEvent<HTMLElement>) => void) => React.ReactNode;
   align?: 'left' | 'right';
-  extra?: React.ReactNode;
   naming?: { suggested: string; first?: string };
-}> = ({ onChoose, button, align = 'left', extra, naming }) => {
+}> = ({ onChoose, button, align = 'left', naming }) => {
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState<React.CSSProperties>({});
   const [chosen, setChosen] = useState<TabLayout | null>(null);
@@ -103,7 +150,6 @@ export const AddTabMenu: React.FC<{
               </span>
             </button>
           ))}
-          {extra && <div className="border-t border-gray-100 mt-1 pt-1" onClick={() => setOpen(false)}>{extra}</div>}
         </div>
       )}
     </div>
@@ -113,13 +159,14 @@ export const AddTabMenu: React.FC<{
 /**
  * The tabs of the app on screen. An app with one tab — every view — has no bar:
  * its editors add a second tab from the header. Whoever may move the app's
- * widgets may also add, rename, reorder and delete its tabs.
+ * widgets may also add, rename, reorder and delete its tabs; grid or page is
+ * `TabLayoutSwitch`'s, in the header.
  *
  * Each shell places one bar above the canvas and one beside it; only the one the
  * app's nav style asks for draws anything.
  */
 export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) => {
-  const { activeApp, activeAppTab, selectTab, addTab, setTabLayout, renameTab, moveTab, removeTab, canEditLayout } = useDashboardStore();
+  const { activeApp, activeAppTab, selectTab, addTab, renameTab, moveTab, removeTab, canEditLayout } = useDashboardStore();
   const [editing, setEditing] = useState<{ id: string; was: string; layout?: TabLayout } | null>(null);
   const [draft, setDraft] = useState('');
   const cancelled = useRef(false);
@@ -276,33 +323,6 @@ export const TabBar: React.FC<{ placement: 'top' | 'side' }> = ({ placement }) =
             )}
           >
             <span className={clsx('truncate', !side && 'max-w-[14rem]')}>{label}</span>
-            {/* Only the tab on screen switches layout, but every tab keeps the
-                room for it: selecting a tab mustn't shift the others under the
-                second click of a double-click. */}
-            {editable && (() => {
-              const swap = layoutSwitch(tab);
-              const Icon = swap.to === 'page' ? FileText : LayoutGrid;
-              return (
-                <button
-                  type="button"
-                  aria-disabled={swap.blocked}
-                  aria-hidden={!active}
-                  tabIndex={active ? undefined : -1}
-                  onClick={e => {
-                    e.stopPropagation();
-                    if (active && !swap.blocked) setTabLayout(app.id, tab.id, swap.to);
-                  }}
-                  className={clsx(
-                    'p-0.5 rounded opacity-0 group-hover:opacity-100 focus:opacity-100',
-                    !active && 'invisible',
-                    swap.blocked ? clsx(dark ? 'text-white/30' : 'text-gray-300', 'cursor-not-allowed') : quiet,
-                  )}
-                  title={swap.title}
-                >
-                  <Icon className="w-3 h-3" />
-                </button>
-              );
-            })()}
             {editable && (
               <button
                 type="button"

@@ -61,18 +61,20 @@ per-user unless they are global.
   shown.
 - A tab is **Cards on a grid** (several widgets, each in a card; the default)
   or a **Full page** (one widget filling the whole tab, with no card around it,
-  for a landing page or hub). **Add tab** and the **+** ask which. The small grid/page icon on the
-  tab being shown switches it; a grid holding more than one widget can't
-  become a full page until the others are removed. On a one-tab view, **Add
-  tab** → **Or make this whole view one full page** does the same. Any tab may be a page, in
-  any order.
+  for a landing page or hub). **Add tab** and the **+** ask which for a new
+  tab. To switch the tab being shown, use the **Grid** / **Full page** switch
+  in the top right of the header; it is there for whoever may change the
+  view's tabs, including on a view with only one tab (the usual way to make a
+  whole view one full page). **Full page** is grayed out, with a tooltip
+  saying why, on a grid holding more than one widget: remove all but one
+  first. Any tab may be a page, in any order.
 - On a page, drag a widget from the Widget Library onto it (dropping another
   replaces it, after asking). The toolbar in its top-right corner — shown only
   to whoever may change the tab, inside Command Center — offers **Change
   widget**, **Edit in Widget Studio**, the gear for the widget's settings (where
   its links are set), and remove (after asking). The gear is grayed out for a
   widget built without settings. To turn the page back into cards on a grid, use
-  the grid/page icon on the tab.
+  **Grid** in the header.
   A view opened on its own shows the page without the toolbar. Any widget can
   go on a page, but one built as a page in Widget Studio (marked **PAGE** in
   the Widget Library) is the one made to fill it.
@@ -132,8 +134,9 @@ it is fixed. Nothing is stored until **Save**.
   the browser tab. **Copy link**, **Edit** (or **Back to editing** in a preview)
   and the environment label move to a small bar at the bottom left, shown only
   to people who get at least one of them. Inside Command Center the header goes
-  too, and the view's editing buttons (**Preview**, **Add tab**, **Settings**,
-  **Lock**, **Share**) sit in the same bar at the bottom left.
+  too, and the view's editing buttons (**Preview**, **Grid** / **Full page**,
+  **Add tab**, **Settings**, **Lock**, **Share**) sit in the same bar at the
+  bottom left.
 - Each field in **Settings** has a **?** beside it; hovering it (or tabbing to
   it) explains what the field does.
 - **Assistant** in **Settings** has the **Agent** picker: the agent the view
@@ -262,9 +265,11 @@ still could not load a script or send data off-list. Widget code is generated
 from a prompt, and these two rules are what keep "generated" from meaning "can
 reach anywhere".
 
-A widget whose SQL data source **changes** data (INSERT, UPDATE, DELETE, MERGE and
-so on) can only be saved if the widget is marked **Executable**. That is what
-records every change its controls make in **Action Logs**, with who made it. There
+A widget that **changes** data (INSERT, UPDATE, DELETE, MERGE and so on) does it
+through its action controls and should be marked **Executable**; Widget Studio's
+Problems bar flags a write that skips them, and a widget whose legacy SQL data
+source changes data can't be saved unless it is Executable. The action controls
+are what record every change in **Action Logs**, with who made it. There
 is no confirmation prompt: the action runs as soon as it is recorded, and does not
 run at all if it cannot be recorded.
 
@@ -332,19 +337,24 @@ description.
 1. **Configuration tab** — name, description, help text, category, domain,
    default size, whether the widget performs an executable action, and its
    configuration mode (whether end users can pass runtime inputs). The Data
-   Source (None, API, Databricks API, or SQL) can be tested here with **Test &
-   Extract Schema**; the schema — real column types for SQL — and a few sample
-   rows are shown and handed to the generating agent. Tests run as you, with your
-   own permissions. A SQL statement that changes data (INSERT, UPDATE, MERGE…) is
-   never run to test it; the studio says so instead. An external API is called
-   from your browser, exactly as the widget will call it, so a CORS block shows up
-   here. Testing a SQL source also counts the rows it
-   returns, which decides how the agent builds. Searching, sorting and paging can
+   Source is None, API or Databricks API, and can be tested here with **Test &
+   Extract Schema**; the schema and a few sample rows are shown and handed to the
+   generating agent. Tests run as you, with your own permissions. An external API
+   is called from your browser, exactly as the widget will call it, so a CORS
+   block shows up here. **There is no SQL data source**: for tables, the user
+   leaves it on None and names the table in the chat, and the agent writes the SQL
+   into the widget's code and runs it to check it (see the agent, below). A widget
+   saved earlier with a SQL data source keeps it, shown read-only under **Legacy
+   SQL data source**, so the widget and its placed copies keep working; to change
+   that query the user asks the agent, which moves it into the code, and **Remove
+   legacy SQL** then clears the old one (it stays disabled while the code still
+   reads it). How many rows a query returns decides how the agent builds, so it
+   counts them when unsure. Searching, sorting and paging can
    happen in the browser or in the query, and both work at any row count; the
    deciding factor is how much data the browser would download, about 10 MB
    (rows times columns). Under that, the widget fetches everything once and works
    locally; over it, paging, sorting, searching and totals are pushed into SQL so
-   the widget only ever holds one page. An untested source is treated as large.
+   the widget only ever holds one page. A table of unknown size is treated as large.
    A query returns its first 500 rows unless the widget asks for more, and the
    response says when rows were left out; a user who "hit a row limit" usually
    means this. A widget can ask for every row (`all_rows: true` in its request),
@@ -386,9 +396,9 @@ description.
    error, and errors it throws. If code the agent just wrote fails when it runs —
    a query rejected as invalid, a crash in its data handling — the agent is sent
    what happened and fixes it on its own, up to twice. It does not try to fix
-   failures code can't fix: a permission error (403), a server error, or the
-   configured data source itself failing, which needs fixing on the
-   Configuration tab.
+   failures code can't fix: a permission error (403), a server error, or a
+   widget's legacy SQL data source itself failing, which it reports so the user
+   can ask for a replacement query.
    **Problems**, the bar under the preview and the code, lists two things: rule
    checks on the code (an import widgets can't use, a script from a CDN that
    isn't allowed, a write without the audit trail, text too light to read, a
@@ -639,10 +649,27 @@ authored. An agent is a saved bundle of:
   tools of any **Genie space** the author can open,
 - optional small **Python tools** the author writes for it.
 
-Chips above Agent Studio's tool list show or hide each source of tools. Only
-**SQL** and **Genie** start shown; **Genie spaces**, **UC functions**, **Vector
-search**, **External** and the rest start hidden because there can be hundreds,
-so turn a chip on to pick from it. A chip only appears when it holds at least
+The Genie tool to attach for plain-language questions about data is
+**genie_one** (Genie One), listed under **Genie** as `genie/genie_one`. It runs
+as the person chatting, so it sees only the data their Unity Catalog
+permissions allow, and the app waits for Genie's answer itself. It used to be
+listed as `genie_ask`; agents saved with that name use Genie One without being
+edited.
+
+Chips above Agent Studio's tool list show or hide each source of tools.
+**SQL**, **Genie**, **AI Gateway** and **Custom apps** start shown (the last two
+hold only servers an admin added); **Genie spaces**, **UC functions**, **Vector
+search**, **External** and **Other** start hidden because there can be hundreds,
+so turn a chip on to pick from it.
+
+Jira and Confluence come from the built-in AI Gateway server
+`system.ai.atlassian`, which the app doesn't find by itself: a global admin adds
+it under Admin Panel → Settings → **MCP servers agents can use**, and its tools
+appear under the **AI Gateway** chip. Each person also signs in to Atlassian
+once in Databricks under **AI Gateway → MCPs**; until then Agent Studio shows an
+amber note naming the server instead of its tools, and **Refresh** lists them
+after signing in. The same note appears when a server on that list doesn't
+answer, which usually means its name is wrong. A chip only appears when it holds at least
 one tool the author can reach, and each shows a count; a line under the list says
 how many tools the chips are hiding, and a filter box narrows the list by name or
 description. A Genie space is listed under its own name,
@@ -861,6 +888,13 @@ Admins can narrow what the assistant may reach, in Admin Panel → Settings:
 - **Allow the assistant to query Genie** and **Allow the assistant to run SQL**
   remove those tools entirely when off. The assistant still answers questions
   about the app itself and about attached files.
+- **MCP servers agents can use** lists, one per line, the MCP servers every
+  agent gets (the assistant uses them all; Agent Studio lists their tools). It
+  starts with SQL and Genie One. An entry is a built-in server by name, such as
+  `system.ai.atlassian`, or a path in this workspace such as
+  `/api/2.0/mcp/functions/main/sales`; a URL on another host is refused, because
+  each server is called with the signed-in person's own access. A custom MCP app
+  can only be added in the deployment configuration.
 - **Send images and PDFs to the model directly** governs whether raw attachments
   are uploaded to the model. Off, files are only ever read through text
   extraction, so scanned documents and screenshots stop working.

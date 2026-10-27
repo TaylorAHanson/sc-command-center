@@ -470,6 +470,13 @@ async def proxy_chat(request: Request):
             },
         )
 
+    # The external agent lists tools itself, under each server's own names
+    # (`genie/genie_ask`, not the `genie/genie_one` this app shows).
+    if isinstance(inline_profile, dict) and inline_profile.get("tools"):
+        from agent_studio_store import upstream_tool_ids
+
+        inline_profile = {**inline_profile, "tools": upstream_tool_ids(inline_profile["tools"])}
+
     body = {
         "query": query,
         "context": context or None,

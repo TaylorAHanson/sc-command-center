@@ -2,7 +2,7 @@
 import { Sparkles } from 'lucide-react';
 import type { GuideSection } from '../types';
 import {
-  Lead, H2, H3, P, List, Steps, Step, Callout, Needs, Details, Shot, UI, Kbd, Table,
+  Lead, H2, H3, P, List, Steps, Step, Callout, Needs, Details, Shot, UI, Kbd, Code, Table,
   GuideLink, OpenLink, Ext, Cards, Card,
 } from '../kit';
 
@@ -187,21 +187,21 @@ const Body = () => (
     </P>
     <H3 id="source-chips">Source chips</H3>
     <P>
-      The chips above the list show or hide one kind of tool each, with a count. Only <UI>SQL</UI> and{' '}
-      <UI>Genie</UI> start switched on, because the other kinds can number in the hundreds. Click a chip to
-      turn it on. Your choice is remembered in this browser.
+      The chips above the list show or hide one kind of tool each, with a count. <UI>SQL</UI>, <UI>Genie</UI> and
+      the servers an admin has added start switched on; the kinds that are discovered on their own start off,
+      because they can number in the hundreds. Click a chip to turn it on. Your choice is remembered in this browser.
     </P>
     <Table
       head={['Chip', 'What is in it']}
       rows={[
         [<UI key="1">SQL</UI>, 'Running SQL on the app\'s warehouse. Starts on.'],
-        [<UI key="2">Genie</UI>, 'The general Genie tools. Starts on.'],
+        [<UI key="2">Genie</UI>, <>The general Genie tools, including <Code>genie_one</Code>: Genie One, which answers plain-language questions about the data you can access. Starts on.</>],
         [<UI key="3">Genie spaces</UI>, 'One tool per Genie space you can open, listed under the space\'s own name with a Genie space tag. Starts off.'],
         [<UI key="4">UC functions</UI>, 'Unity Catalog functions you can reach. Starts off.'],
         [<UI key="5">Vector search</UI>, 'Vector search indexes you can reach. Starts off.'],
         [<UI key="6">External</UI>, 'External MCP connections you can reach. Starts off.'],
-        [<UI key="7">AI Gateway</UI>, 'AI Gateway services. Starts off. Appears only when an admin has set one up for this app.'],
-        [<UI key="8">Custom apps</UI>, 'Custom MCP apps. Starts off. Appears only when an admin has set one up for this app.'],
+        [<UI key="7">AI Gateway</UI>, <>Built-in AI Gateway servers, such as <Code>system.ai.atlassian</Code> for Jira and Confluence. Starts on. Appears only when an admin has added one under <UI>MCP servers agents can use</UI>.</>],
+        [<UI key="8">Custom apps</UI>, 'Custom MCP apps. Starts on. Appears only when the deployment has set one up for this app.'],
         [<UI key="9">Other</UI>, 'Anything that fits none of the above. Starts off.'],
         [<UI key="10">Internal</UI>, 'Tools the app drives itself, such as Genie\'s poll tool. Shown for reference; they cannot be attached. Starts off.'],
       ]}
@@ -222,6 +222,10 @@ const Body = () => (
       <li>When tools are hidden by a chip, a line under the list says how many.</li>
       <li><UI>Filter tools by name or description…</UI> narrows the list; the counter beside the heading shows how many you have selected.</li>
       <li>If a tool you ticked earlier no longer shows up for you, an amber line names it under the list as selected but not currently discoverable.</li>
+      <li>
+        Some servers, such as Atlassian, need you to sign in once before they list any tools. An amber note above the list
+        names the server; open <UI>AI Gateway → MCPs</UI> in Databricks, sign in to it, then click <UI>Refresh</UI>.
+      </li>
     </List>
     <H3 id="what-you-see">What you see, and Refresh</H3>
     <P>
@@ -336,6 +340,6 @@ export const section: GuideSection = {
   title: 'Agent Studio',
   summary: 'Build an assistant with its own instructions, model and tools.',
   icon: Sparkles,
-  keywords: 'create agent assistant prompt skills tools genie sql python tool sandbox sharing personal domain global pin model mcp',
+  keywords: 'create agent assistant prompt skills tools genie sql python tool sandbox sharing personal domain global pin model mcp jira atlassian sign in',
   Body,
 };

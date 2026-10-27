@@ -38,11 +38,14 @@ logger = logging.getLogger(__name__)
 _CACHE_TTL_SECONDS = 15.0
 
 
+GENIE_ONE_SERVER = "/ai-gateway/mcp-services/system.ai.genie_one_mcp"
+
+
 class Spec(NamedTuple):
     """One setting: where it falls back to, and what a valid value looks like."""
     env: str
     default: str
-    kind: str  # "endpoint" | "int" | "json" | "bool" | "hosts"
+    kind: str  # "endpoint" | "int" | "json" | "bool" | "hosts" | "mcp_servers"
     label: str
     help: str
     minimum: Optional[int] = None
@@ -244,6 +247,18 @@ SETTING_SPECS: Dict[str, Spec] = {
         kind="hosts",
         label="Databricks Apps widgets may embed or call",
         help="One per line: an app, e.g. my-app-1234567890.aws.databricksapps.com (pasting its URL works too), or every app in a workspace, e.g. *-1234567890.aws.databricksapps.com. Widgets may embed these in an iframe; fetching from one needs that app listed by name. Saving a widget that names any other Databricks App is refused.",
+        group="tools",
+    ),
+    "mcp_servers": Spec(
+        env="AGENT_STUDIO_MCP_SERVERS",
+        # SQL plus Genie One (agent_runtime.GENIE_ONE_PATH; a test keeps the two in
+        # step). Entries are workspace paths only when set here — each server is
+        # sent the signed-in user's token, so `parse_mcp_server` refuses anything
+        # that would carry it off the workspace.
+        default=f"/api/2.0/mcp/sql\n{GENIE_ONE_SERVER}",
+        kind="mcp_servers",
+        label="MCP servers agents can use",
+        help="One per line: a built-in server by name, e.g. system.ai.atlassian for Jira and Confluence, or a path in this workspace such as /api/2.0/mcp/sql. The assistant uses every one, and Agent Studio lists their tools. Some, like Atlassian, need each person to sign in once under AI Gateway → MCPs.",
         group="tools",
     ),
     "require_certified_for_global_views": Spec(
@@ -463,6 +478,77 @@ def get_host_list_setting(key: str) -> List[str]:
     return hosts[:MAX_APP_HOSTS]
 
 
+MCP_PATH_PREFIXES = ("/api/2.0/mcp/", "/ai-gateway/mcp-services/")
+MAX_MCP_SERVERS = 30
+_MCP_PATH = re.compile(r"^/[A-Za-z0-9._/-]+$")
+
+
+def _workspace_hostname() -> str:
+    from urllib.parse import urlparse
+
+    host = (os.environ.get("DATABRICKS_HOST") or "").strip()
+    if host and "://" not in host:
+        host = "https://" + host
+    return (urlparse(host).hostname or "").lower()
+
+
+def parse_mcp_server(entry: str) -> Tuple[str, Optional[str]]:
+    """(workspace path, error) for one entry of the `mcp_servers` setting.
+
+    Every listed server is opened with the signed-in user's token, so an admin
+    may only name servers on this workspace: a built-in AI Gateway server by name
+    (`system.ai.atlassian`), a managed path, or a pasted URL on this workspace's
+    host, which is reduced to its path. A custom MCP app is refused here: its
+    host is shared by every Databricks customer, so naming one is a deployment
+    decision (`AGENT_STUDIO_MCP_SERVERS`), not a form field.
+    """
+    from urllib.parse import urlparse
+
+    raw = (entry or "").strip()
+    text = raw
+    if "://" in text:
+        parsed = urlparse(text)
+        host = (parsed.hostname or "").lower()
+        own = _workspace_hostname()
+        if host.endswith(APP_HOST_SUFFIX):
+            return "", f"{raw}: a custom MCP app can only be added in the deployment configuration"
+        if not own:
+            return "", f"{raw}: enter the path rather than the full address, e.g. /api/2.0/mcp/sql"
+        if host != own:
+            return "", f"{raw}: not this workspace; only servers on {own} can be listed"
+        text = parsed.path
+    elif text.startswith("system.ai."):
+        text = MCP_PATH_PREFIXES[1] + text
+    text = text.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    if text and not text.startswith("/"):
+        text = "/" + text
+    if (not _MCP_PATH.match(text) or ".." in text.split("/")
+            or not any(text.startswith(p) and len(text) > len(p) for p in MCP_PATH_PREFIXES)):
+        return "", f"{raw}: expected a server in this workspace, such as system.ai.atlassian or /api/2.0/mcp/sql"
+    return text, None
+
+
+def get_mcp_server_list() -> List[str]:
+    """The MCP servers every agent gets, as the setting resolves. Never raises.
+
+    A stored row is re-checked on read, like `hosts`, because a row can arrive by
+    data migration without passing `validate_value`; one with nothing usable in it
+    falls back to the deployment's list rather than leaving agents with no tools.
+    The env var is the deployer's and passes through unchecked, absolute URLs
+    included.
+    """
+    stored = (_rows().get("mcp_servers") or "").strip()
+    servers: List[str] = []
+    for part in _split_hosts(stored):
+        path, error = parse_mcp_server(part)
+        if not error and path not in servers:
+            servers.append(path)
+    if servers:
+        return servers[:MAX_MCP_SERVERS]
+    spec = SETTING_SPECS["mcp_servers"]
+    return _split_hosts((os.environ.get(spec.env) or "").strip() or spec.default)
+
+
 def get_int_setting(key: str) -> int:
     spec = SETTING_SPECS[key]
     raw = get_setting(key)
@@ -492,17 +578,22 @@ def describe_settings() -> List[Dict[str, Any]]:
     rows = _rows(force=True)
     out: List[Dict[str, Any]] = []
     for key, spec in SETTING_SPECS.items():
+        fallback = (os.environ.get(spec.env) or "").strip() or spec.default
+        value = get_setting(key)
+        if spec.kind == "mcp_servers":
+            # The env var is comma-separated; the field is one per line.
+            fallback, value = "\n".join(_split_hosts(fallback)), "\n".join(_split_hosts(value))
         out.append({
             "key": key,
             "label": spec.label,
             "help": spec.help,
             "kind": spec.kind,
             "group": spec.group,
-            "value": get_setting(key),
+            "value": value,
             "stored": (rows.get(key) or "").strip(),
             "source": _source_of(key, rows),
             "env_var": spec.env,
-            "fallback": (os.environ.get(spec.env) or "").strip() or spec.default,
+            "fallback": fallback,
             "minimum": spec.minimum,
             "maximum": spec.maximum,
         })
@@ -552,6 +643,21 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
         if len(hosts) > MAX_APP_HOSTS:
             return "", f"At most {MAX_APP_HOSTS} hosts"
         return "\n".join(hosts), None
+
+    if spec.kind == "mcp_servers":
+        servers: List[str] = []
+        problems = []
+        for part in _split_hosts(text):
+            path, error = parse_mcp_server(part)
+            if error:
+                problems.append(error)
+            elif path not in servers:
+                servers.append(path)
+        if problems:
+            return "", "; ".join(problems[:3]) + ("; …" if len(problems) > 3 else "")
+        if len(servers) > MAX_MCP_SERVERS:
+            return "", f"At most {MAX_MCP_SERVERS} servers"
+        return "\n".join(servers), None
 
     if spec.kind == "json":
         # Rejected here rather than at request time: a typo in this field would
