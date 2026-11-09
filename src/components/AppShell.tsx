@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Check, Link2, Pencil } from 'lucide-react';
+import { ArrowLeft, Pencil, Share2 } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { appHash, appRef, linkTab, parseAppRoute, tabIdOf } from '../store/appRoute';
 import { darkBars, isPage, showsHeader, shownTab, themeVariables, type AppTheme } from '../store/appSpec';
@@ -13,21 +13,7 @@ import { getEnvironmentBadge } from '../api';
 import { useShell } from '../shell';
 import { DashboardGrid } from './DashboardGrid';
 import { AgentDrawer } from './AgentDrawer';
-import { CONTENT_ENV_LABELS } from '../contentEnv';
-import { useContentEnv } from '../hooks/useContentEnv';
-
-const copyText = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const textArea = document.createElement('textarea');
-    textArea.value = text;
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textArea);
-  }
-};
+import { ShareDialog } from './sharing';
 
 // The browser tab is the page's, not this component's: whatever it said before
 // the app opened is put back when the app closes.
@@ -77,14 +63,13 @@ const useTheme = (theme: AppTheme | null | undefined) => {
  * and nothing here changes the app; its editors build it in the workspace.
  */
 export const AppShell: React.FC = () => {
-  const { activeApp, activeAppTab, isAdmin, username, canEditApp, generateShareLink, openRoute } = useDashboardStore();
+  const { activeApp, activeAppTab, canEditApp, generateShareLink, openRoute, sharingChanged } = useDashboardStore();
   const shell = useShell();
-  const [workspace] = useContentEnv();
   const agentChat = useAgentChat();
   const [isAgentOpen, setAgentOpen] = useState(false);
   const assistantDoor = useAssistantDoorFor(agentChat.prefill, setAgentOpen, activeApp?.spec.assistant !== 'off');
   const [badge, setBadge] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const appId = activeApp?.id;
   useEffect(() => {
@@ -124,9 +109,8 @@ export const AppShell: React.FC = () => {
 
   if (!activeApp) return null;
 
-  // The same people who get Share in the workspace: an admin for a global app,
-  // the owner for a personal one.
-  const canShare = activeApp.is_global ? isAdmin : (!activeApp.is_shared && activeApp.username === username);
+  // Everyone who can open the view can see who else can; only managers change it.
+  const canShare = Boolean(activeApp.access);
   const offersAssistant = activeApp.spec.assistant !== 'off';
   const header = showsHeader(activeApp);
   // Without the header its controls float over the page in a white bar, so the
@@ -134,9 +118,7 @@ export const AppShell: React.FC = () => {
   // it: with no page header, that is all the setting has left to color.
   const dark = header && darkBars(activeApp);
   const canEdit = canEditApp(activeApp);
-  // Prod is what people using the app expect; only the other two are named.
-  const offProd = workspace !== 'prod';
-  const hasControls = Boolean(badge) || offProd || shell.previewing || canShare || canEdit;
+  const hasControls = Boolean(badge) || shell.previewing || canShare || canEdit;
   const headerButton = `flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${
     dark ? 'text-white/80 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-brand-blue hover:bg-gray-100'
   }`;
@@ -149,16 +131,6 @@ export const AppShell: React.FC = () => {
                 title={`This is the ${badge} deployment, not production`}
               >
                 {badge}
-              </span>
-            )}
-            {offProd && (
-              <span
-                className={`px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded shrink-0 ${
-                  workspace === 'test' ? 'bg-amber-500 text-white' : 'bg-sky-600 text-white'
-                }`}
-                title="This page shows the view as it is in this workspace, not as people using the app see it."
-              >
-                {CONTENT_ENV_LABELS[workspace]} workspace
               </span>
             )}
             {shell.previewing && (
@@ -178,18 +150,12 @@ export const AppShell: React.FC = () => {
     <>
             {canShare && (
               <button
-                onClick={async () => {
-                  const link = generateShareLink();
-                  if (!link) return;
-                  await copyText(link);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                }}
+                onClick={() => setSharing(true)}
                 className={headerButton}
-                title="Copy a link to this page"
+                title={activeApp.access === 'MANAGE' ? 'Share this view and copy its link' : 'Who can open this view, and its link'}
               >
-                {copied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
-                <span>{copied ? 'Copied!' : 'Copy link'}</span>
+                <Share2 className="w-4 h-4" />
+                <span>Share</span>
               </button>
             )}
             {shell.previewing ? (
@@ -269,6 +235,18 @@ export const AppShell: React.FC = () => {
           onOpenChange={setAgentOpen}
           backdrop={look.theme.background}
           dark={darkBars(activeApp)}
+        />
+      )}
+
+      {sharing && (
+        <ShareDialog
+          objectType="app"
+          objectId={activeApp.id}
+          name={activeApp.name}
+          published={Boolean(activeApp.published_version)}
+          link={generateShareLink()}
+          onClose={() => setSharing(false)}
+          onChanged={acl => sharingChanged(activeApp.id, acl)}
         />
       )}
     </div>

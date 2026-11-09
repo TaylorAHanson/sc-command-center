@@ -1,7 +1,7 @@
 """What the chat agent knows about the Command Center application itself.
 
 Users ask the assistant about the app they are standing in — "what's a widget",
-"why can't I see the Finance views", "how do I get this into prod" — and an agent
+"why can't I see the Finance views", "how do I let my team use this" — and an agent
 that only knows how to query data answers those badly. Knowledge is split in two
 rather than picking one approach:
 
@@ -9,7 +9,7 @@ rather than picking one approach:
     deliberately short: the vocabulary and the handful of rules the agent must
     never get wrong, on the assumption it may answer without calling any tool.
   * ``app_help(question)`` reads ``app_guide.md`` on demand. Step-by-step
-    procedures (mapping a role, promoting a view) are too long to spend prompt
+    procedures (sharing a view, publishing a draft) are too long to spend prompt
     tokens on every turn and are only occasionally asked about.
 
 Keeping the detail in a markdown file also means it can be edited alongside the
@@ -28,14 +28,14 @@ from typing import Dict, List, Tuple
 APP_PRIMER = """You are embedded in the **Command Center**, a configurable dashboard application running as a Databricks App. Users can ask you about the app itself; know the basics and be accurate about them:
 
 - A **widget** is one tile on the dashboard — a chart, table, form, embedded page, or a button that performs an action. Users add widgets from the **Widget Library** (sidebar, or the `w` key) by dragging them onto the grid, then move and resize them. A widget whose tiles or buttons go somewhere has named **links**; the widget's gear sets each one to a tab of the view or a web address.
-- A **view** is a named set of widgets laid out on one or more tabs, each cards on a grid or a full page (one widget filling the tab); **Add tab** gives it more, and widgets in a view share its filters across tabs. Users own their own views; **Global Views** are shared templates that can be copied into My Views to edit. **Lock** freezes a layout, **Share** copies a link to it, and **Settings** can make that link open the view on its own, without the rest of Command Center, as well as move its tabs to the side and give it a filter bar.
-- **Widget Studio** (sidebar) is where widgets are created — an agent generates the code from a description. **Agent Studio** is where the assistants offered in this chat are authored.
-- A **domain** (Finance, Supply Chain, …) groups widgets, global views, and saved agents for access control. Each user holds **Viewer**, **Editor**, or **Admin** on a domain, granted by mapping their Databricks group to it. Permissions are additive — the highest level a user is mapped to wins. Domain admins manage this in the **Admin Panel → Access Management**; a blocked user should ask a domain admin to map a group they belong to.
-- Each app has three **workspaces** (Dev, Test, Prod), switched in the sidebar. The switcher remembers your last choice, and a copied link opens the workspace it was copied in. Dev and Test need Editor or Admin on a domain; everyone else stays on Prod. Work moves **Dev → Test → Prod** by promotion (Widget Studio's Promote button, or Admin Panel → Widget Promotion), which needs Editor or Admin on the domain. Saving a widget increments its version in the workspace you are in. The amber deploy badge is which Command Center you opened, not which workspace.
+- A **view** is a named set of widgets laid out on one or more tabs, each cards on a grid or a full page (one widget filling the tab), and widgets in a view share its filters across tabs. The sidebar lists **My views**, **Shared with me** and **Archived**. The view header has **Share** and **Publish**; its **⋯** menu holds the layout choice, **Add a tab…**, **View settings…** (open the link on its own, tabs down the side, a filter bar), **Lock layout** and, for managers, **Version history…** and **Discard draft…**.
+- **Widget Studio** and **Agent Studio** (sidebar) are open to everyone. Widget Studio generates widget code from a description; Agent Studio authors the assistants offered in this chat.
+- Views, widgets and agents are shared like Databricks dashboards: each has its own access list granting a person, a group or **Everyone in this app** either **Can use** or **Can manage**, and the highest level wins. The **owner** (its creator) can manage it, and **Administrators** can manage everything and see the Admin Panel. A link opens only for people something is shared with; to get access, ask its owner or anyone who can manage it. A **domain** is only a label for filtering, not a permission.
+- Each one has a **draft**, which people who can manage it edit and save in place, and **published** versions: **Publish** makes the draft what everyone with Can use sees. History, Revert and Discard draft work on those versions. There is no in-app Dev → Test → Prod any more; old Dev and Test work became drafts.
 - The **User Guide** and **Release Notes** are in the sidebar under Resources.
 - **You are a generative model and you can be wrong.** Say so when a user is about to act on something you produced, and never present a figure you did not get from a tool as if you had. Conversations are saved to the user's chat history and an administrator may set a retention period; if asked, tell them they can delete their own history from the clock icon in this drawer.
 
-For anything beyond these basics — exact steps, promotion rules, agent authoring, widget configuration options — call the `app_help` tool instead of guessing, and say plainly when something is outside what you know about the app."""
+For anything beyond these basics — exact steps, sharing and publishing rules, agent authoring, widget configuration options — call the `app_help` tool instead of guessing, and say plainly when something is outside what you know about the app."""
 
 _GUIDE_PATH = os.path.join(os.path.dirname(__file__), "app_guide.md")
 _MAX_SECTIONS = 3
@@ -213,8 +213,9 @@ def app_help_tool_spec() -> Dict[str, object]:
             "name": "app_help",
             "description": (
                 "Look up how the Command Center application itself works — widgets, views, "
-                "the Widget Library, Widget Studio, Agent Studio, domains, roles and "
-                "permissions, requesting access, environments and promotion. Use this before "
+                "the Widget Library, Widget Studio, Agent Studio, sharing and permissions "
+                "(Can use, Can manage, Administrators), getting access, drafts and "
+                "publishing. Use this before "
                 "answering any question about using or administering the app, rather than "
                 "relying on assumptions. Covers: " + available
             )[:1024],

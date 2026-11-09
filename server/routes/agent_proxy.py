@@ -206,58 +206,66 @@ async def close_http_client() -> None:
 # Saved-profile resolution cache. A selected Agent Studio profile is resolved
 # to its full content HERE (in-process, under the user's own OBO token) and
 # forwarded to the runtime as an ``inline_profile`` — the same path the Studio
-# "Try it" uses, which avoids making the runtime re-read the profile file under
-# a forwarded, app-to-app token (Databricks Apps re-derives the forwarded token
-# on app->app calls, so the runtime would often read as its own SP and fail to
-# see the user's personal ``.agents`` folder). Keyed by (token fingerprint,
-# profile_ref) so each caller only ever resolves what their own grants permit.
+# "Try it" uses, so neither runtime ever reads the profile store itself. Keyed by
+# (token fingerprint, profile_ref) so each caller only ever resolves what their
+# own access permits. Only hits are cached: an agent published or shared a
+# moment ago must not stay unavailable for the TTL. The TTL is also how long a
+# publish or a removed share can take to reach a chat already using the agent.
 _PROFILE_RESOLVE_TTL_S = 30.0
 _profile_resolve_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
+UNAVAILABLE_AGENT = ("That agent isn't available to you. It may not be published yet, or it is "
+                     "no longer shared with you; pick another agent to continue.")
 
-def _resolve_inline_profile(token: Optional[str], profile_ref: str, env: str = "dev") -> Optional[Dict[str, Any]]:
+
+def _resolve_inline_profile(token: Optional[str], profile_ref: str) -> Optional[Dict[str, Any]]:
     """Resolve a saved ``profile_ref`` (a DB profile id) to an inline profile spec.
 
     Returns the runtime's inline_profile shape (name/prompt/tools/skills/
-    python_tools/model/base). On any failure (not found, no access) returns None
-    so the caller can fall back to forwarding the raw ``profile_ref`` (and the
-    runtime's own "profile unavailable" fail-safe still applies). The store
-    enforces read visibility under the caller's own token, so a user can only
-    resolve agents they're allowed to see.
+    python_tools/model/base) for the agent's newest **published** version, or
+    None when the caller can't use one. Chat never runs a draft, managers
+    included; the Studio's Try it sends its draft inline instead.
     """
     if not profile_ref:
         return None
-    key = hashlib.sha256(f"{token or 'anon'}|{env}|{profile_ref}".encode("utf-8")).hexdigest()
+    key = hashlib.sha256(f"{token or 'anon'}|{profile_ref}".encode("utf-8")).hexdigest()
     now = time.monotonic()
     hit = _profile_resolve_cache.get(key)
     if hit and (now - hit[0]) < _PROFILE_RESOLVE_TTL_S:
         return hit[1]
-    try:
-        from agent_studio_store import get_agent_studio_store
+    from agent_studio_store import get_agent_studio_store
 
-        ref = get_agent_studio_store().get_profile(token, profile_ref, env=env)
-        spec: Dict[str, Any] = {
-            "name": ref.name,
-            "prompt": ref.prompt or "",
-            "tools": list(ref.tools or []),
-            "model": ref.model or "",
-            "base": getattr(ref, "base", "full") or "full",
-            "skills": [
-                {"name": s.name, "content": s.content}
-                for s in (ref.skills or [])
-            ],
-            "python_tools": [
-                {"name": t.name, "description": t.description, "code": t.code}
-                for t in (getattr(ref, "python_tools", None) or [])
-            ],
-        }
-    except Exception as exc:  # noqa: BLE001 - never break chat on resolve failure
-        logger.warning("Could not resolve profile_ref %s to inline: %s", profile_ref, exc)
+    store = get_agent_studio_store()
+    ref = store.resolve_published(store._client(token), profile_ref)
+    if ref is None:
         return None
+    spec: Dict[str, Any] = {
+        "name": ref.name,
+        "prompt": ref.prompt or "",
+        "tools": list(ref.tools or []),
+        "model": ref.model or "",
+        "base": ref.base or "full",
+        "skills": [
+            {"name": s.name, "content": s.content}
+            for s in (ref.skills or [])
+        ],
+        "python_tools": [
+            {"name": t.name, "description": t.description, "code": t.code}
+            for t in (ref.python_tools or [])
+        ],
+    }
     if len(_profile_resolve_cache) > 200:
         _profile_resolve_cache.clear()
     _profile_resolve_cache[key] = (now, spec)
-    return spec
+    # A copy, because the caller appends the house style to its prompt.
+    return dict(spec)
+
+
+def _error_stream(message: str) -> StreamingResponse:
+    async def frames():
+        yield _frame({"type": "error", "content": message})
+
+    return StreamingResponse(frames(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
 def _forwarded_headers(request: Request) -> dict:
@@ -360,19 +368,23 @@ async def proxy_chat(request: Request):
     )
 
     # Resolve a SAVED profile here (in-process, under the user's own OBO token)
-    # and send it inline, so the runtime never has to re-read the profile file
-    # under a forwarded app->app token. If resolution fails we fall back to
-    # forwarding the raw ref and let the runtime's fail-safe surface the error.
+    # and send it inline. One the caller can't use ends the turn with an error
+    # rather than quietly answering as the default agent, which would read as
+    # the chosen agent misbehaving.
     if profile_ref and not inline_profile:
         token = (
             request.headers.get("x-forwarded-access-token")
             or request.headers.get("X-Forwarded-Access-Token")
         )
-        env = (incoming.get("env") or "dev").strip() or "dev"
-        resolved = _resolve_inline_profile(token, profile_ref, env)
-        if resolved is not None:
-            inline_profile = resolved
-            profile_ref = None  # inline takes precedence; avoid an ambiguous body
+        try:
+            resolved = await asyncio.to_thread(_resolve_inline_profile, token, profile_ref)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not resolve profile_ref %s: %s", profile_ref, exc)
+            return _error_stream("Couldn't load that agent just now. Try again in a moment.")
+        if resolved is None:
+            return _error_stream(UNAVAILABLE_AGENT)
+        inline_profile = resolved
+        profile_ref = None  # inline takes precedence; avoid an ambiguous body
 
     # Inject global house style (e.g. "no emojis") so every agent obeys it
     # without each profile having to restate it. When a profile is active we

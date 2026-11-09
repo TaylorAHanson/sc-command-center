@@ -21,7 +21,7 @@ const KIND_META: Record<Kind, { label: string; singular: string; icon: React.Com
         label: 'Domains',
         singular: 'Domain',
         icon: Globe,
-        description: 'Domains scope widgets and views to a business area (e.g. Logistics). They drive the domain filter in the Widget Library.',
+        description: 'Domains label widgets and views with a business area (e.g. Logistics) so people can filter by it in the sidebar and the Widget Library. They are labels only and never control who can see or change anything; that is each item’s Share list.',
     },
 };
 

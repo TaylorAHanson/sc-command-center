@@ -10,7 +10,7 @@ const Body = () => (
   <>
     <Lead>
       Action logs are the audit trail of the Command Center. Use them to see who pressed an action button in an
-      executable widget, when, and what was on their screen at the time. <Needs role="Admin Panel access" />
+      executable widget, when, and what was on their screen at the time. <Needs role="Administrator" />
     </Lead>
 
     <H2 id="open-the-logs">Open the logs</H2>
@@ -18,10 +18,6 @@ const Body = () => (
       <Step>
         Open the <OpenLink page="admin">Admin Panel</OpenLink> from the sidebar and click{' '}
         <UI>Action Logs</UI>, the last tab. The page is titled <UI>Action Logs (Telemetry)</UI>.
-      </Step>
-      <Step>
-        Check the <UI>Workspace</UI> switcher in the sidebar. The logs are kept per workspace (Dev, Test or
-        Prod), and the Admin Panel says which one it is showing.
       </Step>
       <Step>
         Type in <UI>Search logs...</UI> to narrow the list, and click a row to read its detail.
@@ -39,15 +35,14 @@ const Body = () => (
     />
     <Callout kind="admin" title="Who can see it">
       <P>
-        Anyone who can open the Admin Panel can read the logs: global admins, and people with Admin on at least
-        one domain. The list is not narrowed to your domains, so it shows every action in the workspace. See{' '}
-        <GuideLink to="roles">Roles and permissions</GuideLink>.
+        Only Administrators can open the Admin Panel, so only they can read the logs. The list covers every action
+        in the app. See <GuideLink to="access" anchor="administrators">Administrators &amp; access</GuideLink>.
       </P>
     </Callout>
 
     <H2 id="what-is-recorded">What is recorded</H2>
     <P>
-      Two kinds of event write a row. Nothing else does: views, promotions and role changes are not in this log.
+      Two kinds of event write a row. Nothing else does: views, publishing and sharing changes are not in this log.
     </P>
     <Table
       head={['Event', 'What the row says']}
@@ -58,7 +53,7 @@ const Body = () => (
         ],
         [
           <strong key="b">A data migration</strong>,
-          <>The widget column reads <UI key="m">Data migration</UI> and the action is <C key="e">export_snapshot</C> or <C key="i">import_snapshot</C>. The explanation says which workspace and which parts of the data. See <GuideLink key="l" to="migration">Moving data to another app</GuideLink>.</>,
+          <>The widget column reads <UI key="m">Data migration</UI> and the action is <C key="e">export_snapshot</C> or <C key="i">import_snapshot</C>. The explanation says which parts of the data. See <GuideLink key="l" to="migration">Moving data to another app</GuideLink>.</>,
         ],
       ]}
     />
@@ -95,7 +90,7 @@ const Body = () => (
     <Details summary="Search, and how far back the list goes">
       <P>
         <UI>Search logs...</UI> matches the widget name, action, user, explanation, domain and request ID. It
-        searches only the entries already loaded, which are the 100 most recent in the workspace. There are no
+        searches only the entries already loaded, which are the 100 most recent in the app. There are no
         date filters, paging or export buttons. A data migration snapshot includes activity history by default,
         which is the way to take a full copy of the log.
       </P>

@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import App from './App';
 import { AppShell } from './components/AppShell';
-import { CONTENT_ENV_LABELS, dismissRefusedWorkspace, resolveWorkspace, type ContentEnv } from './contentEnv';
-import { useContentEnv, useWorkspaceAccess } from './hooks/useContentEnv';
 import { DashboardProvider } from './store/dashboardStore';
 import {
   appHash, isStandalone, parseAppRoute, refersTo, resolvedRoute, routeTab, withoutRouteParams, type AppRoute,
@@ -19,14 +17,16 @@ type Showing =
 // including a link that can't be opened at all: the workspace does with it what
 // it always has, subscribing if the app is someone else's and showing nothing
 // new if it can't be read. Reading is all this does; subscribing is the
-// workspace's or the app page's to do.
+// workspace's or the app page's to do. An app on its own is what the people it
+// is shared with see, so it is always the published version, managers included;
+// they open the draft in the workspace.
 const resolve = async (route: AppRoute): Promise<AppModel | null> => {
   try {
-    const res = await fetch(`/api/apps/${encodeURIComponent(route.appId)}`);
+    const res = await fetch(`/api/apps/${encodeURIComponent(route.appId)}?mode=published`);
     if (!res.ok) return null;
     const { app } = await res.json();
     if (!isStandalone(app)) return null;
-    return { ...app, locked: app.is_locked || app.is_shared };
+    return { ...app, locked: true };
   } catch (e) {
     console.error('Failed to read the app a link names', e);
     return null;
@@ -49,9 +49,6 @@ const goTo = (hash: string, replace = false) => {
  * that opens on its own never flashes the workspace's sidebar first.
  */
 export const Root = () => {
-  const [contentEnv] = useContentEnv();
-  const { resolved, refused } = useWorkspaceAccess();
-  useEffect(() => { resolveWorkspace(); }, []);
   const [showing, setShowing] = useState<Showing>(() => (linkedRoute() ? { kind: 'resolving' } : { kind: 'workspace' }));
   // Only the newest navigation lands: a slow read for a link someone has since
   // moved on from must not take the page back to it.
@@ -80,13 +77,11 @@ export const Root = () => {
     });
   }, [standalone]);
 
-  // The app a link names is read from the workspace the link opens, so this
-  // waits for that to be settled.
   useEffect(() => {
-    if (resolved && showing.kind === 'resolving' && navigation.current === 0) follow(linkedRoute());
+    if (showing.kind === 'resolving' && navigation.current === 0) follow(linkedRoute());
     // Only the address the page loaded with; later ones arrive as hash changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved]);
+  }, []);
 
   // The workspace follows its own hash changes, and so does an app on its own
   // moving between its tabs. Otherwise any address but one to a standalone app —
@@ -122,39 +117,22 @@ export const Root = () => {
     previewing,
   }), [standalone, previewing]);
 
-  if (!resolved) return <Opening />;
-
   return (
     <ShellContext.Provider value={shell}>
-      {refused && <RefusedWorkspace workspace={refused} />}
       {showing.kind === 'resolving' && <Opening />}
       {showing.kind === 'workspace' && (
-        <DashboardProvider key={`workspace-${contentEnv}`}>
+        <DashboardProvider key="workspace">
           <App />
         </DashboardProvider>
       )}
       {showing.kind === 'standalone' && (
-        <DashboardProvider key={`app-${showing.opened}-${contentEnv}`} standalone={showing}>
+        <DashboardProvider key={`app-${showing.opened}`} standalone={showing}>
           <AppShell />
         </DashboardProvider>
       )}
     </ShellContext.Provider>
   );
 };
-
-const RefusedWorkspace = ({ workspace }: { workspace: ContentEnv }) => (
-  <div
-    role="status"
-    className="fixed top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 max-w-lg px-4 py-2 rounded-lg shadow-lg bg-amber-50 border border-amber-200 text-sm text-amber-900"
-  >
-    <span>
-      This link opens the <strong>{CONTENT_ENV_LABELS[workspace]}</strong> workspace, which needs Editor or Admin on a domain. You're seeing <strong>Prod</strong>.
-    </span>
-    <button onClick={dismissRefusedWorkspace} className="shrink-0 font-medium text-amber-800 hover:text-amber-950">
-      Dismiss
-    </button>
-  </div>
-);
 
 const Opening = () => (
   <div className="h-screen flex items-center justify-center bg-gray-50" role="status" aria-label="Opening">

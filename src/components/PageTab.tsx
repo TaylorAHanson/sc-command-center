@@ -3,7 +3,7 @@ import { Pencil, Replace, Settings, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from './ConfirmModal';
 import { useDashboardStore } from '../store/dashboardStore';
-import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
+import { resolveWidget, widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { useActionLogger } from '../hooks/useActionLogger';
 import { ActionProvider, ExecuteActionPropInjector } from '../contexts/ActionContext';
 import { useWorkspaceTools } from '../contexts/WorkspaceTools';
@@ -18,15 +18,14 @@ const WIDGET_DRAG = 'application/widget-type';
  * toolbar for whoever may change the tab, and only inside Command Center.
  */
 export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appApi?: AppApi }> = ({ app, tab, readOnly, appApi }) => {
-  const { addWidget, removeWidget, updateWidget, openConfigModal, activeDomain, username, variables, setVariable, canEditDomain } = useDashboardStore();
+  const { addWidget, removeWidget, updateWidget, openConfigModal, activeDomain, username, variables, setVariable, modeOf } = useDashboardStore();
   const { loading } = useWidgetRegistry();
   const tools = useWorkspaceTools();
   const [dropping, setDropping] = useState(false);
   const [confirming, setConfirming] = useState<{ kind: 'remove' } | { kind: 'replace'; type: string } | null>(null);
 
   const widget = tab.widgets[0];
-  const versioned = widget?.props?._version ? `${widget.type}@${widget.props._version}` : widget?.type;
-  const found = widget ? (widgetRegistry[versioned!] || widgetRegistry[widget.type]) : undefined;
+  const found = widget ? resolveWidget(widget.type, widget.props?._version, modeOf(app) === 'draft') : undefined;
   const def = found && !(activeDomain && found.domain && found.domain !== activeDomain) ? found : undefined;
   const editable = !readOnly && !!tools;
 
@@ -78,7 +77,7 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
             <Replace className="w-3.5 h-3.5" />
             <span>{widget ? 'Change widget' : 'Choose a widget'}</span>
           </button>
-          {def && canEditDomain(def.domain) && (
+          {def?.access === 'MANAGE' && (
             <button type="button" className={button} onClick={() => tools!.editWidget(widget!.type)} title="Edit this page's widget in Widget Studio">
               <Pencil className="w-3.5 h-3.5" />
               <span>Edit in Widget Studio</span>
@@ -129,7 +128,7 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
               <p className="text-sm">
                 {editable
                   ? 'Drag one widget here from the Widget Library. It fills the whole tab.'
-                  : widget ? 'It may have been deleted, or belong to another domain.' : 'Nothing has been placed on this page yet.'}
+                  : widget ? 'It may have been deleted, not be published yet, or be outside the domain you’re filtering by.' : 'Nothing has been placed on this page yet.'}
               </p>
             </div>
           )}

@@ -1,18 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useDashboardStore } from '../store/dashboardStore';
-import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Check, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow, Compass } from 'lucide-react';
-import { ContentEnvSwitch } from './ContentEnvSwitch';
+import { createPortal } from 'react-dom';
+import { useDashboardStore, type App, type AppVersion, type ArchivedApp } from '../store/dashboardStore';
+import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow, Compass, Archive, ChevronRight, RotateCcw, Trash2, X, Loader2, EyeOff, FileText, History, Undo2 } from 'lucide-react';
 import clsx from 'clsx';
+import { ConfirmModal } from './ConfirmModal';
+import { AccessIcon, DraftBar, PublishDialog, ShareDialog } from './sharing';
+import { StatePill } from './sharing/DraftBar';
+import { HeaderMenu } from './HeaderMenu';
+import { STATE_LABELS } from '../sharing';
 import { WidgetTray } from './WidgetTray';
 import { AgentDrawer } from './AgentDrawer';
 import { WelcomeOverlay, type WelcomeSpot } from './WelcomeOverlay';
 import { AppSettingsModal } from './AppSettingsModal';
-import { AddTabMenu, TabBar, TabLayoutSwitch } from './TabBar';
+import { AddTabMenu, TabBar } from './TabBar';
 import { FilterBar } from './FilterBar';
 import { assistantLabel, useAgentChat } from '../hooks/useAgentChat';
 import { ConfigModal } from './ConfigModal';
 import { widgetRegistry } from '../widgetRegistry';
-import { darkBars, isPage, showsHeader, shownTab, themeVariables } from '../store/appSpec';
+import { darkBars, isPage, layoutSwitch, showsHeader, shownTab, themeVariables } from '../store/appSpec';
 import { WorkspaceToolsContext, type WorkspaceTools } from '../contexts/WorkspaceTools';
 import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
 import { useCanvasLook } from '../hooks/useCanvasLook';
@@ -56,15 +61,128 @@ const PAGES = ['admin', 'studio', 'agent-studio', 'settings', 'help', 'about', '
 // after its name, which that page reads itself (the guide's sections, for one).
 const pageOf = (hash: string): string | null => PAGES.find(p => hash === `#/${p}` || hash.startsWith(`#/${p}/`)) ?? null;
 
+const when = (value?: string | null) => (value ? new Date(value).toLocaleString() : '');
+
+/** How widely a sidebar view is shared, and whether its draft has changes nobody else sees yet. */
+const ViewMarks: React.FC<{ app: App; selected: boolean }> = ({ app, selected }) => (
+  <span className="flex items-center gap-1.5 shrink-0">
+    {app.access === 'MANAGE' && app.state && app.state !== 'published' && (
+      <span
+        className={clsx('h-1.5 w-1.5 rounded-full', app.state === 'draft_only' ? 'bg-slate-400' : 'bg-amber-400')}
+        title={STATE_LABELS[app.state]}
+        aria-label={STATE_LABELS[app.state]}
+      />
+    )}
+    <AccessIcon summary={app.sharing ?? 'private'} size={12} className={selected ? 'text-white/70' : 'text-gray-500'} />
+  </span>
+);
+
+/** A view's published versions, newest first; a manager can make any of them the draft again. */
+const ViewHistoryDialog: React.FC<{
+  app: App;
+  load: (appId: string) => Promise<AppVersion[]>;
+  revert: (appId: string, version: number) => Promise<void>;
+  onClose: () => void;
+}> = ({ app, load, revert, onClose }) => {
+  const [versions, setVersions] = useState<AppVersion[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    load(app.id)
+      .then(v => { if (live) setVersions(v); })
+      .catch(e => { if (live) setError(e?.message || String(e)); });
+    return () => { live = false; };
+  }, [app.id, load]);
+
+  const choose = async (version: number) => {
+    setBusy(version);
+    setError(null);
+    try {
+      await revert(app.id, version);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-label={`History of ${app.name}`}
+        className="w-full max-w-lg rounded-xl bg-white shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3">
+          <h2 className="text-base font-semibold text-gray-900">Published versions of ‘{app.name}’</h2>
+          <button onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto px-5 py-3">
+          {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
+          {!versions && !error && <p className="text-sm text-gray-500">Loading…</p>}
+          {versions && versions.length === 0 && <p className="text-sm text-gray-500">This view hasn’t been published yet.</p>}
+          <ul className="divide-y divide-gray-100">
+            {versions?.map((v, i) => (
+              <li key={v.version} className="flex items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-800">
+                    Version {v.version}{i === 0 && <span className="ml-2 text-xs font-normal text-emerald-700">Published now</span>}
+                  </p>
+                  <p className="truncate text-xs text-gray-500">
+                    {[v.name, v.published_by, when(v.published_at || v.timestamp)].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+                {app.access === 'MANAGE' && (
+                  <button
+                    onClick={() => choose(v.version)}
+                    disabled={busy !== null}
+                    className="flex shrink-0 items-center gap-1.5 rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    title="Make this version the draft. Nothing changes for anyone else until you publish."
+                  >
+                    {busy === v.version ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                    Revert to this
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<string | null>(() => pageOf(window.location.hash));
   // Pages that take over the full screen (no header, no agent drawer).
   const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
-  const { apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, removeApp, renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin, domainPermissions, canEditApp, canEditLayout, addTab, isLoading } = useDashboardStore();
+  const {
+    apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, deleteApp, archiveApp, restoreApp, fetchArchived, hideApp,
+    renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin,
+    canEditApp, canEditLayout, addTab, setTabLayout, isLoading, modeOf, setAppMode, loadPreflight, publishApp, discardDraft, fetchHistory, revertApp, sharingChanged,
+  } = useDashboardStore();
   const shell = useShell();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const canCreateWidgets = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin' || p === 'editor');
-  const canAccessAdmin = isAdmin || Object.values(domainPermissions || {}).some(p => p === 'admin');
+  const canAccessAdmin = isAdmin;
+  const [sharingOpen, setSharingOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  // A view to delete or archive, waiting on the person's confirmation.
+  const [removing, setRemoving] = useState<{ app: { id: string; name: string }; archive: boolean } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archived, setArchived] = useState<ArchivedApp[] | null>(null);
+  // The sidebar's row for the view on screen: in Published mode `activeApp` is
+  // the published copy, but where the draft stands is the row's to say.
+  const activeRow = apps.find(a => a.id === activeApp?.id) ?? activeApp;
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   // Persist the assistant drawer's open/closed state so it reopens if the user
   // left it open last session.
@@ -88,7 +206,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [editName, setEditName] = useState('');
   const [draggedAppIndex, setDraggedAppIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [editWidgetId, setEditWidgetId] = useState<string | null>(null);
   const [cloneWidgetId, setCloneWidgetId] = useState<string | null>(null);
   const workspaceTools = React.useMemo<WorkspaceTools>(() => ({
@@ -230,11 +347,27 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     };
   }, [currentPage]);
 
-  // Separate the user's apps from global templates
-  const myApps = apps.filter(a => !a.is_global && !a.is_shared);
-  const sharedApps = apps.filter(a => !a.is_global && a.is_shared);
+  const myApps = apps.filter(a => !a.shared_with_me);
+  // A domain is a label, so choosing one filters what others shared; it never
+  // decides what is shared.
   const effectiveDomain = activeDomain || 'All';
-  const globalTemplates = apps.filter(a => a.is_global && (effectiveDomain === 'All' || !a.domain || a.domain === effectiveDomain));
+  const sharedApps = apps.filter(a => a.shared_with_me && (effectiveDomain === 'All' || !a.domain || a.domain === effectiveDomain));
+
+  const loadArchived = React.useCallback(() => { fetchArchived().then(setArchived); }, [fetchArchived]);
+  useEffect(() => { if (archivedOpen) loadArchived(); }, [archivedOpen, loadArchived]);
+
+  // Closing one of your own views deletes it, as it always has, unless other
+  // people can open it: then it is archived first, where a manager can restore it.
+  const closeOwnView = (app: App) => setRemoving({ app, archive: (app.sharing ?? 'private') !== 'private' });
+  const confirmRemoval = async () => {
+    if (!removing) return;
+    const { app, archive } = removing;
+    setRemoving(null);
+    const fromArchive = archived?.some(a => a.id === app.id);
+    const refusal = archive ? await archiveApp(app.id) : await deleteApp(app.id);
+    if (refusal) setNotice(refusal);
+    else if (fromArchive || archivedOpen) loadArchived();
+  };
 
   // With no app at all there is nothing under the panel, so it stays as the
   // page until one exists.
@@ -278,15 +411,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="text-gray-400 hover:text-white">
                 <Menu className="w-5 h-5" />
               </button>
-              <ContentEnvSwitch compact />
             </>
           )}
         </div>
-        {isSidebarOpen && (
-          <div className="px-3 py-2 border-b border-gray-700">
-            <ContentEnvSwitch />
-          </div>
-        )}
 
         <div className="flex-1 overflow-y-auto flex flex-col">
           {isSidebarOpen ? (
@@ -295,7 +422,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <div className="p-3 border-b border-gray-700">
                 <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
                   <Layers className="w-3 h-3" />
-                  My Views
+                  My views
                 </div>
                 <div className="space-y-1">
                   {myApps.map((app, index) => {
@@ -393,28 +520,33 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                                 onMouseDown={(e) => e.stopPropagation()}
                               />
                               <span className="truncate flex-1">{app.name}</span>
+                              <span className="group-hover:hidden">
+                                <ViewMarks app={app} selected={activeAppId === app.id && currentPage === null} />
+                              </span>
                             </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingAppId(app.id);
-                                  setEditName(app.name);
-                                }}
-                                className="hover:bg-brand-blue/20 rounded p-0.5 transition-colors"
-                                title="Rename View"
-                                type="button"
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </button>
-                              {apps.length > 1 && (
+                            <div className="hidden group-hover:flex items-center gap-1">
+                              {app.access === 'MANAGE' && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    removeApp(app.id);
+                                    setEditingAppId(app.id);
+                                    setEditName(app.name);
+                                  }}
+                                  className="hover:bg-brand-blue/20 rounded p-0.5 transition-colors"
+                                  title="Rename View"
+                                  type="button"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              )}
+                              {apps.length > 1 && app.access === 'MANAGE' && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    closeOwnView(app);
                                   }}
                                   className="hover:bg-red-500/20 rounded p-0.5 transition-colors"
-                                  title="Close View"
+                                  title={(app.sharing ?? 'private') === 'private' ? 'Delete View' : 'Archive View'}
                                   type="button"
                                 >
                                   <Plus className="w-3 h-3 rotate-45" />
@@ -428,6 +560,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   })}
                   <button
                     onClick={() => addApp(`View ${myApps.length + 1}`)}
+                    title="A new view only you can see until you share and publish it"
                     className="w-full text-left px-3 py-2 rounded-md text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
@@ -436,91 +569,108 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </div>
               </div>
 
-              {/* Shared Views */}
-              {sharedApps.length > 0 && (
-                <div className="p-3 border-b border-gray-700">
-                  <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
-                    <Share2 className="w-3 h-3" />
-                    Shared Views
-                  </div>
-                  <div className="space-y-1">
-                    {sharedApps.map(app => {
-                      const isViewing = activeAppId === app.id;
-                      return (
-                        <div key={app.id} className="group relative">
+              {/* Shared with me */}
+              <div className={clsx("p-3 border-b border-gray-700 transition-shadow", spot('global-views'))}>
+                <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
+                  <Share2 className="w-3 h-3" />
+                  Shared with me
+                </div>
+                <div className="space-y-1">
+                  {sharedApps.map(app => {
+                    const selected = activeAppId === app.id && currentPage === null;
+                    return (
+                      <div key={app.id} className="group relative">
+                        <button
+                          onClick={() => {
+                            setActiveAppId(app.id);
+                            setCurrentPage(null);
+                          }}
+                          className={clsx(
+                            "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between gap-2",
+                            selected
+                              ? "bg-brand-blue text-white"
+                              : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                          )}
+                          title={app.owner ? `Shared by ${app.owner}` : undefined}
+                        >
+                          <span className="truncate flex-1">{app.name}</span>
+                          <span className="group-hover:invisible">
+                            <ViewMarks app={app} selected={selected} />
+                          </span>
+                        </button>
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
                           <button
-                            onClick={() => {
-                              setActiveAppId(app.id);
-                              setCurrentPage(null);
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              duplicateApp(app.id);
                             }}
-                            className={clsx(
-                              "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
-                              isViewing && currentPage === null
-                                ? "bg-brand-blue text-white"
-                                : "text-gray-300 hover:bg-gray-800 hover:text-white"
-                            )}
+                            className="p-1 hover:bg-brand-blue/20 rounded transition-colors text-gray-400 hover:text-white"
+                            title="Make a copy of your own in My views"
                           >
-                            <span className="truncate flex-1">{app.name}</span>
+                            <Copy className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              removeApp(app.id);
+                              hideApp(app.id);
                             }}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-500/20 rounded transition-all text-gray-400 hover:text-red-400"
-                            title="Remove Shared View"
+                            className="p-1 hover:bg-red-500/20 rounded transition-colors text-gray-400 hover:text-red-400"
+                            title="Close: take it off your sidebar. Its link still opens it, and brings it back."
                           >
-                            <Plus className="w-3.5 h-3.5 rotate-45" />
+                            <EyeOff className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Global Views (Templates) */}
-              <div className={clsx("p-3 border-b border-gray-700 transition-shadow", spot('global-views'))}>
-                <div className="text-xs font-semibold text-gray-400 uppercase mb-2 px-1 flex items-center gap-2">
-                  <LayoutGrid className="w-3 h-3" />
-                  Global Views
-                </div>
-                <div className="space-y-1">
-                  {globalTemplates.map(template => {
-                    const isViewing = activeAppId === template.id;
-                    return (
-                      <div key={template.id} className="group relative">
-                        <button
-                          onClick={() => {
-                            setActiveAppId(template.id);
-                            setCurrentPage(null);
-                          }}
-                          className={clsx(
-                            "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
-                            isViewing && currentPage === null
-                              ? "bg-brand-blue text-white"
-                              : "text-gray-300 hover:bg-gray-800 hover:text-white"
-                          )}
-                        >
-                          <span className="truncate flex-1">{template.name}</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            duplicateApp(template.id);
-                          }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-brand-blue/20 rounded transition-all text-gray-400 hover:text-brand-blue"
-                          title="Copy this template to My Views"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
                       </div>
                     );
                   })}
                 </div>
-                <p className="text-xs text-gray-500 mt-2 px-1">
-                  Click to view, hover to copy.
-                </p>
+                {sharedApps.length === 0 && (
+                  <p className="text-xs text-gray-500 px-1">
+                    Views others share with you appear here.
+                  </p>
+                )}
+              </div>
+
+              {/* Archived: views this person manages, out of everyone's sidebar until restored */}
+              <div className="px-3 py-2 border-b border-gray-700">
+                <button
+                  onClick={() => setArchivedOpen(o => !o)}
+                  className="w-full text-xs font-semibold text-gray-400 uppercase px-1 flex items-center gap-2 hover:text-white"
+                  aria-expanded={archivedOpen}
+                >
+                  <ChevronRight className={clsx('w-3 h-3 transition-transform', archivedOpen && 'rotate-90')} />
+                  <Archive className="w-3 h-3" />
+                  Archived
+                </button>
+                {archivedOpen && (
+                  <div className="mt-2 space-y-1">
+                    {archived === null && <p className="text-xs text-gray-500 px-1">Loading…</p>}
+                    {archived?.length === 0 && <p className="text-xs text-gray-500 px-1">Nothing archived.</p>}
+                    {archived?.map(a => (
+                      <div key={a.id} className="group flex items-center gap-1 px-3 py-1.5 rounded-md text-sm text-gray-400 hover:bg-gray-800">
+                        <span className="truncate flex-1" title={a.archived_at ? `Archived ${when(a.archived_at)}` : undefined}>{a.name}</span>
+                        <button
+                          onClick={async () => {
+                            const refusal = await restoreApp(a.id);
+                            if (refusal) setNotice(refusal);
+                            loadArchived();
+                          }}
+                          className="p-1 rounded hover:bg-brand-blue/20 hover:text-white"
+                          title="Restore: back on the sidebar of everyone it is shared with"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setRemoving({ app: a, archive: false })}
+                          className="p-1 rounded hover:bg-red-500/20 hover:text-red-400"
+                          title="Delete permanently"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Widget Library Button */}
@@ -532,24 +682,20 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <LayoutGrid className="w-4 h-4 group-hover:text-brand-blue" />
                   Widget Library (w)
                 </button>
-                {canCreateWidgets && (
-                  <button
-                    onClick={() => setCurrentPage('studio')}
-                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400", spot('studio'))}
-                  >
-                    <Code className="w-4 h-4 group-hover:text-brand-blue" />
-                    Widget Studio
-                  </button>
-                )}
-                {canCreateWidgets && (
-                  <button
-                    onClick={() => setCurrentPage('agent-studio')}
-                    className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'agent-studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400", spot('agent-studio'))}
-                  >
-                    <Bot className="w-4 h-4 group-hover:text-brand-blue" />
-                    Agent Studio
-                  </button>
-                )}
+                <button
+                  onClick={() => setCurrentPage('studio')}
+                  className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400", spot('studio'))}
+                >
+                  <Code className="w-4 h-4 group-hover:text-brand-blue" />
+                  Widget Studio
+                </button>
+                <button
+                  onClick={() => setCurrentPage('agent-studio')}
+                  className={clsx("w-full mt-2 px-3 py-2 border rounded-md text-sm transition-colors flex items-center justify-center gap-2 group", currentPage === 'agent-studio' ? "bg-brand-blue border-transparent text-white" : "border-gray-600 hover:border-brand-blue hover:text-brand-blue text-gray-400", spot('agent-studio'))}
+                >
+                  <Bot className="w-4 h-4 group-hover:text-brand-blue" />
+                  Agent Studio
+                </button>
               </div>
 
               {/* Resources */}
@@ -590,110 +736,115 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           const name = branded?.title || activeApp?.name;
           // These pages are not views, so the header must not keep showing the last view's name.
           const pageTitle = currentPage ? ({ admin: 'Admin Panel', 'user-guide': 'User Guide', 'release-notes': 'Release Notes', help: 'Getting Started' } as Record<string, string>)[currentPage] : undefined;
-          const title = pageTitle ? pageTitle : (
-            activeApp?.is_global && !isAdmin ? `${name} (Read-Only)` : name || 'Command Center'
+          const title = pageTitle ? pageTitle : name || 'Command Center';
+          const manages = !currentPage && activeRow?.access === 'MANAGE';
+          const tab = !currentPage && activeApp && activeAppTab && canEditLayout(activeApp) ? activeAppTab : null;
+          const swap = tab ? layoutSwitch(tab) : null;
+          const canAddTab = Boolean(tab && activeApp && activeApp.spec.tabs.length === 1);
+          const editable = !currentPage && activeApp && canEditApp(activeApp) ? activeApp : null;
+          const menu = (openAddTab?: (from: { currentTarget: HTMLElement }) => void) => (
+            <HeaderMenu
+              dark={darkHeader}
+              label="More view options"
+              sections={[
+                {
+                  label: activeApp && activeApp.spec.tabs.length > 1 ? 'This tab' : 'Layout',
+                  items: tab && swap && activeApp ? [
+                    ...(['canvas', 'page'] as const).map(layout => {
+                      const on = (isPage(tab) ? 'page' : 'canvas') === layout;
+                      return {
+                        key: layout,
+                        label: layout === 'canvas' ? 'Cards on a grid' : 'Full page',
+                        icon: layout === 'canvas' ? LayoutGrid : FileText,
+                        checked: on,
+                        disabled: !on && swap.blocked,
+                        title: on ? undefined : swap.title,
+                        onSelect: () => { if (!on) setTabLayout(activeApp.id, tab.id, layout); },
+                      };
+                    }),
+                    ...(canAddTab && openAddTab ? [{
+                      key: 'add-tab', label: 'Add a tab…', icon: Plus, title: 'Give this view a second tab',
+                      onSelect: (trigger: HTMLElement) => openAddTab({ currentTarget: trigger }),
+                    }] : []),
+                  ] : [],
+                },
+                {
+                  label: 'View',
+                  items: [
+                    ...(!currentPage && activeApp && isStandalone(activeApp) ? [{
+                      key: 'preview', label: 'Preview as a viewer', icon: AppWindow,
+                      title: 'See this view on its own, as people with its link do',
+                      onSelect: () => shell.present(activeApp, linkTab(activeApp, activeAppTab), null, true),
+                    }] : []),
+                    ...(editable ? [
+                      {
+                        key: 'settings', label: 'View settings…', icon: Settings2,
+                        title: 'How this view opens from its link, its title and logo, and its assistant',
+                        onSelect: () => setSettingsOpen(true),
+                      },
+                      {
+                        key: 'lock', label: editable.locked ? 'Unlock layout' : 'Lock layout', icon: editable.locked ? Unlock : Lock,
+                        title: editable.locked ? 'Allow widgets to be moved, resized and removed again' : 'Stop widgets being moved, resized or removed by accident',
+                        onSelect: () => toggleLock(editable.id),
+                      },
+                    ] : []),
+                  ],
+                },
+                {
+                  label: 'Versions',
+                  items: manages && activeRow ? [
+                    ...(activeRow.published_version ? [{
+                      key: 'history', label: 'Version history…', icon: History, title: 'Published versions, and going back to one',
+                      onSelect: () => setHistoryOpen(true),
+                    }] : []),
+                    ...(activeRow.state === 'published_with_draft' ? [{
+                      key: 'discard', label: 'Discard draft…', icon: Undo2, danger: true,
+                      title: 'Throw away your changes and go back to the published version',
+                      onSelect: () => setDiscarding(true),
+                    }] : []),
+                  ] : [],
+                },
+              ]}
+            />
           );
-          const actions = (
+          const more = canAddTab && activeApp && activeAppTab ? (
+            <AddTabMenu
+              align="right"
+              naming={{ suggested: 'Tab 2', first: activeAppTab.name ? undefined : 'Overview' }}
+              onChoose={(layout, names) => addTab(activeApp.id, names?.name || 'Tab 2', layout, names?.first)}
+              button={open => menu(open)}
+            />
+          ) : menu();
+          const share = !currentPage && activeRow?.access ? (
+            <button
+              onClick={() => setSharingOpen(true)}
+              className={headerButton}
+              title={activeRow.access === 'MANAGE' ? 'Choose who can use or manage this view, and copy its link' : 'See who this view is shared with, and copy its link'}
+            >
+              <Share2 className="w-4 h-4" />
+              <span>Share</span>
+            </button>
+          ) : null;
+          const pill = manages && activeRow ? <StatePill state={activeRow.state} variant={darkHeader ? 'dark' : 'light'} /> : null;
+          // Publish is last and the only filled button: it is what a manager came
+          // to the header for. Everything rarely needed sits in the "⋯" menu.
+          const actions = manages && activeRow ? (
+            <DraftBar
+              state={activeRow.state}
+              mode={modeOf(activeRow)}
+              onModeChange={m => setAppMode(activeRow.id, m)}
+              onPublish={() => setPublishOpen(true)}
+              busy={draftBusy}
+              variant={darkHeader ? 'dark' : 'light'}
+              showState={!viewHeader}
+            >
+              {more}
+              {share}
+            </DraftBar>
+          ) : (
             <>
-              {!currentPage && activeApp && isStandalone(activeApp) && (
-                <button
-                  onClick={() => shell.present(activeApp, linkTab(activeApp, activeAppTab), null, true)}
-                  className={headerButton}
-                  title="See this view on its own, as people with its link do"
-                >
-                  <AppWindow className="w-4 h-4" />
-                  <span>Preview</span>
-                </button>
-              )}
-              {!currentPage && <TabLayoutSwitch dark={darkHeader} />}
-              {!currentPage && activeApp && activeAppTab && activeApp.spec.tabs.length === 1 && canEditLayout(activeApp) && (
-                <AddTabMenu
-                  align="right"
-                  naming={{ suggested: 'Tab 2', first: activeAppTab.name ? undefined : 'Overview' }}
-                  onChoose={(layout, names) => addTab(activeApp.id, names?.name || 'Tab 2', layout, names?.first)}
-                  button={open => (
-                    <button
-                      onClick={open}
-                      className={headerButton}
-                      title="Give this view a second tab"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add tab</span>
-                    </button>
-                  )}
-                />
-              )}
-              {!currentPage && activeApp && canEditApp(activeApp) && (
-                <button
-                  onClick={() => setSettingsOpen(true)}
-                  className={headerButton}
-                  title="How this view opens from its link, its title and logo, and its assistant"
-                >
-                  <Settings2 className="w-4 h-4" />
-                  <span>Settings</span>
-                </button>
-              )}
-              {!currentPage && activeApp && (!activeApp.is_global || isAdmin) && !activeApp.is_shared && (
-                <>
-                  <button
-                    onClick={() => {
-                      if (activeApp) {
-                        toggleLock(activeApp.id);
-                      }
-                    }}
-                    className={headerButton}
-                    title={activeApp?.locked ? "Unlock View" : "Lock View"}
-                  >
-                    {activeApp?.locked ? (
-                      <>
-                        <Lock className="w-4 h-4" />
-                        <span>Locked</span>
-                      </>
-                    ) : (
-                      <>
-                        <Unlock className="w-4 h-4" />
-                        <span>Lock</span>
-                      </>
-                    )}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      const link = generateShareLink();
-                      if (link) {
-                        try {
-                          await navigator.clipboard.writeText(link);
-                          setShareLinkCopied(true);
-                          setTimeout(() => setShareLinkCopied(false), 2000);
-                        } catch (err) {
-                          // Fallback for older browsers
-                          const textArea = document.createElement('textarea');
-                          textArea.value = link;
-                          document.body.appendChild(textArea);
-                          textArea.select();
-                          document.execCommand('copy');
-                          document.body.removeChild(textArea);
-                          setShareLinkCopied(true);
-                          setTimeout(() => setShareLinkCopied(false), 2000);
-                        }
-                      }
-                    }}
-                    className={headerButton}
-                    title="Share View"
-                  >
-                    {shareLinkCopied ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        <span>Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Share2 className="w-4 h-4" />
-                        <span>Share</span>
-                      </>
-                    )}
-                  </button>
-                </>
-              )}
+              {more}
+              {share}
             </>
           );
           return viewHeader ? (
@@ -709,8 +860,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <img src={branded.logo} alt="" className="h-8 w-auto max-w-[8rem] object-contain shrink-0" />
                 )}
                 <h1 className={clsx('text-lg font-semibold truncate', darkHeader ? 'text-white' : 'text-brand-navy')}>{title}</h1>
+                {pill}
               </div>
-              <div className="flex items-center gap-3">{actions}</div>
+              <div className="flex items-center gap-2 shrink-0">{actions}</div>
             </header>
           ) : (
             // The view draws its own title bar, as it does on its own, so the
@@ -779,10 +931,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <WelcomeOverlay
                 agentName={assistantDoor ? assistantLabel(agentChat) : null}
                 onAsk={prompt => { dismissWelcome(); assistantDoor?.open({ prompt }); }}
-                globalViews={globalTemplates}
+                sharedViews={sharedApps}
                 onOpenView={id => { dismissWelcome(); setActiveAppId(id); }}
                 onOpenLibrary={() => { dismissWelcome(); setTrayOpen(true); }}
-                canBuild={canCreateWidgets}
                 onOpenStudio={page => { dismissWelcome(); setEditWidgetId(null); setCloneWidgetId(null); setCurrentPage(page); }}
                 onBlankView={() => { dismissWelcome(); addApp(`View ${myApps.length + 1}`); }}
                 onSpot={setWelcomeSpot}
@@ -848,6 +999,80 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           selectAgent={id => { if (!agentChat.isLoading) agentChat.setSelectedProfileId(id); }}
           onClose={() => setSettingsOpen(false)}
         />
+      )}
+
+      {sharingOpen && activeRow?.access && (
+        <ShareDialog
+          objectType="app"
+          objectId={activeRow.id}
+          name={activeRow.name}
+          published={Boolean(activeRow.published_version)}
+          link={generateShareLink()}
+          onClose={() => setSharingOpen(false)}
+          onChanged={acl => sharingChanged(activeRow.id, acl)}
+        />
+      )}
+
+      {publishOpen && activeRow && (
+        <PublishDialog
+          title={activeRow.name}
+          loadPreflight={() => loadPreflight(activeRow.id)}
+          onConfirm={include => publishApp(activeRow.id, include)}
+          onClose={() => setPublishOpen(false)}
+        />
+      )}
+
+      {historyOpen && activeRow && (
+        <ViewHistoryDialog
+          app={activeRow}
+          load={fetchHistory}
+          revert={revertApp}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
+
+      {discarding && activeRow && createPortal(
+        <ConfirmModal
+          title="Discard draft?"
+          message="Your unpublished changes will be deleted. The published version stays as it is."
+          confirmLabel="Discard draft"
+          variant="danger"
+          onCancel={() => setDiscarding(false)}
+          onConfirm={async () => {
+            setDiscarding(false);
+            setDraftBusy(true);
+            const refusal = await discardDraft(activeRow.id);
+            setDraftBusy(false);
+            if (refusal) setNotice(refusal);
+          }}
+        />,
+        document.body,
+      )}
+
+      {removing && createPortal(
+        <ConfirmModal
+          title={removing.archive ? `Archive ‘${removing.app.name}’?` : `Delete ‘${removing.app.name}’?`}
+          message={removing.archive
+            ? 'It leaves the sidebar of everyone it is shared with, and its link stops opening it. You can restore it from Archived.'
+            : 'The view and all its published versions are deleted for good.'}
+          confirmLabel={removing.archive ? 'Archive' : 'Delete'}
+          variant={removing.archive ? 'warning' : 'danger'}
+          onCancel={() => setRemoving(null)}
+          onConfirm={confirmRemoval}
+        />,
+        document.body,
+      )}
+
+      {notice && createPortal(
+        <ConfirmModal
+          title="That didn’t work"
+          message={notice}
+          confirmLabel="OK"
+          variant="primary"
+          onCancel={() => setNotice(null)}
+          onConfirm={() => setNotice(null)}
+        />,
+        document.body,
       )}
     </div >
   );

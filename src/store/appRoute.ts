@@ -7,13 +7,14 @@
 // `#/template/<id>` and `?widget=<id>` — is still in people's bookmarks, chats
 // and emails, and opens the same app forever.
 //
-// Links name things rather than spell their ids. A global app goes by the name
-// the server gave it (`app.link`, see server/services/app_links.py); a personal
-// one by `<name>-<id>`, because a personal app opens for anyone holding its id
-// and a name alone could be guessed. A tab goes by its name where that is unique
+// Links name things rather than spell their ids. A published app goes by the
+// name the server gave it (`app.link`, see server/services/app_links.py), else
+// by `<name>-<id>`. A link opens only for people the app is shared with, so a
+// guessable name reveals nothing. A tab goes by its name where that is unique
 // in the app. A route read from an address holds those names until
 // `resolvedRoute` turns them into ids; everything past that works in ids.
-import { contentEnvSearch } from '../contentEnv';
+//
+// Links no longer carry a workspace: `?env=` from before is stripped on load.
 import { shownTab, type App, type AppTab } from './appSpec';
 
 export interface AppRoute {
@@ -73,13 +74,13 @@ const idIn = (ref: string): string | null => UUID_TAIL.exec(ref)?.[1].toLowerCas
 
 /** What links name an app by: see the note at the top. */
 export const appRef = (app: App): string => {
-  if (app.is_global && app.link) return app.link;
+  if (app.link) return app.link;
   const name = slugify(app.name);
   return name && idIn(app.id) === app.id.toLowerCase() ? `${name}-${app.id}` : app.id;
 };
 
 /**
- * Whether the app part of a link names this app. A name a global app has since
+ * Whether the app part of a link names this app. A name an app has since
  * been renamed from is the server's to recognise (`GET /api/apps/<ref>`).
  */
 export const refersTo = (ref: string, app: App): boolean =>
@@ -143,13 +144,14 @@ export const routeTab = (app: App, tabRefOrId: string | null): string | null =>
 export const isStandalone = (app?: App | null): boolean => app?.spec?.presentation === 'standalone';
 
 export const appLink = (app: App, tabId?: string | null, widgetId?: string | null): string =>
-  `${window.location.origin}${window.location.pathname}${contentEnvSearch()}${appHash(app, tabId, widgetId)}`;
+  `${window.location.origin}${window.location.pathname}${appHash(app, tabId, widgetId)}`;
 
 /** The query string once a link has been read, so a reload doesn't act on it again. */
 export const withoutRouteParams = (search: string): string => {
   const params = new URLSearchParams(search);
   params.delete('shared_view');
   params.delete('widget');
+  params.delete('env');
   const rest = params.toString();
   return rest ? `?${rest}` : '';
 };

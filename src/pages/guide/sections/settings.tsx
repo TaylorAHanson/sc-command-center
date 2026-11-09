@@ -8,13 +8,13 @@ import {
 const Body = () => (
   <>
     <Lead>
-      Global admins choose which models power the AI features, set limits, and switch off what the assistant may reach, all from one page and
+      Administrators choose which models power the AI features, set limits, and switch off what the assistant may reach, all from one page and
       without a redeploy.
     </Lead>
 
     <H2 id="change-settings">Change a setting</H2>
     <P>
-      <Needs role="Global admin" /> Settings cover the whole app, whichever <UI>Workspace</UI> is selected. Changes apply to new conversations and
+      <Needs role="Administrator" /> Settings cover the whole app. Changes apply to new conversations and
       generations, not to ones already running.
     </P>
     <Steps>
@@ -96,7 +96,7 @@ const Body = () => (
       legend={[
         'Allow the assistant to query Genie.',
         'Allow the assistant to run SQL.',
-        'Global views may only contain certified widgets. It starts off.',
+        'Shared views may only contain certified widgets. It starts off.',
         'Delete conversations after (days). 0 keeps them indefinitely.',
       ]}
     />
@@ -124,9 +124,9 @@ const Body = () => (
           'Only to diagnose a widget that has stopped rendering. Turn it back on afterwards.',
         ],
         [
-          <UI key="e">Global views may only contain certified widgets</UI>,
-          'Nothing, because it starts off. When it is on, a view shared with everyone can only hold certified widgets, and saving one with others is refused.',
-          <>Leave it off in Dev and Test, where nothing is certified yet. Turn it on where &ldquo;shared with everyone&rdquo; should mean &ldquo;reviewed&rdquo;. See <GuideLink to="promotion" anchor="certify">Certify a widget</GuideLink>.</>,
+          <UI key="e">Shared views may only contain certified widgets</UI>,
+          'Nothing, because it starts off. When it is on, a view shared with anyone besides its owner can only be published while every widget on it is certified, and the Publish dialog names any that are not. Private views are never affected.',
+          <>Leave it off on a development deployment, where little is certified yet. Turn it on where &ldquo;shared&rdquo; should mean &ldquo;reviewed&rdquo;. See <GuideLink to="publishing" anchor="certify">Certify a widget</GuideLink>.</>,
         ],
       ]}
     />
@@ -201,17 +201,21 @@ const Body = () => (
       A Python tool written in <GuideLink to="agent-studio">Agent Studio</GuideLink> runs on the server whenever its agent decides to call it. It runs in a restricted subprocess with the
       app&rsquo;s credentials removed and limits on time and memory. That prevents the common accidents, but it is a validation sandbox, not a jail, and it does not replace review.
     </P>
+    <P>
+      Anyone can build an agent, so the safeguard is in how agents with Python tools are shared:
+    </P>
     <List>
-      <li>Give the Editor rights that allow Python tool authoring only to people who have completed your organisation&rsquo;s secure-development training.</li>
-      <li>Read a new Python tool before its agent is given domain or global visibility.</li>
+      <li>Give <UI>Can manage</UI> on an agent with Python tools only to people who have completed your organisation&rsquo;s secure-development training.</li>
+      <li>Read a new Python tool before its agent is shared widely or with everyone in this app.</li>
     </List>
     <P>
-      Editor rights are given in <GuideLink to="access">Managing access</GuideLink>.
+      Administrators can find every agent, and who it is shared with, under <UI>Content</UI> in the Admin Panel. See{' '}
+      <GuideLink to="access" anchor="content">Administrators &amp; access</GuideLink>.
     </P>
 
     <H2 id="where-next">Where next</H2>
     <Cards cols={3}>
-      <Card title="Managing access" to="access">Decide who can open this page and others.</Card>
+      <Card title="Administrators & access" to="access">Decide who can open this page and the rest of the Admin Panel.</Card>
       <Card title="Agent Studio" to="agent-studio">Choose the model and tools for one agent.</Card>
       <Card title="Moving data to another app" to="migration">Carry settings to another deployment.</Card>
     </Cards>

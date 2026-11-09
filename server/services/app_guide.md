@@ -5,6 +5,12 @@
   Conventions:
     * One topic per `##` section. The section titles are advertised verbatim in
       the tool description, so name them the way a user would ask.
+    * Keep every section well under 6,000 characters. A lookup returns at most
+      6,000 in all, so a longer section fills the answer by itself, crowds out
+      the section that actually answers the question, and is cut off partway.
+      Split a growing section under a new heading instead.
+    * Keep headings short. The tool description lists all of them within its
+      1,024-character limit, and a title past that point is never advertised.
     * Keep it factual and user-facing: what the button is called, what happens
       when you click it, who is allowed to. No implementation detail — the model
       cannot see the code and must not speculate about it.
@@ -22,33 +28,107 @@ colleagues. It runs as a Databricks App, so every user is signed in with their
 own Databricks identity and sees only the data and assets that identity can
 reach.
 
-The left sidebar holds views (My Views and Global Views), the Widget Library,
-Widget Studio, Agent Studio, and — under Resources — Getting Started, the User
-Guide, Release Notes, and Admin Panel. The assistant (this chat) is the panel on
-the right; collapsed, it is the round button at the bottom right of the screen.
+The left sidebar holds views (**My views**, **Shared with me**, and a collapsed
+**Archived** group), the Widget Library, Widget Studio, Agent Studio, and —
+under Resources — Getting Started, the User Guide, Release Notes, and, for
+Administrators, the Admin Panel. The assistant (this chat) is the panel on the
+right; collapsed, it is the round button at the bottom right of the screen.
+
+Everything people build — views, widgets and agents — works the same way. Each
+has a **draft** that the people who can manage it edit, and **published
+versions** that everyone it is shared with sees. Each has its own access list,
+like a Databricks dashboard: see *Sharing and permissions* and *Drafts and
+publishing*.
 
 Someone with no views of their own sees a welcome panel over the canvas the
 first time they open the app, with the assistant opened beside it. It offers
 five things: ask the assistant (starter questions are typed into the message box,
-never sent), browse global views, find widgets in the Widget Library, build a
-widget in Widget Studio, and build an agent in Agent Studio. The two studios need
-editor access in a domain; without it those cards say so. Hovering a card
-outlines where that feature lives. It doesn't open for someone arriving by a
-link to a view. **Resources → Getting Started** shows it again; **Got it**, the
-X or Esc close it.
+never sent), browse views shared with them, find widgets in the Widget Library,
+build a widget in Widget Studio, and build an agent in Agent Studio. Anyone can
+use both studios. Hovering a card outlines where that feature lives. It doesn't
+open for someone arriving by a link to a view. **Resources → Getting Started**
+shows it again; **Got it**, the X or Esc close it.
 
 ## Views and layouts
 
-A view is a named set of widgets, laid out on one or more tabs. Views are
-per-user unless they are global.
+A view is a named set of widgets, laid out on one or more tabs. Whoever creates
+a view owns it and can manage it; nobody else sees it until it is shared with
+them and published (see *Sharing and permissions* and *Drafts and publishing*).
 
-- **New View** in the sidebar creates a blank one. The pencil icon (shown on
-  hover) renames it: type the name and press Enter, or Esc to cancel. Drag a
-  view by the grip beside its name to reorder My Views. The small **X** on
-  hover closes a view: for one the person made, that deletes it at once with no
-  confirmation and no undo (copy it first if it might be wanted back); on a view
-  sent to them under **Shared Views** it only removes it from their list.
-- **Add tab** (top right) gives a one-tab view a second tab, asking what to
+- The sidebar groups views into **My views** (ones you own), **Shared with me**
+  (ones other people shared with you) and a collapsed **Archived** group (archived
+  views you manage, each with **Restore** and **Delete permanently**). Each view
+  shows an icon for who it is shared with: a lock (only the people on its access
+  list, often just you), people (shared with particular people or groups) or a
+  globe (everyone in this app). A small dot beside it, for people who can manage
+  it, means it has changes nobody else sees yet: grey if it has never been
+  published, amber if it has unpublished changes.
+- Administrators can manage every view, but their sidebar lists only the views
+  they own or that are shared with them; **Admin Panel → Content** lists all of
+  them, and an Administrator can open any view by its link.
+- **New View** in the sidebar creates a blank one: a draft that only you can see
+  until you share and publish it. The pencil icon (shown on hover) renames it:
+  type the name and press Enter, or Esc to cancel. Drag a view by the grip beside
+  its name to reorder My views.
+- **Closing one of your own views** with the **×** on hover asks first, then
+  deletes it if only you can open it, or archives it if it is shared with anyone
+  else (see *Archiving*, below).
+- A view under **Shared with me** offers two buttons on hover: **Copy**, which
+  makes a copy of your own in My views, and **Close**, which only takes it off
+  your sidebar. It stays shared with you, and opening its link brings it back.
+- **The view header** shows the view's name and, for people who can manage it,
+  a state chip beside the name: **Not published yet**, **Published** or
+  **Unpublished changes**; hovering the chip explains what it means. On the
+  right, in this order: the **Draft** / **Published** switch (only when there
+  are unpublished changes, or while you are looking at Published, so you can get
+  back), the **⋯** menu (*More view options*), **Share**, and **Publish**, the
+  last and only filled button. **Publish** is there only when there is
+  something to publish; on a view that is already up to date it is hidden, not
+  greyed out. People who can only use the view see just the ⋯ menu (when it has
+  anything for them) and **Share**.
+- **The ⋯ menu** holds everything used now and then, in three groups:
+  - **Layout** (called **This tab** when the view has several tabs): **Cards on
+    a grid** or **Full page**, with a check against the current one, and **Add
+    a tab…** on a one-tab view. Shown to whoever may change the view's tabs.
+  - **View**: **Preview as a viewer** (on a view set to open on its own),
+    **View settings…**, and **Lock layout** / **Unlock layout**.
+  - **Versions**, for managers: **Version history…** once the view has been
+    published, and **Discard draft…** when it has unpublished changes (it asks
+    to confirm first).
+- **Lock layout** (in the ⋯ menu, on a view) stops widgets being moved,
+  resized or removed by accident. Once locked the menu item reads **Unlock
+  layout**. A locked widget card loses its grip, version box and remove
+  button, and the Widget Library says "View is Locked" instead of adding
+  widgets. **Lock layout**, **View settings…**, the state chip and **Publish**
+  appear only for people who can manage the view; for someone who can only use
+  it, the view is read-only.
+- **Share** (top right, on a view) is there for everyone who can open the view.
+  It shows who the view is shared with; people who can manage the view also give
+  a person, a group or everyone in this app **Can use** or **Can manage** there
+  (see *Sharing something and getting access*), and for anyone else the list is
+  read-only. **Copy link** in that dialog copies a link to the current view. The chain-link icon on an
+  individual widget copies a link that opens that widget full-screen. The address
+  in the browser is the same link, so copying it from there works too.
+- **Every change a manager makes** — moving a widget, renaming a tab, View
+  settings, the agent pin — goes into the view's draft and reaches other people
+  only when the view is published. **Discard draft…** is offered only when the
+  view has unpublished changes; a view that has never been published is deleted
+  instead. See *Drafts and publishing*.
+- A widget on a view that has never been published shows a **Not published
+  yet** card to people using the view, in place of the widget.
+- **Archiving** takes a view you manage out of everyone's sidebar without
+  deleting anything; it then appears under **Archived**, where **Restore** brings
+  it back exactly as it was and **Delete permanently** removes every version. A
+  view shared with anyone besides its owner must be archived before it can be
+  deleted; a private view can be deleted straight away.
+- **View settings…** (in the ⋯ menu) is covered in *View
+  settings*: how the view opens, its look, its filters and its agent.
+- Tabs and full pages are covered in *Tabs and pages*, and how a view's link
+  works and who it opens for in *View links*.
+
+## Tabs and pages
+
+- **Add a tab…** (in the ⋯ menu) gives a one-tab view a second tab, asking what to
   call the new tab and the one already there (left empty, that one becomes
   "Overview"); a tab bar then appears under the header with a **+** for more (up
   to 50). Double-click a tab, or select it and press F2, to rename it; drag it to
@@ -56,70 +136,63 @@ per-user unless they are global.
   widgets; the last tab can't be deleted). From the keyboard, Tab reaches the
   tab bar, the arrow keys and Home/End move along it, and Enter or Space opens
   a tab. Whoever may move widgets
-  in a view may change its tabs: not while it is locked, and in a global view
-  only an admin. A widget added from the Widget Library goes on the tab being
-  shown.
+  in a view may change its tabs: someone who can manage it, in its draft, and
+  not while it is locked. The published version is read-only for everyone. A
+  widget added from the Widget Library goes on the tab being shown.
 - A tab is **Cards on a grid** (several widgets, each in a card; the default)
   or a **Full page** (one widget filling the whole tab, with no card around it,
-  for a landing page or hub). **Add tab** and the **+** ask which for a new
-  tab. To switch the tab being shown, use the **Grid** / **Full page** switch
-  in the top right of the header; it is there for whoever may change the
-  view's tabs, including on a view with only one tab (the usual way to make a
-  whole view one full page). **Full page** is grayed out, with a tooltip
-  saying why, on a grid holding more than one widget: remove all but one
-  first. Any tab may be a page, in any order.
+  for a landing page or hub). **Add a tab…** and the **+** ask which for a new
+  tab. To switch the tab being shown, pick **Cards on a grid** or **Full page**
+  in the ⋯ menu; the choice is there for whoever may change the view's tabs,
+  including on a view with only one tab (the usual way to make a whole view one
+  full page). **Full page** can't be picked on a grid holding more than one
+  widget, and hovering it says why: remove all but one first. Any tab may be a
+  page, in any order.
 - On a page, drag a widget from the Widget Library onto it (dropping another
   replaces it, after asking). The toolbar in its top-right corner — shown only
   to whoever may change the tab, inside Command Center — offers **Change
   widget**, **Edit in Widget Studio**, the gear for the widget's settings (where
   its links are set), and remove (after asking). The gear is grayed out for a
-  widget built without settings. To turn the page back into cards on a grid, use
-  **Grid** in the header.
+  widget built without settings. To turn the page back into cards on a grid,
+  pick **Cards on a grid** in the ⋯ menu.
   A view opened on its own shows the page without the toolbar. Any widget can
   go on a page, but one built as a page in Widget Studio (marked **PAGE** in
   the Widget Library) is the one made to fill it.
+
+## View links
+
 - The address names the tab being shown, so a link opens on that tab and Back
   steps between tabs. A link to the first tab doesn't name it, so it opens
   whichever tab is first.
-- Links use names, not codes. A global view's link is its name, like
-  `#/app/supply-hub/inventory`; a second global view with the same name gets
-  `supply-hub-2`. Renaming a global view gives it a new link, and links to the
-  old name keep opening it. A personal view's link is its name followed by its
-  id, like `#/app/q3-review-3f2a…`: anyone holding that link can open a personal
-  view, so the id stays in it to keep it unguessable. A tab goes by its name
-  unless two tabs would share one; after a tab is renamed, an old link to it
-  opens the first tab. Links with ids from before this still work.
-- **Global Views** are shared templates. A user only sees the global views whose
-  domain they have at least Viewer access to. Hovering one and clicking the copy
-  icon duplicates it into My Views, named "<name> (Copy)" with all its tabs,
-  where it becomes editable.
-- **Lock** (top right, on a view; not on the Admin Panel, guides or studios) freezes the layout so widgets cannot be dragged or
-  resized by accident. Once locked the button reads **Locked**; clicking it
-  unlocks the view. A locked widget card loses its grip, version box and remove
-  button, and the Widget Library says "View is Locked" instead of adding
-  widgets. **Lock** and **Share** appear only on a view the person owns, and on
-  global views for admins; a view shared with them shows neither. A global view
-  is read-only for anyone who is not an admin.
-- **Share** (top right, on a view) copies a link to the current view; the button
-  reads **Copied!** for a moment. The chain-link icon on an
-  individual widget copies a link that opens that widget full-screen. The address
-  in the browser is the same link, so copying it from there works too.
-- Opening a link to someone else's personal view adds it to the opener's
-  **Shared Views**, read-only; the hover **×** there removes it. Links still need
-  the usual sign-in, and a global view opens only for people with access to its
-  domain. Links copied before the link format changed (`?shared_view=…`,
-  `#/view/…`) keep working; new ones look like `#/app/…`.
-- **Settings** (top right) is covered in the next section, *View settings*:
-  how the view opens, its look, its filters and its agent.
+- Links use names, not codes. A published view's link is its name, like
+  `#/app/supply-hub/inventory`; a second view with the same name gets
+  `supply-hub-2`. Renaming a view gives it a new link when it is next
+  published, and links to the old name keep opening it. A view that has never
+  been published is linked by its name followed by its id, like
+  `#/app/q3-review-3f2a…`. A tab goes by its name unless two tabs would share
+  one; after a tab is renamed, an old link to it opens the first tab. Links with
+  ids from before this, and links that still carry `?env=` from the old
+  Dev/Test/Prod switcher, keep working.
+- **A link opens only for people the view is shared with.** Anyone else is told
+  the view isn't there, exactly as if it didn't exist, so a link never confirms
+  that something exists. An archived view's link stops opening too, until it is
+  restored. Inside the Command Center, people who can manage the view see its
+  draft and people who can use it see the latest published version. A view set
+  to open on its own from its link always shows the published version there,
+  read-only, even to its managers, who use **Edit** to go back to the draft.
+  Everyone who could open a view before the upgrade to sharing still can. Links
+  still need the usual
+  sign-in, and links copied before the link format changed
+  (`?shared_view=…`, `#/view/…`) keep working; new ones look like `#/app/…`.
 
 ## View settings
 
-**Settings** (top right of a view) is offered to the owner of a personal view and,
-for a global view, to an admin or an Editor in its domain; views shared with
-someone don't show it. It has four sections listed down its left side:
-**Opening**, **Look**, **Filters** and **Assistant**. A red dot marks a section
-with something to fix, and the footer names it, because **Save** stays off until
-it is fixed. Nothing is stored until **Save**.
+**View settings…** (in the view's ⋯ menu) is offered to people who can manage
+the view; people who can only use it don't see it. It has four sections listed down its
+left side: **Opening**, **Look**, **Filters** and **Assistant**. A red dot marks
+a section with something to fix, and the footer names it, because **Save** stays
+off until it is fixed. Nothing is stored until **Save**, and **Save** writes the
+view's draft: other people see the new settings once the view is published.
 
 - **Opening** decides how the view's link opens. **Inside Command Center** is the default and how every view has
   always opened. **On its own** opens just that view: no sidebar, no Widget
@@ -131,12 +204,11 @@ it is fixed. Nothing is stored until **Save**.
   **Header** there can be **No header: the page has its own**, for a view whose
   page draws its own title bar. On its own the view then starts straight with
   its tabs (or its page), the logo field goes away, and the title is used only on
-  the browser tab. **Copy link**, **Edit** (or **Back to editing** in a preview)
+  the browser tab. **Share**, **Edit** (or **Back to editing** in a preview)
   and the environment label move to a small bar at the bottom left, shown only
   to people who get at least one of them. Inside Command Center the header goes
-  too, and the view's editing buttons (**Preview**, **Grid** / **Full page**,
-  **Add tab**, **Settings**, **Lock**, **Share**) sit in the same bar at the
-  bottom left.
+  too, and the view's controls (the state chip, **Draft** / **Published**, the
+  ⋯ menu, **Share** and **Publish**) sit in the same bar at the bottom left.
 - Each field in **Settings** has a **?** beside it; hovering it (or tabbing to
   it) explains what the field does.
 - **Assistant** in **Settings** has the **Agent** picker: the agent the view
@@ -148,6 +220,43 @@ it is fixed. Nothing is stored until **Save**.
   is no assistant, and inside Command Center the launcher and panel disappear
   while that view is on screen (they come back on other views, studios and
   pages). Picking any agent again brings it back.
+- **Version history.** Moving, resizing and changing settings edit the view's
+  draft in place, so they add no versions. Each **Publish** adds one version,
+  and **Version history…** in the ⋯ menu (for managers) lists the published
+  versions; **Revert** copies one back into the draft, and publishing it makes
+  it live again.
+- Two more choices in **Settings** apply wherever the view opens. **Tabs**,
+  under **Look**: **Across the top** (the default) or **Down the side**; a view
+  with one tab shows no tabs either way. **Filters**: dropdowns under the header, each with a
+  label, a variable name, its options (one per line) and the option it starts
+  on. Anyone who can see the view can use them. A choice sets that dashboard
+  variable for every widget on every tab, exactly as a widget passing a value to
+  others does, so only widgets written to follow that variable change. **All**
+  clears it. Each person comes back to the choices they last made on that view,
+  remembered in their browser (a different browser or computer starts from the
+  defaults); a remembered option the filter no longer offers falls back to its
+  default.
+  A view built from several views keeps their filters.
+- A view opened on its own is read-only for everyone, including its owner, and
+  always shows the latest published version, never the draft; its tabs can be
+  switched but not changed. Publish the view before sending its link to people
+  who should see it on its own.
+  **Share** there is for everyone who can open the view: it shows who the view is
+  shared with and copies its link, and only managers can change the list.
+  **Edit** goes to anyone who can manage the view.
+  **Edit** reopens it inside Command Center at an address starting
+  `#/workspace/…`, which keeps it there on reload; **Preview as a viewer** in the
+  ⋯ menu goes back to seeing it on its own. A view opened with **Preview** is labelled
+  **Preview** and has **Back to editing** (or **Back to Command Center** for
+  someone who can't change it) in place of **Edit**, returning to the same tab;
+  the label and button are only there for whoever pressed **Preview**, not for
+  people opening the link. The link opens only for people the view is shared
+  with.
+- **Look** (the colours, font, background, header and cards) is covered in
+  *View look*.
+
+## View look
+
 - **Look** in **Settings** styles the view, the same on every tab. **Accent
   color** and **Dark color** replace Command Center's blue and navy, widgets included, and each
   must be dark enough for white text. **Font** is one of Inter, Manrope, Space
@@ -189,34 +298,6 @@ it is fixed. Nothing is stored until **Save**.
   choices. It only fills the fields: nothing is saved until **Save**, **Undo**
   puts back what was there, and anything the model chose that the app can't
   draw is named and left out.
-- **Version history.** Changes to a personal view within five minutes of each
-  other are kept as one version, so a burst of moving and resizing doesn't fill
-  its history. Every save to a global view is still its own version, because
-  promotion copies and rolls back to those.
-- Two more choices in **Settings** apply wherever the view opens. **Tabs**,
-  under **Look**: **Across the top** (the default) or **Down the side**; a view
-  with one tab shows no tabs either way. **Filters**: dropdowns under the header, each with a
-  label, a variable name, its options (one per line) and the option it starts
-  on. Anyone who can see the view can use them. A choice sets that dashboard
-  variable for every widget on every tab, exactly as a widget passing a value to
-  others does, so only widgets written to follow that variable change. **All**
-  clears it. Each person comes back to the choices they last made on that view,
-  remembered in their browser (a different browser or computer starts from the
-  defaults); a remembered option the filter no longer offers falls back to its
-  default.
-  A view built from several views keeps their filters.
-- A view opened on its own is read-only for everyone, including its owner; its
-  tabs can be switched but not changed.
-  **Copy link** there goes to the same people who get **Share** in Command
-  Center, and **Edit** goes to anyone who may change the view's settings.
-  **Edit** reopens it inside Command Center at an address starting
-  `#/workspace/…`, which keeps it there on reload; **Preview** in the header goes
-  back to seeing it on its own. A view opened with **Preview** is labelled
-  **Preview** and has **Back to editing** (or **Back to Command Center** for
-  someone who can't change it) in place of **Edit**, returning to the same tab;
-  the label and button are only there for whoever pressed **Preview**, not for
-  people opening the link. Who can open the link is unchanged, and opening
-  someone else's personal view on its own still adds it to **Shared Views**.
 
 ## Widgets
 
@@ -239,19 +320,26 @@ pages, or buttons that perform an action.
   widget off the tab at once, with no confirmation, and its settings go with
   it; it stays in the Widget Library. In full screen the X only leaves full
   screen. A direct link doesn't work for a widget on a full-page tab, and the
-  person opening it needs access to the view. On a view someone can't change (locked, global, shared) a card
+  person opening it needs access to the view. On a view someone can't change (locked, published, or shared with them to use) a card
   shows only its title and full-screen, plus copy link; on its own, not even
   that. Long titles are cut short with "…"; hover for the whole name.
-- Widgets that exist in more than one version have a version picker in the
-  header, so a user can pin an older version on their own view. Saving a
+- Widgets with more than one published version have a version picker in the
+  header, so whoever manages a view can pin an older version on it. Saving a
   widget's settings keeps that pin.
+- **Who sees a widget on a view.** Anyone who can use a published view sees the
+  widgets on it — each at its latest published version, or the version the card
+  pins — without needing the widget shared with them separately. A widget placed
+  on a view but never published shows "Not published yet" to them instead. In a
+  view's draft, its managers see their own unpublished widget changes. Data in a
+  widget is still read as the person looking at it, so Unity Catalog decides what
+  each person sees.
 
 **What a widget is allowed to contain.** Saving a widget — in Widget Studio or by
 importing one — is refused if its code uses `eval`, `new Function`,
 `document.write`, `innerHTML` or `dangerouslySetInnerHTML`, or if it references
 any address other than this app's own `/api/...` paths and the approved CDNs
 (cdn.jsdelivr.net, code.highcharts.com, unpkg.com, cdnjs.cloudflare.com), plus
-any Databricks App a global admin has listed under Admin Panel → Settings →
+any Databricks App an Administrator has listed under Admin Panel → Settings →
 **Databricks Apps widgets may embed or call**. That list starts empty. Each line
 is one app's host, or every app in a workspace written as
 `*-<workspace-id>.<region>.databricksapps.com` (an app's host is
@@ -299,259 +387,342 @@ setting.
 ## Widget Library
 
 Opens from the **Widget Library** button in the sidebar, or by pressing `w`.
-It lists the widgets available to the user, filtered to the domains they can
-view, and is searchable. Widgets certified in production are flagged as such,
-and widgets built as pages are marked **PAGE**.
+It lists the published widgets shared with the user, plus the drafts of widgets
+they can manage, and is searchable. Certified widgets are flagged as such, and
+widgets built as pages are marked **PAGE**. A widget that has never been shared
+with someone doesn't appear for them at all. Widgets on a view shared with you
+still show on that view, at their published version, but aren't offered in the
+library unless the widget itself is shared with you.
 
 A panel rises over the bottom three quarters of the screen; Esc, the X or a click
 outside closes it. It lists the widgets in the domain selected, most used first.
 
 - **Search widgets…** matches names and descriptions across every group,
   ignoring the group picked on the left. **Categories** and **Domains** group the
-  list down the left side, each with a count.
+  list down the left side, each with a count. Domains are only labels for
+  finding things; they don't decide who can use a widget.
+- **All**, **Mine** and **Shared with me**, beside the domain filter, narrow the
+  list to every widget, widgets you built, or widgets other people built and
+  shared with you.
 - **Grid View** shows cards with previews; **List View** a table of name,
   creator, status, popularity and size.
 - **Certified** shows certified widgets plus the person's own, remembered in
-  that browser. **All**, **Accessible to me** and **Access Request Needed**
-  filter by whether the person may use the widget. **Top creators** lists who
-  builds the widgets people use; clicking a name shows only theirs.
+  that browser. **Top creators** lists who builds the widgets people use;
+  clicking a name shows only theirs.
 - A card shows a **CERTIFIED** badge and a **PAGE** badge where they apply, how
-  many times it has been added, its creator ("by you"), domain and default size.
-  A widget the person may not use yet shows a lock and **Access Restricted** and
-  can't be added. On a widget with no creator recorded, an editor of its domain
-  sees **Did you build this? Claim it**.
-- Hover icons: **Clone widget** opens a copy in Widget Studio, **Edit in Widget
-  Studio** appears for editors of the widget's domain, and **Delete widget**
-  appears for its author (or, for a widget with no creator recorded, anyone).
-  Delete removes the widget from the library for
-  everyone, after one confirmation, and can't be undone; to take a widget off
+  many times it has been added, its creator ("by you"), domain and default size,
+  plus an icon for who it is shared with. On a widget you can manage, a chip
+  reads **NOT PUBLISHED YET** or **UNPUBLISHED CHANGES** when other people don't
+  yet see what you have saved. On a widget with no creator recorded, someone who
+  can manage it sees **Did you build this? Claim it**.
+- Hover icons: **Clone widget** opens a copy in Widget Studio (a new widget of
+  your own), the share icon opens **Share** (read-only unless you can manage
+  the widget), and **Edit in Widget Studio** and **Delete widget** appear for
+  people who can manage the widget. Delete removes the widget from the library
+  for everyone, after one confirmation, and can't be undone; to take a widget off
   just one view, use the X on its card instead.
 
 ## Widget Studio
 
-Where widgets are created and edited, at **Widget Studio** in the sidebar
-(visible only to users who can create widgets). No React expertise is required
-for simple and moderately complex widgets — they are generated from a
-description.
+Where widgets are created and edited, at **Widget Studio** in the sidebar.
+Anyone can build a widget; editing an existing one needs **Can manage** on it.
+No React expertise is required for simple and moderately complex widgets —
+they are generated from a description.
 
-1. **Configuration tab** — name, description, help text, category, domain,
-   default size, whether the widget performs an executable action, and its
-   configuration mode (whether end users can pass runtime inputs). The Data
-   Source is None, API or Databricks API, and can be tested here with **Test &
-   Extract Schema**; the schema and a few sample rows are shown and handed to the
-   generating agent. Tests run as you, with your own permissions. An external API
-   is called from your browser, exactly as the widget will call it, so a CORS
-   block shows up here. **There is no SQL data source**: for tables, the user
-   leaves it on None and names the table in the chat, and the agent writes the SQL
-   into the widget's code and runs it to check it (see the agent, below). A widget
-   saved earlier with a SQL data source keeps it, shown read-only under **Legacy
-   SQL data source**, so the widget and its placed copies keep working; to change
-   that query the user asks the agent, which moves it into the code, and **Remove
-   legacy SQL** then clears the old one (it stays disabled while the code still
-   reads it). How many rows a query returns decides how the agent builds, so it
-   counts them when unsure. Searching, sorting and paging can
-   happen in the browser or in the query, and both work at any row count; the
-   deciding factor is how much data the browser would download, about 10 MB
-   (rows times columns). Under that, the widget fetches everything once and works
-   locally; over it, paging, sorting, searching and totals are pushed into SQL so
-   the widget only ever holds one page. A table of unknown size is treated as large.
-   A query returns its first 500 rows unless the widget asks for more, and the
-   response says when rows were left out; a user who "hit a row limit" usually
-   means this. A widget can ask for every row (`all_rows: true` in its request),
-   however large the result — the only stop is the admin's **Most rows one widget
-   query can return** setting (Admin Panel → Settings, default 1,000,000). A
-   widget that asks for a fixed number such as 5,000 or 10,000 instead goes wrong
-   quietly once the data grows past it, and Widget Studio flags that number. The
-   fix for either is to ask the studio agent to fetch every row, or to page in
-   SQL.
-2. **The agent** — describe the widget in the chat and it writes the TSX. Asking
-   for a change edits the existing code in place rather than rewriting the whole
-   component. After generating, it also proposes Configuration-tab values,
-   including runtime parameter fields and whether they are Allowed or Required.
-   A parameter it creates is read from `props.data` in the code as well as added
-   to the placed widget's gear. Existing fields are kept rather than redefined,
-   and anything filled in by hand during this studio session is left alone. While it works, **Thinking**
-   can be expanded to see what it decided — how it read the request, the steps it
-   planned, and anything it skipped — and that stays with the answer afterwards.
-   On a large or vague request it may ask up to three questions first rather than
-   guess; answer them, or press **Build it anyway** to have it choose defaults.
-   It can also **look at your data** before writing code: it runs read-only SQL on
-   the app's warehouse and can ask Genie, both as you, so it only sees what you
-   are allowed to see. Name the table (`main.supply.shipments`) and it checks the
-   real column names and values rather than guessing; what it looked up shows
-   under **Thinking**. It never writes data, and what it finds shapes the code
-   rather than being pasted in as fixed numbers. Each step of a multi-step build
-   can do this too, and it runs any SQL it writes once before handing the code
-   back. Admins can switch either tool off in Admin Panel → Settings.
-3. **Attachments and screenshots** — the paperclip attaches spreadsheets,
-   documents and images for the agent to read, a screenshot or copied image can
-   be pasted straight into the message box, and **Send screenshot to agent**
-   under the preview attaches a picture of the widget as it currently looks.
-   Neither sends on its own: the file waits on the next message, so "this column
-   is too narrow" arrives with the thing it describes.
-4. **TSX Editor / Live Preview** — the code and its live rendering. **Reload**
-   re-runs the widget so anything that only happens on first load can be
-   repeated without editing code. The studio watches the preview run: each
-   request the widget makes (and how many rows came back), anything it logs as an
-   error, and errors it throws. If code the agent just wrote fails when it runs —
-   a query rejected as invalid, a crash in its data handling — the agent is sent
-   what happened and fixes it on its own, up to twice. It does not try to fix
-   failures code can't fix: a permission error (403), a server error, or a
-   widget's legacy SQL data source itself failing, which it reports so the user
-   can ask for a replacement query.
-   **Problems**, the bar under the preview and the code, lists two things: rule
-   checks on the code (an import widgets can't use, a script from a CDN that
-   isn't allowed, a write without the audit trail, text too light to read, a
-   class the app's stylesheet doesn't have and so does nothing, a font that
-   isn't bundled, and similar) and what happened in the last run. The agent is given both with every
-   request. **Fix with agent** asks it to fix everything listed. Rule errors in
-   code the agent wrote are fixed automatically, like a failed run; warnings are
-   left to you.
-5. **Card or page** — the switch above the preview. A **Card** sits on a
-   tab with other widgets; a **Page** fills a whole tab of a view, brings its
-   own background and layout, and is what a landing page or hub should be. A
-   new widget whose first request asks for a landing page, hub or full-screen
-   page starts as a page, and the studio says so; anything else starts as a
-   card, and the switch changes it at any time. The agent is told which it is
-   building. A page previews under a stand-in header and three stand-in tabs
-   (Home, Overview, Details), at **Laptop**, **Wide** or **Narrow** width,
-   scaled to fit the pane. Only the frame changes width: classes like `md:` and
-   `lg:` follow the browser window, so a narrow layout is best checked by
-   narrowing the window. Its buttons that go to a tab or open the assistant say
-   what they would do in a view rather than doing it. Attach a picture of the
-   page you want and the agent works from it. Cards on a page that name a part
-   of the view (a persona, a team) open the tab of that name when the view has
-   one, found by name when clicked, and otherwise ask the assistant; so add the
-   tabs, named as the cards are, and the cards start leading to them.
-6. **Agent settings** (the sliders icon above the chat) — two options, remembered
-   in that browser rather than set for everyone. *Conduct review after change*
-   (off by default) has the agent re-read its own code once it has compiled and
-   run in the preview, as a QA pass over behaviour, states, layout and
-   legibility, and fix what it finds. It is shown a screenshot of the rendered
-   widget and what happened when it ran, when the model can read images. It
-   then adds a *Worth considering* note — up to three changes that would make the
-   widget better at its job, judged as a product owner would rather than against
-   the request. Those are only ever suggestions; the review never implements them,
-   so it cannot quietly grow a widget. Each one appears as a chip under **Do
-   next**: clicking it writes that instruction into the message box, ready to
-   edit or send, so acting on a suggestion is one click rather than retyping it.
-   It costs an extra turn. *Ask before large builds* (on by default) is the
-   clarifying-question behaviour above, and can be switched off by anyone who
-   would rather it always guessed.
-7. **Save / Publish** — saves to the Dev environment and increments the version,
-   and leaves you in the studio to carry on working. The widget is immediately
-   available in the Widget Library to users with Dev access. The **X** closes the
-   studio.
-8. **Stop** — while the agent works, the send button becomes a red Stop button
-   and Enter does nothing. Stop ends the turn at once: steps that already
-   finished stay in the editor (each has a History entry) and nothing else is
-   applied. **Stop after this step**, on multi-step builds, lets the current step
-   finish first.
+Layout: only the agent settings sit above the chat. The right-hand header holds
+the tabs, then **History**, **Reload**, a **⋯** menu with *Import from file*,
+*Export to file* and *Reset studio*, then **Save draft** and the X. For a saved
+widget, the bar under the tabs holds **Share**, plus the draft controls and
+**Certify** if you can manage it.
 
-**Parameters in Dev, Test and Prod.** Parameter values belong to the card placed
-in the current **Workspace**. For a catalog, schema, threshold or other value
-that differs between workspaces, ask the studio for a **Required** parameter
-without a default. Dropping the widget in each workspace opens **Widget
-settings** before it is placed; the card's gear changes it later. Promoting a
-whole view copies its card settings with the view, so open each promoted card's
-gear in the target workspace when those values must differ.
-
-Layout: only the agent settings sit above the chat. Everything about the widget
-is in the right-hand header — the tabs, then **History**, **Reload**,
-**Promote** (see *Environments and promoting work*), a **⋯** menu with *Import
-from file*, *Export to file* and *Reset studio*, then **Save / Publish** and the
-X.
+- **Save draft and Publish** — **Save draft** writes your draft in place and
+  leaves you in the studio to carry on working; it adds no version, and only
+  people who can manage the widget see the draft. Once a widget is saved, a bar
+  under the tabs holds its state chip (**Not published yet**, **Published** or
+  **Unpublished changes**), the **Draft** / **Published** switch (only when there
+  are unpublished changes, or while on Published; Published is a read-only
+  preview of what people see), **Discard draft** (only with unpublished
+  changes), **Publish** (hidden when there is nothing to publish), **Certify**
+  and **Share**.
+  **Publish** runs the safety check again, then turns the draft into the next
+  published version, which is what everyone the widget is shared with sees and
+  can place. A new widget is shared with nobody but you until you use
+  **Share**. **History** lists earlier code from this session and published
+  versions, either of which can be restored into the editor. The **X** closes the
+  studio. See *Drafts and publishing*.
+- **Stop** — while the agent works, the send button becomes a red Stop button
+  and Enter does nothing. Stop ends the turn at once: steps that already
+  finished stay in the editor (each has a History entry) and nothing else is
+  applied. **Stop after this step**, on multi-step builds, lets the current step
+  finish first.
 
 A widget can also be exported to a JSON file and imported elsewhere, which is
-how widgets move between disconnected environments.
+how widgets move between disconnected deployments.
+
+The rest of the studio is covered in *Widget Studio: configuration and data*
+(the Configuration tab, data sources, row limits and parameters), *Widget
+Studio: the agent* (asking for a widget, attachments, agent settings) and
+*Widget Studio: preview and pages* (the preview, Problems, cards and pages).
+
+## Widget Studio: configuration and data
+
+- **Configuration tab** — name, description, help text, category, domain (a
+  label for finding the widget, not a permission),
+  default size, whether the widget performs an executable action, and its
+  configuration mode (whether end users can pass runtime inputs). The Data
+  Source is None, API or Databricks API, and can be tested here with **Test &
+  Extract Schema**; the schema and a few sample rows are shown and handed to the
+  generating agent. Tests run as you, with your own permissions. An external API
+  is called from your browser, exactly as the widget will call it, so a CORS
+  block shows up here. **There is no SQL data source**: for tables, the user
+  leaves it on None and names the table in the chat, and the agent writes the SQL
+  into the widget's code and runs it to check it (see *Widget Studio: the
+  agent*). A widget
+  saved earlier with a SQL data source keeps it, shown read-only under **Legacy
+  SQL data source**, so the widget and its placed copies keep working; to change
+  that query the user asks the agent, which moves it into the code, and **Remove
+  legacy SQL** then clears the old one (it stays disabled while the code still
+  reads it). How many rows a query returns decides how the agent builds, so it
+  counts them when unsure. Searching, sorting and paging can
+  happen in the browser or in the query, and both work at any row count; the
+  deciding factor is how much data the browser would download, about 10 MB
+  (rows times columns). Under that, the widget fetches everything once and works
+  locally; over it, paging, sorting, searching and totals are pushed into SQL so
+  the widget only ever holds one page. A table of unknown size is treated as large.
+  A query returns its first 500 rows unless the widget asks for more, and the
+  response says when rows were left out; a user who "hit a row limit" usually
+  means this. A widget can ask for every row (`all_rows: true` in its request),
+  however large the result — the only stop is the admin's **Most rows one widget
+  query can return** setting (Admin Panel → Settings, default 1,000,000). A
+  widget that asks for a fixed number such as 5,000 or 10,000 instead goes wrong
+  quietly once the data grows past it, and Widget Studio flags that number. The
+  fix for either is to ask the studio agent to fetch every row, or to page in
+  SQL.
+
+**Parameters that differ between places.** Parameter values belong to the card
+placed on a view. For a catalog, schema, threshold or other value that differs
+between views, or between this app and another deployment, ask the studio for a
+**Required** parameter without a default. Dropping the widget opens **Widget
+settings** before it is placed; the card's gear changes it later. Moving a view
+to another deployment with Data Migration copies its card settings with it, so
+open each card's gear there when those values must differ.
+
+## Widget Studio: the agent
+
+- **The agent** — describe the widget in the chat and it writes the TSX. Asking
+  for a change edits the existing code in place rather than rewriting the whole
+  component. After generating, it also proposes Configuration-tab values,
+  including runtime parameter fields and whether they are Allowed or Required.
+  A parameter it creates is read from `props.data` in the code as well as added
+  to the placed widget's gear. Existing fields are kept rather than redefined,
+  and anything filled in by hand during this studio session is left alone. While it works, **Thinking**
+  can be expanded to see what it decided — how it read the request, the steps it
+  planned, and anything it skipped — and that stays with the answer afterwards.
+  On a large or vague request it may ask up to three questions first rather than
+  guess; answer them, or press **Build it anyway** to have it choose defaults.
+  It can also **look at your data** before writing code: it runs read-only SQL on
+  the app's warehouse and can ask Genie, both as you, so it only sees what you
+  are allowed to see. Name the table (`main.supply.shipments`) and it checks the
+  real column names and values rather than guessing; what it looked up shows
+  under **Thinking**. It never writes data, and what it finds shapes the code
+  rather than being pasted in as fixed numbers. Each step of a multi-step build
+  can do this too, and it runs any SQL it writes once before handing the code
+  back. Admins can switch either tool off in Admin Panel → Settings.
+- **Attachments and screenshots** — the paperclip attaches spreadsheets,
+  documents and images for the agent to read, a screenshot or copied image can
+  be pasted straight into the message box, and **Send screenshot to agent**
+  under the preview attaches a picture of the widget as it currently looks.
+  Neither sends on its own: the file waits on the next message, so "this column
+  is too narrow" arrives with the thing it describes.
+- **Agent settings** (the sliders icon above the chat) — two options, remembered
+  in that browser rather than set for everyone. *Conduct review after change*
+  (off by default) has the agent re-read its own code once it has compiled and
+  run in the preview, as a QA pass over behaviour, states, layout and
+  legibility, and fix what it finds. It is shown a screenshot of the rendered
+  widget and what happened when it ran, when the model can read images. It
+  then adds a *Worth considering* note — up to three changes that would make the
+  widget better at its job, judged as a product owner would rather than against
+  the request. Those are only ever suggestions; the review never implements them,
+  so it cannot quietly grow a widget. Each one appears as a chip under **Do
+  next**: clicking it writes that instruction into the message box, ready to
+  edit or send, so acting on a suggestion is one click rather than retyping it.
+  It costs an extra turn. *Ask before large builds* (on by default) is the
+  clarifying-question behaviour above, and can be switched off by anyone who
+  would rather it always guessed.
+
+## Widget Studio: preview and pages
+
+- **TSX Editor / Live Preview** — the code and its live rendering. **Reload**
+  re-runs the widget so anything that only happens on first load can be
+  repeated without editing code. The studio watches the preview run: each
+  request the widget makes (and how many rows came back), anything it logs as an
+  error, and errors it throws. If code the agent just wrote fails when it runs —
+  a query rejected as invalid, a crash in its data handling — the agent is sent
+  what happened and fixes it on its own, up to twice. It does not try to fix
+  failures code can't fix: a permission error (403), a server error, or a
+  widget's legacy SQL data source itself failing, which it reports so the user
+  can ask for a replacement query.
+  **Problems**, the bar under the preview and the code, lists two things: rule
+  checks on the code (an import widgets can't use, a script from a CDN that
+  isn't allowed, a write without the audit trail, text too light to read, a
+  class the app's stylesheet doesn't have and so does nothing, a font that
+  isn't bundled, and similar) and what happened in the last run. The agent is given both with every
+  request. **Fix with agent** asks it to fix everything listed. Rule errors in
+  code the agent wrote are fixed automatically, like a failed run; warnings are
+  left to you.
+- **Card or page** — the switch above the preview. A **Card** sits on a
+  tab with other widgets; a **Page** fills a whole tab of a view, brings its
+  own background and layout, and is what a landing page or hub should be. A
+  new widget whose first request asks for a landing page, hub or full-screen
+  page starts as a page, and the studio says so; anything else starts as a
+  card, and the switch changes it at any time. The agent is told which it is
+  building. A page previews under a stand-in header and three stand-in tabs
+  (Home, Overview, Details), at **Laptop**, **Wide** or **Narrow** width,
+  scaled to fit the pane. Only the frame changes width: classes like `md:` and
+  `lg:` follow the browser window, so a narrow layout is best checked by
+  narrowing the window. Its buttons that go to a tab or open the assistant say
+  what they would do in a view rather than doing it. Attach a picture of the
+  page you want and the agent works from it. Cards on a page that name a part
+  of the view (a persona, a team) open the tab of that name when the view has
+  one, found by name when clicked, and otherwise ask the assistant; so add the
+  tabs, named as the cards are, and the cards start leading to them.
 
 ## Domains
 
-A domain is a logical grouping of assets — global views, widgets, and saved
-agents — used to control who can see and change what. Finance, Supply Chain,
-Sales are typical. Assigning a widget holding sensitive data to a domain means
-users without access to that domain cannot see or embed it.
+A domain is a label — Finance, Supply Chain, Sales are typical — put on views,
+widgets and saved agents so people can find them. The Widget Library groups and
+filters by domain. **Domains don't control access**: who can see or
+change something is decided only by its own access list (see *Sharing and
+permissions*). Administrators manage the list of domains under **Admin Panel →
+Categories & Domains**.
 
-## Roles and permissions
+## Sharing and permissions
 
-Access is role-based, per domain, at three levels:
+Access works like sharing a Databricks dashboard. Every view, widget and agent
+has its own access list, and each entry gives one of two levels:
 
 | Level | Can do |
 | --- | --- |
-| Viewer | See and interact with that domain's global views and widgets |
-| Editor | Everything a Viewer can, plus create, edit, and reorganize the domain's widgets and global views, open the Dev and Test workspaces, and promote, roll back and certify |
-| Admin | Everything an Editor can, plus the **Admin Panel** appears in the sidebar, where global views are promoted, removed and restored. Changing who has access (role mappings, categories and domains) still needs a Global Admin |
+| **Can use** | See the published version in the sidebar or the Widget Library, open it, place a published widget on your own views, chat with a published agent |
+| **Can manage** | Everything Can use allows, plus see and edit the draft, publish, discard the draft, revert to an older version, change who it is shared with, certify (widgets), and archive, restore or delete it |
+
+An entry names one of three kinds of principal:
+
+- **A person**, by their Databricks username (case doesn't matter).
+- **A group**, by its Databricks group name, which must match **exactly,
+  capitals included**.
+- **Everyone in this app**, which covers every signed-in user.
 
 Key rules:
 
-- **One set of permissions for the whole app.** There is no separate Dev, Test or
-  Prod permission: a mapping applies in every workspace, whichever one the admin
-  had selected when saving it.
-- **The highest level wins.** Permissions are additive: a user mapped to both
-  Viewer and Editor on the same domain gets Editor. Being a Viewer on one domain
-  never limits Editor rights on another.
+- **The owner** — whoever created it — gets Can manage automatically and is
+  shown with an **Owner** tag in the share dialog. Something must always keep at
+  least one person or group with Can manage; only an Administrator can remove the
+  last one.
+- **The highest level wins.** Someone who gets Can use as a person and Can
+  manage through a group can manage it.
+- **Administrators** can manage everything in the app and are the only people
+  who see the **Admin Panel**. They are listed under **Admin Panel →
+  Administrators**. Running locally with `DEV_MODE=true` makes you one.
+- **Anyone can build.** Widget Studio and Agent Studio are open to everyone, and
+  what you build starts out shared with nobody but you.
+- **People who can use something see only its published version.** Something
+  that has never been published is invisible to them, even if it is shared with
+  them. See *Drafts and publishing*.
+- **A view carries its widgets.** Anyone who can use a published view sees the
+  published widgets on it without each widget being shared with them. Those
+  widgets render on the view, but the Widget Library doesn't offer them.
+- **A view doesn't carry its agent.** Someone who can use a view but not its
+  pinned agent gets the default assistant on it.
+- **Links open only for people something is shared with**; anyone else is told
+  it isn't there. Everyone who could open something before sharing was introduced
+  still can: the upgrade gave each person the access they already had.
+- **Domains have no effect on access.** They are labels for filtering.
 - The app keeps **no user directory of its own**. It reads the signed-in user's
-  Databricks groups, roles, and username through SCIM/entitlements, and a
-  mapping links one of those external names to a domain at a level.
-- A **Global Admin** (a mapping of a role to the `global` domain at Admin level)
-  bypasses all domain checks. Running locally with `DEV_MODE=true` grants this.
-- Permissions apply at the next session, so a newly granted user may need to
-  reload.
+  Databricks username and groups. Group membership is remembered for a few
+  minutes, so someone just added to a group may need to wait and reload.
+- Access to *data* (a catalog, schema, or table) is separate and is granted in
+  Databricks itself. A widget or agent always reads data as the person using it.
 
-## Managing access and requesting access
+**How access carried over in the upgrade.** Before sharing, access followed
+domain role mappings. The upgrade turned each mapping into entries once: a
+Viewer mapping on a domain became Can use, and Editor or Admin became Can
+manage, on every widget filed under that domain, every view that used to be
+global, and every agent that belonged to that domain. Owners got Can manage, and
+people who had added someone's personal view to their sidebar got Can use on
+it. Agents that used to be global are shared with Everyone in this app. An Admin
+mapping on the global domain (Global, All or App) made an Administrator; a
+Viewer or Editor mapping there covers only items filed under that exact name,
+which is all it ever did.
 
-Global admins map roles in the UI, no database work required: **Admin Panel**
-(under Resources, at the bottom of the sidebar) → **Role Mappings**. Type the
-Databricks group or user, pick the domain from the list and the level (Editor or
-Admin), then **Add Mapping**. **Assign
-Global Administrator** at the top of the same page does the same for the `Global`
-domain.
+## Sharing something and getting access
 
-The group field is free text and isn't looked up in Databricks: a deployed app
-can't list workspace groups on the signed-in user's behalf. A mapping only applies
-to someone whose group (or username) matches it **exactly, capitals included**, so
-a typo saves without complaint and grants nothing. If someone mapped still lacks
-access, compare the name with the workspace's Groups page, character for
-character. Domains come from **Categories & Domains**, so add a new domain
-there first; an existing mapping whose domain has since been renamed or deleted is
-flagged "not a domain" in the table.
+To share a view, open it and click **Share** in the view header. For a widget,
+use **Share** in Widget Studio, or hover the widget in the Widget Library and
+click the share icon; for an agent, **Share** in Agent Studio. Anyone who can
+use a view, widget or agent can open **Share** to see who has access (and copy
+a view's link); changing the list needs Can manage. In the share dialog:
 
-A user who is blocked should ask a global admin to add a mapping for a Databricks
-group they belong to. Access to *data* (a catalog, schema, or table) is separate
-and is granted in Databricks itself, not here.
+1. Type a person or a group in the box at the top. Suggestions list names the
+   app has already seen, with your own groups marked **Your group**. A name it
+   hasn't seen is still accepted, with a reminder that it must match the
+   Databricks user or group name exactly.
+2. Pick **Can use** or **Can manage**, then **Add**.
+3. **People with access** lists each entry with its level, "(you)" beside
+   yourself and **Owner** beside the owner. Change a level with its picker or
+   remove an entry. A line underneath says Administrators can always manage.
+4. **General access** is **Only people with access** or **Everyone in this app
+   can use**.
+
+Every change saves as soon as it is made; **Done** closes the dialog and **Copy
+link** copies the link. If the item has never been published, the dialog says
+that people with Can use will see it once you publish.
+
+**Getting access.** Someone who needs something should ask its owner, or anyone
+who can manage it, to share it with them or with a group they belong to; an
+Administrator can share anything. A link to something not shared with you looks
+exactly like a link to nothing, so ask the person who sent it. If an entry
+naming your group doesn't seem to work, compare the group name with the
+workspace's Groups page, character for character, and allow a few minutes after
+being added to a group.
+
+**Administrators** are managed under **Admin Panel → Administrators**, by
+Administrators: add a person or group with the same picker, or remove one. The
+last Administrator can't be removed, and Everyone in this app can't be made one.
+Keep the list small — Administrators can change anything in the app. If no role
+mapping made anyone an admin before the upgrade, the upgrade made the group
+`users` (essentially everyone) an Administrator so nobody was locked out;
+replace it with your admin group.
 
 ## The Admin Panel
 
 **Admin Panel** is under Resources at the bottom of the sidebar. It appears only
-for people who are Admin on at least one domain, and for Global Admins. Its tabs
-are **View Promotion**, **Widget Promotion**, **Categories & Domains**, **Role
-Mappings**, **Settings**, **Data Migration** and **Action Logs**. The line under
-its title says which follow the selected workspace: categories, domains and
-action logs do; role mappings and settings apply to the whole app; widget and
-view promotion list all three workspaces. **Settings** and **Data Migration**
-appear only for Global Admins; **Role Mappings** and **Categories & Domains**
-show for Admins too, but saving a change there is refused unless the person is a
-Global Admin.
+for Administrators (see *Sharing and permissions*). Its tabs are **Content**,
+**Categories & Domains**, **Administrators**, **Settings**, **Data Migration**
+and **Action Logs**, and all of them apply to the whole app.
 
-- **View Promotion** lists global views, with a column for Dev, Test and Prod,
-  then Preview, History and Remove. **Create Global View** makes a new one in the
-  workspace selected; **Archived** lists retired ones; a search box and a filter
-  narrow the list. Promoting and removing are described under *Environments and
-  promoting work*.
-- **Widget Promotion** lists every widget with a version picker per workspace
-  (or None), plus Preview and History. **Backfill missing** (its badge counts
-  them) makes thumbnails for widgets that lack one; **Regenerate all** remakes
-  every thumbnail, useful after large code changes.
+- **Content** lists every view, widget and agent in the app, whoever owns it,
+  with its owner, whether it is published or has unpublished changes, and how
+  widely it is shared. It is where an Administrator finds something nobody else
+  can reach any more — for example after its owner left — and shares it with
+  someone who should manage it.
 - **Categories & Domains**: *categories* group widgets by function (Monitoring,
-  Analytics…) in Widget Studio and the Widget Library; *domains* scope widgets,
-  views and agents to a business area and decide who gets in. Add a name and
-  click **Add Category** or **Add Domain**.
-- **Action Logs** (titled "Action Logs (Telemetry)") is the audit trail, kept per
-  workspace. Anyone who can open the Admin Panel can read it; it isn't narrowed
-  to their domains. Two kinds of event write a row: a button press in an
+  Analytics…) in Widget Studio and the Widget Library; *domains* label widgets,
+  views and agents with a business area so people can filter by it. Neither
+  decides who gets in. Add a name and click **Add Category** or **Add Domain**.
+- **Administrators** lists the people and groups who are Administrators; see
+  *Sharing something and getting access*.
+- After the upgrade to sharing, a notice at the top of the Admin Panel reports
+  the one-time move: role mappings becoming access lists and Administrators, and
+  Dev and Test work becoming drafts. **View details** shows who gained or lost
+  access and anything it couldn't carry over. The move runs once; if part of it
+  failed, the notice stays red and **Retry** in its details runs that part again
+  (restarting the app doesn't), leaving anything already moved as it is.
+- **Action Logs** (titled "Action Logs (Telemetry)") is the audit trail for the
+  whole app. Two kinds of event write a row: a button press in an
   **Executable** widget (the widget, the action name, who pressed it, when, and
-  the view it was on) and a data migration export or import. Views, promotions
-  and role changes are not logged. The columns are Timestamp, Widget, Action,
+  the view it was on) and a data migration export or import. Views, publishing
+  and sharing changes are not logged. The columns are Timestamp, Widget, Action,
   User, Domain, User Explanation and Action ID; opening a row also shows a
   **Request ID** and **Dashboard Context**, a snapshot of the view's name, tab
   and every widget on the tab with its settings. **Search logs…** searches only
@@ -561,65 +732,92 @@ Global Admin.
   exact statement. The row is written first; if it can't be, the action doesn't
   run.
 
-## Environments and promoting work
+## Drafts and publishing
 
-Each Command Center **app** (the Databricks App you opened — our Dev, Stage or
-Prod deploy) has three **workspaces** — **Dev**, **Test**, and **Prod** — so
-work in progress cannot disrupt production users. Switch with **Workspace** in
-the sidebar; it reopens on the workspace you last chose. Opening Dev or Test
-needs Editor or Admin on a domain — without that, those buttons stay disabled
-and you remain on Prod. A copied link (Share, Copy link, or the address bar)
-carries `?env=` and opens the workspace it was copied in, so send Test
-links to testers and Prod links to users. Someone without Dev/Test access who
-opens such a link sees Prod and a note saying so. The amber badge in the tab title names the deploy, not the
-workspace. Our own Dev app is a real development deploy and still has all three
-workspaces; in production the three workspaces are for the people using that app.
+Views, widgets and agents all work the same way, like a Databricks dashboard.
+Each has a **draft** — the working copy that people who can manage it edit — and
+**published versions**, which is what everyone it is shared with sees.
 
-- Saving a widget in Dev increments its version, giving an immutable history.
-- Promote a widget from **Widget Studio** — the **Promote** button in its header
-  opens a Dev → Test → Prod panel for that widget — or from **Admin Panel →
-  Widget Promotion**, which lists every widget. Both do the same thing.
-  **Promote to Test** copies Dev's latest *saved* version (save unsaved edits
-  first); **Promote to Prod** copies Test's. Each environment numbers its own
-  versions, so Dev v8 can arrive in Test as v3. A widget must be published before
-  it can be promoted.
-- **Roll back to** an older version in Test or Prod makes it current again,
-  restoring that exact historical definition.
-- **Certify**, in Prod, flags the current version as reviewed and
-  enterprise-ready. It is a signal to end users, not a permission.
-- **View Promotion** does the same for global views, every tab at once. Before
-  promoting, the confirmation checks the target environment and lists widgets
-  the view uses that it doesn't have (with **Promote them too**, on by default,
-  which copies each at its current version in the source and needs Editor on
-  that widget's domain), widgets pinned to a version that differs there, pinned
-  agents that aren't there (agents can't be promoted, so recreate them there or
-  re-pin), and, when global views must hold certified widgets, the uncertified
-  ones. A view promoted without its widgets shows without them.
-- **Removing a global view** is two steps, both on the View Promotion screen and
-  both needing Editor or Admin on the view's domain. **Remove** archives it: it
-  leaves everyone's sidebar in Dev, Test and Prod, and every version is kept. The
-  **Archived** button lists archived views, where **Restore** brings one back
-  exactly as it was and **Delete permanently** removes every version for good. A
-  global view must be archived before it can be deleted. A user's personal views
-  are closed from the sidebar, which deletes them at once, without asking.
-- Promotion, rollback, and certification require Editor or Admin on the asset's
-  domain in the environment being promoted into. Without it the studio panel
-  shows the status read-only.
+- **Saving writes the draft.** Every change a manager makes, from dragging a
+  widget to saving in Widget Studio or Agent Studio, updates the draft in place.
+  It adds no version and nobody with only Can use sees it.
+- **Publish** turns the draft into the next published version. People with Can
+  use see it straight away, and the draft is gone until the next change. A chip
+  says where things stand: **Not published yet**, **Published** (people see
+  exactly what you see) or **Unpublished changes**; hover it for what it means.
+  **Publish** shows only when there is something to publish, so on something
+  already published with no changes it is hidden, not greyed out.
+- **The Draft / Published switch** lets a manager look at the published version
+  everyone else sees, then switch back to the draft. It appears only when there
+  are unpublished changes (the two differ), or while you are on Published, so
+  you can get back.
+- **Discard draft** throws away every unpublished change and goes back to the
+  latest published version, after asking. It is offered only when there are
+  unpublished changes: on a view it is **Discard draft…** in the ⋯ menu, in the
+  studios it is in the bar. Something that has never been published has nothing
+  to go back to, so it can't be discarded; delete it instead.
+- **History** lists the published versions, who published each and when. On a
+  view it is **Version history…** in the ⋯ menu, for managers; in Widget Studio
+  it is **History** in the header, and in Agent Studio it is in the bar.
+  **Revert** copies an older version into the draft; publish it to make it live
+  again. Nothing published is ever overwritten.
+- **Publishing a widget checks it again.** The same safety check that runs on
+  Save draft runs on Publish, so a widget can't be published with code the
+  studio would refuse to save.
+- **Something never published is invisible** to everyone except the people who
+  can manage it, even if it is shared with others.
+- **Saved, but colleagues still see the old version?** Saving only changes the
+  draft. Publish to make the change reach your colleagues, and check it is shared
+  with them at all.
 
-Promotion moves single widgets and views between Dev, Test and Prod *inside one
-app* (the workspace switcher). Moving everything to a different Command Center
-deploy — which has a database of its own — is **Moving data to another app**,
-below.
+**Publishing a view checks what is on it.** The Publish dialog lists the widgets
+on the view that have never been published or have unpublished changes, and the
+agent pinned to it if that agent is in the same state. The dialog offers to
+publish them together with the view; anything you can't manage is named so you
+can ask whoever manages it. A widget left unpublished shows a "Not published yet"
+card to people using the view. When an Administrator has turned on **Shared views
+may only contain certified widgets** and the view is shared with anyone besides
+its owner, the dialog also names the uncertified widgets, and the view can't be
+published until they are certified. A view doesn't share its pinned agent: share
+the agent with the same people so they can chat with it.
+
+**Certify** flags a published version of a widget as reviewed and ready for
+wide use. Anyone who can manage the widget can certify it, from the bar under
+the Widget Studio tabs; it applies to the latest published version. Each new
+version starts uncertified, because certification is a review of that particular
+code. It is a signal to people browsing the Widget Library, and a requirement
+for shared views only when an Administrator turns that setting on.
+
+**Archive, Restore and Delete permanently.** Archiving a view takes it out of
+everyone's sidebar, stops its link opening, and keeps every version; it then
+shows under **Archived** for the people who manage it, where **Restore** brings
+it back exactly as it was and **Delete permanently** removes every version for
+good. A view shared with anyone besides its owner must be archived before it can
+be deleted, so someone can notice it gone first; a private view can be deleted
+straight away.
+
+**Where did Dev and Test go?** Earlier releases had a **Workspace** switcher with
+Dev, Test and Prod inside one app, and work was promoted from one to the next.
+Drafts replace that. During the upgrade, everything that was in Prod became the
+published version, and newer work from Dev (or Test, if it wasn't in Dev) became
+its draft, ready for its managers to publish. Work that only ever existed in Dev
+or Test became a draft that has never been published. Old links that name a
+workspace still open. Widget Studio work that was never saved before the upgrade
+isn't restored when the studio next opens. Separate deployments of the app — a development app, a
+stage app and production — are unchanged; moving content between them is
+*Moving data to another app*, below.
 
 ## Moving data to another app
 
 Each deployment of the Command Center (the dev app, the test app, production) has
 its own database, so widgets, views and agents made in one don't appear in
-another. **Admin Panel → Data Migration** (global admins) moves them:
+another. **Admin Panel → Data Migration** (Administrators) moves them:
 
 1. In the app that has the data, choose what to include and **Download
-   snapshot**. The file holds every version of every widget, view and agent, plus
-   — if ticked — the taxonomy and role mappings, deployment settings, activity
+   snapshot**. The file holds every published version and unpublished draft of
+   every widget, view and agent, plus — if ticked — sharing (who can use and
+   manage each item, and the Administrators) with the categories and domains,
+   deployment settings, activity
    history (action logs and widget usage), and saved conversations with their
    attached files. Conversations are off by default: the file would contain
    everyone's chats.
@@ -631,8 +829,13 @@ another. **Admin Panel → Data Migration** (global admins) moves them:
    be added, skipped and deleted. **Import** is only offered after a preview of
    the same file and options.
 
+On a Merge, the target keeps its own access level and its own draft wherever
+both apps have one. A snapshot taken before the upgrade to sharing still imports:
+its role mappings are turned into access lists and Administrators the same way
+the upgrade turned this app's own, and the preview says so.
+
 An import is all-or-nothing: if anything fails, nothing is changed. A Replace
-that would remove your own global admin mapping is refused, so you can't lock
+that would leave you no longer an Administrator is refused, so you can't lock
 yourself out. Exports and imports are recorded in Action Logs. The two apps never
 connect to each other; the file is the only thing that moves, so treat it like a
 database backup.
@@ -649,6 +852,73 @@ authored. An agent is a saved bundle of:
   tools of any **Genie space** the author can open,
 - optional small **Python tools** the author writes for it.
 
+The tools an agent can be given (Genie, SQL, AI Gateway, MCP servers and
+Python tools) are covered in *Agent tools*.
+
+While drafting, the authoring assistant can **research your data** so the
+prompt describes it accurately: it confirms tables and columns, runs read-only
+SQL as you (to learn, say, which status values really exist), and can ask Genie
+what a business term means here. Those are tools for writing the agent, not tools
+the agent gets — its own tools are still the ones selected from the catalog.
+
+Layout: above the chat, **New conversation** (speech-bubble icon) restarts the
+authoring chat and keeps the draft. On the right, beside the agent's name (with
+an *Unsaved changes* marker when there are any), sit **New agent**, **Open** and
+**Save**. A bar under the header holds, for people who can manage the agent, its
+state chip, the **Draft** / **Published** switch (only when there are
+unpublished changes, or while on Published), **History** once it has been
+published, **Discard draft** (only with unpublished changes) and **Publish**
+(hidden when there is nothing to publish), with **Share** at the end for
+everyone. **Save** writes the agent's draft; chat always
+runs the published version, for everyone including its managers, so changes
+reach people only after **Publish**. Switched to **Published**, the agent is
+read-only. Someone who can only use an agent can open it and read it; for them
+**Save** becomes **Save a copy**, which saves it as a new agent of their own.
+New agent and Open ask before discarding unsaved work. **Delete agent**
+is at the bottom of the **Settings** tab. While the authoring assistant writes,
+its send button becomes **Stop**; stopping keeps what it wrote and leaves the
+agent unchanged. Enter never stops it. If its reply describes an agent but the
+draft didn't arrive in a usable form, a note under the reply says so (cut off, or
+not valid JSON) and the editor is left as it was; asking again usually works. A
+draft cut off at the length limit means raising **Agent Studio response length
+limit** in Admin Panel → Settings.
+
+The agent's tabs, on the right, are **Prompt** (its instructions, written as
+markdown), **Skills**, **Python tools**, **Try it**, **Review** and **Settings**.
+The **Settings** tab holds **Agent Name** (required to save, and what the
+assistant's agent picker shows), **Description**, **Model**, the tool list, and **Delete agent**. Clicking the agent's name above the tabs jumps
+to it.
+
+The **Review** tab shows what the authoring assistant concluded: **Suggested
+tools**, **Missing capabilities** (things asked for that no available tool
+provides), **Open questions**, **Schema checks** (the queries it ran, OK or
+FAILED) and **Python tool safety** notes. It reads **Review • stale** once the
+draft has been edited since; asking the assistant to refine the agent refreshes
+it. The **Try it** tab runs what is on screen — the draft with unsaved edits
+included, or the published version when that is the one shown — exactly as the
+sidebar chat would run the agent, with tools limited to what the author can reach;
+nothing from that chat is saved, and **Clear** empties it. **Open** lists every
+agent the author can manage or use, with a **Shared** badge and the author's
+name on ones other people shared. If someone else saved the agent in the meantime,
+saving is refused with a message to reload first.
+
+Every agent also gets a tool for looking up how the Command Center itself works;
+it is always attached and isn't in the tool list.
+
+A new agent is shared with nobody but its author. **Share** gives people,
+groups or everyone in this app **Can use** (they can pick it in the chat panel
+once it is published) or **Can manage** (they can edit, publish and share it), as
+described in *Sharing something and getting access*. Agents that were global
+before the upgrade to sharing are shared with everyone in this app. Users pick
+which agent they are talking to from the agent picker in the chat panel, which
+lists only published agents they can use; the default agent is used when none is
+chosen. A view whose pinned agent someone can't use opens with the default agent
+for them. If an agent stops being available mid-conversation (it was unshared,
+or never published), the next message answers "That agent isn't available to
+you" instead of quietly switching agents; pick another agent to continue.
+
+## Agent tools
+
 The Genie tool to attach for plain-language questions about data is
 **genie_one** (Genie One), listed under **Genie** as `genie/genie_one`. It runs
 as the person chatting, so it sees only the data their Unity Catalog
@@ -663,7 +933,7 @@ search**, **External** and **Other** start hidden because there can be hundreds,
 so turn a chip on to pick from it.
 
 Jira and Confluence come from the built-in AI Gateway server
-`system.ai.atlassian`, which the app doesn't find by itself: a global admin adds
+`system.ai.atlassian`, which the app doesn't find by itself: an Administrator adds
 it under Admin Panel → Settings → **MCP servers agents can use**, and its tools
 appear under the **AI Gateway** chip. Each person also signs in to Atlassian
 once in Databricks under **AI Gateway → MCPs**; until then Agent Studio shows an
@@ -686,63 +956,16 @@ Databricks workspace are not listed.
 The code an author writes runs on the server whenever the agent decides to call
 it. It runs in a restricted subprocess with the app's credentials stripped out
 and limits on time and memory, which stops the common accidents — but it is a
-validation sandbox, not a jail, and it is not a substitute for review. Domain
-admins should grant the editor rights that allow Python tool authoring only to
-people who have been through the organisation's secure-development training, and
-should treat a new Python tool as code to be read before the agent goes anywhere
-near a shared domain or global visibility.
-
-While drafting, the authoring assistant can **research your data** so the
-prompt describes it accurately: it confirms tables and columns, runs read-only
-SQL as you (to learn, say, which status values really exist), and can ask Genie
-what a business term means here. Those are tools for writing the agent, not tools
-the agent gets — its own tools are still the ones selected from the catalog.
-
-Layout: above the chat, **New conversation** (speech-bubble icon) restarts the
-authoring chat and keeps the draft. On the right, beside the agent's name (with
-an *Unsaved changes* marker when there are any), sit **New agent**, **Open**, and
-**Save**. New agent and Open ask before discarding unsaved work. **Delete agent**
-is at the bottom of the **Settings** tab. While the authoring assistant writes,
-its send button becomes **Stop**; stopping keeps what it wrote and leaves the
-agent unchanged. Enter never stops it. If its reply describes an agent but the
-draft didn't arrive in a usable form, a note under the reply says so (cut off, or
-not valid JSON) and the editor is left as it was; asking again usually works. A
-draft cut off at the length limit means raising **Agent Studio response length
-limit** in Admin Panel → Settings.
-
-The agent's tabs, on the right, are **Prompt** (its instructions, written as
-markdown), **Skills**, **Python tools**, **Try it**, **Review** and **Settings**.
-The **Settings** tab holds **Agent Name** (required to save, and what the
-assistant's agent picker shows), **Description**, **Model**, **Sharing**, the
-tool list, and **Delete agent**. Clicking the agent's name above the tabs jumps
-to it.
-
-The **Review** tab shows what the authoring assistant concluded: **Suggested
-tools**, **Missing capabilities** (things asked for that no available tool
-provides), **Open questions**, **Schema checks** (the queries it ran, OK or
-FAILED) and **Python tool safety** notes. It reads **Review • stale** once the
-draft has been edited since; asking the assistant to refine the agent refreshes
-it. The **Try it** tab runs the current draft — unsaved edits included — exactly
-as the sidebar chat would, with tools limited to what the author can reach;
-nothing from that chat is saved, and **Clear** empties it. **Open** lists every
-agent the author can reach, with a **Shared** badge and the author's name on
-ones other people shared. If someone else saved the agent in the meantime,
-saving is refused with a message to reload first.
-
-Every agent also gets a tool for looking up how the Command Center itself works;
-it is always attached and isn't in the tool list.
-
-Saved agents have one of three visibilities: **personal** (only the author),
-**domain** (anyone with access to that domain; domain editors can edit; a domain
-picker appears), or **global** (everyone; only global admins can create or edit;
-the option is greyed out for everyone else). A personal agent needs no domain
-role to save, only access to Agent Studio. Users pick which
-agent they are talking to from the agent picker in the chat panel; the default
-agent is used when none is chosen.
+validation sandbox, not a jail, and it is not a substitute for review. Anyone
+can build an agent, so treat a Python tool as code to be read before the agent
+is shared: before giving someone Can manage on an agent with Python tools, make
+sure they have been through the organisation's secure-development training, and
+read a new Python tool before sharing the agent widely or with everyone in this
+app.
 
 ## Admin Settings: models and limits
 
-Global admins choose the model in **Admin Panel → Settings**, from a searchable
+Administrators choose the model in **Admin Panel → Settings**, from a searchable
 list of the workspace's chat-capable models. Four are set separately: the model
 behind this chat, the one that writes widget code in Widget Studio, a small
 helper model for the studio's quick jobs (summarising a long conversation,
@@ -797,7 +1020,9 @@ passwords or tokens are ever needed. A permission error from a tool describes th
 user's access, not the assistant's.
 
 The **pin** button beside the agent picker makes a view open the assistant with
-the agent selected there (for anyone who may change the view's settings). On a
+the agent selected there (for anyone who can manage the view). Like every
+change to a view, a pin goes into the view's draft and reaches other people when
+the view is published. On a
 view with several tabs it asks where: **This tab** or **Every tab** of the view;
 a tab's own pin wins over the view's on that tab. Clicking a ticked choice
 unpins it. **Settings → Assistant** sets the view's pin too, and shows how many tabs
@@ -907,10 +1132,12 @@ Admins can narrow what the assistant may reach, in Admin Panel → Settings:
   line, the other apps a widget may embed or fetch from — one app's host (a pasted
   URL is reduced to it) or a whole workspace as `*-<workspace-id>.<region>.databricksapps.com`.
   A workspace entry allows embedding its apps; fetching needs the app listed
-  itself. **Global
-  views may only contain certified widgets** (off by default) makes a view shared
-  with everyone hold only widgets an admin has certified, and refuses saving one
-  with others; leave it off in Dev and Test, where nothing is certified yet.
+  itself. **Shared
+  views may only contain certified widgets** (off by default) means a view shared
+  with anyone besides its owner can only be published while every widget on it is
+  certified; the Publish dialog names any that aren't. A private view is never
+  affected. Leave it off on a development deployment, where little is certified
+  yet.
 - **Tell the assistant what is on screen** governs whether each question carries a
   summary of the current dashboard. Off, the assistant cannot answer "what am I
   looking at" but nothing about the layout leaves the app.

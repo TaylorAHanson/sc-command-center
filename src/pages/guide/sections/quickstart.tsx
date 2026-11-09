@@ -7,19 +7,19 @@ const Body = () => (
   <>
     <Lead>
       In about ten minutes you can build a view of your own, put a widget on it, ask the assistant about it and send
-      the link to a colleague. You do not need editor access for any of it.
+      the link to a colleague. Anyone can do all of it.
     </Lead>
 
     <H2 id="the-path">Five steps</H2>
     <Steps>
       <Step title="Create a view">
         <P>
-          In the sidebar, under <UI>My Views</UI>, click <UI>New View</UI>. A blank view called "View 1" (or the next
+          In the sidebar, under <UI>My views</UI>, click <UI>New View</UI>. A blank view called "View 1" (or the next
           number) opens. To rename it, hover its name in the sidebar and click the pencil, type a name and press{' '}
           <Kbd>Enter</Kbd>.
         </P>
         <P>
-          The view is saved in the workspace shown in the sidebar and is private to you until you share it.
+          The view is a draft that only you can see until you share and publish it.
         </P>
       </Step>
 
@@ -73,32 +73,37 @@ const Body = () => (
         </P>
       </Step>
 
-      <Step title="Lock it and share it">
+      <Step title="Lock, publish and share it">
         <P>
-          When the layout is right, click <UI>Lock</UI> in the top right so nothing moves by accident. Then click{' '}
-          <UI>Share</UI>. The button briefly reads <UI>Copied!</UI> and the link to your view is on your clipboard.
-          Paste it into a message.
+          When the layout is right, open the <UI>⋯</UI> menu in the top right and choose <UI>Lock layout</UI> so
+          nothing moves by accident. Click <UI>Publish</UI>, the last button in the header, so there is a version for
+          other people to see. Then click <UI>Share</UI>, add your colleague as <UI>Can use</UI>, and click{' '}
+          <UI>Copy link</UI>. Paste it into a message.
         </P>
         <Shot
           name="use-view-header"
-          alt="The view header with Settings, Lock and Share"
+          alt="The view header with the state chip, the ⋯ menu, Share and Publish"
           legend={[
-            'Settings: how the view opens, looks and filters.',
-            'Lock: freezes the layout.',
-            'Share: copies a link to the view.',
+            'The state chip beside the name: Not published yet, Published or Unpublished changes.',
+            'The ⋯ menu: layout, Add a tab…, View settings…, Lock layout and version history.',
+            'Share: choose who can use or manage the view, and copy its link.',
+            'Publish: makes your draft what everyone sees.',
             'The + in the tab bar adds a tab.',
           ]}
         />
         <P>
-          Whoever opens the link finds your view under <UI>Shared Views</UI> in their sidebar, read-only. They need to
-          be signed in, and the link opens in the same workspace you copied it from.
+          The view appears under <UI>Shared with me</UI> in their sidebar, read-only, showing the version you
+          published. The link opens only for people you shared the view with. When you change the view later,
+          publish again for them to see it. See <GuideLink to="sharing">Sharing &amp; permissions</GuideLink>.
         </P>
       </Step>
     </Steps>
 
     <Callout kind="note" title="Changing your mind">
-      <UI>Unlock</UI> returns the button to its editable state. To remove a view you made, hover it in the sidebar and
-      click its small X. That deletes it without asking, so share a link or copy it first if you might want it back.
+      <UI>Unlock layout</UI> in the same menu lets you change the layout again. To put a view away, hover it under <UI>My views</UI> and
+      click its <UI>×</UI>. You are asked first. A view only you can open is deleted; a shared one is archived, leaving
+      everyone&rsquo;s sidebar to wait under <UI>Archived</UI>, where you can restore it. See{' '}
+      <GuideLink to="publishing" anchor="archive">Archive, restore or delete a view</GuideLink>.
     </Callout>
 
     <H2 id="where-next">Where next</H2>
@@ -115,7 +120,7 @@ const Body = () => (
     </Cards>
     <P>
       Want something the library does not have? <GuideLink to="widget-studio">Widget Studio</GuideLink> builds a widget
-      from a description, if you have editor access.
+      from a description, and anyone can use it.
     </P>
   </>
 );

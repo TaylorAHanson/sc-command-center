@@ -13,19 +13,13 @@ Always use relative `/api/...` paths. `src/api.ts` sets `const API_BASE =
 production FastAPI serves this bundle from `dist/`, so the same relative paths
 work with no origin config. Never introduce a hardcoded host or port.
 
-Stored-data calls take `env` (`dev` / `test` / `prod`) for the **workspace**
-inside this app — not `APP_ENVIRONMENT`. `src/contentEnv.ts` stamps it on
-`fetch` unless the URL already has `env=` (promotion loads all three). Don't
-hardcode `env=dev`. The **Workspace** switcher is `ContentEnvSwitch`, in the
-sidebar only. `resolveWorkspace` settles the workspace before `Root` mounts any
-provider — the link's `?env=`, else the person's last choice
-(`sccc-content-env:<username>`) — so nothing fetches from a workspace the user
-is about to be moved out of. Dev/Test are locked unless the user is Editor or
-Admin on a domain (permissions are deployment-wide, the same in every
-workspace). `appLink` writes `?env=` so every copied link opens where it was
-copied; keep it on any new link you build. The page's `?env=` and the API's
-`env` are the same name on purpose; `#/workspace/<view>` in the hash is
-unrelated (open in the editor).
+Links and requests carry no `env`: the server has one content store and maps any
+`env` it still receives to it. Don't add `env` to a new request or link. Old
+links that carry `?env=` must keep opening, so the route parser ignores it rather
+than rejecting it, and `main.tsx` calls `stripLegacyEnvParam` so it doesn't stay
+in the address. The rest of `contentEnv.ts` is legacy shims (a fixed `'prod'`,
+setters that do nothing) that nothing imports any more; `stripLegacyEnvParam` is
+the only part in use, so don't build on the others. `#/workspace/<view>` in the hash is unrelated (open in the editor).
 
 **No secrets, ever.** No API keys, tokens, or connection strings in `src/` —
 not in code, not in `localStorage`. Anything requiring a credential goes through
@@ -176,22 +170,28 @@ The bottom tray that lists every widget. Three things about attribution:
   the certified filter instead of stacking with it: asking for one person's widgets
   and seeing only their certified ones makes it look like they have fewer than they
   do.
-- **Edit and Delete are two different rights, because the server applies two.**
-  Edit asks `canEditDomain` (the store's copy of `require_domain_editor`, the only
-  check `PUT /custom/{id}` makes); Delete asks `canManageWidget`, which is what
-  `delete_custom_widget` checks — the author, or anyone at all if the recorded
-  author was never a person. Never test `createdBy === currentUser`: that is what
-  broke the library the day authorship started resolving correctly. Every widget
-  already stamped `dev` or `unknown` suddenly matched nobody, which took away both
-  buttons *and* hid the widget behind the certified filter, which used the same
-  test. Both rules live next to `isPerson` in `creators.ts` and the store; if you
-  change a permission on the server, change its twin here or the library will
-  offer a button the save then refuses.
+- **Ask the row, not the person.** Every widget, view and agent the API returns
+  carries `access` (`'MANAGE'` or `'USE'`), the caller's level as the server
+  computed it from the access list and Administrators. Edit, Delete, Claim, the
+  state chip, thumbnail refresh and the draft bar show for `access === 'MANAGE'`
+  (the snapshot route refuses anyone else); nothing else decides it. Never test
+  `createdBy === currentUser` or a domain: the first is what broke the library the
+  day authorship started resolving correctly (every widget stamped `dev` or
+  `unknown` suddenly matched nobody, which took away both buttons *and* hid the
+  widget behind the certified filter), and domains no longer grant anything. A
+  client-side copy of a permission rule is a button the save then refuses. The one
+  exception is the **All / Mine / Shared with me** filter, which goes by author
+  (`isSamePerson(createdBy, currentUser)`), not by level: an Administrator manages
+  every widget, so filtering on `access` would leave them nothing under Shared
+  with me.
+- **The library offers only what it may.** Widgets a view merely lends (see
+  `server/AGENTS.md` → *Composition*) arrive with `in_library: false`;
+  `widgetRegistry` registers them so the view renders and leaves them out of what
+  the tray lists. Don't list registry entries directly.
 - **An uncredited widget invites a claim instead of showing a blank byline.** No
   widget built before the identity fix has a recoverable author (see
   `server/routes/custom_widgets.py::claim_custom_widget`), so where a name would go
-  the card offers "Did you build this? Claim it" to anyone who could publish to
-  that domain. It's the only route back to real attribution, and it's deliberately
+  the card offers "Did you build this? Claim it" to anyone who can manage it. It's the only route back to real attribution, and it's deliberately
   quiet — same size and colour as a byline, because most people should ignore it.
 - **Thumbnails arrive with the tray, not with the page.** They're base64 PNGs and
   this is the only screen that shows them, so `loadWidgetSnapshots()` runs on
@@ -315,19 +315,36 @@ Two behaviors there are easy to break by accident:
   widget that throws every render regenerates forever. `renderRetryCountRef` is
   reset only by a deliberate act: a typed request, Reload, or a restore.
 - **The header over the chat is for the chat.** Only Agent settings sit there;
-  everything about the widget (History, Reload, Promote, the ⋯ menu, Save, close)
-  is in the workspace header, and `saveNotice` renders under it. Agent Studio
+  the widget's own actions (History, Reload, the ⋯ menu, Save draft, close) are
+  in the workspace header, and `saveNotice` renders under it. Publishing has a
+  bar of its own under the tabs, shown once the widget is saved (`editingId &&
+  standing`): `DraftBar` and Certify for `MANAGE`, then Share for anyone with a
+  level (read-only below `MANAGE`, as on views and agents). Agent Studio
   follows the same rule. Keep new widget actions on the right.
 - **Stop is immediate; "Stop after this step" is graceful.** The composer's
   `SendStopButton` clears the poll, `DELETE`s the job and settles the turn itself,
   ignoring anything the job produces afterwards. A stopped turn never calls
   `onSettled` (no review) and blocks the automatic fixes until a deliberate act.
   Enter does nothing while a turn runs — it used to start a second job.
-- **Promotion reuses the admin screen's logic.** `WidgetPromotionPanel` and
-  `pages/admin/WidgetManager.tsx` both go through `src/promotion.ts`. An env's
-  current version is its *highest* non-deprecated row, and version numbers are per
-  env, so never match versions across envs by number. The panel is keyed on a save
-  counter so a publish refreshes it.
+- **Save draft writes the draft; Publish makes a version.** The studio's
+  **Save draft** goes to `POST /api/widgets/custom` (new) or
+  `PUT /api/widgets/custom/{id}`, both writing `object_drafts` and adding no
+  version; where the widget stands comes back from `GET /custom/{id}/draft` as
+  `standing`. The bar's Publish and Discard draft go to the widget's `publish` and
+  `discard` routes; Publish re-runs the server's safety check, so a refusal can
+  arrive there as well as on save. `DraftBar` (`components/sharing/`) is the same
+  component views and Agent Studio use, so the three can't drift in wording. The
+  studio's **Published** mode is a read-only preview held only while the code is
+  unchanged (`publishedOver`): any edit or agent turn is work on the draft, so the
+  draft is what to show.
+- **Certify follows the version, not the widget.** `POST /custom/{id}/certify`
+  takes `{version?, certified}` and, without a version, certifies the latest
+  published one; it is a `MANAGE` action. A new publish starts uncertified, so
+  the badge must follow the version, not the widget id.
+- **The session key is `sc_widget_studio_session`**, no longer suffixed with the
+  workspace. A session saved under the old key isn't read, so unsaved studio work
+  from before the upgrade isn't restored. That is accepted: the session lives in
+  `sessionStorage`, so it only ever outlived a reload in the same tab.
 
 Category and domain come from `/api/taxonomy/*`. A failed load keeps the previous
 values and shows a retry rather than falling back to an empty list — an empty
@@ -423,13 +440,75 @@ from which style you picked.
 The endpoint line under each option is `slate-400` in the dark variant: `slate-500`
 measures 3.75:1 there, under AA for text that small.
 
-## Role-mapping group field (`pages/admin/RoleMappings.tsx`)
+## Naming a person or group (`components/sharing/PrincipalPicker.tsx`)
 
-Plain text (`PrincipalInput`), not a picker. A deployed App can't list workspace
-groups as the signed-in user (no `scim` user scope), so there is nothing to search
-or check against; see `server/AGENTS.md` → *Role-mapping validation*. The hint
-under it says the name must match exactly, because that's what the permission
-check does.
+The share dialog and Admin Panel → Administrators both take a principal through
+`PrincipalPicker`. It is a typeahead over `GET /api/sharing/principals`, which
+suggests from `known_principals` (people who have signed in, and their groups),
+not from Databricks: a deployed App can't list workspace users or groups as the
+signed-in user (no `scim` user scope), so free text is always accepted and a name
+the app hasn't seen gets a hint that it must match exactly. See `server/AGENTS.md`
+→ *Principal names*. Enter and a click commit the highlighted suggestion, so a
+fragment is never granted by accident; Escape drops the highlight and then the
+text is used as typed. Don't add a "must pick from the list" rule: someone who
+has never opened the app can still be named.
+
+## The sharing kit (`sharing.ts`, `components/sharing/`)
+
+Views, widgets and agents share one set of parts, so their wording and behaviour
+can't drift. `sharing.ts` holds the labels (`EVERYONE_LABEL`, `LEVEL_LABELS`,
+`STATE_LABELS`) and the ACL fetch helpers; use them rather than spelling a level
+or state again.
+
+- **Enter and Add choose the same principal.** `PrincipalPicker`'s submit is what
+  Enter would commit (the highlighted suggestion, else the typed text), and the
+  dialog's Add calls it, so clicking Add never grants a different name from the
+  one Enter would have.
+- **`ShareDialog` saves are queued and rolled back.** Each change PUTs the whole
+  list, optimistically, through one promise chain so the server applies them in
+  click order; a refusal puts back the last list the server accepted, not the
+  state before that one click. Open on something you can only use, it is
+  read-only.
+- **`DraftBar` renders nothing without a `state`.** Pass `undefined` for anyone
+  without `MANAGE` and the bar disappears, instead of each caller wrapping it in
+  its own check.
+- **`DraftBar` shows a control only when it can do something.** The
+  Draft / Published switch appears for `published_with_draft`, or while `mode` is
+  `published` so there is a way back; Discard draft only for
+  `published_with_draft` (and only if `onDiscard` is passed); History only with
+  `onHistory`; Publish only when the state isn't `published`, and it is hidden,
+  not disabled, otherwise. A bar that always showed all of them said the same
+  thing three ways across a header. `children` render just before Publish, so
+  Publish stays the last, filled button wherever the bar is used.
+- **The state chip is `StatePill`**, labelled from `STATE_LABELS` (**Not
+  published yet** / **Published** / **Unpublished changes**) with the meaning as
+  its hover text. `DraftBar` draws it unless `showState={false}`, which a caller
+  passes when it shows the chip somewhere else, as the view header does beside
+  the title. The tray's chip and the sidebar dot's tooltip read the same
+  `STATE_LABELS`, so a label changes in one place.
+- **The view header is `[chip by title] … [Draft/Published] [⋯] [Share]
+  [Publish]`.** Layout builds it as one `DraftBar` (with `showState` off) whose
+  `children` are the `⋯` menu and Share; someone who can only use the view gets
+  just those two. Everything used now and then goes in that `HeaderMenu`
+  (*More view options*), not in a new header button: **Layout** (named **This
+  tab** with several tabs) for Cards on a grid / Full page as a checked choice,
+  disabled with `layoutSwitch`'s reason when a grid holds more than one widget,
+  plus **Add a tab…** on a one-tab view; **View** for Preview as a viewer
+  (standalone views only), View settings… and Lock / Unlock layout; and
+  **Versions**, for `MANAGE`, with Version history… (once published) and
+  Discard draft… (only with unpublished changes, confirmed in Layout's own
+  dialog). A view that hides its header (`showsHeader` false) gets the same
+  controls in a toolbar at the bottom left, with the chip inside it, since there
+  is no title to sit beside.
+- **`HeaderMenu` items that open something anchored get the trigger.**
+  `onSelect(trigger)` receives the ⋯ button, which is how **Add a tab…** opens
+  the add-tab popover where the menu was. A section with no items is dropped,
+  and a menu with no sections renders nothing.
+- **`PublishDialog` titles itself and closes itself.** `title` is the object's
+  name; the dialog renders "Publish ‘<title>’", so don't pass the word Publish in.
+  It runs `loadPreflight`, hands `onConfirm` the items still ticked as `include`,
+  and calls `onClose` itself once that resolves, so a caller must not close it
+  too. Publish stays disabled while the preflight reports anything `blocking`.
 
 ## Data Migration (`pages/admin/DataMigration.tsx`)
 
@@ -471,7 +550,7 @@ the file opens with a comment holding the authoring conventions.
 
 `index.html` ships `Command Center`; `App.tsx` then appends the **deployment**
 (`Command Center - Dev`) for anything that is not the prod app. That is
-`APP_ENVIRONMENT`, not the Dev/Test/Prod workspace switcher. An app shown
+`APP_ENVIRONMENT`, the only environment there is. An app shown
 on its own uses its branded title instead (`<title> - Dev`), plus a badge in its
 header, and puts the tab's title and favicon back when it closes. Both read
 `getEnvironmentBadge()` in `api.ts`. The
@@ -507,28 +586,35 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     selected, else the first. Read it rather than `spec.tabs[0]`. The bar only
     appears with two or more tabs; a one-tab app gets **Add tab** in Layout's
     header instead, so a plain view looks the way it always did.
+  - **`resolveWidget(type, version, draftMode)` picks the widget to draw.** The
+    grid, a page tab and the assistant's dashboard context all go through it: in
+    draft mode a manager's draft of the widget first, then the version a card pins
+    (`props._version`), then the latest published. Nothing found means "Not
+    published yet" on the canvas, never a fallback to another version; reading
+    `widgetRegistry[type]` directly would show a viewer a manager's draft, or
+    ignore a pin.
   - **`canEditLayout(app)` is the one edit rule for a canvas and its tabs**:
-    false when standalone or locked, and a global app needs an admin. It is the
-    rule views always had for moving widgets, so tabs inherit it rather than
-    getting one of their own; don't gate a canvas or tab control on anything
-    else. Tab names follow `tabLabel`, since a view's first tab has no name of
+    the app's `access` is `MANAGE`, you are looking at its draft, and it is
+    neither standalone nor locked. Tabs inherit it rather than getting one of
+    their own; don't gate a canvas or tab control on anything else. Tab names follow `tabLabel`, since a view's first tab has no name of
     its own and shows the app's.
   - **Links are parsed in one place, `store/appRoute.ts`.** The app hands out
     `#/app/<app>[/<tab>[/w/<widgetId>]]`; `?shared_view=`, `#/view/`,
     `#/template/`, `?widget=` and every id-based `#/app/<id>/<tabId>` are
     aliases for it, permanently, because they sit in people's bookmarks and
-    chats. `<app>` is `appRef`: a global app's `link` (its name, claimed on the
-    server, `services/app_links.py`), else `<name>-<id>`. **Never link a personal
-    app by name alone** — it opens for anyone holding its id, so the id is the
-    only thing keeping it private. `<tab>` is `tabRef`: its name unless that
+    chats. `<app>` is `appRef`: the app's `link` whenever it has one (its name,
+    claimed on publish, `services/app_links.py`; the server sends one only for a
+    published app), else `<name>-<id>`. A link opens only for
+    people the app is shared with; the server answers everyone else with the same
+    404 as a missing app, so the client must not distinguish the two either. `<tab>` is `tabRef`: its name unless that
     would clash, else its id. A route holds those names until `resolvedRoute` /
     `tabIdOf` turn them into ids; everything past that, and every argument to
-    `appHash`, is ids. A global app's old name only the server knows, which is
+    `appHash`, is ids. An app's old name only the server knows, which is
     why `openRoute` asks `GET /api/apps/<ref>` before giving up. `openRoute`
     opens a link: it rewrites the address to the canonical link (so a reload
-    doesn't reopen the widget), and subscribes the caller by id if a fresh list
-    lacks the app, which is what `?shared_view=` always did and the only way a
-    shared link reaches anyone.
+    doesn't reopen the widget). Subscribing is a no-op kept for old links:
+    access comes from the app's access list, and the app appears under Shared
+    with me for anyone on it.
     A link leaves out the tab only when it is the first (`linkTab` / `routeTab`),
     and a bare `#/app/<id>` opens whichever tab is first. A view's original tab
     has the app's id, so once it moves down the bar its link is
@@ -693,10 +779,12 @@ it looks:
   history and greet you with an empty one.
 - **It skips while a turn is streaming** and lands on the next render instead.
 - **It ignores a pin naming an agent that isn't in `availableProfiles`** once that
-  list has loaded, because the runtime silently answers as the default agent when
-  it cannot resolve a `profile_ref` — the picker would claim an agent nobody could
-  open. The panel says so instead. The list is lazy, so an empty list means "not
-  known yet", not "no access".
+  list has loaded. That list is `GET /api/agent/studio/profiles?usable=true`:
+  published agents the caller can use, the same test the server applies to a chat
+  turn, which answers any other `profile_ref` with "That agent isn't available to
+  you". Applying such a pin would make every turn on the view fail, so the drawer
+  stays on the default agent and the panel says why. The list is lazy, so an
+  empty list means "not known yet", not "no access".
 
 Setting `selectedProfileId` from that effect deliberately cascades into the
 agent-switch effect above: the pin does exactly what a click on the picker does.
@@ -714,8 +802,12 @@ shell.ts                ShellContext: present an app on its own / edit it
 App.tsx                 The workspace: Layout around DashboardGrid
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
                         Help/About/UserGuide, AdminPage
-pages/admin/            WidgetManager, ViewManager, RoleMappings, TaxonomyManager,
-                        SettingsManager, DataMigration
+pages/admin/            AdminContent, Administrators, MigrationBanner,
+                        TaxonomyManager, SettingsManager, DataMigration
+sharing.ts              Sharing labels and ACL helpers (see *The sharing kit*)
+contentEnv.ts           Legacy shims; only stripLegacyEnvParam is used
+components/sharing/     ShareDialog, PrincipalPicker, DraftBar, PublishDialog,
+                        AccessIcon, useDialog
 components/             BaseWidget, DashboardGrid, WidgetPreview, WidgetTray,
                         Layout, AppShell, TabBar, AppSettingsModal, modals,
                         AgentDrawer/AgentPanel/AgentConversation, ConversationHistory,

@@ -80,7 +80,11 @@ server/                 FastAPI gateway — see server/AGENTS.md
                         caller_identity.py (who is calling, cached),
                         research_tools.py (studio SQL/Genie research),
                         data_migration.py (app-to-app snapshots),
-                        app_links.py (the names in view links)
+                        app_links.py (the names in view links),
+                        access.py (sharing: who may use or manage what),
+                        drafts.py (drafts and published versions),
+                        consolidation.py + access_migration.py (the
+                        one-time move to drafts and sharing)
   middleware/auth.py    OBO token extraction and WorkspaceClient factories
   config/               Static config + settings.py (env var reads)
 src/                    React SPA — see src/AGENTS.md
@@ -127,30 +131,51 @@ changes nobody using the app could notice — refactors, tests, comments.
 **Changing how the app behaves updates the agent's copy of the docs too.** Users
 ask the in-app assistant how things work, and it answers from
 `server/services/app_guide.md` (plus the primer in `services/app_help.py`), which
-nothing validates against reality. Rename a button or change who may promote a
+nothing validates against reality. Rename a button or change who may publish a
 widget and you edit three files: `src/pages/guide/sections/*.tsx` for humans (one file per page; `UserGuidePage.tsx` is only the shell),
 `app_guide.md` for the agent, `RELEASE_NOTES.md` for the changelog.
 
 ## Environments and the database model
 
-Two different "environments" must not be collapsed:
+Only one kind of "environment" is left: the **physical** one
+(`APP_ENVIRONMENT`, bundle target), meaning which Databricks App this is
+(`local` / `dev` / `stage` / `prod`). Our Dev app is a real Dev deploy, and
+content moves between deploys with Data Migration snapshots.
 
-- **Physical** (`APP_ENVIRONMENT`, bundle target): which Databricks App this is
-  (`local` / `dev` / `stage` / `prod`). Our Dev app is a real Dev deploy.
-- **Workspace** (request `env`, schemas `dev` / `test` / `prod`): authored
-  widgets, views and agents *inside that app*. The sidebar **Workspace**
-  switcher sets it (Dev/Test need Editor or Admin; last choice is remembered
-  per person). Promotion copies between those schemas. In production those
-  three workspaces are for the people using that app.
+There used to be a second kind, the in-app **Workspace** (Dev / Test / Prod
+schemas switched from the sidebar, with promotion copying between them). Drafts
+and per-object sharing replaced it, so each deployment now has:
 
-The app takes an `env` parameter per request (`"dev"` default) and picks storage
-from it, so a single deployment can address `dev` / `test` / `prod`. Startup
-initializes all three:
+- **One content schema**, chosen by `APP_CONTENT_ENV` (default `prod`, because
+  that schema already held what users saw and a rollback to the old code reads it
+  as Prod). Widgets, views, agents and `object_drafts` live here.
+- **The settings schema**, chosen by `APP_SETTINGS_ENV` (default `dev`, where the
+  deployment-global tables always lived). `app_settings`, `object_permissions`,
+  `app_admins`, `known_principals` and `cutover_log` live here, and so does the
+  retired `role_mappings`, which nothing writes any more but the access
+  migration still reads.
+
+Routes still accept an `env` parameter, because older clients, saved links and
+stored widget code send one, but `get_db_connection` maps any of `dev` / `test`
+/ `prod` to the content schema. Only `physical=True` addresses the schema a name
+really denotes: the settings store, and the one-time consolidation that reads the
+retired Dev and Test schemas. Startup initializes just those two stores:
 
 ```python
-for _env in ("dev", "test", "prod"):
+stores = list(dict.fromkeys((content_env(), settings_env())))
+for _env in stores:
     init_db(_env)
 ```
+
+and then runs the one-time moves in order — consolidation (Prod becomes
+published, newer Dev/Test work becomes drafts), then the access migration (role
+mappings become access lists and Administrators) — so the second sees every
+object the first brought over. Each records its outcome in `cutover_log`
+(done / skipped / failed) for the Admin Panel rather than raising, for the same
+reason `init_db` doesn't. A logged step never runs again on restart, failures
+included, so a failure that repeats doesn't cost every startup the same work;
+the Admin Panel's Retry is the only way to rerun one. See `server/AGENTS.md` →
+*The one-time move to sharing*.
 
 Two generations of storage layout exist, and they encode `env` in *different
 places* — this has already caused an incident where widgets appeared to vanish:
@@ -209,13 +234,14 @@ Frequently relevant env vars: `DATABRICKS_HOST` / `DATABRICKS_CLIENT_ID` /
 agent; `false` forwards to the external consolidated agent at
 `CONSOLIDATED_AGENT_URL`), the `AGENT_RUNTIME_*` family (model, auth mode, step
 cap, Genie polling), the `AGENT_STUDIO_*` family (authoring model, MCP servers,
-sandbox limits), `APP_SETTINGS_ENV` (which schema holds `app_settings` and
-`role_mappings`; both are deployment-global, not per-env), `APP_BRAND` (the brand name older widgets
+sandbox limits), `APP_CONTENT_ENV` (the one content schema, default `prod`),
+`APP_SETTINGS_ENV` (the schema holding `app_settings` and the access tables,
+default `dev`), `APP_BRAND` (the brand name older widgets
 use in colour classes, from `var.brand`; `brand` here, a customer's own name in
 their copy — see `src/AGENTS.md`), and `DISABLE_PERMISSION_CHECKS`.
 
 `DISABLE_PERMISSION_CHECKS=true` is a **temporary demo kill-switch that makes
-every signed-in user a global admin.** It is currently enabled. Don't build
+every signed-in user an app Administrator** (MANAGE on everything). It is currently enabled. Don't build
 logic that assumes it's off, and don't quietly leave it on when hardening.
 
 ## Known documentation drift

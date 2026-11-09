@@ -1,213 +1,110 @@
-"""Tests for removing a global view: archive first, delete permanently second.
+"""Tests for removing a view: archive, restore, and delete permanently.
 
-Deleting a global view takes every version of it from every user's sidebar and
-cannot be undone, so the route insists on an archive step in between. What is
-pinned here is the order of those two steps and who may take them, using a fake
-connection that records the statements it was given — enough to see that a refused
-request wrote nothing, which is the part a mistake would get wrong.
+Deleting a view takes every version and its draft away for good, so a view other
+people can open must be archived first, where someone could notice it gone. A
+view only its owner can see is theirs to delete outright, as closing it always
+has been. All of it needs Can manage. What is pinned here is the order of those
+steps and who may take them, against the fake content store and access list in
+`test_apps_routes.py` — enough to see that a refused request wrote nothing,
+which is the part a mistake would get wrong.
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
+sys.path.insert(0, os.path.dirname(__file__))
 
-try:
-    from fastapi import HTTPException
-    from routes import apps
-except Exception as e:  # pragma: no cover - needs the backend venv
-    print(f"SKIP test_view_archive: {e}")
-    sys.exit(0)
-
-ME = "taylor@example.com"
+from test_apps_routes import ME, OTHER, MANAGE, USE, Store, apps, draft_of, refused, row, run  # noqa: E402
 
 
-class FakeCursor:
-    """Answers the few reads the routes make and remembers every write."""
-
-    def __init__(self, store):
-        self.store = store
-        self.description = None
-        self._row = None
-        self._rows = []
-
-    def execute(self, sql, params=None):
-        text = " ".join(sql.split())
-        self.store.statements.append((text, params))
-        self._row, self._rows = None, []
-        if "FROM dashboard_views WHERE id" in text and "ORDER BY version DESC" in text:
-            view = self.store.view
-            self.description = [("username",), ("is_global",), ("domain",)]
-            self._row = None if view is None else (view["username"], view["is_global"], view["domain"])
-        elif "SELECT 1 FROM archived_views" in text:
-            self.description = [("?column?",)]
-            self._row = (1,) if self.store.archived else None
-        elif "FROM archived_views av" in text:
-            self.description = [("id",), ("version",), ("name",), ("domain",), ("archived_by",), ("archived_at",)]
-            self._rows = list(self.store.archive_listing)
-
-    def fetchone(self):
-        return self._row
-
-    def fetchall(self):
-        return self._rows
+def private():
+    return Store(row("v1", owner=ME), acl={"v1": {ME: MANAGE}})
 
 
-class FakeConn:
-    def __init__(self, store):
-        self.store = store
-        self.committed = False
-
-    def cursor(self):
-        return FakeCursor(self.store)
-
-    def commit(self):
-        self.committed = True
-
-    def rollback(self):
-        pass
-
-    def close(self):
-        pass
+def shared(archived=False, level=MANAGE):
+    return Store(row("v1", owner=OTHER), acl={"v1": {OTHER: MANAGE, ME: level}},
+                 archived={"v1"} if archived else ())
 
 
-class Store:
-    def __init__(self, view, archived=False, archive_listing=()):
-        self.view = view
-        self.archived = archived
-        self.archive_listing = archive_listing
-        self.statements = []
-        self.conn = FakeConn(self)
-
-    def wrote(self, verb):
-        return [s for s, _ in self.statements if s.startswith(verb)]
-
-
-def global_view(domain="Sales"):
-    return {"username": "system", "is_global": 1, "domain": domain}
-
-
-def personal_view(owner=ME):
-    return {"username": owner, "is_global": 0, "domain": "General"}
-
-
-def run(store, fn, *args, editor=True, perms=None, **kwargs):
-    """Call a route with the database, identity and permission checks faked."""
-    saved = (apps.get_db_connection, apps._get_current_username,
-             apps.require_domain_editor, apps._get_user_permissions)
-
-    def deny(_w, domain):
-        if not editor:
-            raise HTTPException(status_code=403, detail=f"Forbidden: Editor required for '{domain}'")
-        return True
-
-    apps.get_db_connection = lambda _env: store.conn
-    apps._get_current_username = lambda _w: ME
-    apps.require_domain_editor = deny
-    apps._get_user_permissions = lambda _w: perms or {"is_admin": False, "domain_permissions": {}}
-    try:
-        return fn(*args, w=None, env="dev", **kwargs)
-    finally:
-        (apps.get_db_connection, apps._get_current_username,
-         apps.require_domain_editor, apps._get_user_permissions) = saved
-
-
-def refused(store, fn, *args, **kwargs):
-    try:
-        run(store, fn, *args, **kwargs)
-    except HTTPException as exc:
-        return exc
-    raise AssertionError("the request was not refused")
-
-
-def test_archiving_a_global_view_records_who_and_keeps_every_version():
-    store = Store(global_view())
-    result = run(store, apps.archive_app, "v1")
-    assert result["archived"] is True
-    inserts = [(s, p) for s, p in store.statements if s.startswith("INSERT INTO archived_views")]
-    assert inserts and inserts[0][1] == ("v1", ME)
-    assert store.conn.committed
-    # Soft: nothing is deleted from the versioned table.
-    assert not store.wrote("DELETE")
-
-
-def test_a_personal_view_cannot_be_archived():
-    store = Store(personal_view())
-    assert refused(store, apps.archive_app, "v1").status_code == 400
-    assert not store.wrote("INSERT")
+def test_archiving_records_who_and_keeps_every_version():
+    store = shared()
+    assert run(store, apps.archive_app, "v1")["archived"] is True
+    inserts = [p for s, p in store.statements if s.startswith("INSERT INTO archived_views")]
+    assert inserts == [("v1", ME)] and store.committed
+    assert not [s for s, _ in store.writes() if s.startswith("DELETE")], "archiving deletes nothing"
 
 
 def test_archiving_a_view_that_does_not_exist_is_a_404():
-    assert refused(Store(None), apps.archive_app, "nope").status_code == 404
+    store = Store(acl={"nope": {ME: MANAGE}})
+    assert refused(store, apps.archive_app, "nope").status_code == 404
 
 
-def test_only_a_domain_editor_may_archive():
-    store = Store(global_view())
-    assert refused(store, apps.archive_app, "v1", editor=False).status_code == 403
-    assert not store.wrote("INSERT")
+def test_only_a_manager_may_archive():
+    store = shared(level=USE)
+    assert refused(store, apps.archive_app, "v1").status_code == 403
+    assert store.writes() == []
+    assert refused(Store(row("v1")), apps.archive_app, "v1").status_code == 404, "no access reads as missing"
 
 
 def test_restoring_clears_the_archive_and_nothing_else():
-    store = Store(global_view(), archived=True)
+    store = shared(archived=True)
     run(store, apps.restore_app, "v1")
-    assert store.wrote("DELETE FROM archived_views")
-    assert not store.wrote("DELETE FROM dashboard_views")
-    assert store.conn.committed
+    assert store.archived == set() and len(store.versions("v1")) == 1 and store.committed
 
 
 def test_restoring_needs_the_same_right_as_archiving():
-    store = Store(global_view(), archived=True)
-    assert refused(store, apps.restore_app, "v1", editor=False).status_code == 403
-    assert not store.wrote("DELETE")
+    store = shared(archived=True, level=USE)
+    assert refused(store, apps.restore_app, "v1").status_code == 403
+    assert store.writes() == []
 
 
-def test_a_global_view_cannot_be_deleted_until_it_is_archived():
-    store = Store(global_view(), archived=False)
+def test_a_shared_view_cannot_be_deleted_until_it_is_archived():
+    store = shared()
     exc = refused(store, apps.delete_app, "v1")
-    assert exc.status_code == 409
-    assert "Archive" in exc.detail
-    assert not store.wrote("DELETE")
+    assert exc.status_code == 409 and "Archive" in exc.detail
+    assert store.writes() == [] and store.acl_deleted == []
 
 
-def test_an_archived_global_view_can_be_deleted_for_good():
-    store = Store(global_view(), archived=True)
+def test_an_archived_view_is_deleted_for_good_with_its_draft_names_and_access_list():
+    store = shared(archived=True)
+    store.drafts[("app", "v1")] = draft_of(row("v1"))
+    store.links = {"v1-name": "v1"}
+    store.hidden = {(OTHER, "v1")}
     run(store, apps.delete_app, "v1")
-    assert store.wrote("DELETE FROM dashboard_views")
+    assert store.versions("v1") == [] and ("app", "v1") not in store.drafts
     # The marker goes with the view, or the id would stay hidden if it were reused.
-    assert store.wrote("DELETE FROM archived_views")
-    assert store.conn.committed
+    assert store.archived == set() and store.links == {} and store.hidden == set()
+    assert store.acl_deleted == [("app", "v1")]
 
 
-def test_deleting_for_good_still_needs_editor_rights():
-    store = Store(global_view(), archived=True)
-    assert refused(store, apps.delete_app, "v1", editor=False).status_code == 403
-    assert not store.wrote("DELETE")
-
-
-def test_closing_a_personal_view_is_unchanged():
-    """The sidebar's Close button deletes your own view outright; archiving is for global ones."""
-    store = Store(personal_view(ME))
-    run(store, apps.delete_app, "v1")
-    assert store.wrote("DELETE FROM dashboard_views")
-
-
-def test_nobody_else_can_delete_your_personal_view():
-    store = Store(personal_view("someone.else@example.com"))
+def test_deleting_for_good_still_needs_can_manage():
+    store = shared(archived=True, level=USE)
     assert refused(store, apps.delete_app, "v1").status_code == 403
-    assert not store.wrote("DELETE")
+    assert store.writes() == []
 
 
-def test_the_archive_lists_only_domains_the_caller_edits():
-    rows = [
-        ("a", 3, "Orders", "Sales", "x@example.com", None),
-        ("b", 1, "Margins", "Finance", "y@example.com", None),
-    ]
-    store = Store(global_view(), archive_listing=rows)
-    perms = {"is_admin": False, "domain_permissions": {"Sales": "editor", "Finance": "viewer"}}
-    listed = run(store, apps.list_archived_apps, perms=perms)["apps"]
-    assert [v["id"] for v in listed] == ["a"]
+def test_a_view_only_its_owner_can_see_is_deleted_outright():
+    store = private()
+    run(store, apps.delete_app, "v1")
+    assert store.versions("v1") == [] and store.acl_deleted == [("app", "v1")]
 
-    everyone = run(store, apps.list_archived_apps, perms={"is_admin": True, "domain_permissions": {}})["apps"]
-    assert [v["id"] for v in everyone] == ["a", "b"]
+
+def test_a_draft_nobody_else_has_seen_is_deleted_outright():
+    store = Store(drafts={"d1": draft_of(row("d1", owner=ME))}, acl={"d1": {ME: MANAGE}})
+    run(store, apps.delete_app, "d1")
+    assert ("app", "d1") not in store.drafts
+
+
+def test_the_archive_lists_only_views_the_caller_manages():
+    store = Store(row("a", name="Orders"), row("b", name="Margins"), archived={"a", "b"},
+                  acl={"a": {ME: MANAGE}, "b": {OTHER: MANAGE, ME: USE}})
+    assert [v["id"] for v in run(store, apps.list_archived_apps)["apps"]] == ["a"]
+    assert [v["id"] for v in run(store, apps.list_archived_apps, admin=True)["apps"]] == ["a", "b"]
+
+
+def test_an_archived_draft_is_listed_by_its_draft_name():
+    store = Store(drafts={"d1": draft_of(row("d1"), name="Soon")}, archived={"d1"}, acl={"d1": {ME: MANAGE}})
+    (listed,) = run(store, apps.list_archived_apps)["apps"]
+    assert (listed["name"], listed["version"]) == ("Soon", 0)
 
 
 if __name__ == "__main__":

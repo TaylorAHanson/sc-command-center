@@ -9,6 +9,7 @@ import {
 import { FieldHelp, FieldLabel, ImageField } from './SettingsFields';
 import { LookEditor } from './LookEditor';
 import type { AgentProfile } from '../hooks/useAgentChat';
+import { accessSummary, fetchAcl } from '../sharing';
 
 interface FilterDraft {
   label: string;
@@ -79,6 +80,23 @@ export const AppSettingsModal: React.FC<{
   const noAgent = agentPin === NO_AGENT;
   const pinnedAgent = agents.find(a => a.id === agentPin);
   const agentUnknown = Boolean(agentPin && !noAgent && agentPin !== DEFAULT_AGENT_PIN && !pinnedAgent);
+  // An agent shared more narrowly than the view leaves the people in between
+  // with the default agent. Only the plain cases are caught: comparing two
+  // lists of groups needs memberships the browser doesn't have.
+  const viewReach = app.sharing ?? 'private';
+  const [narrowAgent, setNarrowAgent] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pinnedAgent || viewReach === 'private') return;
+    let live = true;
+    fetchAcl('agent', pinnedAgent.id)
+      .then(acl => {
+        const reach = accessSummary(acl.entries);
+        const narrower = reach === 'private' || (viewReach === 'everyone' && reach !== 'everyone');
+        if (live) setNarrowAgent(narrower ? pinnedAgent.id : null);
+      })
+      .catch(() => { if (live) setNarrowAgent(null); });
+    return () => { live = false; };
+  }, [pinnedAgent, viewReach]);
   const tabsPinnedOwn = oneTab ? 0 : app.spec.tabs.filter(t => t.pinned_agent_id).length;
   const branding = app.spec.branding || {};
   const [presentation, setPresentation] = useState<AppSpec['presentation']>(app.spec.presentation);
@@ -436,8 +454,8 @@ export const AppSettingsModal: React.FC<{
                     <option value={agentPin}>{agents.length ? 'An agent you can’t open' : 'Loading agents…'}</option>
                   )}
                 </select>
-                {app.is_global && pinnedAgent?.visibility === 'personal' && (
-                  <p className="text-xs text-amber-600">This agent is private, so others on this view get the {DEFAULT_AGENT_NAME}.</p>
+                {pinnedAgent && narrowAgent === pinnedAgent.id && (
+                  <p className="text-xs text-amber-600">This agent isn’t shared as widely as this view, so some people on it get the {DEFAULT_AGENT_NAME}.</p>
                 )}
                 {tabsPinnedOwn > 0 && !noAgent && (
                   <p className="text-xs text-gray-500">

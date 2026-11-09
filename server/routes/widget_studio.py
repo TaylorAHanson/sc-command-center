@@ -46,31 +46,56 @@ from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
-@tool
-def search_widgets(query: str) -> str:
-    """Search for existing widgets by name or description to suggest before creating a new one."""
-    try:
-        conn = get_db_connection("dev")
-        c = conn.cursor()
-        search_term = f"%{query}%"
-        # We query the widgets table.
-        c.execute("SELECT id, name, description FROM widgets WHERE (name ILIKE %s OR description ILIKE %s) AND is_deprecated = 0 LIMIT 5", (search_term, search_term))
-        results = c.fetchall()
-        conn.close()
-        
-        if not results:
-            return f"No matching widgets found for '{query}'."
-            
-        output = f"Found the following widgets matching '{query}':\n"
-        for r in results:
-            # handle both RealDictCursor or tuple
-            if hasattr(r, 'keys'):
-                output += f"- Name: {r['name']}, Description: {r['description']}\n"
-            else:
-                output += f"- Name: {r[1]}, Description: {r[2]}\n"
-        return output
-    except Exception as e:
-        return f"Error searching widgets: {str(e)}"
+def widget_search_tool(ws: Optional[WorkspaceClient]):
+    """`search_widgets` for one caller: only published widgets they can use.
+
+    The model repeats what it finds to the user, so an unscoped search would name
+    widgets nobody has shared with them. With no client it finds only what is
+    shared with everyone.
+    """
+    from services import access
+
+    @tool
+    def search_widgets(query: str) -> str:
+        """Search for existing widgets by name or description to suggest before creating a new one."""
+        try:
+            visible = access.visible_ids(access.caller(ws), access.WIDGET)
+            if visible is not None and not visible:
+                return f"No matching widgets found for '{query}'."
+            conn = get_db_connection()
+            try:
+                c = conn.cursor()
+                search_term = f"%{query}%"
+                only, params = ("", []) if visible is None else (" AND id = ANY(%s)", [sorted(visible)])
+                c.execute(
+                    "SELECT DISTINCT ON (id) id, name, description FROM widgets "
+                    f"WHERE (name ILIKE %s OR description ILIKE %s) AND is_deprecated = 0{only} "
+                    "ORDER BY id, version DESC LIMIT 5",
+                    [search_term, search_term, *params],
+                )
+                results = c.fetchall()
+                conn.commit()
+            finally:
+                conn.close()
+
+            if not results:
+                return f"No matching widgets found for '{query}'."
+
+            output = f"Found the following widgets matching '{query}':\n"
+            for r in results:
+                # handle both RealDictCursor or tuple
+                if hasattr(r, 'keys'):
+                    output += f"- Name: {r['name']}, Description: {r['description']}\n"
+                else:
+                    output += f"- Name: {r[1]}, Description: {r[2]}\n"
+            return output
+        except Exception as e:
+            return f"Error searching widgets: {str(e)}"
+
+    return search_widgets
+
+
+search_widgets = widget_search_tool(None)
 
 router = APIRouter()
 
@@ -1614,7 +1639,7 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
         ) if _may_need_data(req) else []
         research_prompt = research_tools.prompt_section(research)
         tool_prompt = ("\n\n" + research_prompt if research_prompt else "") + _sql_check_hint(research)
-        agent_tools = [search_widgets, *research]
+        agent_tools = [widget_search_tool(research_ws), *research]
 
         # The first call is where a parameter the endpoint refuses shows up, so it
         # runs under `with_adaptation`: the offending parameter is dropped and the

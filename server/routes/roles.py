@@ -1,52 +1,33 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
-from typing import List, Dict, Any
-from pydantic import BaseModel
-import psycopg2
-from psycopg2.extras import RealDictCursor
-import datetime
-from database import get_db_connection
-from middleware.auth import get_db_client, get_user_token
+"""Who the caller is (/api/roles).
+
+Access itself is per object now — see `services/access.py` and `routes/sharing.py`.
+What is left here is identity: the username rows are owned by, the groups access
+lists match against, and whether the caller is an app administrator.
+"""
+from typing import Any, Dict, List
+
 from databricks.sdk import WorkspaceClient
-from services import caller_identity
+from fastapi import APIRouter, Depends, HTTPException
+
+from middleware.auth import get_db_client
+from services import access, caller_identity
 from services.settings_store import settings_env
 
 router = APIRouter()
 
-#: Domain names that mean "every domain" to the permission check. They are
-#: meaningful as a mapping's domain without being taxonomy entries.
+#: Domain names the retired role mappings treated as "every domain". Only the
+#: one-time access migration still reads mappings.
 GLOBAL_DOMAINS = ("global", "all", "app")
 
 
 def roles_env() -> str:
-    """The env whose schema holds `role_mappings`, whatever env a request is in.
-
-    Who may do what is a property of the deployment, not of a workspace: someone
-    who is an Editor is one in Dev, Test and Prod alike. So mappings live in the
-    one schema deployment-wide settings already do (`APP_SETTINGS_ENV`), and the
-    `env` a route works in only picks the content it reads, never the access.
-    """
+    """The env whose schema holds the deployment-wide access tables (and the legacy `role_mappings`)."""
     return settings_env()
 
 
 def _permissions_disabled() -> bool:
-    """TEMPORARY demo kill-switch. When DISABLE_PERMISSION_CHECKS is truthy, every
-    caller is treated as a global admin and every domain is visible. Set via
-    databricks.yml (var.disable_permission_checks). MUST be turned off after the
-    demo — it removes all role-based access control."""
-    import os
-    return os.environ.get("DISABLE_PERMISSION_CHECKS", "").strip().lower() in ("1", "true", "yes", "on")
+    return access.permissions_disabled()
 
-
-class DomainRoleMapping(BaseModel):
-    id: int
-    external_role: str
-    domain: str
-    permission_level: str
-
-class RoleMappingCreate(BaseModel):
-    external_role: str
-    domain: str
-    permission_level: str = "editor"
 
 def _get_current_username(w: WorkspaceClient) -> str:
     """The caller's Databricks username.
@@ -59,390 +40,54 @@ def _get_current_username(w: WorkspaceClient) -> str:
     """
     return caller_identity.username(w)
 
-def get_user_entitlements(w: WorkspaceClient) -> List[str]:
-    """The caller's Databricks groups and roles, as role mappings name them.
 
-    Cached alongside the username — the SCIM call that answers one answers both,
-    so routes that need both no longer make two round trips.
-    """
+def get_user_entitlements(w: WorkspaceClient) -> List[str]:
+    """The caller's Databricks groups and roles, the names access lists match against."""
     if w is None:
         return []
     return caller_identity.entitlements(w)
+
+
+def _get_user_permissions(w: WorkspaceClient) -> Dict[str, Any]:
+    """The caller's identity and whether they administer the app.
+
+    Whose identity this is matters beyond access control: it's the `username` the
+    frontend holds, so it ends up stamped on views, on widgets, and in whatever a
+    widget writes to a table. Bypassing the permission *checks* must not bypass
+    identity.
+    """
+    who = access.caller(w)
+    return {"username": who.username, "is_admin": who.is_admin, "groups": list(who.groups)}
+
+
+def require_global_admin(w: WorkspaceClient) -> bool:
+    access.require_app_admin(w)
+    return True
+
 
 @router.get("/me", summary="Get my current roles/groups from Databricks SCIM API")
 def get_my_roles(db_client: WorkspaceClient = Depends(get_db_client)):
     try:
         me = db_client.current_user.me()
-        
-        groups = []
-        if me.groups:
-            groups = [g.display for g in me.groups if g.display]
-            
-        roles = []
-        if me.roles:
-            roles = [r.display for r in me.roles if r.display]
-            
-        return {
-            "username": me.user_name,
-            "groups": groups,
-            "roles": roles,
-            "all_entitlements": groups + roles
-        }
-    except Exception as e:
-        # Fallback to direct API call if SDK method fails
+        groups = [g.display for g in (me.groups or []) if g.display]
+        roles = [r.display for r in (me.roles or []) if r.display]
+        return {"username": me.user_name, "groups": groups, "roles": roles, "all_entitlements": groups + roles}
+    except Exception:
         try:
             me_data = db_client.api_client.do("GET", "/api/2.0/preview/scim/v2/Me")
             groups = [g.get("display") for g in me_data.get("groups", []) if g.get("display")]
             roles = [r.get("display") for r in me_data.get("roles", []) if r.get("display")]
-            return {
-                "username": me_data.get("userName"),
-                "groups": groups,
-                "roles": roles,
-                "all_entitlements": groups + roles
-            }
+            return {"username": me_data.get("userName"), "groups": groups, "roles": roles,
+                    "all_entitlements": groups + roles}
         except Exception as e2:
             raise HTTPException(status_code=500, detail=f"Failed to fetch user roles from SCIM API: {e2}")
 
-@router.get("/my-domains")
-def get_my_domains(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """
-    Returns a list of domains the current user has access to based on their Databricks groups.
-    If they are an admin or map to a global role, they might get all domains or a wildcard.
-    """
-    try:
-        # TEMPORARY demo kill-switch: expose every known domain to everyone.
-        if _permissions_disabled():
-            domains = {"General"}
-            for source_env, query, col in ((env, "SELECT name FROM widget_domains", "name"),
-                                           (roles_env(), "SELECT DISTINCT domain FROM role_mappings", "domain")):
-                conn = get_db_connection(source_env)
-                try:
-                    c = conn.cursor()
-                    c.execute(query)
-                    for row in c.fetchall():
-                        val = row[col] if hasattr(row, "keys") else row[0]
-                        if val:
-                            domains.add(val)
-                except Exception:
-                    pass
-                finally:
-                    conn.close()
-            return {"domains": sorted(domains)}
-
-        username = _get_current_username(w)
-        user_entitlements = get_user_entitlements(w)
-        
-        # Include username as a role for exact-user mappings (e.g. mapping specifically jane.doe@example.com to a domain)
-        user_entitlements.append(username)
-        
-        conn = get_db_connection(roles_env())
-        c = conn.cursor()
-        
-        c.execute("SELECT DISTINCT domain, external_role FROM role_mappings")
-        rows = c.fetchall()
-        conn.close()
-        
-        my_domains = {"General"}
-        for row in rows:
-            # Handle both RealDictCursor and sqlite3.Row / tuple
-            domain = row['domain'] if hasattr(row, 'keys') else row[0]
-            role = row['external_role'] if hasattr(row, 'keys') else row[1]
-            
-            # If the required role for this domain is one of the user's groups, roles, or their username
-            if role in user_entitlements:
-                my_domains.add(domain)
-                
-        return {"domains": sorted(list(my_domains))}
-    except Exception as e:
-        print(f"Error fetching my domains: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-def _get_user_permissions(w: WorkspaceClient) -> dict:
-    """The caller's identity and what they may do, in every workspace alike.
-
-    Whose identity this is matters beyond access control: it's the `username` the
-    frontend holds, so it ends up stamped on views, on widgets, and in whatever a
-    widget writes to a table. Bypassing the permission *checks* must not bypass
-    identity — this used to seed the literal string `"dev"` and only replace it
-    inside a bare `except: pass`, so anything that went wrong quietly credited real
-    work to a user called "dev".
-    """
-    import os
-    if _permissions_disabled() or os.environ.get('DEV_MODE', '').lower() == 'true':
-        return {
-            "username": _get_current_username(w),
-            "is_admin": True,
-            "domain_permissions": {}
-        }
-
-    username = _get_current_username(w)
-    user_entitlements = get_user_entitlements(w)
-    user_entitlements.append(username)
-    
-    conn = get_db_connection(roles_env())
-    c = conn.cursor()
-    
-    format_strings = ','.join(['%s'] * len(user_entitlements))
-    c.execute(f"SELECT domain, permission_level FROM role_mappings WHERE external_role IN ({format_strings})", tuple(user_entitlements))
-    rows = c.fetchall()
-    conn.close()
-    
-    domain_permissions = {}
-    is_global_admin = False
-    
-    for row in rows:
-        domain = row['domain'] if hasattr(row, 'keys') else row[0]
-        perm = row['permission_level'] if hasattr(row, 'keys') else row[1]
-        
-        if domain.lower() in ['global', 'all', 'app'] and perm == 'admin':
-            is_global_admin = True
-            
-        # If multiple mappings exist for same domain, keep the highest privilege
-        levels = {'viewer': 1, 'editor': 2, 'admin': 3}
-        current_level = levels.get(domain_permissions.get(domain, 'none'), 0)
-        new_level = levels.get(perm, 0)
-        
-        if new_level > current_level:
-            domain_permissions[domain] = perm
-            
-    return {
-        # Carried in both shapes: the frontend reads `username` from here, and
-        # leaving it out of this branch left everyone as "unknown" whenever the
-        # permission checks were actually on.
-        "username": username,
-        "is_admin": is_global_admin,
-        "domain_permissions": domain_permissions
-    }
-
-def require_global_admin(w: WorkspaceClient):
-    perms = _get_user_permissions(w)
-    if not perms.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Forbidden: Global Admin access required")
-    return True
-
-def require_domain_editor(w: WorkspaceClient, domain: str):
-    perms = _get_user_permissions(w)
-    if perms.get("is_admin"):
-        return True
-    domain_perm = perms.get("domain_permissions", {}).get(domain, "none")
-    if domain_perm not in ["editor", "admin"]:
-        raise HTTPException(status_code=403, detail=f"Forbidden: Editor or Admin access required for domain '{domain}'")
-    return True
-
-def require_domain_admin(w: WorkspaceClient, domain: str):
-    perms = _get_user_permissions(w)
-    if perms.get("is_admin"):
-        return True
-    domain_perm = perms.get("domain_permissions", {}).get(domain, "none")
-    if domain_perm != "admin":
-        raise HTTPException(status_code=403, detail=f"Forbidden: Admin access required for domain '{domain}'")
-    return True
-
-def require_domain_viewer(w: WorkspaceClient, domain: str):
-    perms = _get_user_permissions(w)
-    if perms.get("is_admin"):
-        return True
-    domain_perm = perms.get("domain_permissions", {}).get(domain, "none")
-    if domain_perm not in ["viewer", "editor", "admin"]:
-        raise HTTPException(status_code=403, detail=f"Forbidden: Viewer, Editor or Admin access required for domain '{domain}'")
-    return True
 
 @router.get("/my-permissions")
 def get_my_permissions(w: WorkspaceClient = Depends(get_db_client)):
-    """
-    Returns the user's detailed permission structure, the same in every workspace.
-    {
-      "is_admin": bool, # true if they have 'admin' on 'Global' or 'All'
-      "domain_permissions": { "DomainName": "admin" | "editor" | "viewer" }
-    }
-    """
+    """`{username, is_admin, groups}` — the same in every view, since access is per object."""
     try:
         return _get_user_permissions(w)
     except Exception as e:
         print(f"Error fetching my permissions: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-def _known_domains() -> set:
-    """Domains in any workspace's taxonomy.
-
-    The taxonomy is still kept per workspace, while a mapping applies to all of
-    them, so a domain that so far exists only in one of them is still one a
-    widget can be filed under there.
-    """
-    names = set()
-    for env in ("dev", "test", "prod"):
-        conn = get_db_connection(env)
-        try:
-            c = conn.cursor()
-            c.execute("SELECT name FROM widget_domains")
-            names.update(row["name"] if hasattr(row, "keys") else row[0] for row in c.fetchall())
-        except Exception as e:  # noqa: BLE001 - a workspace not yet initialized names nothing
-            print(f"Could not read domains in {env}: {e}")
-            conn.rollback()
-        finally:
-            conn.close()
-    return names
-
-
-def _validate_mapping(mapping: RoleMappingCreate, previous: Dict[str, Any] = None) -> None:
-    """Refuse a mapping that could never grant anything.
-
-    A domain that isn't in any workspace's taxonomy is one no widget or view can
-    be filed under, so it grants nothing; the form picks from the taxonomy and
-    this is the same check where it can't be skipped.
-
-    The group or user name is taken as typed. Checking it would mean listing
-    workspace groups, which a deployed app can't do as the signed-in admin:
-    Databricks Apps can't request the `scim` scope for user authorization, and
-    doing it as the app's service principal would widen what that identity is
-    used for.
-
-    On an edit, a domain left as it was is not re-checked. Mappings saved before
-    this existed may name one the check would refuse, and an admin changing only
-    the permission level shouldn't be made to fix it first — the table flags it.
-    """
-    previous = previous or {}
-    if mapping.permission_level not in ("viewer", "editor", "admin"):
-        raise HTTPException(status_code=400, detail="Role type must be viewer, editor or admin.")
-    role = mapping.external_role.strip()
-    domain = mapping.domain.strip()
-    if not role or not domain:
-        raise HTTPException(status_code=400, detail="External role and domain are both required.")
-    if domain != previous.get("domain") and domain.lower() not in GLOBAL_DOMAINS:
-        if domain not in _known_domains():
-            raise HTTPException(
-                status_code=400,
-                detail=(f"'{domain}' is not a domain. Add it under Categories & Domains first, "
-                        "so widgets and views can be filed under it."),
-            )
-
-
-@router.get("/mapping")
-def get_role_mappings():
-    try:
-        conn = get_db_connection(roles_env())
-        c = conn.cursor(cursor_factory=RealDictCursor)
-        
-        c.execute("SELECT id, external_role, domain, permission_level, timestamp FROM role_mappings ORDER BY domain, external_role")
-        rows = c.fetchall()
-        mappings = [dict(row) for row in rows]
-            
-        conn.close()
-        return {"mappings": mappings}
-    except Exception as e:
-        print(f"Error fetching role mappings: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/mapping")
-def create_role_mapping(mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client)):
-    require_global_admin(w)
-    mapping = RoleMappingCreate(external_role=mapping.external_role.strip(),
-                                domain=mapping.domain.strip(),
-                                permission_level=mapping.permission_level)
-    _validate_mapping(mapping)
-    try:
-        conn = get_db_connection(roles_env())
-        c = conn.cursor(cursor_factory=RealDictCursor)
-
-        # Check if exists
-        c.execute("SELECT id FROM role_mappings WHERE external_role = %s AND domain = %s AND permission_level = %s", 
-                  (mapping.external_role, mapping.domain, mapping.permission_level))
-            
-        if c.fetchone():
-            conn.close()
-            raise HTTPException(status_code=400, detail="Role mapping already exists")
-            
-        c.execute(
-            "INSERT INTO role_mappings (external_role, domain, permission_level) VALUES (%s, %s, %s) RETURNING id",
-            (mapping.external_role, mapping.domain, mapping.permission_level)
-        )
-        new_id = c.fetchone()['id']
-            
-        conn.commit()
-        conn.close()
-        
-        return {"status": "success", "id": new_id}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error creating role mapping: {str(e)}")
-        if 'conn' in locals() and conn:
-            conn.rollback()
-            conn.close()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.delete("/mapping/{mapping_id}")
-def delete_role_mapping(mapping_id: int, w: WorkspaceClient = Depends(get_db_client)):
-    require_global_admin(w)
-    try:
-        conn = get_db_connection(roles_env())
-        c = conn.cursor()
-        
-        c.execute("DELETE FROM role_mappings WHERE id = %s", (mapping_id,))
-        deleted = c.rowcount
-        conn.commit()
-            
-        conn.close()
-        
-        if deleted == 0:
-            raise HTTPException(status_code=404, detail="Role mapping not found")
-            
-        return {"status": "success", "message": "Role mapping deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error deleting role mapping: {str(e)}")
-        if 'conn' in locals() and conn:
-            conn.rollback()
-            conn.close()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.put("/mapping/{mapping_id}")
-def update_role_mapping(mapping_id: int, mapping: RoleMappingCreate, w: WorkspaceClient = Depends(get_db_client)):
-    require_global_admin(w)
-    try:
-        conn = get_db_connection(roles_env())
-        c = conn.cursor(cursor_factory=RealDictCursor)
-        mapping = RoleMappingCreate(external_role=mapping.external_role.strip(),
-                                    domain=mapping.domain.strip(),
-                                    permission_level=mapping.permission_level)
-        c.execute("SELECT external_role, domain FROM role_mappings WHERE id = %s", (mapping_id,))
-        previous = c.fetchone()
-        if not previous:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Role mapping not found")
-        try:
-            _validate_mapping(mapping, dict(previous))
-        except HTTPException:
-            conn.close()
-            raise
-
-        # Check if identical mapping exists for another ID
-        c.execute("SELECT id FROM role_mappings WHERE external_role = %s AND domain = %s AND permission_level = %s AND id != %s", 
-                  (mapping.external_role, mapping.domain, mapping.permission_level, mapping_id))
-            
-        if c.fetchone():
-            conn.close()
-            raise HTTPException(status_code=400, detail="Role mapping already exists")
-            
-        c.execute(
-            "UPDATE role_mappings SET external_role = %s, domain = %s, permission_level = %s WHERE id = %s",
-            (mapping.external_role, mapping.domain, mapping.permission_level, mapping_id)
-        )
-        updated = c.rowcount
-            
-        conn.commit()
-        conn.close()
-        
-        if updated == 0:
-            raise HTTPException(status_code=404, detail="Role mapping not found")
-            
-        return {"status": "success", "message": "Role mapping updated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error updating role mapping: {str(e)}")
-        if 'conn' in locals() and conn:
-            conn.rollback()
-            conn.close()
         raise HTTPException(status_code=500, detail=str(e))

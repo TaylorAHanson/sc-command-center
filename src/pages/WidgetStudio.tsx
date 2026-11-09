@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Terminal, Code, Eye, RefreshCw, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X, Paperclip, Camera, Sliders, Loader2, Wrench, Lightbulb, MoreHorizontal, Rocket, Eraser } from 'lucide-react';
+import { Terminal, Code, Eye, RefreshCw, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X, Paperclip, Camera, Sliders, Loader2, Wrench, Lightbulb, MoreHorizontal, Eraser, Share2, ShieldCheck } from 'lucide-react';
 import { toBlob, toPng } from 'html-to-image';
-import { getContentEnv } from '../contentEnv';
-import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry } from '../widgetRegistry';
+import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry, widgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
 import { pastedFiles, useChatUploads } from '../hooks/useChatUploads';
@@ -11,7 +10,9 @@ import { CodeEditor } from '../components/CodeEditor';
 import { AttachmentChip, SentAttachments } from '../components/AttachmentChip';
 import { ThinkingDisclosure } from '../components/ThinkingDisclosure';
 import { SendStopButton } from '../components/SendStopButton';
-import { WidgetPromotionPanel } from '../components/WidgetPromotionPanel';
+import { DraftBar, ShareDialog, type DraftMode } from '../components/sharing';
+import type { Level, PublishState } from '../sharing';
+import { certifyWidget, discardWidgetDraft, fetchWidgetDraft, publishWidget } from '../api';
 import { WidgetDiagnostics } from '../components/WidgetDiagnostics';
 import type { RuntimeStatus } from '../components/WidgetDiagnostics';
 import { RuntimeRecorder, formatRuntimeEntry } from '../widgetRuntime';
@@ -102,7 +103,16 @@ class WidgetErrorBoundary extends React.Component<
     }
 }
 
-const studioSessionKey = () => `sc_widget_studio_session:${getContentEnv()}`;
+const studioSessionKey = () => 'sc_widget_studio_session';
+
+/** Where the widget open in the studio stands, for the person editing it. */
+interface WidgetStanding {
+    state: PublishState;
+    access: Level;
+    publishedVersion: number | null;
+    /** Whether the latest published version is certified. */
+    certified: boolean;
+}
 
 const DEFAULT_WIDGET_CODE = "export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}";
 
@@ -541,15 +551,24 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const [showAgentPrefs, setShowAgentPrefs] = useState(false);
     const [isCapturing, setIsCapturing] = useState(false);
     const attachInputRef = useRef<HTMLInputElement>(null);
-    const [isPublishing, setIsPublishing] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     // Outcome of the last save, shown inline and briefly. Saving keeps you on the
-    // page now, so this replaced an alert — see handlePublish.
+    // page now, so this replaced an alert — see handleSave.
     const [saveNotice, setSaveNotice] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
     const [code, setCode] = useState<string>(sessionState?.code || DEFAULT_WIDGET_CODE);
     const [checkpoints, setCheckpoints] = useState<CodeCheckpoint[]>(sessionState?.checkpoints || []);
     const [showHistory, setShowHistory] = useState(false);
-    const [showPromotion, setShowPromotion] = useState(false);
-    const [saveCount, setSaveCount] = useState(0);
+    // Where the widget open for editing stands, from `/custom/{id}/draft`. Null
+    // for a widget not saved yet.
+    const [standing, setStanding] = useState<WidgetStanding | null>(null);
+    // Published shows what people it's shared with see, read-only, beside the
+    // draft. It holds only while the code it was chosen over is unchanged: an edit
+    // or an agent turn is work on the draft, so the draft is what to show.
+    const [publishedOver, setPublishedOver] = useState<string | null>(null);
+    const studioMode: DraftMode = publishedOver !== null && publishedOver === code ? 'published' : 'draft';
+    const setStudioMode = (mode: DraftMode) => setPublishedOver(mode === 'published' ? code : null);
+    const [isPublishingDraft, setIsPublishingDraft] = useState(false);
+    const [showShare, setShowShare] = useState(false);
     const [showWidgetMenu, setShowWidgetMenu] = useState(false);
     const [viewMode, setViewMode] = useState<'preview' | 'code' | 'config'>(sessionState?.viewMode || 'preview');
     const [previewComponent, setPreviewComponent] = useState<React.ComponentType | null>(null);
@@ -779,9 +798,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setViewMode('code');
         setMessages(prev => [...prev, {
             role: 'system',
-            content: `Restored ${description}. Nothing is saved yet — press ${editingId ? 'Save' : 'Publish'} to keep it, or open History again to go back.`
+            content: `Restored ${description}. Nothing is saved yet — press Save draft to keep it, or open History again to go back.`
         }]);
-    }, [replaceCode, editingId]);
+    }, [replaceCode]);
 
     // Loads the category/domain pickers. Anything that fails here leaves the
     // previously-loaded values in place and surfaces a retry, because quietly
@@ -803,19 +822,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         };
 
         try {
-            // Role-derived domains are supplementary; the admin-managed lists are
-            // the ones worth failing the load over.
-            const [adminRes, catRes, rolesRes] = await Promise.all([
+            const [adminRes, catRes] = await Promise.all([
                 readJson('/api/taxonomy/domains'),
                 readJson('/api/taxonomy/categories'),
-                readJson('/api/roles/my-domains').catch(() => ({ domains: [] })),
             ]);
             if (!isCurrent()) return;
 
             const adminDomains: string[] = (adminRes.domains || []).map((d: any) => d.name).filter(Boolean);
-            const roleDomains: string[] = rolesRes.domains || [];
             const existingDomains = getWidgetDomains();
-            setAvailableDomains(Array.from(new Set(['General', ...adminDomains, ...existingDomains, ...roleDomains])));
+            setAvailableDomains(Array.from(new Set(['General', ...adminDomains, ...existingDomains])));
             setAvailableCategories((catRes.categories || []).map((c: any) => c.name).filter(Boolean));
             setTaxonomyError(null);
         } catch (e: any) {
@@ -853,74 +868,99 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         isExecutable, openInNewTabLink, dataSourceType, dataSource, dataSourceSchema, rowEstimate, dataSourceSample, defaultW, defaultH, configMode, configSchema, editingId,
         checkpoints, editWidgetId, cloneWidgetId, layoutKind]);
 
+    const refreshStanding = React.useCallback(async (id: string) => {
+        try {
+            const info = await fetchWidgetDraft(id);
+            setStanding({
+                state: info.state,
+                access: info.access,
+                publishedVersion: info.published_version,
+                certified: info.published?.is_certified === 1,
+            });
+        } catch {
+            setStanding(null);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (editingId) void refreshStanding(editingId);
+    }, [editingId, refreshStanding]);
+
+    // Editing opens a manager's draft, or the published version when there is no
+    // draft. A clone copies what was published, since that is what was shared;
+    // a widget never published can only be cloned by someone who manages it.
+    const openWidget = React.useCallback(async (targetId: string, isClone: boolean) => {
+        try {
+            const info = await fetchWidgetDraft(targetId);
+            const w = isClone ? (info.published || info.draft) : (info.draft || info.published);
+            if (!w || !w.tsx_code) {
+                console.error(`Widget ${targetId} came back without its source; refusing to open an empty editor over it.`);
+                return;
+            }
+
+            // A saved widget's settings were decided by a person, so the agent
+            // leaves all of them alone from here on.
+            BASIC_SETTING_KEYS.forEach(markSettingTouched);
+
+            // Opening a widget over unsaved work is its own way to lose code,
+            // so the session keeps what was here.
+            if (codeRef.current.trim() && codeRef.current !== DEFAULT_WIDGET_CODE && codeRef.current !== w.tsx_code) {
+                pushCheckpoint(codeRef.current, `Before opening "${w.name}"`);
+            }
+
+            setEditingId(isClone ? null : targetId);
+            if (isClone) setStanding(null);
+            setWidgetName(isClone ? `Clone of ${w.name}` : w.name);
+            setWidgetDescription(w.description || '');
+            setWidgetHelpText(w.help_text || '');
+            setWidgetCategory(w.category || 'Custom');
+            setWidgetDomain(w.domain || '');
+            setCode(w.tsx_code);
+            setDataSourceType((w.data_source_type as any) || 'none');
+            setDataSource(w.data_source || '');
+            setDataSourceSample(null);
+            setOpenInNewTabLink(w.open_in_new_tab_link || '');
+            setIsExecutable(w.is_executable === 1);
+            setDefaultW(w.default_w || 6);
+            setDefaultH(w.default_h || 6);
+            setConfigMode(w.configuration_mode || 'none');
+            setLayoutKind(w.layout_kind === 'page' ? 'page' : 'card');
+
+            let loadedSchema = [];
+            try {
+                loadedSchema = Array.isArray(w.config_schema) ? w.config_schema : (w.config_schema ? JSON.parse(w.config_schema) : []);
+            } catch {
+                loadedSchema = [];
+            }
+            setConfigSchema(loadedSchema);
+
+            const unpublished = !isClone && !!info.draft;
+            const initMessages = [{
+                role: 'assistant' as const,
+                content: isClone
+                    ? `Loaded a clone of "${w.name}". You are creating a new widget.`
+                    : `Loaded ${unpublished ? 'your draft of ' : ''}"${w.name}" for editing. Describe what you'd like to change.`,
+            }];
+            setMessages(initMessages);
+
+            // Overwrite the session storage right after loading existing widget
+            const currentState = {
+                messages: initMessages, prompt: "", code: w.tsx_code, viewMode: 'preview', widgetName: isClone ? `Clone of ${w.name}` : w.name, widgetDescription: w.description || '', widgetHelpText: w.help_text || '', widgetCategory: w.category || 'Custom', widgetDomain: w.domain || '',
+                isExecutable: w.is_executable === 1, openInNewTabLink: w.open_in_new_tab_link || '', dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: loadedSchema, editingId: isClone ? null : targetId,
+                layoutKind: w.layout_kind === 'page' ? 'page' : 'card', layoutKindSettled: true
+            };
+            sessionStorage.setItem(studioSessionKey(), JSON.stringify(currentState));
+        } catch (e) {
+            console.error(e);
+            setSaveNotice({ tone: 'error', text: `Could not open the widget: ${errorText(e)}` });
+        }
+    }, [pushCheckpoint]);
+
     // Load existing widget data when editWidgetId or cloneWidgetId is provided
     useEffect(() => {
         const targetId = editWidgetId || cloneWidgetId;
-        if (!targetId) return;
-        fetch('/api/widgets/custom')
-            .then(r => r.json())
-            .then(data => {
-                // Explicitly the current version. The list carries every version so
-                // the version dropdown knows they exist, but only the current one
-                // carries its source — landing on any other would open the editor
-                // empty and publish that over the widget.
-                const versions = (data.widgets || []).filter((x: any) => x.id === targetId);
-                const w = versions.find((x: any) => x.is_latest)
-                    || versions.reduce((best: any, x: any) => (!best || x.version > best.version ? x : best), null);
-                if (!w || !w.tsx_code) {
-                    console.error(`Widget ${targetId} came back without its source; refusing to open an empty editor over it.`);
-                    return;
-                }
-                
-                const isClone = !!cloneWidgetId;
-
-                // A published widget's settings were decided by a person, so the
-                // agent leaves all of them alone from here on.
-                BASIC_SETTING_KEYS.forEach(markSettingTouched);
-
-                // Opening a widget over unsaved work is its own way to lose code,
-                // so the session keeps what was here.
-                if (codeRef.current.trim() && codeRef.current !== DEFAULT_WIDGET_CODE && codeRef.current !== w.tsx_code) {
-                    pushCheckpoint(codeRef.current, `Before opening "${w.name}"`);
-                }
-
-                setEditingId(isClone ? null : w.id);
-                setWidgetName(isClone ? `Clone of ${w.name}` : w.name);
-                setWidgetDescription(w.description || '');
-                setWidgetCategory(w.category || 'Custom');
-                setWidgetDomain(w.domain || '');
-                setCode(w.tsx_code);
-                setDataSourceType((w.data_source_type as any) || 'none');
-                setDataSource(w.data_source || '');
-                setDataSourceSample(null);
-                setOpenInNewTabLink(w.open_in_new_tab_link || '');
-                setIsExecutable(w.is_executable === 1);
-                setDefaultW(w.default_w || 6);
-                setDefaultH(w.default_h || 6);
-                setConfigMode(w.configuration_mode || 'none');
-                setLayoutKind(w.layout_kind === 'page' ? 'page' : 'card');
-                
-                let loadedSchema = [];
-                try {
-                    loadedSchema = w.config_schema ? JSON.parse(w.config_schema) : [];
-                } catch (e) {
-                    loadedSchema = [];
-                }
-                setConfigSchema(loadedSchema);
-                
-                const initMessages = [{ role: 'assistant' as const, content: isClone ? `Loaded a clone of "${w.name}". You are creating a new widget.` : `Loaded "${w.name}" for editing. Describe what you'd like to change.` }];
-                setMessages(initMessages);
-
-                // Overwrite the session storage right after loading existing widget
-                const currentState = {
-                    messages: initMessages, prompt: "", code: w.tsx_code, viewMode: 'preview', widgetName: isClone ? `Clone of ${w.name}` : w.name, widgetDescription: w.description || '', widgetHelpText: w.helpText || '', widgetCategory: w.category || 'Custom', widgetDomain: w.domain || '',
-                    isExecutable: w.is_executable === 1, openInNewTabLink: w.open_in_new_tab_link || '', dataSourceType: (w.data_source_type as any) || 'none', dataSource: w.data_source || '', dataSourceSchema: null, defaultW: w.default_w || 6, defaultH: w.default_h || 6, configMode: w.configuration_mode || 'none', configSchema: loadedSchema, editingId: isClone ? null : w.id,
-                    layoutKind: w.layout_kind === 'page' ? 'page' : 'card', layoutKindSettled: true
-                };
-                sessionStorage.setItem(studioSessionKey(), JSON.stringify(currentState));
-            })
-            .catch(console.error);
-    }, [editWidgetId, cloneWidgetId, pushCheckpoint]);
+        if (targetId) void openWidget(targetId, !editWidgetId);
+    }, [editWidgetId, cloneWidgetId, openWidget]);
 
     useEffect(() => {
         const timeoutId = setTimeout(() => {
@@ -1650,28 +1690,20 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         previewErrorRef.current = previewError;
     });
 
-    const handlePublish = async () => {
-        const missing = !widgetName.trim() ? 'a Widget Name'
-            : !widgetDescription.trim() ? 'a Description'
-                : (!widgetCategory || widgetCategory === 'Custom') ? 'a Category'
-                    : (!widgetDomain || widgetDomain.toLowerCase() === 'custom') ? 'a Domain'
-                        : null;
-        if (missing) {
-            setSaveNotice({ tone: 'error', text: `Fill in ${missing} on the Configuration tab first.` });
-            setViewMode('config');
-            return;
-        }
-
+    /** Saves the editor as the widget's draft; resolves to its id, or null if the save failed. */
+    const handleSave = async (quiet = false): Promise<string | null> => {
         const isEditing = !!editingId;
         const url = isEditing ? `/api/widgets/custom/${editingId}` : '/api/widgets/custom';
         const method = isEditing ? 'PUT' : 'POST';
 
-        setIsPublishing(true);
+        setIsSaving(true);
         let snapshotDataUrl = null;
         try {
-            // Ensure we're in preview mode so the node exists
-            if (viewMode !== 'preview') {
+            // The thumbnail is of the draft being saved, so the draft has to be
+            // what the preview is drawing.
+            if (viewMode !== 'preview' || studioMode !== 'draft') {
                 setViewMode('preview');
+                setStudioMode('draft');
                 // Allow a brief moment for React to render the DOM
                 await new Promise(r => setTimeout(r, 300));
             }
@@ -1716,32 +1748,88 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             }
 
             if (res.ok) {
-                setSaveCount(n => n + 1);
+                const savedId: string | null = editingId || responseData?.id || null;
+                // If it was a new widget, update editingId so subsequent saves are updates
+                if (!isEditing && savedId) setEditingId(savedId);
                 await loadCustomWidgets();
+                if (savedId) await refreshStanding(savedId);
                 // Saving no longer closes the studio, so this can't be an alert:
                 // people save every few minutes while they work, and a modal to
                 // dismiss on every one of them is worse than no confirmation. The
                 // session is kept for the same reason — clearing it while staying
                 // on the page would mean a reload lost everything.
-                setSaveNotice({
-                    tone: 'ok',
-                    text: isEditing
-                        ? `Saved. "${widgetName}" is live in the Widget Library.`
-                        : `Published. Open the Widget Library (press W) to find "${widgetName}".`,
-                });
-
-                // If it was a new publish, update editingId so subsequent saves are updates
-                if (!isEditing && responseData?.id) {
-                    setEditingId(responseData.id);
+                if (!quiet) {
+                    setSaveNotice({
+                        tone: 'ok',
+                        text: isEditing
+                            ? 'Draft saved. Nobody else sees these changes until you publish.'
+                            : `Saved "${widgetName}" as a draft. Only you can see it until you publish it.`,
+                    });
                 }
-            } else {
-                const err = responseData || await res.json().catch(() => ({ detail: res.statusText }));
-                setSaveNotice({ tone: 'error', text: `Could not save: ${err.detail || res.statusText}` });
+                return savedId;
             }
+            const err = responseData || await res.json().catch(() => ({ detail: res.statusText }));
+            setSaveNotice({ tone: 'error', text: `Could not save: ${err.detail || res.statusText}` });
         } catch (err) {
             setSaveNotice({ tone: 'error', text: `Could not save: ${errorText(err)}` });
         } finally {
-            setIsPublishing(false);
+            setIsSaving(false);
+        }
+        return null;
+    };
+
+    // Saves what is in the editor first, so what gets published is what is on screen.
+    const handlePublishDraft = async () => {
+        const missing = !widgetName.trim() ? 'a Widget Name'
+            : !widgetDescription.trim() ? 'a Description'
+                : (!widgetCategory || widgetCategory === 'Custom') ? 'a Category'
+                    : (!widgetDomain || widgetDomain.toLowerCase() === 'custom') ? 'a Domain'
+                        : null;
+        if (missing) {
+            setSaveNotice({ tone: 'error', text: `Fill in ${missing} on the Configuration tab before publishing.` });
+            setViewMode('config');
+            return;
+        }
+        setIsPublishingDraft(true);
+        try {
+            const id = await handleSave(true);
+            if (!id) return;
+            const out = await publishWidget(id);
+            await loadCustomWidgets();
+            await refreshStanding(id);
+            setSaveNotice({ tone: 'ok', text: `Published v${out.version}. Everyone "${widgetName}" is shared with now sees it.` });
+        } catch (err) {
+            setSaveNotice({ tone: 'error', text: `Could not publish: ${errorText(err)}` });
+        } finally {
+            setIsPublishingDraft(false);
+        }
+    };
+
+    const handleDiscardDraft = async () => {
+        if (!editingId) return;
+        setIsPublishingDraft(true);
+        try {
+            await discardWidgetDraft(editingId);
+            await loadCustomWidgets();
+            // Opening it again leaves a checkpoint of the discarded code in History.
+            await openWidget(editingId, false);
+            setSaveNotice({ tone: 'ok', text: 'Draft discarded. The editor holds the published version again.' });
+        } catch (err) {
+            setSaveNotice({ tone: 'error', text: `Could not discard the draft: ${errorText(err)}` });
+        } finally {
+            setIsPublishingDraft(false);
+        }
+    };
+
+    const handleCertify = async (certified: boolean) => {
+        if (!editingId) return;
+        try {
+            const out = await certifyWidget(editingId, certified);
+            await loadCustomWidgets();
+            await refreshStanding(editingId);
+            setSaveNotice({ tone: 'ok', text: certified ? `Published v${out.version} is certified.` : `v${out.version} is no longer certified.` });
+        } catch (err) {
+            setSaveNotice({ tone: 'error', text: `Could not change certification: ${errorText(err)}` });
         }
     };
 
@@ -1840,7 +1928,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 content: 'Screenshot attached. Say what you want changed about it and press send.',
             }]);
         } catch (e) {
-            // Unlike the publish snapshot, a failure here is the whole point of
+            // Unlike the thumbnail taken on save, a failure here is the whole point of
             // the button, so it has to be visible rather than logged. html-to-image
             // rejects with a bare load Event when its intermediate image won't draw.
             const reason = e instanceof Event ? 'the rendered image would not load' : errorText(e);
@@ -1885,7 +1973,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         setRowEstimate(null);
         setAttachments([]);
         setSaveNotice(null);
-        setShowPromotion(false);
+        setStanding(null);
+        setStudioMode('draft');
     };
 
     // Export the current widget definition (code + all settings) as a portable
@@ -1934,8 +2023,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             if (!w || typeof w !== 'object' || (!w.tsx_code && !w.name)) {
                 throw new Error('This does not look like an exported widget file.');
             }
-            // An import always creates a NEW widget; clear editingId so Publish inserts.
+            // An import always creates a NEW widget; clear editingId so Save draft inserts.
             setEditingId(null);
+            setStanding(null);
             // The imported file's settings were somebody's decision; keep them.
             BASIC_SETTING_KEYS.forEach(markSettingTouched);
             setWidgetName(w.name || 'Imported Widget');
@@ -1959,7 +2049,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             setConfigSchema(schema || []);
             setViewMode('preview');
             setPreviewError(null);
-            setMessages([{ role: 'assistant', content: `Imported "${w.name || 'widget'}" from file. Review it, then Publish to save it as a new widget.` }]);
+            setMessages([{ role: 'assistant', content: `Imported "${w.name || 'widget'}" from file. Review it, then Save draft to keep it as a new widget.` }]);
         } catch (e: any) {
             alert(`Could not import widget: ${e.message || e}`);
         }
@@ -2011,6 +2101,22 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             </ExecuteActionPropInjector>
         </WidgetErrorBoundary>
     ) : null;
+
+    // Published mode shows the latest published version, as the library holds it
+    // under the widget's plain id (a manager's draft is registered beside it).
+    const publishedCandidate = studioMode === 'published' && editingId ? widgetRegistry[editingId] : undefined;
+    const publishedDef = publishedCandidate && !publishedCandidate.isDraft ? publishedCandidate : undefined;
+    const shownWidget = publishedDef ? (
+        <WidgetErrorBoundary resetKey={publishedDef.component}>
+            <ExecuteActionPropInjector>
+                {React.createElement(publishedDef.component, {
+                    id: 'preview-widget',
+                    app: previewApp.app,
+                    data: { ...(publishedDef.defaultProps || {}), username, variables, setVariable },
+                })}
+            </ExecuteActionPropInjector>
+        </WidgetErrorBoundary>
+    ) : previewWidget;
 
     return (
         <div className="flex h-full w-full bg-slate-900 text-slate-100 overflow-hidden font-sans">
@@ -2287,7 +2393,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             {/* RIGHT PANE: Workspace (2/3 width) */}
             <div className="w-2/3 flex flex-col bg-slate-900">
                 {/* With the sidebar open at 1280px this pane is about 680px wide, which
-                    is why the tab icons and the Promote label wait for 2xl. */}
+                    is why the tab icons wait for 2xl, and Publish and Share sit on a
+                    bar of their own below. */}
                 <div className="flex border-b border-slate-800 bg-slate-900/50 px-4 pt-2 gap-2 h-14 items-end">
                     <button
                         className={`px-3 2xl:px-4 py-2 border-b-2 font-medium text-sm whitespace-nowrap flex items-center gap-2 transition-colors ${viewMode === 'preview' ? 'border-indigo-500 text-indigo-400 bg-slate-800/50' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
@@ -2310,7 +2417,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
 
                     <div className="ml-auto mb-1 flex shrink-0 items-center gap-1">
                         <button
-                            onClick={() => { setShowHistory(v => !v); setShowPromotion(false); }}
+                            onClick={() => setShowHistory(v => !v)}
                             className={`h-8 px-1.5 flex items-center gap-1 rounded-md text-xs border transition-colors ${showHistory ? 'bg-indigo-600 border-indigo-500 text-white' : 'text-slate-300 bg-slate-800 border-slate-700 hover:bg-slate-700 hover:text-white'}`}
                             title="History: restore an earlier version of this widget's code"
                             aria-label={checkpoints.length ? `History, ${checkpoints.length} snapshots` : 'History'}
@@ -2329,19 +2436,6 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         </button>
 
                         <span className="mx-1 h-5 w-px bg-slate-700" aria-hidden="true" />
-
-                        <button
-                            onClick={() => { setShowPromotion(v => !v); setShowHistory(false); }}
-                            disabled={!editingId}
-                            className={`h-8 px-1.5 2xl:px-2.5 flex items-center gap-1.5 rounded-md text-sm font-medium border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${showPromotion ? 'bg-indigo-600 border-indigo-500 text-white' : 'text-slate-300 bg-slate-800 border-slate-700 hover:bg-slate-700 hover:text-white'}`}
-                            title={editingId
-                                ? 'Promote: move this widget on from Dev to Test or Prod'
-                                : 'Publish this widget first — only a published widget can be promoted'}
-                            aria-label="Promote"
-                        >
-                            <Rocket size={14} />
-                            <span className="hidden 2xl:inline">Promote</span>
-                        </button>
 
                         <div className="relative">
                             <input
@@ -2393,11 +2487,12 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         </div>
 
                         <button
-                            onClick={handlePublish}
-                            disabled={isPublishing}
-                            className={`h-8 flex items-center gap-1.5 px-3 text-sm whitespace-nowrap rounded-md transition-colors font-medium ${isPublishing ? 'bg-indigo-400 cursor-not-allowed text-indigo-100' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
-                            {isPublishing ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-                            {isPublishing ? (editingId ? 'Saving...' : 'Publishing...') : (editingId ? 'Save' : 'Publish')}
+                            onClick={() => { void handleSave(); }}
+                            disabled={isSaving || isPublishingDraft}
+                            title="Save your work as a draft. Nobody else sees it until you publish."
+                            className={`h-8 flex items-center gap-1.5 px-3 text-sm whitespace-nowrap rounded-md transition-colors font-medium disabled:cursor-not-allowed ${isSaving ? 'bg-indigo-400 text-indigo-100' : 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 disabled:hover:bg-indigo-600'}`}>
+                            {isSaving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                            {isSaving ? 'Saving…' : 'Save draft'}
                         </button>
                         {/* Saving keeps you here, so leaving needs its own button —
                             and it is the only exit that clears the widget the
@@ -2412,8 +2507,56 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                     </div>
                 </div>
 
-                {/* Feedback on Save, Publish or Promote sits next to the button that
-                    caused it, not over the chat. */}
+                {editingId && standing && (
+                    <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b border-slate-800 bg-slate-900/80">
+                        <DraftBar
+                            variant="dark"
+                            state={standing.access === 'MANAGE' ? standing.state : undefined}
+                            mode={studioMode}
+                            onModeChange={setStudioMode}
+                            onPublish={() => { void handlePublishDraft(); }}
+                            onDiscard={handleDiscardDraft}
+                            busy={isSaving || isPublishingDraft}
+                        />
+                        <div className="ml-auto flex items-center gap-1">
+                            {standing.access === 'MANAGE' && standing.publishedVersion && (
+                                <button
+                                    onClick={() => { void handleCertify(!standing.certified); }}
+                                    title={standing.certified
+                                        ? `Published v${standing.publishedVersion} is certified as reviewed. Click to withdraw that.`
+                                        : `Certify published v${standing.publishedVersion} as reviewed. A new version starts uncertified.`}
+                                    className={`h-7 px-2 flex items-center gap-1.5 rounded-md text-xs font-medium border transition-colors ${standing.certified ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25' : 'text-slate-300 bg-slate-800 border-slate-700 hover:bg-slate-700 hover:text-white'}`}
+                                >
+                                    <ShieldCheck size={13} />
+                                    {standing.certified ? 'Certified' : 'Certify'}
+                                </button>
+                            )}
+                            {standing.access && (
+                                <button
+                                    onClick={() => setShowShare(true)}
+                                    title={standing.access === 'MANAGE' ? 'Choose who can use or manage this widget' : 'See who this widget is shared with'}
+                                    className="h-7 px-2 flex items-center gap-1.5 rounded-md text-xs font-medium text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white transition-colors"
+                                >
+                                    <Share2 size={13} />
+                                    Share
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {showShare && editingId && standing && (
+                    <ShareDialog
+                        objectType="widget"
+                        objectId={editingId}
+                        name={widgetName}
+                        published={standing.state !== 'draft_only'}
+                        onClose={() => setShowShare(false)}
+                        onChanged={() => { void loadCustomWidgets(); }}
+                    />
+                )}
+
+                {/* Feedback on Save or Publish sits next to the button that caused
+                    it, not over the chat. */}
                 {saveNotice && (
                     <div className={`px-4 py-2 text-xs flex items-start gap-2 border-b ${saveNotice.tone === 'ok'
                         ? 'bg-emerald-950/40 border-emerald-900/50 text-emerald-300'
@@ -2443,9 +2586,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                     </button>
                                 ))}
                             </div>
-                            <span className="text-slate-500 truncate">
-                                {layoutKind === 'page' ? 'Fills a whole tab of a view, under its header and tabs.' : 'A card on a tab, alongside other widgets.'}
-                            </span>
+                            {publishedDef ? (
+                                <span className="text-amber-300/90 truncate" title="Switch to Draft to see and change your working copy">
+                                    Published v{standing?.publishedVersion}: what people it’s shared with see. Read-only.
+                                </span>
+                            ) : (
+                                <span className="text-slate-500 truncate">
+                                    {layoutKind === 'page' ? 'Fills a whole tab of a view, under its header and tabs.' : 'A card on a tab, alongside other widgets.'}
+                                </span>
+                            )}
                             {layoutKind === 'page' && (
                                 <div role="radiogroup" aria-label="Preview width" className="ml-auto flex rounded-md border border-slate-700 overflow-hidden shrink-0">
                                     {PAGE_WIDTHS.map(w => (
@@ -2469,7 +2618,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             off-centre. Auto margins drop to zero instead and it scrolls. */}
                         <div ref={previewPaneRef} className="flex-1 min-h-0 p-8 overflow-auto w-full flex items-start justify-start">
                             <div className={`min-h-min pb-16 ${layoutKind === 'page' ? 'w-full min-w-0' : 'min-w-min mx-auto'}`}>
-                                {previewError ? (
+                                {previewError && !publishedDef ? (
                                     <div className="w-full max-w-2xl bg-rose-950/40 border border-rose-900/50 rounded-xl p-6 text-rose-200">
                                         <div className="flex items-center gap-2 mb-4">
                                             <AlertCircle className="text-rose-500" size={24} />
@@ -2477,11 +2626,11 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                         </div>
                                         <pre className="text-sm overflow-x-auto whitespace-pre-wrap p-4 bg-black/30 rounded-lg border border-rose-900/20">{previewError}</pre>
                                     </div>
-                                ) : previewComponent ? (
+                                ) : (previewComponent || publishedDef) ? (
                                     <div className={layoutKind === 'page' ? 'w-full' : 'min-w-min min-h-min'}>
                                         {layoutKind === 'page' ? (
                                             <PagePreview title={widgetName} width={pageWidth} app={previewApp.app} note={previewApp.note} onShowHome={previewApp.showHome}>
-                                                {previewWidget}
+                                                {shownWidget}
                                             </PagePreview>
                                         ) : (
                                             <div
@@ -2515,7 +2664,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                         </button>
                                                     ) : undefined}
                                                 >
-                                                    {previewWidget}
+                                                    {shownWidget}
                                                 </BaseWidget>
                                             </div>
                                         )}
@@ -2997,16 +3146,6 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             widgetId={editingId}
                             onRestore={restoreCode}
                             onClose={() => setShowHistory(false)}
-                        />
-                    )}
-                    {showPromotion && (
-                        <WidgetPromotionPanel
-                            // A save adds a Dev version the open panel would not otherwise show.
-                            key={saveCount}
-                            widgetId={editingId}
-                            domain={widgetDomain}
-                            onClose={() => setShowPromotion(false)}
-                            onNotice={setSaveNotice}
                         />
                     )}
                 </div>

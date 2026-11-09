@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchMe } from '../sharing';
 import { useDashboardStore } from '../store/dashboardStore';
-import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
+import { resolveWidget, useWidgetRegistry } from '../widgetRegistry';
 
 /**
  * The "emitted" snapshot of everything happening on the active view.
@@ -9,7 +10,7 @@ import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
  * (dashboard variables): instead of only sharing the handful of variables a
  * widget author opts into, we broadcast the full picture of what the user is
  * currently looking at — every widget's title, description, and configuration —
- * plus the user's identity and roles. It feeds the AI assistant so it always
+ * plus the user's identity and groups. It feeds the AI assistant so it always
  * has grounded context about the user's screen.
  */
 export interface EmittedWidgetContext {
@@ -24,9 +25,10 @@ export interface EmittedWidgetContext {
 
 export interface EmittedUserContext {
     email: string;
+    /** An app administrator, who can manage everything. */
     isAdmin: boolean;
-    /** Map of domain -> permission level (viewer/editor/admin). */
-    roles: Record<string, string>;
+    /** The user's Databricks groups, which is what things are shared with. */
+    groups: string[];
 }
 
 export interface DashboardContext {
@@ -41,6 +43,7 @@ export interface DashboardContext {
 
 // Internal prop keys we don't want to leak into the emitted configuration.
 const INTERNAL_PROP_KEYS = new Set(['_version']);
+const MAX_GROUPS_SHOWN = 20;
 
 const sanitizeConfiguration = (props?: Record<string, any>): Record<string, any> => {
     if (!props) return {};
@@ -56,15 +59,21 @@ const sanitizeConfiguration = (props?: Record<string, any>): Record<string, any>
  * inputs so consumers (e.g. the agent panel) can depend on it directly.
  */
 export const useDashboardContext = (): DashboardContext => {
-    const { activeApp, activeAppTab, username, isAdmin, domainPermissions, variables } = useDashboardStore();
+    const { activeApp, activeAppTab, username, isAdmin, variables, modeOf } = useDashboardStore();
+    const draftMode = activeApp?.access === 'MANAGE' && modeOf(activeApp) === 'draft';
+    const [groups, setGroups] = useState<string[]>([]);
+    useEffect(() => {
+        let cancelled = false;
+        fetchMe().then(me => { if (!cancelled) setGroups(me.groups); }).catch(() => { /* context without groups */ });
+        return () => { cancelled = true; };
+    }, []);
     // Subscribe to the widget registry so titles/descriptions resolve correctly
     // once custom widgets have loaded (otherwise they fall back to raw type IDs).
     const { version: registryVersion } = useWidgetRegistry();
 
     return useMemo<DashboardContext>(() => {
         const widgets: EmittedWidgetContext[] = (activeAppTab?.widgets || []).map(w => {
-            const versionKey = w.props?._version ? `${w.type}@${w.props._version}` : w.type;
-            const def = widgetRegistry[versionKey] || widgetRegistry[w.type];
+            const def = resolveWidget(w.type, w.props?._version, draftMode);
             return {
                 id: w.i,
                 title: def?.name || w.type,
@@ -79,7 +88,7 @@ export const useDashboardContext = (): DashboardContext => {
             user: {
                 email: username,
                 isAdmin,
-                roles: domainPermissions || {},
+                groups,
             },
             app: activeApp ? { id: activeApp.id, name: activeApp.name } : null,
             tab: activeApp && activeAppTab && activeApp.spec.tabs.length > 1
@@ -88,7 +97,7 @@ export const useDashboardContext = (): DashboardContext => {
             widgets,
             variables: variables || {},
         };
-    }, [activeApp, activeAppTab, username, isAdmin, domainPermissions, variables, registryVersion]);
+    }, [activeApp, activeAppTab, username, isAdmin, groups, variables, registryVersion, draftMode]);
 };
 
 /**
@@ -108,15 +117,15 @@ export const buildContextPreamble = (ctx: DashboardContext): string => {
     lines.push('');
 
     // Identity — the email is the verified signed-in user; treat it as known.
-    const roleNames = Object.keys(ctx.user.roles);
     lines.push('## Signed-in user');
     lines.push(`- Identity (verified): ${ctx.user.email || 'unknown'}`);
-    lines.push(`- Administrator: ${ctx.user.isAdmin ? 'yes' : 'no'}`);
-    lines.push(
-        `- Domain roles: ${roleNames.length
-            ? roleNames.map(d => `${d}=${ctx.user.roles[d]}`).join(', ')
-            : 'none assigned'}`
-    );
+    lines.push(`- App administrator: ${ctx.user.isAdmin ? 'yes' : 'no'}`);
+    // Every turn pays for this preamble, and some people are in hundreds of groups.
+    const groups = ctx.user.groups.slice(0, MAX_GROUPS_SHOWN);
+    const moreGroups = ctx.user.groups.length - groups.length;
+    lines.push(`- Groups: ${groups.length
+        ? groups.join(', ') + (moreGroups > 0 ? ` (+${moreGroups} more)` : '')
+        : 'none known'}`);
     lines.push('');
 
     // View + widgets.

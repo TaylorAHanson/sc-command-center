@@ -1,9 +1,9 @@
 """Admin Panel → Data Migration: snapshot this app's data, or load another app's.
 
 The mechanism and its trade-offs are in `services/data_migration.py`. This module
-is the HTTP edge: who may do it (global admins of the env involved), which
-connection each part goes through, and the one guard a replace needs that a merge
-doesn't — not deleting the importer's own admin access.
+is the HTTP edge: who may do it (app administrators), which connection each part
+goes through, and the one guard a replace needs that a merge doesn't — not
+deleting the importer's own admin access.
 
 Every route is a sync `def`. An export or import is seconds of blocking psycopg2
 work, and on the event loop it would stall every other request, the chat
@@ -23,27 +23,18 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from config.settings import get_app_environment
-from database import _schema_for, get_db_connection, log_user_action
+from database import _schema_for, content_env, get_db_connection, log_user_action
 from middleware.auth import get_db_client
-from routes.roles import _get_current_username, _permissions_disabled, get_user_entitlements, require_global_admin
+from services import access, access_migration
 from services import data_migration as dm
 from services import settings_store
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-ENVS = ("dev", "test", "prod")
-
 #: Largest snapshot accepted, compressed or not. Held in memory while it is
 #: parsed, so this is a memory bound as much as an upload one.
 MAX_MB = int(os.environ.get("MIGRATION_MAX_MB", "512"))
-
-
-def _check_env(env: str) -> str:
-    env = (env or "").strip().lower()
-    if env not in ENVS:
-        raise HTTPException(status_code=400, detail=f"env must be one of {', '.join(ENVS)}")
-    return env
 
 
 def _groups(raw: Optional[str]) -> List[str]:
@@ -56,89 +47,78 @@ def _groups(raw: Optional[str]) -> List[str]:
     return picked
 
 
-def _source(env: str) -> Dict[str, Any]:
+def _source() -> Dict[str, Any]:
     """Where a snapshot came from, recorded in the file for whoever imports it."""
+    content, settings = content_env(), settings_store.settings_env()
     return {
         "app_environment": get_app_environment() or "local",
-        "env": env,
-        "schema": _schema_for(env) or "public",
+        "content_env": content,
+        "schema": _schema_for(content) or "public",
+        "settings_env": settings,
+        "settings_schema": _schema_for(settings) or "public",
         "instance": os.environ.get("LAKEBASE_INSTANCE_NAME", ""),
-        "settings_env": settings_store.settings_env(),
     }
 
 
-#: Tables kept once per deployment rather than once per workspace.
-DEPLOYMENT_TABLES = frozenset({"app_settings", "role_mappings"})
+def _stores(specs: List[dm.TableSpec]) -> List[tuple]:
+    """(env, specs) for each store the tables live in: the content store, then settings.
 
-
-def _partition(specs: List[dm.TableSpec], env: str) -> Dict[str, List[dm.TableSpec]]:
-    """Which env's schema each table is read from or written to.
-
-    Settings and role mappings are deployment-global and live in
-    `APP_SETTINGS_ENV`'s schema whatever env the rest of the data is in (see
-    `settings_store` and `roles.roles_env`), so they go wherever that is —
-    otherwise an import would write them into a schema nothing reads them from.
+    Physical, because `settings_env()` names a real schema — usually `dev` — and
+    the default mapping would send it to the content store, where nothing reads
+    access lists or settings from.
     """
-    settings_env = settings_store.settings_env()
-    out: Dict[str, List[dm.TableSpec]] = {}
-    for spec in specs:
-        target = settings_env if spec.name in DEPLOYMENT_TABLES else env
-        out.setdefault(target, []).append(spec)
-    return out
+    content, settings = dm.partition(specs)
+    return [(env, part) for env, part in ((content_env(), content), (settings_store.settings_env(), settings)) if part]
 
 
 @router.get("/groups")
-def list_groups(env: str = "dev", w: WorkspaceClient = Depends(get_db_client)):
-    env = _check_env(env)
-    require_global_admin(w)
-    return {"groups": dm.GROUPS, "modes": list(dm.MODES), "this_app": _source(env)}
+def list_groups(w: WorkspaceClient = Depends(get_db_client)):
+    access.require_app_admin(w)
+    return {"groups": dm.GROUPS, "modes": list(dm.MODES), "this_app": _source()}
 
 
 @router.get("/summary")
-def summary(env: str = "dev", w: WorkspaceClient = Depends(get_db_client)):
-    """What an export of `env` would contain, table by table."""
-    env = _check_env(env)
-    require_global_admin(w)
+def summary(w: WorkspaceClient = Depends(get_db_client)):
+    """What an export would contain, table by table."""
+    access.require_app_admin(w)
     tables: List[Dict[str, Any]] = []
-    for target, specs in _partition(dm.TABLES, env).items():
-        conn = get_db_connection(target)
+    for env, specs in _stores(dm.TABLES):
+        conn = get_db_connection(env, physical=True)
         try:
-            tables.extend(dm.summarize(conn.cursor(), [s.group for s in specs]))
+            tables.extend(dm.summarize(conn.cursor(), specs))
+            conn.rollback()
         finally:
             conn.close()
     order = {s.name: i for i, s in enumerate(dm.TABLES)}
     tables.sort(key=lambda t: order.get(t["table"], 99))
-    return {"env": env, "tables": tables, "this_app": _source(env)}
+    return {"tables": tables, "this_app": _source()}
 
 
 @router.get("/export")
-def export_snapshot(env: str = "dev", groups: Optional[str] = None,
-                    w: WorkspaceClient = Depends(get_db_client)):
-    env = _check_env(env)
-    require_global_admin(w)
+def export_snapshot(groups: Optional[str] = None, w: WorkspaceClient = Depends(get_db_client)):
+    who = access.require_app_admin(w)
     picked = _groups(groups)
-    username = _get_current_username(w)
+    username = who.username
 
     tables: Dict[str, Any] = {}
-    for target, specs in _partition(dm.tables_for(picked), env).items():
-        conn = get_db_connection(target)
+    for env, specs in _stores(dm.tables_for(picked)):
+        conn = get_db_connection(env, physical=True)
         try:
             tables.update(dm.export_tables(conn.cursor(), specs))
             conn.rollback()  # read-only; end the transaction before the pool takes it back
         finally:
             conn.close()
 
-    source = _source(env)
+    source = _source()
     document = dm.snapshot_document(tables, groups=picked, source=source, exported_by=username)
     body = gzip.compress(json.dumps(document, separators=(",", ":"), default=str).encode("utf-8"))
     counts = {name: len(t["rows"]) for name, t in tables.items()}
-    logger.warning("Data snapshot exported by %s: env=%s groups=%s rows=%s",
-                   username, env, ",".join(picked), counts)
-    _audit(env, username, "export_snapshot",
-           f"Exported a data snapshot of {env} ({', '.join(picked)}).", {"rows": counts, "source": source})
+    logger.warning("Data snapshot exported by %s: groups=%s rows=%s", username, ",".join(picked), counts)
+    _audit(username, "export_snapshot", f"Exported a data snapshot ({', '.join(picked)}).",
+           {"rows": counts, "source": source})
 
     stamp = document["exported_at"][:10]
-    filename = f"command-center-{source['app_environment']}-{env}-{stamp}.json.gz"
+    filename = f"command-center-{source['app_environment']}-{stamp}.json.gz"
     return Response(
         content=body,
         media_type="application/gzip",
@@ -170,30 +150,47 @@ def _read_snapshot(file: UploadFile) -> Dict[str, Any]:
     return snapshot
 
 
-def _still_admin(cur, w: WorkspaceClient) -> bool:
-    """Whether the importer would still be a global admin, read inside the import.
+def legacy_tables(snapshot: Dict[str, Any], picked: List[str]) -> tuple:
+    """(tables to import, notes) for a snapshot, converting one from before sharing.
 
-    Replacing role mappings replaces the target's access control with the
+    A format-1 file carries role mappings and no access lists; imported as it
+    stands, everything in it would be reachable by administrators alone.
+    """
+    tables = snapshot["tables"]
+    notes: List[str] = []
+    if int(snapshot.get("format_version") or 1) >= 2:
+        return tables, notes
+    old_env = (snapshot.get("source") or {}).get("env")
+    if old_env and old_env != content_env():
+        notes.append(f"This snapshot is of the old {old_env.capitalize()} workspace. What it holds is imported as "
+                     "published, like everything else here; preview first.")
+    if "access" in picked and "object_permissions" not in tables:
+        tables = {**tables, **access_migration.tables_from_legacy_snapshot(tables)}
+        notes.append("This snapshot is from before sharing: its role mappings were turned into access lists and "
+                     "administrators, the way this app's own were.")
+    return tables, notes
+
+
+def _still_admin(cur, who: access.Caller) -> bool:
+    """Whether the importer would still be an app admin, read inside the import.
+
+    Replacing the administrators replaces the target's access control with the
     source's. If the source's doesn't include the person importing, they finish
     the import locked out of the Admin Panel they did it from, and with checks on
     nobody may be left who can fix it. Checked against the uncommitted rows, so a
     replace that would do that is rolled back instead.
     """
-    if _permissions_disabled() or os.environ.get("DEV_MODE", "").lower() == "true":
+    if access.permissions_disabled() or os.environ.get("DEV_MODE", "").lower() == "true":
         return True
-    names = list(get_user_entitlements(w)) + [_get_current_username(w)]
-    cur.execute(
-        "SELECT 1 FROM role_mappings WHERE external_role = ANY(%s) "
-        "AND LOWER(domain) IN ('global', 'all', 'app') AND permission_level = 'admin' LIMIT 1",
-        (names,),
-    )
-    return cur.fetchone() is not None
+    cur.execute("SELECT principal, principal_type FROM app_admins")
+    rows = cur.fetchall()
+    return any(access.matches(*(tuple(r.values()) if hasattr(r, "keys") else tuple(r))[:2], who.username, who.groups)
+               for r in rows)
 
 
 @router.post("/import")
 def import_snapshot(
     file: UploadFile = File(...),
-    env: str = Form("dev"),
     mode: str = Form("merge"),
     groups: Optional[str] = Form(None),
     dry_run: bool = Form(True),
@@ -204,34 +201,34 @@ def import_snapshot(
     A preview runs the real import and rolls it back, so the counts it reports are
     what an import would do, not a guess at it.
     """
-    env = _check_env(env)
-    require_global_admin(w)
+    who = access.require_app_admin(w)
     if mode not in dm.MODES:
         raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(dm.MODES)}")
     snapshot = _read_snapshot(file)
     picked = _groups(groups)
-    username = _get_current_username(w)
-    ignored = sorted(t for t in snapshot["tables"] if t not in dm.SPECS)
+    username = who.username
+    tables, notes = legacy_tables(snapshot, picked)
+    ignored = sorted(t for t in snapshot["tables"] if t not in dm.SPECS and t not in dm.LEGACY_TABLES)
 
     report: List[Dict[str, Any]] = []
     connections = []
     try:
-        # One unpooled connection per schema touched, each holding its transaction
+        # One unpooled connection per store touched, each holding its transaction
         # open until every part has succeeded, so a failure in the settings schema
-        # also undoes the main import. (Two schemas cannot share one transaction on
-        # the legacy layout, where each env is its own database; this is as close
-        # as that layout allows.)
-        for target, specs in _partition(dm.tables_for(picked), env).items():
-            conn = get_db_connection(target, pooled=False)
+        # also undoes the content import. (Two schemas cannot share one transaction
+        # on the legacy layout, where each env is its own database; this is as
+        # close as that layout allows.)
+        for env, specs in _stores(dm.tables_for(picked)):
+            conn = get_db_connection(env, pooled=False, physical=True)
             connections.append(conn)
             cur = conn.cursor()
-            report.extend(dm.import_tables(cur, snapshot["tables"], specs, mode))
-            replaces_roles = mode == "replace" and any(s.name == "role_mappings" for s in specs)
-            if replaces_roles and not _still_admin(cur, w):
+            report.extend(dm.import_tables(cur, tables, specs, mode))
+            replaces_admins = mode == "replace" and "app_admins" in tables and any(s.name == "app_admins" for s in specs)
+            if replaces_admins and not _still_admin(cur, who):
                 raise HTTPException(status_code=409, detail=(
-                    "This import would replace the role mappings with ones that don't make you a "
-                    "global admin, locking you out of this page. Add your group as a global admin "
-                    "in the source app and export again, or import with Merge."
+                    "This import would replace the administrators with ones that don't include you, locking "
+                    "you out of this page. Make yourself or your group an administrator in the source app and "
+                    "export again, or import with Merge."
                 ))
         for conn in connections:
             if dry_run:
@@ -248,7 +245,7 @@ def import_snapshot(
                 conn.rollback()
             except Exception:  # noqa: BLE001
                 pass
-        logger.exception("Data snapshot import failed (env=%s mode=%s)", env, mode)
+        logger.exception("Data snapshot import failed (mode=%s)", mode)
         raise HTTPException(status_code=500, detail=f"Import failed and nothing was changed: {exc}")
     finally:
         for conn in connections:
@@ -261,29 +258,29 @@ def import_snapshot(
     report.sort(key=lambda r: order.get(r["table"], 99))
     totals = {k: sum(r[k] for r in report) for k in ("in_file", "inserted", "skipped", "deleted")}
     if not dry_run:
-        # Settings are cached for a few seconds per worker; this worker at least
-        # should show the imported ones at once.
+        # Settings and the admin list are cached for a few seconds per worker;
+        # this worker at least should show the imported ones at once.
         settings_store.invalidate()
-        logger.warning("Data snapshot imported by %s: env=%s mode=%s groups=%s totals=%s source=%s",
-                       username, env, mode, ",".join(picked), totals, snapshot.get("source"))
-        _audit(env, username, "import_snapshot",
-               f"Imported a data snapshot into {env} ({mode}; {', '.join(picked)}).",
+        access._forget_admins()
+        logger.warning("Data snapshot imported by %s: mode=%s groups=%s totals=%s source=%s",
+                       username, mode, ",".join(picked), totals, snapshot.get("source"))
+        _audit(username, "import_snapshot", f"Imported a data snapshot ({mode}; {', '.join(picked)}).",
                {"totals": totals, "source": snapshot.get("source"),
                 "exported_at": snapshot.get("exported_at"), "exported_by": snapshot.get("exported_by")})
 
     return {
         "dry_run": dry_run,
-        "env": env,
         "mode": mode,
         "groups": picked,
         "tables": report,
         "totals": totals,
         "ignored_tables": ignored,
-        "snapshot": {k: snapshot.get(k) for k in ("exported_at", "exported_by", "source", "groups")},
+        "notes": notes,
+        "snapshot": {k: snapshot.get(k) for k in ("exported_at", "exported_by", "source", "groups", "format_version")},
     }
 
 
-def _audit(env: str, username: str, action: str, explanation: str, context: Dict[str, Any]) -> None:
+def _audit(username: str, action: str, explanation: str, context: Dict[str, Any]) -> None:
     """Put the migration in Action Logs, next to every other consequential act.
 
     Moving a deployment's data is exactly the kind of thing the audit trail is
@@ -292,7 +289,7 @@ def _audit(env: str, username: str, action: str, explanation: str, context: Dict
     try:
         log_user_action(
             widget_id="data-migration", widget_name="Data migration", explanation=explanation,
-            context=json.dumps(context, default=str), action_name=action, username=username, env=env,
+            context=json.dumps(context, default=str), action_name=action, username=username, env=content_env(),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not record %s in action_logs: %s", action, exc)

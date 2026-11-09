@@ -1,12 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid, Pencil, Trash2, Copy, Trophy } from 'lucide-react';
+import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid, Pencil, Trash2, Copy, Trophy, PencilLine, Share2 } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { getWidgetCategories, getWidgetDomains, getAvailableWidgets, loadCustomWidgets, loadWidgetSnapshots, useWidgetRegistry } from '../widgetRegistry';
 import type { WidgetDefinition } from '../widgetRegistry';
 import { WidgetPreview } from './WidgetPreview';
 import { CreatorLeaderboard } from './CreatorLeaderboard';
-import { canManageWidget, creatorOf, displayName, isPerson, isSamePerson } from '../creators';
+import { creatorOf, displayName, isPerson, isSamePerson } from '../creators';
 import { logWidgetRun, getPopularityScores } from '../api';
+import { AccessIcon, ShareDialog } from './sharing';
+import { STATE_LABELS } from '../sharing';
 import clsx from 'clsx';
 
 interface WidgetTrayProps {
@@ -16,8 +18,34 @@ interface WidgetTrayProps {
   onCloneWidget?: (widgetId: string) => void;
 }
 
+type OwnerFilter = 'all' | 'mine' | 'shared';
+
+const OWNER_FILTERS: Array<[OwnerFilter, string]> = [
+  ['all', 'All'],
+  ['mine', 'Mine'],
+  ['shared', 'Shared with me'],
+];
+
+/** Where a widget you manage stands; nothing for one that is up to date or only shared with you. */
+const StateChip: React.FC<{ widget: WidgetDefinition }> = ({ widget }) => {
+  if (widget.access !== 'MANAGE' || !widget.state || widget.state === 'published') return null;
+  const neverPublished = widget.state === 'draft_only';
+  return (
+    <span
+      title={neverPublished ? 'Only people who can manage it see this widget until it is published' : 'You have changes nobody else sees yet'}
+      className={clsx(
+        "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap",
+        neverPublished ? "bg-slate-100 text-slate-600 border-slate-200" : "bg-amber-50 text-amber-700 border-amber-200"
+      )}
+    >
+      <PencilLine className="w-3 h-3" />
+      {STATE_LABELS[widget.state].toUpperCase()}
+    </span>
+  );
+};
+
 export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditWidget, onCloneWidget }) => {
-  const { activeApp, activeAppTab, activeDomain, addWidget, openConfigModal, canEditDomain } = useDashboardStore();
+  const { activeApp, activeAppTab, activeDomain, addWidget, openConfigModal } = useDashboardStore();
   const isLocked = activeApp?.locked === true;
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -30,15 +58,9 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
     return saved !== null ? JSON.parse(saved) : true; // Default true
   });
 
-  const [accessFilter, setAccessFilter] = useState<'all' | 'accessible' | 'restricted'>(() => {
-    const saved = localStorage.getItem('widget_tray_access_filter');
-    if (saved) {
-      const sanitized = saved.replace(/['"]/g, '');
-      if (['all', 'accessible', 'restricted'].includes(sanitized)) {
-        return sanitized as 'all' | 'accessible' | 'restricted';
-      }
-    }
-    return 'accessible'; // Default accessible
+  const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>(() => {
+    const saved = localStorage.getItem('widget_tray_owner_filter');
+    return saved === 'mine' || saved === 'shared' ? saved : 'all';
   });
 
   // Save filters on change
@@ -47,13 +69,18 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
   }, [showCertifiedOnly]);
 
   useEffect(() => {
-    localStorage.setItem('widget_tray_access_filter', accessFilter);
-  }, [accessFilter]);
+    localStorage.setItem('widget_tray_owner_filter', ownerFilter);
+  }, [ownerFilter]);
   const [popularityScores, setPopularityScores] = useState<Record<string, number>>({});
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [claiming, setClaiming] = useState<string | null>(null);
+  // Built-in widgets ship with the app and have no access list, so only authored ones offer Share.
+  const [sharingWidget, setSharingWidget] = useState<WidgetDefinition | null>(null);
+  const shareTitle = (widget: WidgetDefinition) => widget.access === 'MANAGE'
+    ? 'Choose who can use or manage this widget'
+    : 'See who this widget is shared with';
   // Set by picking someone off the leaderboard: narrows the library to their
   // widgets, which is what makes the board a way in rather than a scoreboard.
   const [creatorFilter, setCreatorFilter] = useState<string | null>(null);
@@ -148,13 +175,15 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
       const wanted = creatorFilter.toLowerCase();
       widgets = widgets.filter(w => (creatorOf(w) || '').toLowerCase() === wanted);
     } else if (showCertifiedOnly) {
-      // Always show user-published custom widgets, even when certified filter is on
-      widgets = widgets.filter(w => w.isCertified || canManageWidget(w.createdBy, currentUser));
+      // Your own work stays in view with the certified filter on, published or not.
+      widgets = widgets.filter(w => w.isCertified || isSamePerson(w.createdBy, currentUser) || w.state === 'draft_only');
     }
-    if (accessFilter === 'accessible') {
-      widgets = widgets.filter(w => w.accessControl?.mockHasAccess !== false);
-    } else if (accessFilter === 'restricted') {
-      widgets = widgets.filter(w => w.accessControl?.mockHasAccess === false);
+    // By author rather than by access level: an app admin can manage every
+    // widget, which would leave them nothing under "Shared with me".
+    if (ownerFilter === 'mine') {
+      widgets = widgets.filter(w => isSamePerson(w.createdBy, currentUser));
+    } else if (ownerFilter === 'shared') {
+      widgets = widgets.filter(w => !isSamePerson(w.createdBy, currentUser));
     }
 
     // Sort by popularity desc
@@ -163,7 +192,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
       const scoreB = popularityScores[b.id] || 0;
       return scoreB - scoreA;
     });
-  }, [allWidgets, activeDomain, searchQuery, selectedGroup, grouping, showCertifiedOnly, accessFilter, popularityScores, currentUser, creatorFilter]);
+  }, [allWidgets, activeDomain, searchQuery, selectedGroup, grouping, showCertifiedOnly, ownerFilter, popularityScores, currentUser, creatorFilter]);
 
   const handleDeleteWidget = async (e: React.MouseEvent, widget: WidgetDefinition) => {
     e.stopPropagation();
@@ -182,11 +211,11 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
     }
   };
 
-  // Only offered where it means something: a widget nobody is credited with, in a
-  // domain you could publish to, and only when we know who you are. The endpoint
-  // applies the same three tests.
+  // Only offered where it means something: a widget nobody is credited with, that
+  // you can manage, and only when we know who you are. The endpoint applies the
+  // same three tests.
   const canClaim = (widget: WidgetDefinition): boolean =>
-    !creatorOf(widget) && isPerson(currentUser) && canEditDomain(widget.domain);
+    !creatorOf(widget) && isPerson(currentUser) && widget.access === 'MANAGE';
 
   // Nobody is recorded as having written the widgets built before authorship
   // worked, and nothing we stored can work out who did — so the person who
@@ -214,12 +243,6 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
   const handleDragStart = (e: React.DragEvent, widget: WidgetDefinition) => {
     if (isLocked) {
       e.preventDefault();
-      return;
-    }
-
-    if (widget.accessControl?.mockHasAccess === false) {
-      e.preventDefault();
-      alert("You do not have access to this widget.");
       return;
     }
 
@@ -253,7 +276,6 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
 
   const handleWidgetClick = (widget: WidgetDefinition) => {
     if (isLocked) return;
-    if (widget.accessControl?.mockHasAccess === false) return;
     logWidgetRun(widget.id);
     if (!activeApp || !activeAppTab) return;
     const appId = activeApp.id;
@@ -347,41 +369,21 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 Certified
               </button>
 
-              {/* Access Filter Rocker Switch */}
               <div className="flex items-center bg-gray-100 rounded-lg p-1 border border-gray-200">
-                <button
-                  onClick={() => setAccessFilter('all')}
-                  className={clsx(
-                    "px-3 py-1 rounded-md text-xs font-medium transition-all",
-                    accessFilter === 'all'
-                      ? "bg-white text-brand-blue shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setAccessFilter('accessible')}
-                  className={clsx(
-                    "px-3 py-1 rounded-md text-xs font-medium transition-all",
-                    accessFilter === 'accessible'
-                      ? "bg-white text-brand-blue shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  Accessible to me
-                </button>
-                <button
-                  onClick={() => setAccessFilter('restricted')}
-                  className={clsx(
-                    "px-3 py-1 rounded-md text-xs font-medium transition-all",
-                    accessFilter === 'restricted'
-                      ? "bg-white text-brand-blue shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  Access Request Needed
-                </button>
+                {OWNER_FILTERS.map(([value, label]) => (
+                  <button
+                    key={value}
+                    onClick={() => setOwnerFilter(value)}
+                    className={clsx(
+                      "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                      ownerFilter === value
+                        ? "bg-white text-brand-blue shadow-sm"
+                        : "text-gray-500 hover:text-gray-700"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
 
               {creatorFilter && (
@@ -444,7 +446,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
               <Lock className="w-12 h-12 mx-auto mb-4 text-gray-400" />
               <h3 className="text-lg font-semibold text-gray-700 mb-2">View is Locked</h3>
               <p className="text-sm text-gray-600 mb-4">
-                Unlock the view using the lock button in the top right corner to add or modify widgets.
+                Choose Unlock layout in the view's ⋯ menu to add or modify widgets.
               </p>
             </div>
           </div>
@@ -535,27 +537,26 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 {viewMode === 'grid' ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                     {filteredWidgets.map(widget => {
-                      const hasAccess = widget.accessControl?.mockHasAccess !== false;
                       const popularity = popularityScores[widget.id] || 0;
                       const creator = creatorOf(widget);
+                      const manages = widget.access === 'MANAGE';
 
                       return (
                         <div
                           key={widget.id}
-                          draggable={!isLocked && hasAccess}
+                          draggable={!isLocked}
                           onDragStart={(e) => handleDragStart(e, widget)}
                           onClick={() => handleWidgetClick(widget)}
                           className={clsx(
                             "bg-white border rounded-lg transition-all group relative overflow-hidden flex flex-col",
                             isLocked
                               ? "opacity-50 cursor-not-allowed border-gray-200"
-                              : hasAccess
-                                ? "hover:border-brand-blue hover:shadow-lg cursor-move border-gray-200"
-                                : "cursor-not-allowed border-gray-200 bg-gray-50"
+                              : "hover:border-brand-blue hover:shadow-lg cursor-move border-gray-200"
                           )}
                         >
-                          {(widget.isCertified || widget.layoutKind === 'page') && (
+                          {(widget.isCertified || widget.layoutKind === 'page' || (manages && widget.state !== 'published')) && (
                             <div className="absolute top-2 left-2 z-10 flex items-center gap-1">
+                              <StateChip widget={widget} />
                               {widget.isCertified && (
                                 <div className="bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-green-200 flex items-center gap-1">
                                   <ShieldCheck className="w-3 h-3" />
@@ -570,65 +571,47 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                             </div>
                           )}
 
-                          {/* Restricted Overlay */}
-                          {!hasAccess && (
-                            <div className="absolute inset-0 bg-white/60 z-20 flex flex-col items-center justify-center backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Lock className="w-8 h-8 text-gray-400 mb-2" />
-                              <span className="text-xs font-semibold text-gray-600 mb-3">Access Restricted</span>
-                              <button className="px-3 py-1.5 bg-brand-blue text-white text-xs rounded hover:bg-blue-600 shadow-sm transition-colors">
-                                Request Access
+                          {/* Drag Handle / Manager Actions */}
+                          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
+                            <button
+                              title="Clone widget"
+                              onClick={(e) => { e.stopPropagation(); e.preventDefault(); onCloneWidget?.(widget.id); onClose(); }}
+                              className="p-1 rounded bg-white/90 hover:bg-gray-100 text-gray-600 shadow-sm border border-gray-200"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                            {widget.access && (
+                              <button
+                                title={shareTitle(widget)}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSharingWidget(widget); }}
+                                className="p-1 rounded bg-white/90 hover:bg-gray-100 text-gray-600 shadow-sm border border-gray-200"
+                              >
+                                <Share2 className="w-3 h-3" />
                               </button>
-                            </div>
-                          )}
-
-                          {!hasAccess && (
-                            <div className="absolute top-2 right-2 text-gray-400 z-10">
-                              <Lock className="w-4 h-4" />
-                            </div>
-                          )}
-
-                          {/* Drag Handle / Owner Actions */}
-                          {hasAccess && (() => {
-                            // Two different rights, because the server applies two:
-                            // any editor of the domain may publish a new version,
-                            // only the author (or nobody) may delete.
-                            const mayEdit = canEditDomain(widget.domain);
-                            const mayDelete = canManageWidget(widget.createdBy, currentUser);
-                            return (
-                              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
+                            )}
+                            {manages ? (
+                              <>
                                 <button
-                                  title="Clone widget"
-                                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); onCloneWidget?.(widget.id); onClose(); }}
-                                  className="p-1 rounded bg-white/90 hover:bg-gray-100 text-gray-600 shadow-sm border border-gray-200"
+                                  title="Edit in Widget Studio"
+                                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); onEditWidget?.(widget.id); onClose(); }}
+                                  className="p-1 rounded bg-white/90 hover:bg-indigo-100 text-indigo-600 shadow-sm border border-indigo-200"
                                 >
-                                  <Copy className="w-3 h-3" />
+                                  <Pencil className="w-3 h-3" />
                                 </button>
-                                {mayEdit && (
-                                  <button
-                                    title="Edit in Widget Studio"
-                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onEditWidget?.(widget.id); onClose(); }}
-                                    className="p-1 rounded bg-white/90 hover:bg-indigo-100 text-indigo-600 shadow-sm border border-indigo-200"
-                                  >
-                                    <Pencil className="w-3 h-3" />
-                                  </button>
-                                )}
-                                {mayDelete && (
-                                  <button
-                                    title="Delete widget"
-                                    onClick={(e) => handleDeleteWidget(e, widget)}
-                                    className="p-1 rounded bg-white/90 hover:bg-red-100 text-red-600 shadow-sm border border-red-200"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                )}
-                                {!mayEdit && !mayDelete && (
-                                  <div className="p-1 flex items-center justify-center pointer-events-none drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
-                                    <GripVertical className="w-4 h-4 text-gray-400" />
-                                  </div>
-                                )}
+                                <button
+                                  title="Delete widget"
+                                  onClick={(e) => handleDeleteWidget(e, widget)}
+                                  className="p-1 rounded bg-white/90 hover:bg-red-100 text-red-600 shadow-sm border border-red-200"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </>
+                            ) : (
+                              <div className="p-1 flex items-center justify-center pointer-events-none drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
+                                <GripVertical className="w-4 h-4 text-gray-400" />
                               </div>
-                            );
-                          })()}
+                            )}
+                          </div>
 
                           {/* Preview */}
                           <div className="h-32 bg-gray-50 border-b border-gray-100 relative">
@@ -637,8 +620,8 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                               component={widget.component}
                               snapshot={widget.snapshot}
                               widget={widget}
-                              canRefresh={canEditDomain(widget.domain)}
-                              className={clsx("h-full", !hasAccess && "opacity-50 grayscale")}
+                              canRefresh={manages}
+                              className="h-full"
                             />
                           </div>
 
@@ -680,8 +663,9 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                             )}
 
                             <div className="flex items-center justify-between pt-2 border-t border-gray-50 mt-auto">
-                              <span className="text-[10px] uppercase font-semibold text-gray-400 tracking-wider">
-                                {widget.domain || 'General'}
+                              <span className="flex items-center gap-1.5 text-[10px] uppercase font-semibold text-gray-400 tracking-wider min-w-0">
+                                {widget.sharing && <AccessIcon summary={widget.sharing} size={11} className="text-gray-400" />}
+                                <span className="truncate">{widget.domain || 'General'}</span>
                               </span>
                               <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
                                 {widget.defaultW}×{widget.defaultH}
@@ -695,7 +679,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 ) : (
                   <div className="flex flex-col">
                     {/* List Header */}
-                    <div className="grid grid-cols-[1fr_120px_120px_140px_80px_60px_40px] gap-4 px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 bg-gray-100/50 rounded-t-lg">
+                    <div className="grid grid-cols-[1fr_120px_120px_140px_80px_60px_64px] gap-4 px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 bg-gray-100/50 rounded-t-lg">
                       <div>Widget Name</div>
                       <div>{grouping === 'domain' ? 'Category' : 'Domain'}</div>
                       <div>Creator</div>
@@ -708,29 +692,27 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                     {/* List Rows */}
                     <div className="bg-white border-x border-b border-gray-200 rounded-b-lg divide-y divide-gray-100">
                       {filteredWidgets.map(widget => {
-                        const hasAccess = widget.accessControl?.mockHasAccess !== false;
                         const popularity = popularityScores[widget.id] || 0;
                         const creator = creatorOf(widget);
 
                         return (
                           <div
                             key={widget.id}
-                            draggable={!isLocked && hasAccess}
+                            draggable={!isLocked}
                             onDragStart={(e) => handleDragStart(e, widget)}
                             onClick={() => handleWidgetClick(widget)}
                             className={clsx(
-                              "grid grid-cols-[1fr_120px_120px_140px_80px_60px_40px] gap-4 px-4 py-3 items-center transition-all group",
+                              "grid grid-cols-[1fr_120px_120px_140px_80px_60px_64px] gap-4 px-4 py-3 items-center transition-all group",
                               isLocked
                                 ? "opacity-50 cursor-not-allowed bg-gray-50"
-                                : hasAccess
-                                  ? "hover:bg-blue-50/50 cursor-move"
-                                  : "cursor-not-allowed bg-gray-50/50"
+                                : "hover:bg-blue-50/50 cursor-move"
                             )}
                           >
                             {/* Name & Desc */}
                             <div className="min-w-0">
-                              <h4 className={clsx("font-semibold text-sm truncate", hasAccess ? "text-brand-navy" : "text-gray-500")}>
-                                {widget.name}
+                              <h4 className="flex items-center gap-1.5 font-semibold text-sm text-brand-navy min-w-0">
+                                {widget.sharing && <AccessIcon summary={widget.sharing} size={12} className="text-gray-400" />}
+                                <span className="truncate">{widget.name}</span>
                               </h4>
                               <p className="text-xs text-gray-500 truncate">
                                 {widget.description}
@@ -774,13 +756,8 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                                   CERTIFIED
                                 </span>
                               )}
-                              {!hasAccess && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
-                                  <Lock className="w-3 h-3" />
-                                  RESTRICTED
-                                </span>
-                              )}
-                              {hasAccess && !widget.isCertified && (
+                              <StateChip widget={widget} />
+                              {!widget.isCertified && (widget.access !== 'MANAGE' || widget.state === 'published') && (
                                 <span className="text-[10px] text-gray-400">Available</span>
                               )}
                             </div>
@@ -800,12 +777,18 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                               </span>
                             </div>
 
-                            {/* Drag Handle */}
-                            <div className="flex justify-center">
-                              <div className={clsx(
-                                "p-1 rounded hover:bg-gray-200 transition-colors",
-                                hasAccess ? "text-gray-400 cursor-move group-hover:text-brand-blue" : "text-gray-200 cursor-not-allowed"
-                              )}>
+                            {/* Share / Drag Handle */}
+                            <div className="flex items-center justify-end gap-1">
+                              {widget.access && (
+                                <button
+                                  title={shareTitle(widget)}
+                                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSharingWidget(widget); }}
+                                  className="p-1 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-gray-200 hover:text-brand-blue transition-opacity"
+                                >
+                                  <Share2 className="w-4 h-4" />
+                                </button>
+                              )}
+                              <div className="p-1 rounded hover:bg-gray-200 transition-colors text-gray-400 cursor-move group-hover:text-brand-blue">
                                 <GripVertical className="w-4 h-4" />
                               </div>
                             </div>
@@ -836,6 +819,16 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
           </div>
         </div>
       </div>
+      {sharingWidget && (
+        <ShareDialog
+          objectType="widget"
+          objectId={sharingWidget.id}
+          name={sharingWidget.name}
+          published={sharingWidget.state !== 'draft_only'}
+          onClose={() => setSharingWidget(null)}
+          onChanged={() => { void loadCustomWidgets(); }}
+        />
+      )}
     </>
   );
 };

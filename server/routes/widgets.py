@@ -28,9 +28,9 @@ def get_widget_popularity():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/creators")
-def get_widget_creators(env: str = "dev", limit: int = 10):
-    """Leaderboard of widget creators, ranked by output and by real usage."""
+def get_widget_creators(limit: int = 10):
+    """Leaderboard of widget creators, ranked by published output and by real usage."""
     try:
-        return creator_stats.leaderboard(env=env, limit=limit)
+        return creator_stats.leaderboard(limit=limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -137,17 +137,25 @@ const Body = () => (
       The picker at the top of the panel, labelled <UI>Active agent</UI> when you hover it, sets which agent answers.{' '}
       <UI>EDH Agent (default)</UI> is the built-in one. Agents other people or you saved in{' '}
       <GuideLink to="agent-studio">Agent Studio</GuideLink> are listed below it with where they come from, such as "shared
-      by" the person who made them. Pick one to talk to it. Hover the picker to see how many widgets it can see on your
-      tab. Choosing a different agent starts a new conversation and leaves the old one in your history.
+      by" the person who made them. Only published agents you can use are listed. Pick one to talk to it. Hover the picker
+      to see how many widgets it can see on your tab. Choosing a different agent starts a new conversation and leaves the
+      old one in your history.
+    </P>
+    <P>
+      Chat always runs an agent&rsquo;s published version. If an agent stops being available to you, for example because
+      it is no longer shared with you, your next message is answered with &ldquo;That agent isn&rsquo;t available to
+      you&rdquo; rather than by a different agent. Pick another agent to carry on.
     </P>
     <P>
       An agent is a saved set of instructions and tools. Authoring and sharing them is in{' '}
-      <GuideLink to="agent-studio">Agent Studio</GuideLink>, which needs editor access.
+      <GuideLink to="agent-studio">Agent Studio</GuideLink>, which anyone can use.
     </P>
     <H3 id="pin-an-agent">Make a view open with an agent</H3>
     <P>
-      The pin beside the picker makes the view open with the agent now selected. It is there for anyone who may change
-      the view's settings, and not on a view that opens on its own.
+      The pin beside the picker makes the view open with the agent now selected. It is there for anyone who can manage
+      the view, and not on a view that opens on its own. The pin goes into the view&rsquo;s draft, so other people get it
+      once the view is published. They also need the agent shared with them and published; otherwise the view opens with
+      the default agent for them.
     </P>
     <Steps>
       <Step>Pick the agent in the picker.</Step>

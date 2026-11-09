@@ -1,4 +1,4 @@
-"""Agent Studio storage — domain-scoped CRUD over Postgres rows.
+"""Agent Studio storage — agents as versioned Postgres rows, with drafts and sharing.
 
 Agents authored in the Command Center's Agent Studio used to live as **files** on
 Unity Catalog Volumes / the user's Workspace folder, governed by UC grants. That
@@ -7,25 +7,25 @@ but no *workspace* access: they can't write to Volumes/Workspace folders, so the
 could never save an agent.
 
 Agents are now **database rows**, exactly like widgets and dashboard views, and
-visibility follows the same ``role_mappings`` (domain) model instead of UC file
-grants:
+work the way they do:
 
-  * ``visibility='personal'`` — only the creator (``username``) sees it. No domain
-    role is required to save one, so anyone can keep private drafts.
-  * ``visibility='domain'`` — visible to anyone with access to ``domain``; domain
-    editors (or global admins) can edit.
-  * ``visibility='global'`` — visible to every authenticated user; only global
-    admins can create/edit.
+  * **Who** may reach an agent is its access list (``services.access``): Can
+    manage or Can use, for a user, a group or everyone. ``domain`` is only a label
+    for filtering; it grants nothing. Anyone may create an agent, and the creator
+    is given Can manage.
+  * **What** they see is a draft or a published version (``services.drafts``).
+    Managers edit a draft saved in place; Publish makes it the next row of
+    ``agent_profiles``. People who can only use an agent — and every chat, for
+    everyone — read the newest published version, so an agent that has never been
+    published doesn't exist for them.
 
-Each agent is one logical record (versioned like widgets/views): its skills,
-tool ids, and author-written Python tools are stored inline as JSON. Write
-authorization (editor/admin checks) is enforced at the route layer with the same
-``require_domain_editor`` / ``require_global_admin`` helpers used by widgets and
-views; this module enforces *read* visibility so the chat proxy can safely
-resolve a saved agent under the caller's own token.
+Authorization is enforced here rather than in the routes, so the chat proxy and
+the Studio's CRUD resolve an agent through the same checks.
 
-A handful of pure helpers (frontmatter parsing, slug + markdown composition) are
-retained because they're still handy for import/export and are covered by tests.
+Each agent is one logical record: its skills, tool ids, and author-written Python
+tools are stored inline as JSON. A handful of pure helpers (frontmatter parsing,
+slug + markdown composition) are retained because they're still handy for
+import/export and are covered by tests.
 """
 from __future__ import annotations
 
@@ -36,28 +36,34 @@ import re
 import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional
+
+from fastapi import HTTPException
+
+from services import access, drafts
+from services.creator_stats import same_person
 
 logger = logging.getLogger(__name__)
 
 AGENT_FILE = "AGENT.md"
 SKILL_FILE = "SKILL.md"
 
-# Visibility tiers (mirrors widgets' domain scoping + views' global flag, plus a
-# private "personal" tier so users can keep drafts without any domain role).
-VIS_PERSONAL = "personal"
-VIS_DOMAIN = "domain"
-VIS_GLOBAL = "global"
-VALID_VISIBILITIES = {VIS_PERSONAL, VIS_DOMAIN, VIS_GLOBAL}
 DEFAULT_DOMAIN = "General"
+NOT_FOUND = "Agent not found."
+
+# The `visibility` column predates access lists. Nothing here reads it, but the
+# previous release does, so a published row keeps a value that makes a rollback
+# list the agent no wider than its access list does now.
+_LEGACY_PERSONAL = "personal"
+_LEGACY_GLOBAL = "global"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 # Tool ids an agent may have been saved with -> the id the catalog lists today.
 # Genie One's ask tool is `genie_ask` on the server and `genie_one` in this app;
 # agents saved before the rename hold the server's name. Mapping on read, rather
-# than migrating, leaves versioned rows alone in every schema and also covers rows
-# that arrive later by promotion or snapshot import.
+# than migrating, leaves versioned rows alone and also covers rows that arrive
+# later by snapshot import.
 TOOL_ID_ALIASES = {"genie/genie_ask": "genie/genie_one", "genie_ask": "genie_one"}
 _UPSTREAM_TOOL_IDS = {new: old for old, new in TOOL_ID_ALIASES.items()}
 
@@ -81,15 +87,11 @@ def _max_bytes() -> int:
 
 
 class AgentStudioError(Exception):
-    """A user-facing storage failure (not found, invalid input, etc.)."""
+    """A user-facing storage failure (invalid input, etc.); maps to HTTP 400."""
 
 
 class ProfileConflictError(AgentStudioError):
     """The profile changed since the caller loaded it (optimistic-concurrency)."""
-
-
-class ProfileAccessError(AgentStudioError):
-    """The caller may not read/write this profile (maps to HTTP 403)."""
 
 
 # --------------------------------------------------------------------- models
@@ -137,7 +139,7 @@ class PythonToolFile:
 
 @dataclass
 class ProfileRef:
-    """An agent profile row (metadata; body populated on single fetch).
+    """An agent as one caller sees it (metadata; body populated on single fetch).
 
     ``id`` is the stable, opaque handle (a UUID) the frontend and chat runtime
     round-trip to address the profile across versions.
@@ -152,16 +154,23 @@ class ProfileRef:
     # "full" (default) layers the persona on top of the runtime scaffold;
     # "none"/"standalone" makes the body the entire system prompt.
     base: str = "full"
+    # The published version this row is (or, for a draft, was started from); 0
+    # when the agent has never been published.
     version: int = 0
     domain: str = DEFAULT_DOMAIN
-    visibility: str = VIS_PERSONAL
-    # Email of whoever authored/last-saved the profile. Surfaced as a badge so
-    # users can judge trust before running an other-authored shared profile.
+    # Email of whoever created the profile. Surfaced as a badge so users can
+    # judge trust before running someone else's agent.
     username: str = ""
     owned_by_me: bool = False
     # Optimistic-concurrency marker. The frontend echoes this back on save; a
     # mismatch means someone edited in between and we refuse the clobbering write.
     updated_at: str = ""
+    access: Optional[str] = None
+    state: Optional[str] = None
+    published_version: Optional[int] = None
+    is_draft: bool = False
+    published_by: str = ""
+    published_at: str = ""
     # Populated only when a single profile is fetched (list views omit these).
     prompt: Optional[str] = None
     skills: Optional[List[SkillFile]] = None
@@ -170,14 +179,6 @@ class ProfileRef:
     @property
     def author(self) -> str:
         return self.username
-
-    @property
-    def location_label(self) -> str:
-        if self.visibility == VIS_GLOBAL:
-            return "Global"
-        if self.visibility == VIS_DOMAIN:
-            return self.domain or DEFAULT_DOMAIN
-        return "Personal"
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -189,13 +190,18 @@ class ProfileRef:
             "tools": list(self.tools),
             "base": self.base,
             "domain": self.domain,
-            "visibility": self.visibility,
             "username": self.username,
             "author": self.author,
             "owned_by_me": self.owned_by_me,
-            "location_label": self.location_label,
-            "writable": True,
+            "access": self.access,
+            "state": self.state,
+            "published_version": self.published_version,
+            "has_draft": self.state in (drafts.DRAFT_ONLY, drafts.PUBLISHED_WITH_DRAFT),
+            "is_draft": self.is_draft,
+            "writable": self.access == access.MANAGE,
             "updated_at": self.updated_at,
+            "published_by": self.published_by,
+            "published_at": self.published_at,
         }
         if self.prompt is not None:
             d["prompt"] = self.prompt
@@ -349,11 +355,6 @@ def parse_python_tool(path: str, text: str) -> "PythonToolFile":
 
 # --------------------------------------------------------------- normalization
 
-def _norm_visibility(value: Optional[str]) -> str:
-    v = (value or "").strip().lower()
-    return v if v in VALID_VISIBILITIES else VIS_PERSONAL
-
-
 def _norm_domain(value: Optional[str]) -> str:
     d = (value or "").strip()
     return d or DEFAULT_DOMAIN
@@ -389,16 +390,205 @@ def _pytool_dicts(tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]
     return out
 
 
+# ------------------------------------------------------- pure access/draft rules
+
+def profile_payload(
+    *,
+    name: str,
+    prompt: str,
+    description: str = "",
+    model: str = "",
+    tools: Optional[List[str]] = None,
+    skills: Optional[List[Dict[str, Any]]] = None,
+    python_tools: Optional[List[Dict[str, Any]]] = None,
+    domain: str = DEFAULT_DOMAIN,
+    base: str = "full",
+    owner: str = "",
+    visibility: str = _LEGACY_PERSONAL,
+    updated_at: str = "",
+) -> Dict[str, Any]:
+    """The ``agent_profiles`` columns a draft holds, validated."""
+    if not name or not name.strip():
+        raise AgentStudioError("Profile name is required.")
+    prompt = prompt or ""
+    skills_json = json.dumps(_skill_dicts(skills))
+    pytools_json = json.dumps(_pytool_dicts(python_tools))
+    size = len(prompt.encode("utf-8")) + len(skills_json.encode("utf-8")) + len(pytools_json.encode("utf-8"))
+    if size > _max_bytes():
+        raise AgentStudioError(f"Profile exceeds max size ({_max_bytes() // 1024} KB).")
+    return {
+        "name": name.strip(),
+        "description": (description or "").strip(),
+        "model": (model or "").strip(),
+        "base": (base or "full").strip() or "full",
+        "prompt": prompt,
+        "tools_json": json.dumps(canonical_tool_ids([t for t in (tools or []) if isinstance(t, str) and t.strip()])),
+        "skills_json": skills_json,
+        "python_tools_json": pytools_json,
+        "domain": _norm_domain(domain),
+        "visibility": visibility or _LEGACY_PERSONAL,
+        "username": owner or "",
+        "is_deprecated": 0,
+        "updated_at": updated_at or datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def check_unchanged(current: Optional[Dict[str, Any]], expected_updated_at: Optional[str]) -> None:
+    """Refuse to clobber an edit made since the caller loaded the agent."""
+    held = (current or {}).get("updated_at") or ""
+    if expected_updated_at and held and held != expected_updated_at:
+        raise ProfileConflictError(
+            "This profile was changed by someone else since you opened "
+            "it. Reload to get the latest version, then re-apply your edits."
+        )
+
+
+def legacy_visibility(entries: Iterable[Dict[str, Any]], current: Optional[str]) -> str:
+    """The ``visibility`` a published row should carry for the previous release.
+
+    Everyone on the access list is the old "global". Anything narrower can't be
+    expressed (a group isn't a domain), so a row that was global falls back to
+    personal: after a rollback it is reachable by fewer people, never more.
+    """
+    if any((e.get("principal") or "") == access.EVERYONE for e in entries or []):
+        return _LEGACY_GLOBAL
+    if not current or current == _LEGACY_GLOBAL:
+        return _LEGACY_PERSONAL
+    return current
+
+
+def pick_view(level: Optional[str], mode: Optional[str], published: Optional[Dict[str, Any]],
+              draft: Optional[Dict[str, Any]], object_id: str) -> Optional[Dict[str, Any]]:
+    """The row this caller gets for ``mode``: the merged draft only for a manager asking for it.
+
+    Without a mode a manager gets the draft and anyone else the published version.
+    Someone who can only use an agent is served the published version whatever
+    they ask for, so a draft never reaches them.
+    """
+    if level is None:
+        return None
+    if level == access.MANAGE and (mode or "draft") == "draft":
+        return drafts.merge(published, draft, object_id)
+    return dict(published) if published else None
+
+
+def listing(published: Dict[str, Dict[str, Any]], pending: Dict[str, Dict[str, Any]],
+            levels: Optional[Dict[str, str]], me: str, usable_only: bool = False) -> List["ProfileRef"]:
+    """What ``GET /profiles`` returns, from rows already fetched.
+
+    ``levels`` is the caller's level per id, or None for an admin (MANAGE on
+    everything). A manager sees the draft merged over the newest published row;
+    anyone else, and every caller when ``usable_only`` (the chat picker, which
+    runs published versions), sees published rows only — so an agent that has
+    never been published is listed only for its managers.
+    """
+    ids = set(published) | set(pending)
+    out: List[ProfileRef] = []
+    for object_id in ids:
+        level = access.MANAGE if levels is None else levels.get(object_id)
+        if level is None:
+            continue
+        pub = published.get(object_id)
+        manager = level == access.MANAGE and not usable_only
+        draft = pending.get(object_id) if manager else None
+        row = drafts.merge(pub, draft, object_id) if manager else (dict(pub) if pub else None)
+        if row is None:
+            continue
+        ref = _row_to_ref(row, me)
+        ref.access = level
+        ref.published_version = int(pub["version"]) if pub else None
+        ref.state = drafts.state_of(draft is not None, ref.published_version)
+        out.append(ref)
+    out.sort(key=lambda p: (not p.owned_by_me, p.name.lower()))
+    return out
+
+
+def _parse_skills(raw: Optional[str]) -> List[SkillFile]:
+    out: List[SkillFile] = []
+    try:
+        for s in json.loads(raw or "[]"):
+            name = (s.get("name") or "").strip()
+            if not name:
+                continue
+            out.append(SkillFile(
+                slug=s.get("slug") or slugify(name),
+                name=name,
+                description=s.get("description") or "",
+                content=s.get("content") or "",
+            ))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("skills_json parse failed: %s", exc)
+    out.sort(key=lambda s: s.name.lower())
+    return out
+
+
+def _parse_pytools(raw: Optional[str]) -> List[PythonToolFile]:
+    out: List[PythonToolFile] = []
+    try:
+        for t in json.loads(raw or "[]"):
+            name = (t.get("name") or "").strip()
+            if not name:
+                continue
+            out.append(PythonToolFile(
+                slug=t.get("slug") or slugify(name),
+                name=name,
+                description=t.get("description") or "",
+                code=t.get("code") or "",
+            ))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("python_tools_json parse failed: %s", exc)
+    out.sort(key=lambda t: t.name.lower())
+    return out
+
+
+def _text(value: Any) -> str:
+    if value is None:
+        return ""
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _row_to_ref(row: Dict[str, Any], me: str, with_body: bool = False) -> ProfileRef:
+    try:
+        tools = json.loads(row.get("tools_json") or "[]")
+    except Exception:  # noqa: BLE001
+        tools = []
+    ref = ProfileRef(
+        id=row["id"],
+        name=row.get("name") or "",
+        description=row.get("description") or "",
+        model=row.get("model") or "",
+        tools=canonical_tool_ids(tools),
+        base=row.get("base") or "full",
+        version=int(row.get("version") or 0),
+        domain=row.get("domain") or DEFAULT_DOMAIN,
+        username=row.get("username") or "",
+        updated_at=row.get("updated_at") or "",
+        is_draft=bool(row.get("is_draft")),
+        published_by=row.get("published_by") or "",
+        published_at=_text(row.get("published_at")),
+    )
+    ref.owned_by_me = same_person(ref.username, me)
+    if with_body:
+        ref.prompt = row.get("prompt") or ""
+        ref.skills = _parse_skills(row.get("skills_json"))
+        ref.python_tools = _parse_pytools(row.get("python_tools_json"))
+    return ref
+
+
 # ---------------------------------------------------------------------- store
 
-class AgentStudioStore:
-    """Domain-scoped CRUD for agent profiles, backed by Postgres rows.
+def _rows(c) -> List[Dict[str, Any]]:
+    cols = [d[0] for d in c.description]
+    return [dict(r) if hasattr(r, "keys") else dict(zip(cols, r)) for r in c.fetchall()]
 
-    Read visibility is enforced here (so the chat proxy can resolve a saved
-    profile under the caller's own token). *Write* authorization (editor/admin)
-    is enforced at the route layer with the shared ``require_*`` helpers, mirroring
-    the widget/view convention; this class exposes ``get_meta`` so a route can
-    read the existing row's visibility/owner before authorizing an edit.
+
+class AgentStudioStore:
+    """CRUD, publishing and sharing checks for agent profiles.
+
+    Methods take the caller (``access.Caller``, or a WorkspaceClient to resolve
+    one) and raise ``HTTPException`` for access (404 when the agent isn't shared
+    with them, 403 when they can use but must manage) and ``AgentStudioError``
+    for bad input.
     """
 
     # ---- OBO client (still needed for MCP tool discovery + schema probes) ----
@@ -427,191 +617,105 @@ class AgentStudioStore:
             return _cached_client(f"host:{host}", lambda: WorkspaceClient(host=host))
         return _cached_client("default", WorkspaceClient)
 
-    def _permissions(self, obo_token: Optional[str], env: str) -> Tuple[str, bool, Dict[str, str]]:
-        """(username, is_global_admin, {domain: level}) for the caller.
-
-        Reuses the exact role/permission logic widgets and views use — including
-        the DEV_MODE / DISABLE_PERMISSION_CHECKS shortcuts — so agents share one
-        access model with the rest of the app.
-        """
-        from routes.roles import _get_current_username, _get_user_permissions
-
-        client = self._client(obo_token)
-        try:
-            username = _get_current_username(client)
-        except Exception:  # noqa: BLE001
-            username = "unknown"
-        try:
-            perms = _get_user_permissions(client)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("agent perms lookup failed: %s", exc)
-            perms = {"is_admin": False, "domain_permissions": {}}
-        return username, bool(perms.get("is_admin")), dict(perms.get("domain_permissions") or {})
-
-    def _can_read(self, row: Dict[str, Any], me: str, is_admin: bool, domains: Dict[str, str]) -> bool:
-        if is_admin:
-            return True
-        vis = row.get("visibility") or VIS_PERSONAL
-        if (row.get("username") or "") == me:
-            return True
-        if vis == VIS_GLOBAL:
-            return True
-        if vis == VIS_DOMAIN and (row.get("domain") or DEFAULT_DOMAIN) in domains:
-            return True
-        return False
-
-    # ---- row <-> ref ------------------------------------------------------
     def _row_to_ref(self, row: Dict[str, Any], me: str, with_body: bool = False) -> ProfileRef:
-        try:
-            tools = json.loads(row.get("tools_json") or "[]")
-        except Exception:  # noqa: BLE001
-            tools = []
-        ref = ProfileRef(
-            id=row["id"],
-            name=row.get("name") or "",
-            description=row.get("description") or "",
-            model=row.get("model") or "",
-            tools=canonical_tool_ids(tools),
-            base=row.get("base") or "full",
-            version=int(row.get("version") or 0),
-            domain=row.get("domain") or DEFAULT_DOMAIN,
-            visibility=row.get("visibility") or VIS_PERSONAL,
-            username=row.get("username") or "",
-            updated_at=row.get("updated_at") or "",
-        )
-        ref.owned_by_me = bool(ref.username) and ref.username == me
-        if with_body:
-            ref.prompt = row.get("prompt") or ""
-            ref.skills = self._parse_skills(row.get("skills_json"))
-            ref.python_tools = self._parse_pytools(row.get("python_tools_json"))
-        return ref
-
-    def _parse_skills(self, raw: Optional[str]) -> List[SkillFile]:
-        out: List[SkillFile] = []
-        try:
-            for s in json.loads(raw or "[]"):
-                name = (s.get("name") or "").strip()
-                if not name:
-                    continue
-                out.append(SkillFile(
-                    slug=s.get("slug") or slugify(name),
-                    name=name,
-                    description=s.get("description") or "",
-                    content=s.get("content") or "",
-                ))
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("skills_json parse failed: %s", exc)
-        out.sort(key=lambda s: s.name.lower())
-        return out
-
-    def _parse_pytools(self, raw: Optional[str]) -> List[PythonToolFile]:
-        out: List[PythonToolFile] = []
-        try:
-            for t in json.loads(raw or "[]"):
-                name = (t.get("name") or "").strip()
-                if not name:
-                    continue
-                out.append(PythonToolFile(
-                    slug=t.get("slug") or slugify(name),
-                    name=name,
-                    description=t.get("description") or "",
-                    code=t.get("code") or "",
-                ))
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("python_tools_json parse failed: %s", exc)
-        out.sort(key=lambda t: t.name.lower())
-        return out
+        return _row_to_ref(row, me, with_body)
 
     # ---- low-level DB -----------------------------------------------------
-    def _latest_rows(self, c) -> List[Dict[str, Any]]:
-        c.execute(
-            """
+    def _latest_rows(self, c, ids: Optional[Iterable[str]]) -> Dict[str, Dict[str, Any]]:
+        """Newest published, non-retired row per agent; ``ids`` None means all."""
+        sql = """
             SELECT ap.* FROM agent_profiles ap
             INNER JOIN (
                 SELECT id, MAX(version) AS mv
                 FROM agent_profiles
-                WHERE is_deprecated = 0
+                WHERE COALESCE(is_deprecated, 0) = 0
                 GROUP BY id
             ) latest ON ap.id = latest.id AND ap.version = latest.mv
-            WHERE ap.is_deprecated = 0
-            """
-        )
-        cols = [d[0] for d in c.description]
-        return [dict(zip(cols, row)) for row in c.fetchall()]
+            WHERE COALESCE(ap.is_deprecated, 0) = 0
+        """
+        params: list = []
+        if ids is not None:
+            ids = [i for i in ids if i]
+            if not ids:
+                return {}
+            sql += " AND ap.id = ANY(%s)"
+            params.append(ids)
+        c.execute(sql, params or None)
+        return {r["id"]: r for r in _rows(c)}
 
-    def _latest_row(self, c, profile_id: str) -> Optional[Dict[str, Any]]:
-        c.execute(
-            "SELECT * FROM agent_profiles WHERE id = %s AND is_deprecated = 0 ORDER BY version DESC LIMIT 1",
-            (profile_id,),
-        )
-        row = c.fetchone()
-        if not row:
-            return None
-        cols = [d[0] for d in c.description]
-        return dict(zip(cols, row))
+    def _levels(self, who: access.Caller) -> Optional[Dict[str, str]]:
+        return None if who.is_admin else access.grants_for(who, access.AGENT)
+
+    def _as_ref(self, row: Dict[str, Any], who: access.Caller, level: str,
+                published: Optional[Dict[str, Any]], has_draft: bool) -> ProfileRef:
+        ref = _row_to_ref(row, who.username, with_body=True)
+        ref.access = level
+        ref.published_version = int(published["version"]) if published else None
+        ref.state = drafts.state_of(has_draft and level == access.MANAGE, ref.published_version)
+        return ref
 
     # ---- listing ----------------------------------------------------------
-    def list_profiles(
-        self,
-        obo_token: Optional[str],
-        user_email: str,
-        env: str = "dev",
-        include_shared: bool = True,
-    ) -> List[ProfileRef]:
+    def list_profiles(self, who: Any, usable_only: bool = False) -> List[ProfileRef]:
+        """Agents the caller can reach; ``usable_only`` limits it to what chat can run."""
         from database import get_db_connection
 
-        me, is_admin, domains = self._permissions(obo_token, env)
-        conn = get_db_connection(env)
+        who = access.caller(who)
+        levels = self._levels(who)
+        if levels is not None and not levels:
+            return []
+        ids = None if levels is None else list(levels)
+        managed = None if levels is None else [i for i, lv in levels.items() if lv == access.MANAGE]
+        conn = get_db_connection()
         try:
             c = conn.cursor()
-            rows = self._latest_rows(c)
+            published = self._latest_rows(c, ids)
+            pending = {} if usable_only else drafts.drafts(c, access.AGENT, managed)
+            conn.commit()
         finally:
             conn.close()
-
-        out: List[ProfileRef] = []
-        for row in rows:
-            if not self._can_read(row, me, is_admin, domains):
-                continue
-            ref = self._row_to_ref(row, me)
-            if not include_shared and not ref.owned_by_me:
-                continue
-            out.append(ref)
-        # Your own first, then by location tier + name.
-        out.sort(key=lambda p: (not p.owned_by_me, p.location_label, p.name.lower()))
-        return out
+        return listing(published, pending, levels, who.username, usable_only)
 
     # ---- read -------------------------------------------------------------
-    def get_profile(self, obo_token: Optional[str], profile_id: str, env: str = "dev") -> ProfileRef:
+    def get_profile(self, who: Any, profile_id: str, mode: Optional[str] = None) -> ProfileRef:
+        """One agent with its body: the draft for a manager (unless ``mode='published'``)."""
         from database import get_db_connection
 
-        me, is_admin, domains = self._permissions(obo_token, env)
-        conn = get_db_connection(env)
+        who = access.caller(who)
+        level = access.require(who, access.AGENT, profile_id, access.USE, not_found=NOT_FOUND)
+        conn = get_db_connection()
         try:
             c = conn.cursor()
-            row = self._latest_row(c, profile_id)
+            published = drafts.latest(c, access.AGENT, profile_id)
+            draft = drafts.read(c, access.AGENT, profile_id) if level == access.MANAGE else None
+            conn.commit()
         finally:
             conn.close()
+        row = pick_view(level, mode, published, draft, profile_id)
         if row is None:
-            raise AgentStudioError("Profile not found.")
-        if not self._can_read(row, me, is_admin, domains):
-            raise ProfileAccessError("You do not have access to this profile.")
-        return self._row_to_ref(row, me, with_body=True)
+            if published is None and draft is not None:
+                raise HTTPException(status_code=404, detail="This agent hasn't been published yet.")
+            raise HTTPException(status_code=404, detail=NOT_FOUND)
+        return self._as_ref(row, who, level, published, draft is not None)
 
-    def get_meta(self, profile_id: str, env: str = "dev") -> Optional[Dict[str, Any]]:
-        """Latest row for a profile ignoring access (route-side authorization)."""
-        from database import get_db_connection
+    def resolve_published(self, who: Any, profile_id: str) -> Optional[ProfileRef]:
+        """The published agent chat should run, or None if the caller can't use one.
 
-        conn = get_db_connection(env)
+        Chat always runs the published version, managers included: the Studio's
+        Try it sends its draft inline, so this is never how a draft is tried.
+        """
+        who = access.caller(who)
         try:
-            c = conn.cursor()
-            return self._latest_row(c, profile_id)
-        finally:
-            conn.close()
+            return self.get_profile(who, profile_id, mode="published")
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                return None
+            raise
 
     # ---- write ------------------------------------------------------------
-    def save_profile(
+    def save_draft(
         self,
-        user_email: str,
+        who: Any,
+        *,
         name: str,
         prompt: str,
         description: str = "",
@@ -619,126 +723,170 @@ class AgentStudioStore:
         tools: Optional[List[str]] = None,
         skills: Optional[List[Dict[str, Any]]] = None,
         python_tools: Optional[List[Dict[str, Any]]] = None,
-        visibility: str = VIS_PERSONAL,
         domain: str = DEFAULT_DOMAIN,
         base: str = "full",
         profile_id: Optional[str] = None,
-        owner: Optional[str] = None,
         expected_updated_at: Optional[str] = None,
-        env: str = "dev",
     ) -> ProfileRef:
-        """Insert a new version row for a profile.
-
-        The caller (route) is responsible for authorizing the write against the
-        target visibility/domain BEFORE calling this. ``owner`` is the author to
-        persist (the current user on create; the original author preserved on
-        update). Optimistic concurrency is enforced against ``expected_updated_at``.
-        """
+        """Create an agent (as a draft only its creator can reach) or save over its draft."""
         from database import get_db_connection
 
-        if not name or not name.strip():
-            raise AgentStudioError("Profile name is required.")
+        who = access.caller(who)
+        creating = not profile_id
+        if creating:
+            if not who.is_admin and who.username in ("", "unknown"):
+                # grant_owner can't record an owner it can't name, and an agent
+                # with no manager is one only an admin could ever open again.
+                raise HTTPException(status_code=401, detail="Couldn't tell who you are. Reload the page and try again.")
+            profile_id = str(uuid.uuid4())
+        else:
+            access.require(who, access.AGENT, profile_id, access.MANAGE, not_found=NOT_FOUND)
 
-        tools = canonical_tool_ids([t for t in (tools or []) if isinstance(t, str) and t.strip()])
-        visibility = _norm_visibility(visibility)
-        domain = _norm_domain(domain)
-        base = (base or "full").strip() or "full"
-        me = (user_email or "").strip()
-        owner = (owner or me or "").strip()
-
-        skills_dicts = _skill_dicts(skills) if skills is not None else []
-        pytool_dicts = _pytool_dicts(python_tools) if python_tools is not None else []
-
-        tools_json = json.dumps(tools)
-        skills_json = json.dumps(skills_dicts)
-        pytools_json = json.dumps(pytool_dicts)
-        prompt = prompt or ""
-
-        payload_size = len(prompt.encode("utf-8")) + len(skills_json.encode("utf-8")) + len(pytools_json.encode("utf-8"))
-        if payload_size > _max_bytes():
-            raise AgentStudioError(f"Profile exceeds max size ({_max_bytes() // 1024} KB).")
-
-        updated_at = datetime.now(timezone.utc).isoformat()
-
-        conn = get_db_connection(env)
+        conn = get_db_connection()
         try:
             c = conn.cursor()
-            if profile_id:
-                existing = self._latest_row(c, profile_id)
-                if existing is None:
-                    raise AgentStudioError("Profile not found.")
-                # Optimistic concurrency: refuse to clobber a newer edit.
-                cur_ver = existing.get("updated_at") or ""
-                if expected_updated_at and cur_ver and cur_ver != expected_updated_at:
-                    raise ProfileConflictError(
-                        "This profile was changed by someone else since you opened "
-                        "it. Reload to get the latest version, then re-apply your edits."
-                    )
-                # Preserve the original author unless one was explicitly supplied.
-                if not owner:
-                    owner = existing.get("username") or me
-                c.execute("SELECT MAX(version) FROM agent_profiles WHERE id = %s", (profile_id,))
-                row = c.fetchone()
-                new_version = (row[0] or 0) + 1 if row else 1
+            published = None if creating else drafts.latest(c, access.AGENT, profile_id)
+            draft = None if creating else drafts.read(c, access.AGENT, profile_id)
+            current = drafts.merge(published, draft, profile_id)
+            if not creating and current is None:
+                raise HTTPException(status_code=404, detail=NOT_FOUND)
+            check_unchanged(current, expected_updated_at)
+            payload = profile_payload(
+                name=name, prompt=prompt, description=description, model=model, tools=tools,
+                skills=skills, python_tools=python_tools, domain=domain, base=base,
+                owner=(current or {}).get("username") or who.username,
+                visibility=(current or {}).get("visibility") or _LEGACY_PERSONAL,
+            )
+            if creating:
+                drafts.save(c, access.AGENT, profile_id, payload, who.username, base_version=None)
             else:
-                profile_id = str(uuid.uuid4())
-                new_version = 1
+                drafts.save(c, access.AGENT, profile_id, payload, who.username)
+            saved = drafts.merge(published, drafts.read(c, access.AGENT, profile_id), profile_id)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        if creating:
+            access.grant_owner(access.AGENT, profile_id, who.username)
+        return self._as_ref(saved, who, access.MANAGE, published, True)
 
+    def publish(self, who: Any, profile_id: str) -> int:
+        """Make the draft the next published version; returns that version."""
+        from database import get_db_connection
+
+        who = access.caller(who)
+        access.require(who, access.AGENT, profile_id, access.MANAGE, not_found=NOT_FOUND)
+        try:
+            entries = access.get_acl(access.AGENT, profile_id)
+        except Exception as exc:  # noqa: BLE001 - only the rollback label depends on it
+            logger.warning("Could not read the access list of agent %s: %s", profile_id, exc)
+            entries = []
+        conn = get_db_connection()
+        try:
+            c = conn.cursor()
+            draft = drafts.read(c, access.AGENT, profile_id)
+            version = drafts.publish(c, access.AGENT, profile_id, who.username)
             c.execute(
-                """
-                INSERT INTO agent_profiles
-                (id, version, name, description, model, base, prompt, tools_json,
-                 skills_json, python_tools_json, domain, visibility, username,
-                 is_deprecated, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s)
-                """,
-                (
-                    profile_id, new_version, name.strip(), (description or "").strip(),
-                    (model or "").strip(), base, prompt, tools_json, skills_json,
-                    pytools_json, domain, visibility, owner, updated_at,
-                ),
+                "UPDATE agent_profiles SET visibility = %s WHERE id = %s AND version = %s",
+                (legacy_visibility(entries, ((draft or {}).get("payload") or {}).get("visibility")), profile_id, version),
             )
             conn.commit()
-            row = self._latest_row(c, profile_id)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return version
+
+    def discard(self, who: Any, profile_id: str) -> None:
+        """Throw the draft away, back to the published version."""
+        from database import get_db_connection
+
+        who = access.caller(who)
+        access.require(who, access.AGENT, profile_id, access.MANAGE, not_found=NOT_FOUND)
+        conn = get_db_connection()
+        try:
+            c = conn.cursor()
+            if drafts.latest(c, access.AGENT, profile_id) is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This agent has never been published, so there is nothing to go back to. Delete it instead.",
+                )
+            drafts.discard(c, access.AGENT, profile_id)
+            conn.commit()
         except Exception:
             conn.rollback()
             raise
         finally:
             conn.close()
 
-        ref = self._row_to_ref(row, me, with_body=True)
-        return ref
-
-    def delete_profile(self, profile_id: str, env: str = "dev") -> None:
-        """Soft-delete every version of a profile (mirrors widgets)."""
+    def revert(self, who: Any, profile_id: str, version: int) -> ProfileRef:
+        """Make an earlier published version the draft, to publish again or not."""
         from database import get_db_connection
 
-        conn = get_db_connection(env)
+        who = access.caller(who)
+        access.require(who, access.AGENT, profile_id, access.MANAGE, not_found=NOT_FOUND)
+        conn = get_db_connection()
+        try:
+            c = conn.cursor()
+            drafts.revert(c, access.AGENT, profile_id, int(version), who.username)
+            published = drafts.latest(c, access.AGENT, profile_id)
+            saved = drafts.merge(published, drafts.read(c, access.AGENT, profile_id), profile_id)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return self._as_ref(saved, who, access.MANAGE, published, True)
+
+    def delete_profile(self, who: Any, profile_id: str) -> None:
+        """Retire every version and drop the draft.
+
+        Published versions are kept (flagged), like widgets, so the access list is
+        kept with them; an agent that was only ever a draft leaves nothing behind,
+        so its access list goes too.
+        """
+        from database import get_db_connection
+
+        who = access.caller(who)
+        access.require(who, access.AGENT, profile_id, access.MANAGE, not_found=NOT_FOUND)
+        conn = get_db_connection()
         try:
             c = conn.cursor()
             c.execute("UPDATE agent_profiles SET is_deprecated = 1 WHERE id = %s", (profile_id,))
+            had_versions = c.rowcount > 0
+            drafts.discard(c, access.AGENT, profile_id)
             conn.commit()
         except Exception as exc:  # noqa: BLE001
             conn.rollback()
             raise AgentStudioError(f"Could not delete profile: {exc}") from exc
         finally:
             conn.close()
+        if not had_versions:
+            access.delete_acl(access.AGENT, profile_id)
 
-    def history(self, profile_id: str, env: str = "dev") -> List[Dict[str, Any]]:
+    def history(self, who: Any, profile_id: str) -> List[Dict[str, Any]]:
+        """Published versions, newest first, for a manager choosing one to revert to."""
         from database import get_db_connection
 
-        conn = get_db_connection(env)
+        who = access.caller(who)
+        access.require(who, access.AGENT, profile_id, access.MANAGE, not_found=NOT_FOUND)
+        conn = get_db_connection()
         try:
             c = conn.cursor()
             c.execute(
-                "SELECT version, name, username, visibility, domain, updated_at, timestamp "
-                "FROM agent_profiles WHERE id = %s ORDER BY version DESC",
+                "SELECT version, name, username, published_by, published_at, updated_at, timestamp "
+                "FROM agent_profiles WHERE id = %s AND COALESCE(is_deprecated, 0) = 0 ORDER BY version DESC",
                 (profile_id,),
             )
-            cols = [d[0] for d in c.description]
-            return [dict(zip(cols, row)) for row in c.fetchall()]
+            rows = _rows(c)
+            conn.commit()
         finally:
             conn.close()
+        return [{k: (_text(v) if k in ("published_at", "timestamp") else v) for k, v in r.items()} for r in rows]
 
 
 _store: Optional[AgentStudioStore] = None

@@ -17,19 +17,24 @@ def test_guide_parses_into_topics():
     assert len(found) >= 8, found
     # Section titles are advertised to the model verbatim, so a rename that drops
     # one of these is a behavior change, not a cosmetic edit.
-    for expected in ("Widgets", "Roles and permissions", "Environments and promoting work"):
+    for expected in ("Widgets", "Sharing and permissions", "Drafts and publishing"):
         assert expected in found, (expected, found)
 
 
-def test_finds_the_roles_section_for_a_natural_question():
-    answer = app_help("If I'm in two groups, one viewer one editor, what do I get?")
-    assert "## Roles and permissions" in answer
+def test_finds_the_sharing_section_for_a_natural_question():
+    answer = app_help("If one group can use it and another can manage it, which access do I get?")
+    assert "## Sharing and permissions" in answer
     assert "highest level wins" in answer.lower()
 
 
-def test_finds_promotion_for_a_question_that_never_says_promotion():
+def test_finds_publishing_for_a_question_that_never_says_publish():
+    answer = app_help("I saved my widget but my colleagues still see the old version")
+    assert "Drafts and publishing" in answer
+
+
+def test_old_promotion_vocabulary_still_finds_publishing():
     answer = app_help("how do I get my widget into prod?")
-    assert "Environments and promoting work" in answer
+    assert "Drafts and publishing" in answer
 
 
 def test_question_about_widgets_does_not_return_the_whole_guide():
@@ -42,7 +47,7 @@ def test_question_about_widgets_does_not_return_the_whole_guide():
 def test_unmatched_question_lists_the_topics_instead_of_guessing():
     answer = app_help("what is the airspeed velocity of an unladen swallow")
     assert "Available topics" in answer
-    assert "Roles and permissions" in answer
+    assert "Sharing and permissions" in answer
 
 
 def test_empty_question_is_not_treated_as_a_match():
@@ -54,20 +59,21 @@ def test_tool_spec_advertises_real_sections():
     fn = spec["function"]
     assert fn["name"] == "app_help"
     assert len(fn["description"]) <= 1024
-    assert "Roles and permissions" in fn["description"]
+    assert "Sharing and permissions" in fn["description"]
     assert fn["parameters"]["required"] == ["question"]
 
 
 def test_primer_covers_the_vocabulary_an_agent_must_not_get_wrong():
-    for term in ("widget", "view", "domain", "Viewer", "Editor", "Admin", "app_help"):
+    for term in ("widget", "view", "draft", "publish", "Can manage", "Can use", "app_help"):
         assert term in APP_PRIMER, term
 
 
 if __name__ == "__main__":
     tests = [
         test_guide_parses_into_topics,
-        test_finds_the_roles_section_for_a_natural_question,
-        test_finds_promotion_for_a_question_that_never_says_promotion,
+        test_finds_the_sharing_section_for_a_natural_question,
+        test_finds_publishing_for_a_question_that_never_says_publish,
+        test_old_promotion_vocabulary_still_finds_publishing,
         test_question_about_widgets_does_not_return_the_whole_guide,
         test_unmatched_question_lists_the_topics_instead_of_guessing,
         test_empty_question_is_not_treated_as_a_match,

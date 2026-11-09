@@ -2,11 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowRightLeft, Download, FileUp, Loader2, RefreshCw, Upload } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from '../../components/ConfirmModal';
-import { getContentEnv } from '../../contentEnv';
 
 /**
- * Admin Panel → Data Migration. Moves a deployment's data to another app — dev's
- * widgets and agents into the test app, say — as a snapshot file: download here,
+ * Admin Panel → Data Migration. Moves a deployment's data to another app — the dev
+ * app's widgets and agents into the test app, say — as a snapshot file: download here,
  * upload there. The apps never talk to each other or share database credentials;
  * see `server/services/data_migration.py` for why that is the design.
  *
@@ -15,7 +14,6 @@ import { getContentEnv } from '../../contentEnv';
  * exact file and options that were previewed.
  */
 
-type Env = 'dev' | 'test' | 'prod';
 type Mode = 'merge' | 'replace';
 
 interface Group { key: string; label: string; help: string; default: boolean }
@@ -25,14 +23,13 @@ interface ReportRow {
     dropped_columns: string[]; note?: string;
 }
 interface ImportResult {
-    dry_run: boolean; env: Env; mode: Mode; groups: string[];
+    dry_run: boolean; mode: Mode; groups: string[];
     tables: ReportRow[];
     totals: { in_file: number; inserted: number; skipped: number; deleted: number };
     ignored_tables: string[];
+    notes?: string[];
     snapshot: { exported_at?: string; exported_by?: string; source?: Record<string, string>; groups?: string[] };
 }
-
-const ENVS: Env[] = ['dev', 'test', 'prod'];
 
 const formatBytes = (n: number) => {
     if (n < 1024) return `${n} B`;
@@ -51,7 +48,6 @@ export const DataMigration: React.FC = () => {
     const [loadError, setLoadError] = useState<string | null>(null);
 
     // --- export
-    const [exportEnv, setExportEnv] = useState<Env>(getContentEnv);
     const [exportGroups, setExportGroups] = useState<string[]>([]);
     const [summary, setSummary] = useState<TableSummary[] | null>(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
@@ -60,7 +56,6 @@ export const DataMigration: React.FC = () => {
 
     // --- import
     const [file, setFile] = useState<File | null>(null);
-    const [importEnv, setImportEnv] = useState<Env>(getContentEnv);
     const [mode, setMode] = useState<Mode>('merge');
     const [importGroups, setImportGroups] = useState<string[]>([]);
     const [busy, setBusy] = useState<'preview' | 'import' | null>(null);
@@ -86,10 +81,10 @@ export const DataMigration: React.FC = () => {
         })();
     }, []);
 
-    const loadSummary = async (env: Env) => {
+    const loadSummary = async () => {
         setSummaryLoading(true);
         try {
-            const res = await fetch(`/api/migration/summary?env=${env}`);
+            const res = await fetch('/api/migration/summary');
             if (!res.ok) throw new Error(await readError(res));
             setSummary((await res.json()).tables || []);
         } catch (e) {
@@ -98,7 +93,7 @@ export const DataMigration: React.FC = () => {
             setSummaryLoading(false);
         }
     };
-    useEffect(() => { loadSummary(exportEnv); }, [exportEnv]);
+    useEffect(() => { loadSummary(); }, []);
 
     const groupTotals = useMemo(() => {
         const out: Record<string, { rows: number; bytes: number }> = {};
@@ -116,11 +111,11 @@ export const DataMigration: React.FC = () => {
         setExporting(true);
         setExportError(null);
         try {
-            const res = await fetch(`/api/migration/export?env=${exportEnv}&groups=${exportGroups.join(',')}`);
+            const res = await fetch(`/api/migration/export?groups=${exportGroups.join(',')}`);
             if (!res.ok) throw new Error(await readError(res));
             const blob = await res.blob();
             const disposition = res.headers.get('Content-Disposition') || '';
-            const name = /filename="([^"]+)"/.exec(disposition)?.[1] || `command-center-${exportEnv}.json.gz`;
+            const name = /filename="([^"]+)"/.exec(disposition)?.[1] || 'command-center.json.gz';
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -136,7 +131,7 @@ export const DataMigration: React.FC = () => {
 
     // Import is offered only for what was previewed. Changing the file or any
     // option after a preview makes its numbers describe a different import.
-    const optionsKey = file ? `${file.name}|${file.size}|${file.lastModified}|${importEnv}|${mode}|${[...importGroups].sort().join(',')}` : null;
+    const optionsKey = file ? `${file.name}|${file.size}|${file.lastModified}|${mode}|${[...importGroups].sort().join(',')}` : null;
     const previewCurrent = !!optionsKey && optionsKey === previewedKey;
 
     const runImport = async (dryRun: boolean) => {
@@ -145,7 +140,6 @@ export const DataMigration: React.FC = () => {
         setImportError(null);
         const form = new FormData();
         form.append('file', file);
-        form.append('env', importEnv);
         form.append('mode', mode);
         form.append('groups', importGroups.join(','));
         form.append('dry_run', dryRun ? 'true' : 'false');
@@ -180,10 +174,10 @@ export const DataMigration: React.FC = () => {
                     <ArrowRightLeft className="text-brand-blue" size={20} /> Data Migration
                 </h2>
                 <p className="mt-1 text-sm text-gray-500">
-                    Move this app's widgets, views, agents and settings to another Command Center app — for example from the
-                    dev app to the test app, which has its own database. Download a snapshot here, then open Data Migration
-                    in the other app and import it. Promotion (the Widget and View tabs) is still how single items move
-                    between Dev, Test and Prod inside one app.
+                    Move this app's widgets, views, agents, who they are shared with, and settings to another Command Center
+                    app — for example from the dev app to the test app, which has its own database. Download a snapshot
+                    here, then open Data Migration in the other app and import it. Published versions and unpublished drafts
+                    travel together.
                 </p>
                 {thisApp.app_environment && (
                     <p className="mt-2 text-xs text-gray-500">
@@ -200,12 +194,11 @@ export const DataMigration: React.FC = () => {
                         <h3 className="flex items-center gap-2 text-md font-semibold text-gray-900"><Download size={16} /> 1. Export a snapshot</h3>
                         <p className="mt-1 text-sm text-gray-500">A compressed file holding every row of what you pick. Treat it like a database backup.</p>
                     </div>
-                    <button onClick={() => loadSummary(exportEnv)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-50 hover:text-brand-blue" title="Refresh counts">
+                    <button onClick={() => loadSummary()} className="rounded-lg p-2 text-gray-400 hover:bg-gray-50 hover:text-brand-blue" title="Refresh counts">
                         <RefreshCw size={18} className={summaryLoading ? 'animate-spin' : ''} />
                     </button>
                 </div>
                 <div className="space-y-4 p-6">
-                    <EnvPicker label="Export the data stored under" value={exportEnv} onChange={setExportEnv} />
                     <div className="space-y-2">
                         {groups.map(g => (
                             <label key={g.key} className="flex items-start gap-3 rounded-md border border-gray-200 p-3 hover:bg-gray-50">
@@ -251,8 +244,6 @@ export const DataMigration: React.FC = () => {
                         <input type="file" accept=".gz,.json,application/gzip,application/json" className="hidden"
                             onChange={e => { setFile(e.target.files?.[0] || null); setResult(null); setPreviewedKey(null); setImportError(null); }} />
                     </label>
-
-                    <EnvPicker label="Import into the data stored under" value={importEnv} onChange={setImportEnv} />
 
                     <fieldset>
                         <legend className="mb-1 text-sm font-medium text-gray-700">How</legend>
@@ -312,8 +303,8 @@ export const DataMigration: React.FC = () => {
                 <ConfirmModal
                     title={mode === 'replace' ? 'Replace data in this app?' : 'Import this snapshot?'}
                     message={mode === 'replace'
-                        ? `This deletes ${result.totals.deleted.toLocaleString()} row(s) in ${importEnv} and writes ${result.totals.inserted.toLocaleString()} from the snapshot.`
-                        : `This adds ${result.totals.inserted.toLocaleString()} row(s) to ${importEnv}. Nothing already here is changed.`}
+                        ? `This deletes ${result.totals.deleted.toLocaleString()} row(s) in this app and writes ${result.totals.inserted.toLocaleString()} from the snapshot.`
+                        : `This adds ${result.totals.inserted.toLocaleString()} row(s) to this app. Nothing already here is changed.`}
                     detail={mode === 'replace' ? 'There is no undo other than importing a snapshot of this app taken beforehand.' : 'The import is recorded in Action Logs.'}
                     confirmLabel={mode === 'replace' ? 'Replace' : 'Import'}
                     variant={mode === 'replace' ? 'danger' : 'primary'}
@@ -324,16 +315,6 @@ export const DataMigration: React.FC = () => {
         </div>
     );
 };
-
-const EnvPicker: React.FC<{ label: string; value: Env; onChange: (e: Env) => void }> = ({ label, value, onChange }) => (
-    <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-gray-700">{label}</span>
-        <select value={value} onChange={e => onChange(e.target.value as Env)} className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm">
-            {ENVS.map(e => <option key={e} value={e}>{e[0].toUpperCase() + e.slice(1)}</option>)}
-        </select>
-        <span className="text-xs text-gray-500">Day-to-day data lives under Dev unless you promote it.</span>
-    </div>
-);
 
 const ImportReport: React.FC<{ result: ImportResult; groupLabel: (k: string) => string }> = ({ result, groupLabel }) => {
     const src = result.snapshot.source || {};
@@ -348,10 +329,16 @@ const ImportReport: React.FC<{ result: ImportResult; groupLabel: (k: string) => 
                 </span>
             </p>
             <p className="mt-1 text-xs text-gray-500">
-                Snapshot of <span className="font-mono">{src.app_environment || '?'}</span> / {src.env || '?'}
+                Snapshot of <span className="font-mono">{src.app_environment || '?'}</span>
+                {src.env && <> / {src.env} workspace</>}
                 {src.instance && <> ({src.instance})</>}, taken {result.snapshot.exported_at ? new Date(result.snapshot.exported_at).toLocaleString() : 'at an unknown time'}
                 {result.snapshot.exported_by && <> by {result.snapshot.exported_by}</>}.
             </p>
+            {(result.notes || []).map(n => (
+                <p key={n} className="mt-2 flex items-start gap-1 text-xs text-amber-700">
+                    <AlertCircle size={12} className="mt-0.5 shrink-0" /> {n}
+                </p>
+            ))}
             <table className="mt-3 min-w-full text-sm">
                 <thead>
                     <tr className="text-left text-xs uppercase tracking-wider text-gray-500">

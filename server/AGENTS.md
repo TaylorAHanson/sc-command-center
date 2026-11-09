@@ -33,23 +33,29 @@ Run the backend alone with `cd server && ../.venv/bin/uvicorn main:app --reload
    implies. Anything under `/api/` that isn't mounted hits the SPA catch-all and
    returns a JSON 404.
 3. Take auth as a dependency rather than reading headers yourself.
-4. Accept `env: str = "dev"` if the endpoint touches stored state, and pass it
-   through to `get_db_connection(env)`. Every existing data route does this.
+4. Don't add an `env` parameter. There is one content store per deployment, so
+   call `get_db_connection()` and let it pick the content schema. Existing routes
+   still accept `env` for older clients and saved links, but every value maps to
+   the same store (see *Database*); a new route has no such callers.
+5. Check access with `services/access.py` (see *Auth*), not with a role or a
+   domain: `access.require(who, type, id, level)` for one object, or
+   `access.visible_ids` / `levels_for` to filter a list.
 
 Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
-`/api/sql`, `/api/jobs`, `/api/roles`, `/api/apps`, `/api/promotion`,
-`/api/taxonomy`, `/api/databricks`, `/api/agent` (proxy), `/api/agent/widget`,
-`/api/agent/studio`, `/api/migration`, plus `/api` for n8n and Tableau. Interactive docs are at
-`/api/docs`.
+`/api/sql`, `/api/jobs`, `/api/roles`, `/api/apps`, `/api/sharing/migration`
+(the cutover report, mounted ahead of `/api/sharing` because the latter's
+`/{object_type}/{object_id}` would otherwise claim it), `/api/sharing`,
+`/api/taxonomy`, `/api/settings`, `/api/databricks`, `/api/agent` (proxy),
+`/api/agent/widget`, `/api/agent/studio`, `/api/agent/uploads`,
+`/api/conversations`, `/api/migration`, plus `/api` for n8n and Tableau.
+Interactive docs are at `/api/docs`.
 
 `/api/health` is the one unauthenticated route, so it doubles as the SPA's source
 for `APP_ENVIRONMENT` (`config.settings.get_app_environment()` — local/dev/stage/
-prod, set per bundle target: which Databricks App this is). Do not confuse it
-with the `env` query parameter, which picks the **workspace** (`dev` / `test` /
-`prod` schema) a route reads. Each physical app serves all three; the browser
-**Workspace** switcher sets `env`. Dev and Test need Editor or Admin on a
-domain; the last choice is stored per person. Our Dev app is a real Dev deploy
-and still has those three workspaces.
+prod, set per bundle target: which Databricks App this is). That is the only
+environment left. The `env` query parameter some routes still take used to pick
+an in-app Dev/Test/Prod workspace; drafts replaced those, the browser no longer
+sends it, and the server ignores its value.
 
 ## Auth (`middleware/auth.py`)
 
@@ -73,20 +79,83 @@ is shared with other requests on the same credential), and never key a cache on
 anything but the credential itself — a key derived from a username would hand one
 user's client to another.
 
-**Permissions are deployment-wide.** `require_global_admin(w)`,
-`require_domain_editor(w, domain)` and `_get_user_permissions(w)` take no `env`:
-`role_mappings` is read from one schema, `roles.roles_env()` (the
-`APP_SETTINGS_ENV` one), whatever workspace the request is in. Don't add an
-`env` back — an Editor is an Editor in Dev, Test and Prod. Startup moves any
-mappings still in the other two schemas into it once and clears them there
-(`database._gather_role_mappings`, pinned by `tests/test_role_mappings_home.py`).
-The taxonomy is still per workspace, so a mapping's domain is valid if any
-workspace has it.
+**Access is per object** (`services/access.py`). Every view (`app`), widget
+and agent has an access list in `object_permissions`: entries granting `MANAGE`
+or `USE` to a user, a group, or everyone (`*`, principal type `all`). A caller's
+level is the highest any entry gives them, directly, through a group, or through
+`*`. `app_admins` lists Administrators, who hold `MANAGE` on everything and are
+the only callers `require_app_admin(w)` lets through. Both tables live in the
+settings schema (`settings_env()`), not the content store, because who may do
+what is a fact about the deployment and is keyed by object id alone.
+
+- `access.caller(w)` → `Caller(username, groups, is_admin)`, from the cached
+  identity (see *What a request is allowed to spend*). Resolve it once per request.
+- `access.require(who, type, id, level)` answers **404** when the caller holds no
+  level, so a link never confirms that something exists, and **403** when they
+  hold `USE` but `MANAGE` was needed — at that point they already know it exists.
+- `grant_owner` runs **after** the content commit. The ACL write is a separate
+  transaction on another schema, and ordered this way a failure leaves an object
+  only Administrators can reach, never one the wrong person can.
+- `replace_acl` refuses a list with no `MANAGE` entry unless an Administrator
+  wrote it; otherwise an owner could lock everyone out of their own work.
+- Users match case-insensitively (`creator_stats.same_person`), because SCIM is
+  not consistent about case; groups match their SCIM display name exactly.
+
+Domains grant nothing any more; they are labels for filtering. Don't reintroduce
+a check on one. `role_mappings` is still in the settings schema for the access
+migration and a rollback; nothing writes it, and nothing reads it for decisions.
+`tests/test_role_mappings_home.py` stays until that table is dropped.
+
+Administrators hold `MANAGE` on everything but are not *granted* it, so
+`list_apps` lists only views an admin owns or is granted; listing every view in
+each admin's sidebar would bury their own. Admin Panel → Content
+(`GET /api/sharing/content`) is where they see the rest, and `_open` lets them
+open any view by link.
+
+## The one-time move to sharing (`services/consolidation.py`, `services/access_migration.py`, `routes/cutover.py`)
+
+Startup runs two steps after `init_db`, in this order so the second sees every
+object the first brought over:
+
+1. **Consolidation** folds the retired Dev and Test content into the one content
+   store as drafts: Prod's versions stay the published history, an object's
+   newer Dev (else Test) version becomes its draft when it differs in meaning,
+   and objects only in Dev or Test become never-published drafts. Dev and Test
+   are read, never written.
+2. **The access migration** writes, once, the ACL each object's domain used to
+   imply, by replaying what the old checks did: `viewer` → `USE`, `editor` /
+   `admin` → `MANAGE`, on every widget, every *global* view and every *domain*
+   agent filed under exactly that domain (unset reads as `General`). Owners get
+   `MANAGE`; `shared_views` subscribers get `USE` on the view, since that is who
+   had a link open; global agents get Everyone `USE`. An `admin` mapping on a
+   global alias (`global` / `all` / `app`) becomes an `app_admins` row; a `viewer`
+   or `editor` mapping on one grants only what is literally filed under that
+   alias, because only `admin` was ever read as global, and the report names each
+   such mapping. If no mapping made anyone an admin, group `users` goes into
+   `app_admins`, the lockout prevention `init_db` used to seed into
+   `role_mappings`.
+
+Both only add rows, so redeploying the previous release finds its tables as it
+left them. Each records its outcome in **`cutover_log`** (settings schema, one row
+per step: `done` / `skipped` / `failed`, with the report or the error) under the
+step's advisory lock, so two uvicorn workers can't run a step at once. A step
+with a row never runs again on startup, including a failed one: a failure that
+repeats would cost every startup the same work and change the report under the
+admin reading it. A step that couldn't reach the settings store at all logs
+nothing, so the next start tries again; that is the transient case. The Admin
+Panel's banner reads `GET /api/sharing/migration/report`, and its **Retry**
+(`POST /retry`, admins only) deletes the failed rows and reruns those steps.
+Like `init_db`, neither step raises out of startup.
 
 ## Database (`database.py`)
 
-`get_db_connection(env)` hands out a pooled connection (see *What a request is
-allowed to spend*), opening one only when the pool has none. Opening resolves the
+`get_db_connection(env="dev", pooled=True, physical=False)` hands out a pooled
+connection (see *What a request is allowed to spend*), opening one only when the
+pool has none. Any of `dev` / `test` / `prod` resolves to `content_env()`
+(`APP_CONTENT_ENV`, default `prod`) unless `physical=True`, which addresses the
+schema the name really denotes. Only the settings store and the one-time
+consolidation, which reads the retired Dev and Test schemas, should ever pass it:
+anything else that does reads a schema users no longer write to. Opening resolves the
 Lakebase host/database, mints a short-lived OAuth token via the SDK when no
 password is supplied, and pins the schema. That resolution costs three or more
 control-plane round trips, so the working parameters are cached per env for
@@ -111,12 +180,22 @@ Table shapes worth knowing before you write a query:
   `agent_profiles`. Reads must select the newest version per id — see the
   `MAX(version)` join in `routes/apps.py::list_apps`. Writes insert a new version rather
   than updating in place.
-- **PK `(username, view_id)`**: `shared_views` (subscriptions).
-- **PK `id`**: `archived_views` — global views taken out of circulation, per env.
+- **PK `(object_type, object_id)`**: `object_drafts` — at most one draft per
+  view, widget or agent, as JSONB (see *Apps* → drafts).
+- **PK `(username, view_id)`**: `shared_views` (subscriptions, now unused for
+  access) and `sidebar_hidden` (views someone took off their Shared with me).
+- **PK `id`**: `archived_views` — views taken out of circulation.
 - **`SERIAL id`**: `widget_categories`, `widget_domains`, `role_mappings`,
   `widget_runs`, `action_logs`. Categories/domains are `UNIQUE (name)` and are
-  seeded with defaults on first creation, as is a fallback global-admin
-  `role_mappings` row — so a "fresh" schema is not empty.
+  seeded with defaults on first creation, so a "fresh" schema is not empty.
+  `role_mappings` is still created but never written or seeded: the access
+  migration reads it once, and a rollback to the previous release must find it
+  as that release left it. The lockout fallback it used to seed (group `users`
+  as global admin) moved to the migration, which adds `users` to `app_admins`
+  only when no mapping made anyone an admin.
+- **Settings schema only**: `app_settings`, `object_permissions`, `app_admins`,
+  `known_principals` (everyone who has signed in, and their groups, for the share
+  dialog's typeahead), and `cutover_log` (see *The one-time move to sharing*).
 
 New columns go in as `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in the migration
 block *after* table creation, each in its own try/except with a rollback, so one
@@ -126,9 +205,10 @@ failure can't abort the rest of the transaction.
 
 `dashboard_views.pinned_agent_id` holds the Agent Studio profile the assistant
 drawer opens with on that view (or the literal `'default'` for the built-in
-agent). Permission is the view's own: personal views by their owner, global ones
-by a domain editor, which `PUT /api/apps/{id}` already enforces — there is no
-separate check, and none should be added.
+agent). Permission is the view's own: `MANAGE` on the view, which
+`PUT /api/apps/{id}` already enforces, and the pin lands in the view's draft like
+any other change — there is no separate check, and none should be added. A pin
+grants nothing on the agent: people using the view still need `USE` on it.
 
 The one trap is that clients save a view **whole**: nudging a widget one square
 PUTs name, lock, widgets and all. So `pin_value` treats an absent pin as "keep
@@ -137,21 +217,28 @@ and a field sent as `null` are both `None` by the time Pydantic is done with
 them. Get that backwards and every widget drag silently unpins the view.
 `tests/test_view_pins.py` holds the distinction.
 
-### Removing a global view: archive, then delete
+### Removing a view: archive, then delete
 
-Two steps on purpose. `POST /api/apps/{id}/archive` inserts into `archived_views`
-and `list_apps` (and the creator leaderboard) skip those ids; every version stays,
-so `POST /{id}/restore` is exact. `DELETE /{id}` on a **global** view answers 409
-until it has been archived, then removes every version and the marker together.
-Personal views are unchanged: the sidebar's Close deletes them outright.
+Two steps when other people can open the view. `POST /api/apps/{id}/archive`
+inserts into `archived_views`; `list_apps` (and the creator leaderboard) skip
+those ids, and `_open` reads them as missing, so the link stops opening too.
+Every version and the draft stay, so `POST /{id}/restore` is exact. `DELETE /{id}`
+answers 409 while a view shared beyond its owner (`_shared_beyond_owner`, from
+the ACL summary) is unarchived, so someone can notice it gone before it is gone
+for good; a private view is deleted outright, as closing one always did. Delete
+removes every version, the draft, the link names, the sidebar markers and the
+ACL. All three need `MANAGE`. The sidebar's × follows the same split: it deletes
+a private view and archives a shared one, confirming either way.
+
+`POST /{id}/discard` answers 409 for a view never published: the draft is all
+there is, and discarding it would be a delete without Delete's confirmation.
+Widgets refuse the same way, for the same reason.
 
 The marker is its own table rather than a flag on `dashboard_views` because that
-table is versioned and promotion copies whole rows between environments — a flag
-would be promoted with a version or lost on a rollback, when "retired" is a fact
-about the view's id. It is per env (each env has its own schema), so the View
-Promotion screen calls the endpoint once per env the view exists in and reports
-each failure; a partly-applied archive is visible in the Archived list rather than
-hidden. `tests/test_view_archive.py` holds the ordering and the permissions.
+table is versioned — a flag would travel with one version and be lost on a
+revert, when "retired" is a fact about the view's id. There is one content store,
+so archiving is a single write. `tests/test_view_archive.py` holds the ordering
+and the permissions.
 
 ### Apps: a view is an app with one tab (`services/app_spec.py`, `services/app_store.py`, `routes/apps.py`)
 
@@ -164,16 +251,14 @@ that keep the deployment already running intact:
 
 - **No backfill, ever.** A NULL `spec_json` reads as the one-tab app the view
   always was, tab id = app id. Writing specs for old rows would add a version to
-  every view in every env. `promotion.same_view_content` compares what rows
-  *mean*, so a lazily upgraded row doesn't look changed next to its untouched copy
-  in another env.
+  every view.
 - **`/api/views` is gone.** It spoke for one canvas, so every save it took had to
   change only the first tab; nothing calls it any more and `/api/apps` is the
   only way in. Don't bring back a single-canvas write path: anything that can't
   see tabs 2+ and saves would delete them. `widgets_json` is still written equal
   to tab one, so a rollback to pre-apps code still shows each app's first tab.
 - **`read_spec` never raises; `validate_spec` refuses.** Reads (sidebar,
-  leaderboard, promotion) keep widget entries verbatim and fall back to
+  leaderboard, publish preflight) keep widget entries verbatim and fall back to
   `widgets_json`; writes reject what they would have to guess at — no tabs, a
   widget instance on two tabs, an unknown choice, a spec from a newer schema.
 - **Whatever a read returns, a write must accept.** The browser saves an app by
@@ -182,40 +267,46 @@ that keep the deployment already running intact:
   why a view's only tab, named by the view's id, is accepted however long the id
   is. `test_every_app_the_api_hands_out_saves_back_unchanged` round-trips the
   awkward cases; add yours there.
-- **The access model is the views' model, unchanged.** `app_spec.can_read`: a
-  global app needs a role in its domain (or global admin); a personal app opens
-  for anyone holding its id, because a shared link (`?shared_view=`) has always
-  subscribed any caller to any id. `POST /api/apps/{id}/subscribe` is that
-  handler, moved. Tightening any of this is its own decision — don't do it in passing.
-  `GET /api/apps/{id}` is new (views had no read-by-id), writes nothing, and
-  answers a global app outside your domains with the same 404 as a missing id.
-- **Links name global apps; a name never reaches a personal one**
-  (`services/app_links.py`). `GET /{ref}`, `/{ref}/widgets` and
-  `/{ref}/subscribe` take an id, a global app's link name, or `<name>-<id>`,
-  via `app_store.resolve_ref`; everything else takes ids. A name resolves only
-  to an app that is global *now*, since a personal app's id is what keeps it
-  private and a name is guessable. Names live in `app_links` (slug → app id,
-  every name a view has held, newest wins) and are claimed on writes only —
-  `insert_version` for a global version (inside a savepoint, so a failure can't
-  fail the save), promotion, and `init_db`'s backfill for views that predate it
-  or arrived by snapshot — because opening an app must write nothing. A slug may
-  not end in a UUID, or a global view named after a personal one's link would
-  answer for it. Permanent delete frees the names; archive keeps them.
-- **One tightening, flagged:** `save_version` also requires editor rights on the
-  *resulting* domain when an app is made global or a global app changes domain.
-  The old update path checked only the domain a view started in, which let an
-  owner publish a personal view as global into any domain. Creating a global view
-  already required it.
-- **A burst of saves to a personal app is one version.** Every drag, resize,
-  tab rename and setting is a full PUT, so `save_version` overwrites the newest
-  version in place when it is personal and the database says it was saved less
-  than `COALESCE_SECONDS` (300) ago; the response's `version` is the one it
-  landed in. Only the owner can save a personal app, so no one else's work is
-  folded in. Global apps, and the save that makes an app global, always insert:
-  their versions are what promotion copies and rolls back to, several editors
-  share them, and the row records `system`, not who saved.
-- **`POST /api/apps/compose`** copies existing views/apps into a new personal
-  app, a tab each. Sources are untouched (copy, not move) so their links and
+- **Access is the app's own ACL.** `GET` needs `USE`, every write `MANAGE`
+  (see *Auth*). `GET /api/apps/{id}` answers an app you hold no level on with the
+  same 404 as a missing id. `POST /{id}/subscribe` survives as a no-op that checks
+  `USE`, so links from before sharing still resolve; it grants nothing. Anyone
+  could open a personal view by id before; the access migration gave each such
+  subscriber `USE`, so nobody lost a view they had.
+- **Saves write the draft** (`services/drafts.py`). A manager's `PUT` writes the
+  app's row in `object_drafts`, in place, so a drag adds no version;
+  `POST /{id}/publish` inserts the next `dashboard_views` version from it and
+  drops it. `USE` holders read `drafts.latest` (newest published), `MANAGE`
+  holders `drafts.current` (the draft over it), unless they ask for
+  `?mode=published`. The draft is a separate row, not an unpublished version,
+  because code from before drafts reads the newest version as live: a draft
+  stored as a version would be shown to everyone on a rollback. `/discard` drops
+  the draft (refused when nothing is published, see above); `/revert` copies a
+  published version into it. `GET /history` needs `MANAGE`, as a Databricks
+  dashboard's version history does; the UI offers it only to managers. The
+  widget `/history` stays at `USE` because version pinning reads it.
+- **Links name published apps** (`services/app_links.py`). `GET /{ref}`,
+  `/{ref}/widgets` and `/{ref}/subscribe` take an id, a link name, or
+  `<name>-<id>`, via `app_store.resolve_ref`; everything else takes ids. Names
+  live in `app_links` (slug → app id, every name a view has held, newest wins) and
+  are claimed on publish (inside a savepoint, so a failure can't fail it) and by
+  `init_db`'s backfill — never on a read, because opening an app must write
+  nothing. A never-published app is linked as `<name>-<id>`. A name resolving
+  doesn't bypass access: the ACL is checked on the id it resolves to, and a caller
+  with no level gets the same 404. A slug may not end in a UUID, or a view named
+  after another's `<name>-<id>` link would answer for it. Permanent delete frees
+  the names; archive keeps them.
+- **Composition: a view lends its widgets** (`custom_widgets.lent_by_views`).
+  `USE` on an app grants read of the latest published version of every widget it
+  places, and of each exact version `props._version` pins — never a draft, and
+  nothing it doesn't place; `MANAGE` lends the same for what its draft places.
+  The widget's own ACL isn't consulted, because the app's managers chose to show
+  it. Lent rows come back `in_library: false`: the registry needs them to render
+  the view, and the library must not offer them. A placed widget that has never
+  been published renders as a "Not published yet" card. In the draft, managers
+  see their own widget drafts.
+- **`POST /api/apps/compose`** copies existing views/apps into a new app the
+  caller owns, a tab each. Sources are untouched (copy, not move) so their links and
   subscriptions keep working The app takes the first source's `theme`, since a
   view has one look and tabs carry none.
 - **`POST /api/apps/look`** turns a description into a `theme` for View
@@ -228,35 +319,45 @@ that keep the deployment already running intact:
 - **`GET /api/apps/{id}/widgets`** is the app's widget bundle: the rows
   `/api/widgets/custom` would send, for only the widgets the app's tabs place,
   plus the source of any version a tab pins (`props._version`). Both go through
-  `custom_widgets.library_rows` and `_visible`, so they can't drift apart, and
-  the bundle shows nobody a widget the library would hide. The workspace doesn't
+  `custom_widgets.library_rows` and `shape_rows`, so they can't drift apart, and
+  the bundle applies the composition rule above (`bundle_rows`). The workspace doesn't
   call it; a standalone app opens with it instead of the whole library.
 
 `tests/test_app_spec.py` and `tests/test_apps_routes.py` hold all of the above.
 
-### Promoting an app (`routes/promotion.py`)
+### Publishing an app (`routes/apps.py`)
 
-`POST /api/promotion/transfer_app` copies one version of an app row (every tab)
-to another env, under the rule promotion always had: editor of the app's domain
-in the target. The row travels alone, and the widgets and agents it names are
-rows of their own in each env, so the target may lack them. Two things cover that:
+An app's row is published alone, and the widgets and agent it names have drafts
+and versions of their own, so a view can go out showing widgets its managers never
+published. Two things cover that:
 
-- **`POST /transfer_app/preflight`** reads both envs and writes nothing. It lists
-  placed widgets the target has no live version of, `props._version` pins whose
-  row of that number in the target is absent or different (numbers are per env),
-  pinned agents (app or tab) missing there, and — when global apps must hold
-  certified widgets — the uncertified ones, since saving the app there would be
-  refused. It needs the same right as the transfer, so it reveals nothing a
-  promoter couldn't find out by promoting.
-- **`include_widgets`** on the transfer copies those widgets' current source
-  versions first, each needing editor rights on *its* domain in the target
-  (exactly what `POST /transfer` asks), in the same transaction as the app. A
-  refusal for one leaves the target untouched.
+- **`POST /api/apps/{id}/publish/preflight`** writes nothing. It lists placed
+  widgets that are never published or have unpublished changes, and the pinned
+  agent (app or tab) in either state, marking which the caller can manage. It
+  needs `MANAGE` on the app. Its `blocking` list is why publishing would be
+  refused: no draft, or the certified-widgets rule below.
+- **`include`** on `POST /{id}/publish` publishes those widgets' and the agent's
+  drafts first, each needing `MANAGE` on *that* object, in the same transaction
+  as the app. A refusal for one leaves everything unpublished.
 
-Nothing is refused for being missing; the View Promotion dialog shows the
-preflight and offers to bring missing widgets along. Agents have no promotion
-path at all, so a missing agent can only be reported. `tests/test_promotion.py`
-holds this with one fake connection per env.
+Nothing is refused for being unpublished; the Publish dialog shows the preflight
+and offers to include what the caller can manage. The one refusal is the
+certified-widgets setting (`require_certified_for_global_views`, labelled
+"Shared views may only contain certified widgets"; the key kept its old name
+because saved rows are found by it). When it is on, an app shared with anyone
+besides its owner (`app_store.certification_problem`, judged from the ACL
+summary, not `is_global`) can't be published while any widget it places on any
+tab has an uncertified current version; checking only the first tab would let
+one through a tab over. Built-in widget types count as certified. The check runs
+after `include` is published, inside the same transaction, so a refusal rolls
+those back too. On publish the row's legacy `is_global` is set to whether the
+ACL includes Everyone, for code from before sharing that still reads it.
+
+Certifying (`POST /api/widgets/custom/{id}/certify`, `{version?, certified}`) is
+a `MANAGE` action on the widget and defaults to the latest published version;
+`drafts.RESET_ON_PUBLISH` clears it on every new version, because certification
+reviews one version's code. Publishing a widget re-runs `_reject_unsafe` on the
+draft, so nothing goes live that the current rules would refuse to save.
 
 ## Who made what (`services/creator_stats.py`)
 
@@ -346,9 +447,9 @@ Two behaviors that look odd but are intentional:
   server's tool is renamed; a space's tools keep their own names. Agents saved
   with `genie/genie_ask` (or bare `genie_ask`) are not migrated:
   `agent_studio_store.canonical_tool_ids` maps them on read and on save, and the
-  runtime maps them again for a "Try it" draft. Rows are versioned in three
-  schemas and also arrive by promotion and snapshot import, so a read-time alias
-  covers what a migration would miss. The external agent
+  runtime maps them again for a "Try it" draft. Rows are versioned, sit in
+  drafts, were consolidated from the retired Dev/Test schemas and also arrive by
+  snapshot import, so a read-time alias covers what a migration would miss. The external agent
   (`AGENT_LOCAL_RUNTIME=false`) is sent the servers' names (`upstream_tool_ids`).
 - **Genie is made synchronous.** The Genie MCP server is a polling
   API: the ask tool returns a handle and `genie_poll_response` retrieves the
@@ -423,12 +524,12 @@ says, so every agent gets both halves of `app_help.py`:
 - `APP_PRIMER` is spliced into the system prompt as `APP_KNOWLEDGE`, between the
   runtime contract and the persona (neutral facts, so a profile persona still
   wins any conflict). It is the vocabulary — widget, view, domain, the three role
-  levels, highest-level-wins, Dev → Test → Prod — that the agent must not get
+  Can use / Can manage, highest-level-wins, draft vs published — that the agent must not get
   wrong when it answers without calling a tool. Keep it short; it is paid for on
   every turn. A `base: none` (standalone) profile skips it, like the rest of the
   scaffold.
 - The `app_help` tool searches `services/app_guide.md` for the detail: exact
-  steps, promotion rules, agent authoring. Registered before MCP discovery and
+  steps, sharing and publishing rules, agent authoring. Registered before MCP discovery and
   attached to *every* agent, including profiles with a curated tool list, because
   an agent without it invents answers about the UI. Section titles are advertised
   in the tool description, so renaming a `##` heading changes what the model
@@ -437,7 +538,7 @@ says, so every agent gets both halves of `app_help.py`:
 `app_guide.md` describes app behavior and drifts silently when the app changes —
 update it alongside `src/pages/guide/sections/*.tsx` (the human guide). Relevance is keyword scoring
 weighted by term rarity; the guide says "widget" everywhere, so without that
-weighting a question like "get my widget into prod" never reaches the promotion
+weighting a question like "get my widget into prod" never reaches the publishing
 section. `tests/test_app_help.py` pins that and the topic list.
 
 Author-written Python tools execute via `_exec_python` in a subprocess with
@@ -646,7 +747,7 @@ side-calls (`widget_helper_model`, default `system.ai.gpt-6-luna`, falling back 
 `widget_model` where that isn't served), and agent
 authoring — plus the chat agent's step and
 token caps, are rows in `app_settings` edited from Admin Panel → Settings
-(`routes/app_settings.py`, global admin only). Resolution is
+(`routes/app_settings.py`, Administrators only). Resolution is
 **row > env var > built-in default**, so an untouched deployment behaves exactly as
 it did when these were env-only, and saving a setting blank deletes the row rather
 than pinning an empty value. Reads are cached ~15 s and never raise: a settings
@@ -654,10 +755,13 @@ outage falls back to the env var instead of breaking chat.
 
 Two things to keep in mind when touching this:
 
-- **Settings are global, not per-env.** Almost everything else in the database is
-  scoped to a dev/test/prod schema; these live in one (`APP_SETTINGS_ENV`, default
-  `dev`) because they describe the deployment, not the data it addresses. Role
-  mappings live there too (`roles.roles_env()`), for the same reason.
+- **Settings live in the settings schema, not the content one.** Content is in
+  `content_env()`'s schema; settings are in `APP_SETTINGS_ENV`'s (default `dev`)
+  because they describe the deployment, not the data it addresses. The access
+  tables (`object_permissions`, `app_admins`, `known_principals`), `cutover_log`
+  and the retired `role_mappings` live there too, for the same reason. The two defaults differ —
+  `prod` for content, `dev` for settings — because each is where that data already
+  was; don't "fix" one to match the other without moving the data.
 - **The base path is derived from the model name**, by `base_path_for_model`. A
   `system.ai.…` name is an AI Gateway name and 404s (`ENDPOINT_NOT_FOUND`) on
   `/serving-endpoints`; a bare endpoint name works there and also on the gateway.
@@ -790,22 +894,22 @@ want the model's narration on screen, the prompt has to ask for it as ordinary
 text. `tools/widget_repro.py` prints what a reply contained and how much of it
 survived the read, including how much prose arrived before the code.
 
-## Role-mapping validation (`routes/roles._validate_mapping`)
+## Principal names (`services/access.py`, `routes/sharing.py`)
 
-A mapping's `external_role` is compared with the caller's SCIM group display names
-and username **exactly** (`roles._get_user_permissions`), so a typo or a
-capitalisation slip saves fine and grants nothing, silently. `_validate_mapping`
-checks only that the domain is a taxonomy entry or a global alias
-(`GLOBAL_DOMAINS`); an edit doesn't re-check a domain it didn't change, so a
-legacy mapping can have its level changed without first being fixed.
+An access-list entry's principal is free text, matched **exactly** for groups
+(the SCIM display name) and case-insensitively for users, so a typo saves fine
+and grants nothing. The share dialog warns when a name isn't one the app has seen,
+and that is all the checking there is.
 
-**The name itself is not checked, deliberately.** There used to be a SCIM
-typeahead and verdict (`/api/roles/principals`). It worked locally, where
-`DEV_MODE` runs as the service principal, and never in a deployed App: listing
-groups needs the `scim` scope, which isn't one Databricks Apps can request in
-`user_api_scopes`. Doing the lookups as the service principal would extend SP
-auth beyond inference, so the field is free text. Don't reintroduce a lookup that
-only works on the SP.
+**The name is not looked up, deliberately.** There used to be a SCIM typeahead
+and verdict (`/api/roles/principals`). It worked locally, where `DEV_MODE` runs as
+the service principal, and never in a deployed App: listing groups needs the
+`scim` scope, which isn't one Databricks Apps can request in `user_api_scopes`.
+Doing the lookups as the service principal would extend SP auth beyond
+inference. Instead `access.caller` records each caller and their groups in
+`known_principals` (at most every ten minutes per person), and
+`GET /api/sharing/principals?q=` suggests from that, the caller's own groups
+first. Don't reintroduce a lookup that only works on the SP.
 
 `taxonomy._near_duplicate` is the same idea for categories and domains:
 `UNIQUE (name)` is case-sensitive, so `Logistics` and `logistics` could coexist.
@@ -847,9 +951,8 @@ in one run gets `PING_REPEATED`, which tells it to return the code.
 
 ## Moving data between apps (`services/data_migration.py`, `routes/data_migration.py`)
 
-Promotion copies within one instance; each bundle target now has its own, so
-moving users from the dev app to the test app needs the data moved *between
-databases*. It travels as a gzipped JSON snapshot the admin downloads from one app
+Each bundle target has its own Lakebase instance, so moving users from the dev
+app to the stage app needs the data moved *between databases*. It travels as a gzipped JSON snapshot the admin downloads from one app
 and uploads to the other — never a connection between apps, which would need one
 app's SP granted into the other's database, or an app-to-app hop with the user's
 token (the proxy's old 401/403 source).
@@ -861,23 +964,57 @@ token (the proxy's old 401/403 source).
   merge writes nothing. **Replace** deletes and inserts with ids, then `setval`s.
 - **One transaction per schema, committed only after every part succeeded.**
   `app_settings` goes to `settings_env()`'s schema, which may be a different
-  connection; everything else to the chosen env.
-- **A replace that would drop the importer's own global-admin mapping is rolled
+  connection; content to `content_env()`'s.
+- **A replace that would leave the importer no longer an Administrator is rolled
   back** (`_still_admin`, read inside the uncommitted transaction).
 - Only columns both sides have are written, so snapshots survive a version skew.
   `test_data_migration.py` fails if `init_db` gains a table that neither `TABLES`
   nor `NOT_COPIED` lists.
 - Exports and imports are written to `action_logs`. Conversations are opt-in.
+- **Snapshots are format 2** (`FORMAT_VERSION`): the content group carries every
+  published version *and* `object_drafts`, and the access group carries
+  `object_permissions`, `app_admins` and the taxonomy. Each table goes back to the
+  store its kind lives in (`SETTINGS_TABLES` to `settings_env()`). On a merge the
+  target's own access level and draft win. A file from a newer format is refused.
+- **Format-1 files still import.** They carry `role_mappings` and no access lists,
+  and imported as they stand everything in them would be reachable by
+  Administrators alone, so `routes/data_migration.legacy_tables` converts the
+  mappings with the same rules as the startup migration and says so in the
+  preview. `role_mappings` itself is never written (`LEGACY_TABLES`).
+  `cutover_log` is never copied (`NOT_COPIED`): it records what startup did on the
+  source deployment, and the target ran its own.
 
 ## Agent Studio storage (`agent_studio_store.py`)
 
-Authored agents are DB rows in `agent_profiles`, versioned like widgets. This
+Authored agents are DB rows in `agent_profiles`, one per published version, with
+at most one draft in `object_drafts`, exactly like widgets and views. This
 replaced files on UC Volumes so that users with app access but no workspace
-access can still save agents. Visibility governs sharing:
+access can still save agents. Authorization lives in the store, not the routes,
+so the Studio's CRUD and the chat proxy resolve an agent through the same checks.
 
-- `personal` — only the creator (`username`).
-- `domain` — anyone with access to `domain`; domain editors can edit.
-- `global` — every authenticated user; only global admins can edit.
+- **Who** is the agent's access list (see *Auth*): `USE` to read it and pick it
+  in chat, `MANAGE` to edit, publish, share and delete it. Anyone may create one,
+  and `POST /profiles` without a `profile_id` makes the caller its owner. A `USE`
+  holder's **Save a copy** in the Studio is exactly that call: the browser drops
+  the id, so a copy can't overwrite the original.
+- **What** is draft or published. `POST /profiles` with an id writes the draft
+  (`MANAGE`, refused if `expected_updated_at` is stale); `/publish`, `/discard`,
+  `/revert` and `/history` work as they do for widgets. `GET /profiles` gives a
+  manager the draft merged over the newest published row and anyone else the
+  published row; `?usable=true`, what the chat picker asks for, gives everyone
+  published rows only, so a never-published agent is listed only for its
+  managers and never offered in chat.
+- **Chat runs only the published version**, managers included
+  (`resolve_published`). The proxy turns "none the caller can use" into an
+  explicit *That agent isn't available to you* turn rather than falling back to
+  the default agent, which would answer under a name the user didn't pick.
+  **Try it** sends whatever the Studio has on screen inline, so it never goes
+  through this. A view's pin naming an agent the caller can't use is simply not
+  applied by the browser, so they start on the default agent there.
+- The old `visibility` column (`personal` / `domain` / `global`) is read only by
+  the access migration. Publishing still writes it (`legacy_visibility`) so a
+  rollback lists the agent no wider than its access list does now: Everyone maps
+  to `global`, anything narrower to `personal`.
 
 Skills, MCP tools, and Python tools are stored inline as JSON on the row so an
 agent is one atomic record set. The default agent is the runtime's built-in
@@ -904,7 +1041,7 @@ change the model's output shape.
 the page to the same rules. It stays a separate file because it overrides the card
 rules (white background, fill the tile) and only pages should pay for it. Anything
 that reads widget rows for the browser must pass `layout_kind` through, or the
-library loses the **PAGE** badge; promotion copies whole rows, so it already does.
+library loses the **PAGE** badge; publishing copies the draft's columns, so it already does.
 
 **Jobs are shared between workers (`services/generation_jobs.py`).** The deploy
 runs two uvicorn workers, so a poll or a Stop can land on the one that isn't
@@ -1224,7 +1361,7 @@ settles as *completed* with an apology: the user's code is already fine.
 ## Tests
 
 ```bash
-PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 6 passed
+PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 23 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 33 passed
@@ -1244,23 +1381,30 @@ PYTHONPATH=server .venv/bin/python tests/test_llm_client.py           # 16 passe
 PYTHONPATH=server .venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server .venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_view_archive.py         # 12 passed
-PYTHONPATH=server .venv/bin/python tests/test_app_spec.py             # 46 passed
-PYTHONPATH=server .venv/bin/python tests/test_app_links.py            # 7 passed
+PYTHONPATH=server .venv/bin/python tests/test_app_spec.py             # 44 passed
+PYTHONPATH=server .venv/bin/python tests/test_app_links.py            # 8 passed
 PYTHONPATH=server .venv/bin/python tests/test_look_helper.py          # 7 passed
-PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 38 passed
+PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 58 passed
 PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 26 passed
 .venv/bin/python tests/test_file_extract.py                           # 22 passed
 .venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server .venv/bin/python tests/test_conversation_store.py   # 5 passed
 PYTHONPATH=server .venv/bin/python tests/test_db_pool.py              # 14 passed
 PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 30 passed
-PYTHONPATH=server .venv/bin/python tests/test_data_migration.py       # 21 passed
-PYTHONPATH=server .venv/bin/python tests/test_promotion.py            # 16 passed
-PYTHONPATH=server .venv/bin/python tests/test_role_mappings_home.py   # 5 passed
+PYTHONPATH=server .venv/bin/python tests/test_data_migration.py       # 25 passed
+PYTHONPATH=server .venv/bin/python tests/test_app_help.py            # 9 passed
+PYTHONPATH=server .venv/bin/python tests/test_role_mappings_home.py   # 2 passed
+PYTHONPATH=server .venv/bin/python tests/test_access.py               # 21 passed
+PYTHONPATH=server .venv/bin/python tests/test_drafts.py               # 16 passed
+PYTHONPATH=server .venv/bin/python tests/test_access_migration.py     # 34 passed
+PYTHONPATH=server .venv/bin/python tests/test_consolidation.py        # 29 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_publish.py       # 31 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 31 passed
 ```
 
-The last two need the venv interpreter, not a bare `python3`: they exercise
-pandas, openpyxl, pypdf and python-docx.
+`test_file_extract.py` and `test_upload_tools.py` need the venv interpreter, not
+a bare `python3`: they exercise pandas, openpyxl, pypdf and python-docx.
+`test_role_mappings_home.py` stays until `role_mappings` is dropped.
 
 Run from the repo root. A bare `python3` also works, but one store test skips
 without the venv's dependencies, so prefer the venv interpreter for full

@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- a section exports its data (`section`) beside its body */
 import { Book, Bot, LayoutGrid, Rocket, Search } from 'lucide-react';
 import type { GuideSection } from '../types';
-import { Callout, Card, Cards, GuideLink, H2, Kbd, Lead, List, Needs, OpenLink, P, Shot, Table, UI } from '../kit';
+import { Callout, Card, Cards, GuideLink, H2, Kbd, Lead, List, OpenLink, P, Shot, Table, UI } from '../kit';
 
 const Body = () => (
   <>
@@ -20,8 +20,8 @@ const Body = () => (
       <li><UI>Agents</UI> are the assistants you can ask questions of. Each has its own instructions, data and tools.</li>
     </List>
     <P>
-      People with editor access build widgets in Widget Studio and agents in Agent Studio. Everyone else uses what
-      is there, and can assemble their own views from it.
+      Anyone can build widgets in Widget Studio and agents in Agent Studio, and assemble views from them. What you
+      build is yours until you share it, and people you share it with see the version you last published.
     </P>
 
     <H2 id="five-ways-in">Five ways in</H2>
@@ -34,7 +34,7 @@ const Body = () => (
       alt="The welcome panel with five numbered cards"
       legend={[
         'Ask the assistant: pick a starter question, or choose Ask your own.',
-        'Browse global views: ready-made views your team shares.',
+        'Browse views: views other people have shared with you.',
         'Find widgets: opens the Widget Library.',
         'Build your own widget: opens Widget Studio.',
         'Build your own agent: opens Agent Studio.',
@@ -44,40 +44,29 @@ const Body = () => (
       head={['Card', 'What it does', 'Who can use it']}
       rows={[
         [<UI>Ask the assistant</UI>, 'Types a starter question into the message box for you. It never sends it; you press Send.', 'Everyone'],
-        [<UI>Browse global views</UI>, 'Lists ready-made views from your domains. Open one as it is, or copy it to My Views to make it yours.', 'Everyone'],
+        ['Browse views', 'Lists the views other people have shared with you, so you can open one.', 'Everyone'],
         [<UI>Find widgets</UI>, <>Opens the Widget Library. You can also press <Kbd>W</Kbd>.</>, 'Everyone'],
-        [<UI>Build your own widget</UI>, 'Opens Widget Studio, where you describe what you need and the studio writes it.', <>Editor in a domain <Needs role="Editor" /></>],
-        [<UI>Build your own agent</UI>, 'Opens Agent Studio, where you give an assistant its own instructions, data and tools.', <>Editor in a domain <Needs role="Editor" /></>],
+        [<UI>Build your own widget</UI>, 'Opens Widget Studio, where you describe what you need and the studio writes it.', 'Everyone'],
+        [<UI>Build your own agent</UI>, 'Opens Agent Studio, where you give an assistant its own instructions, data and tools.', 'Everyone'],
       ]}
     />
     <P>
-      Without editor access, the two studio cards say so and do not open anything. Close the panel with <UI>Got it</UI>,
+      Close the panel with <UI>Got it</UI>,
       the X or <UI>Esc</UI>. To see it again, open <UI>Resources → Getting Started</UI>. It does not open when you
       arrive from a link to a view. <UI>Or start from a blank view</UI> at the bottom makes an empty view of your own.
     </P>
 
     <H2 id="tour">A tour of the screen</H2>
-    <Shot
-      name="use-overview"
-      alt="The Command Center with a view open, the sidebar on the left and the assistant button at the bottom right"
-      legend={[
-        'My Views in the sidebar, with New View below them.',
-        'The Workspace switcher: Dev, Test and Prod.',
-        'The view header: Settings, Lock and Share for the view on screen.',
-        'The assistant button, named after the agent that is selected.',
-      ]}
-    />
     <Table
       head={['Part', 'Where', 'What it does']}
       rows={[
-        [<UI>My Views</UI>, 'Sidebar', <>Your own views. <UI>New View</UI> adds one. Hover a view to rename or close it, and drag the grip to reorder. See <GuideLink to="views">Views and layouts</GuideLink>.</>],
-        [<UI>Shared Views</UI>, 'Sidebar, when you have any', 'Views other people sent you by link. They are read-only for you.'],
-        [<UI>Global Views</UI>, 'Sidebar', 'Ready-made views shared with a domain. Click one to open it, hover and click the copy icon to put a copy in My Views.'],
-        [<UI>Workspace</UI>, 'Sidebar, near the top', <>Dev, Test or Prod: which copy of the authored content you are looking at. See <GuideLink to="overview" anchor="workspaces">the three workspaces</GuideLink>.</>],
+        [<UI>My views</UI>, 'Sidebar', <>The views you own. <UI>New View</UI> adds one. Hover a view to rename or close it, and drag the grip to reorder. See <GuideLink to="views">Views and layouts</GuideLink>.</>],
+        [<UI>Shared with me</UI>, 'Sidebar, when you have any', 'Views other people have shared with you. You see the version they last published. Hover one to copy it or close it.'],
+        [<UI>Archived</UI>, 'Sidebar, collapsed', <>Archived views you manage, which you can restore. See <GuideLink to="publishing" anchor="archive">Archive, restore or delete a view</GuideLink>.</>],
         [<UI>Widget Library</UI>, 'Sidebar', <>Opens the tray of widgets you can add. See <GuideLink to="widgets">Using widgets</GuideLink>.</>],
-        [<><UI>Widget Studio</UI> and <UI>Agent Studio</UI></>, 'Sidebar, editors only', <>Where widgets and agents are built. See <GuideLink to="widget-studio">Widget Studio</GuideLink> and <GuideLink to="agent-studio">Agent Studio</GuideLink>.</>],
+        [<><UI>Widget Studio</UI> and <UI>Agent Studio</UI></>, 'Sidebar', <>Where widgets and agents are built. See <GuideLink to="widget-studio">Widget Studio</GuideLink> and <GuideLink to="agent-studio">Agent Studio</GuideLink>.</>],
         [<UI>Resources</UI>, 'Sidebar, bottom', <><UI>Getting Started</UI>, <UI>User Guide</UI>, <UI>Release Notes</UI> and, if you have access, <UI>Admin Panel</UI>.</>],
-        ['View header', 'Top of the screen', <>The view's name, with <UI>Settings</UI>, <UI>Lock</UI> and <UI>Share</UI> on the right, and <UI>Add tab</UI> while a view has one tab.</>],
+        ['View header', 'Top of the screen', <>The view's name, with a chip saying whether it is published on views you manage. On the right: <UI>Draft</UI> / <UI>Published</UI> when there are unpublished changes, the <UI>⋯</UI> menu (layout, <UI>Add a tab…</UI>, <UI>View settings…</UI>, <UI>Lock layout</UI>, version history), <UI>Share</UI>, and <UI>Publish</UI> when there is something to publish.</>],
         ['The assistant', 'Button at the bottom right', <>Opens a panel down the right side that answers questions about the view and your data. See <GuideLink to="assistant">The assistant</GuideLink>.</>],
       ]}
     />
@@ -86,35 +75,28 @@ const Body = () => (
       button at its top right, and you can drag its left edge to change its width.
     </Callout>
 
-    <H2 id="workspaces">The three workspaces</H2>
+    <H2 id="sharing-at-a-glance">Who can do what</H2>
     <P>
-      Every Command Center has three workspaces, <UI>Dev</UI>, <UI>Test</UI> and <UI>Prod</UI>, so that widgets,
-      views and agents under construction do not reach the people relying on the finished ones. Editors build in
-      Dev, check in Test, then promote to Prod. You need Editor or Admin on a domain to open Dev or Test; everyone
-      else stays on Prod. A workspace is not the same as which Command Center you opened. The{' '}
-      <GuideLink to="promotion">Promoting work</GuideLink> page explains how work moves between them.
-    </P>
-
-    <H2 id="roles-at-a-glance">What your role lets you do</H2>
-    <P>
-      Access is set per domain, and the highest level you hold on a domain applies there.
+      Every view, widget and agent has its own access list, like a Databricks dashboard. The person who made it can
+      manage it, and shares it with people or groups at one of two levels. The highest level you hold applies.
     </P>
     <Table
-      head={['', 'Viewer', 'Editor', 'Admin']}
+      head={['', 'Can use', 'Can manage']}
       rows={[
-        ['See and use the domain\'s global views and widgets', 'Yes', 'Yes', 'Yes'],
-        ['Build your own views and use the assistant', 'Yes', 'Yes', 'Yes'],
-        ['Create and edit widgets, agents and global views in the domain', 'No', 'Yes', 'Yes'],
-        ['Open Dev and Test, and promote, roll back and certify', 'No', 'Yes', 'Yes'],
-        ['Assign domain permissions to people and groups', 'No', 'No', 'Yes'],
+        ['See and open the published version', 'Yes', 'Yes'],
+        ['Place a published widget on your own views, chat with a published agent', 'Yes', 'Yes'],
+        ['Edit the draft, publish, discard and revert', 'No', 'Yes'],
+        ['Change who it is shared with', 'No', 'Yes'],
       ]}
     />
     <P>
-      Roles come from your Databricks groups. See <GuideLink to="roles">Roles and permissions</GuideLink> for the
-      full picture and <GuideLink to="access">Managing access</GuideLink> to ask for more.
+      Anyone can create views, widgets and agents of their own. <UI>Administrators</UI> can manage everything and see the
+      Admin Panel. See <GuideLink to="sharing">Sharing &amp; permissions</GuideLink> for the full picture,{' '}
+      <GuideLink to="publishing">Drafts &amp; publishing</GuideLink> for how changes reach people, and{' '}
+      <GuideLink to="access">Administrators &amp; access</GuideLink> to ask for access.
     </P>
     <Callout kind="note" title="Your data access is separate">
-      What you can see in a table or query is decided by Databricks, as you. A role here never widens it.
+      What you can see in a table or query is decided by Databricks, as you. Sharing something here never widens it.
     </Callout>
 
     <H2 id="where-next">Where next</H2>

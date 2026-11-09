@@ -5,8 +5,8 @@ import { ModelSelect } from '../../components/ModelSelect';
 
 /**
  * Deployment settings that used to live only in `databricks.yml` — which model each
- * agent calls, and the chat agent's limits. Global admins only, and global rather
- * than per-environment: it's a property of the deployment, not of the data.
+ * agent calls, and the chat agent's limits. App admins only, and stored in the
+ * settings schema: it's a property of the deployment, not of the content.
  */
 
 interface Setting {

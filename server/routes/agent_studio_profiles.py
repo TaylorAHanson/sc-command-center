@@ -1,16 +1,14 @@
 """Agent Studio — profile/skill CRUD + AI-assisted authoring.
 
 This router powers the Command Center's Agent Studio: a place to author **agent
-profiles** (an ``AGENT.md`` + ``skills/*.md``) that the consolidated agent
-runtime later loads and runs. Storage lives entirely on Unity Catalog Volumes /
-the user's Workspace folder (see ``agent_studio_store``) — Unity Catalog governs
-visibility and edit rights, so every storage call is made under the caller's OBO
-token.
+profiles** (a prompt + skills + tools) that the agent runtime later loads and
+runs. Profiles are rows in Lakebase with a draft and published versions, and
+each has an access list (see ``agent_studio_store``).
 
 Two surfaces:
 
-  * **CRUD** (``/profiles*``, ``/locations``) — list/read/save/delete profiles,
-    delegated to :class:`AgentStudioStore`, scoped by OBO.
+  * **CRUD** (``/profiles*``) — list/read/save/publish/discard/revert/delete,
+    delegated to :class:`AgentStudioStore`, which checks the caller's access.
   * **Authoring** (``/tools``, ``/generate``) — an AI-assisted draft
     loop. A Claude (sonnet) agent proposes an ``AGENT.md`` +
     skills, *grounded* in (a) the tools actually exposed by the Unity Catalog AI
@@ -44,21 +42,12 @@ from pydantic import BaseModel
 
 from databricks.sdk import WorkspaceClient
 
-from middleware.auth import get_db_client, get_db_client_sp, get_user_token, require_auth
+from middleware.auth import get_db_client, get_db_client_sp, get_user_token
 from agent_studio_store import (
     AgentStudioError,
-    ProfileAccessError,
     ProfileConflictError,
-    VIS_DOMAIN,
-    VIS_GLOBAL,
-    VIS_PERSONAL,
     DEFAULT_DOMAIN,
     get_agent_studio_store,
-)
-from routes.roles import (
-    _get_current_username,
-    require_domain_editor,
-    require_global_admin,
 )
 from services import llm_params, research_tools
 from services.generation_jobs import JobStore
@@ -94,11 +83,7 @@ class SaveProfileRequest(BaseModel):
     tools: List[str] = []
     skills: Optional[List[SkillPayload]] = None
     python_tools: Optional[List[PythonToolPayload]] = None
-    # Domain-scoped sharing (mirrors widgets/views):
-    #   visibility="personal" -> private to the creator (no domain role needed)
-    #   visibility="domain"   -> shared to `domain` (domain editors can edit)
-    #   visibility="global"   -> visible to everyone (global admins only)
-    visibility: str = VIS_PERSONAL
+    # A label for filtering; who can reach the agent is its access list.
     domain: str = DEFAULT_DOMAIN
     base: str = "full"
     profile_id: Optional[str] = None
@@ -106,6 +91,10 @@ class SaveProfileRequest(BaseModel):
     # When present on an update, the save is refused (409) if the stored profile
     # has since changed.
     expected_updated_at: Optional[str] = None
+
+
+class RevertRequest(BaseModel):
+    version: int
 
 
 class AuthorMessage(BaseModel):
@@ -1357,133 +1346,82 @@ def list_tools(refresh: bool = False, obo_token: Optional[str] = Depends(get_use
     return {"tools": tools, "problems": problems}
 
 
-def _authorize_write(w: WorkspaceClient, visibility: str, domain: str, env: str) -> None:
-    """Gate a write to a target visibility/domain (mirrors widgets/views).
-
-    - personal: anyone may save their own private agent.
-    - domain:   must be an editor (or admin) of that domain.
-    - global:   must be a global admin.
-    """
-    vis = (visibility or VIS_PERSONAL).strip().lower()
-    if vis == VIS_GLOBAL:
-        require_global_admin(w)
-    elif vis == VIS_DOMAIN:
-        require_domain_editor(w, domain or DEFAULT_DOMAIN)
-    # personal -> no domain role required
+def _bad_input(exc: AgentStudioError) -> HTTPException:
+    return HTTPException(status_code=409 if isinstance(exc, ProfileConflictError) else 400, detail=str(exc))
 
 
 @router.get("/profiles")
-def list_profiles(
-    include_shared: bool = True,
-    env: str = "dev",
-    _: str = Depends(require_auth),
-    obo_token: Optional[str] = Depends(get_user_token),
-):
-    store = get_agent_studio_store()
-    email = _user_email(obo_token)
-    try:
-        profiles = store.list_profiles(obo_token, email, env=env, include_shared=include_shared)
-    except AgentStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+def list_profiles(usable: bool = False, w: WorkspaceClient = Depends(get_db_client)):
+    """Agents the caller can reach, each with their ``access`` and ``state``.
+
+    Managers see their draft merged over the newest published version; anyone
+    else sees published versions only. ``usable`` limits the list to published
+    versions for everyone — what chat can run, so what its picker offers.
+    """
+    profiles = get_agent_studio_store().list_profiles(w, usable_only=usable)
     return {"profiles": [p.to_dict() for p in profiles]}
 
 
 @router.get("/profiles/{profile_id}")
-def get_profile(
-    profile_id: str,
-    env: str = "dev",
-    _: str = Depends(require_auth),
-    obo_token: Optional[str] = Depends(get_user_token),
-):
-    store = get_agent_studio_store()
-    try:
-        profile = store.get_profile(obo_token, profile_id, env=env)
-    except ProfileAccessError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
-    except AgentStudioError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    return profile.to_dict()
+def get_profile(profile_id: str, mode: Optional[str] = None, w: WorkspaceClient = Depends(get_db_client)):
+    """One agent with its body. ``mode`` is ``draft`` (managers' default) or ``published``."""
+    if mode not in (None, "draft", "published"):
+        raise HTTPException(status_code=400, detail="mode must be draft or published.")
+    return get_agent_studio_store().get_profile(w, profile_id, mode=mode).to_dict()
 
 
 @router.post("/profiles")
-def save_profile(
-    req: SaveProfileRequest,
-    env: str = "dev",
-    w: WorkspaceClient = Depends(get_db_client),
-    obo_token: Optional[str] = Depends(get_user_token),
-):
-    store = get_agent_studio_store()
-    me = _get_current_username(w)
-    skills = [s.dict() for s in req.skills] if req.skills is not None else None
-    python_tools = (
-        [t.dict() for t in req.python_tools] if req.python_tools is not None else None
-    )
-
-    # Determine the author to persist. On update, preserve the original author
-    # (so the "shared by" badge stays accurate even when a domain editor edits
-    # someone else's agent); on create, the author is the current user.
-    owner = me
-    if req.profile_id:
-        existing = store.get_meta(req.profile_id, env=env)
-        if existing is None:
-            raise HTTPException(status_code=404, detail="Profile not found.")
-        owner = existing.get("username") or me
-        # Authorize editing the EXISTING record based on its current visibility.
-        _authorize_write(w, existing.get("visibility") or VIS_PERSONAL, existing.get("domain") or DEFAULT_DOMAIN, env)
-        # A personal agent can only be edited by its owner (unless global admin).
-        if (existing.get("visibility") or VIS_PERSONAL) == VIS_PERSONAL and owner != me:
-            require_global_admin(w)
-
-    # Authorize writing to the TARGET visibility/domain.
-    _authorize_write(w, req.visibility, req.domain, env)
-
+def save_profile(req: SaveProfileRequest, w: WorkspaceClient = Depends(get_db_client)):
+    """Save the draft: a new agent without ``profile_id`` (its creator gets Can manage), else needs Can manage."""
     try:
-        profile = store.save_profile(
-            me,
+        profile = get_agent_studio_store().save_draft(
+            w,
             name=req.name,
             prompt=req.prompt,
             description=req.description,
             model=req.model,
             tools=req.tools,
-            skills=skills,
-            python_tools=python_tools,
-            visibility=req.visibility,
+            skills=[s.dict() for s in req.skills] if req.skills is not None else None,
+            python_tools=[t.dict() for t in req.python_tools] if req.python_tools is not None else None,
             domain=req.domain,
             base=req.base,
             profile_id=req.profile_id,
-            owner=owner,
             expected_updated_at=req.expected_updated_at,
-            env=env,
         )
-    except ProfileConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
     except AgentStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise _bad_input(exc)
     return profile.to_dict()
 
 
+@router.post("/profiles/{profile_id}/publish")
+def publish_profile(profile_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    version = get_agent_studio_store().publish(w, profile_id)
+    return {"status": "published", "version": version}
+
+
+@router.post("/profiles/{profile_id}/discard")
+def discard_profile(profile_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    get_agent_studio_store().discard(w, profile_id)
+    return {"status": "discarded"}
+
+
+@router.post("/profiles/{profile_id}/revert")
+def revert_profile(profile_id: str, req: RevertRequest, w: WorkspaceClient = Depends(get_db_client)):
+    """Make published version ``req.version`` the draft."""
+    return get_agent_studio_store().revert(w, profile_id, req.version).to_dict()
+
+
+@router.get("/profiles/{profile_id}/history")
+def profile_history(profile_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    return {"versions": get_agent_studio_store().history(w, profile_id)}
+
+
 @router.delete("/profiles/{profile_id}")
-def delete_profile(
-    profile_id: str,
-    env: str = "dev",
-    w: WorkspaceClient = Depends(get_db_client),
-    obo_token: Optional[str] = Depends(get_user_token),
-):
-    store = get_agent_studio_store()
-    me = _get_current_username(w)
-    existing = store.get_meta(profile_id, env=env)
-    if existing is None:
-        raise HTTPException(status_code=404, detail="Profile not found.")
-    vis = existing.get("visibility") or VIS_PERSONAL
-    # Same authorization as editing: owner for personal, domain editor for
-    # domain, global admin for global.
-    _authorize_write(w, vis, existing.get("domain") or DEFAULT_DOMAIN, env)
-    if vis == VIS_PERSONAL and (existing.get("username") or "") != me:
-        require_global_admin(w)
+def delete_profile(profile_id: str, w: WorkspaceClient = Depends(get_db_client)):
     try:
-        store.delete_profile(profile_id, env=env)
+        get_agent_studio_store().delete_profile(w, profile_id)
     except AgentStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise _bad_input(exc)
     return {"status": "deleted"}
 
 
@@ -1680,14 +1618,3 @@ def stop_authoring(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"status": job.get("status", "running"), "cancelled": True}
-
-
-# --------------------------------------------------------------------- helper
-
-def _user_email(obo_token: Optional[str]) -> str:
-    """Best-effort caller email for the personal workspace path.
-
-    The store re-resolves this via ``current_user.me()`` when possible, so this
-    is only a fallback used to compose ``/Workspace/Users/<email>/.agents``.
-    """
-    return os.environ.get("AGENT_STUDIO_FALLBACK_EMAIL", "me")

@@ -7,16 +7,17 @@ const Body = () => (
   <>
     <Lead>
       A view is a page of widgets that you arrange yourself, on one or more tabs. This page covers making views,
-      organizing them with tabs, copying a global view, locking, sharing, and the view's Settings.
+      organizing them with tabs, locking, sharing, publishing your changes, and View settings.
     </Lead>
 
     <Shot
       name="use-view-header"
-      alt="The view header with Settings, Lock and Share buttons and the tab bar"
+      alt="The view header with the state chip, the ⋯ menu, Share and Publish, and the tab bar"
       legend={[
-        'Settings: how the view opens, looks, filters and which agent it uses.',
-        'Lock: freezes the layout so nothing moves by accident.',
-        'Share: copies a link to the view.',
+        'The state chip beside the name: Not published yet, Published or Unpublished changes.',
+        'The ⋯ menu: the tab\u2019s layout, Add a tab…, View settings…, Lock layout and version history.',
+        'Share: opens the share dialog, where you choose who can use or manage the view.',
+        'Publish: makes your draft what everyone sees. Shown only when there is something to publish.',
         'The + in the tab bar adds another tab.',
       ]}
     />
@@ -24,7 +25,8 @@ const Body = () => (
     <H2 id="create-a-view">Create and organize views</H2>
     <Steps>
       <Step>
-        Under <UI>My Views</UI> in the sidebar, click <UI>New View</UI>. A blank view opens.
+        Under <UI>My views</UI> in the sidebar, click <UI>New View</UI>. A blank view opens. It is a draft that only
+        you can see until you share and publish it.
       </Step>
       <Step>
         To rename it, hover its name, click the pencil, type the new name and press <Kbd>Enter</Kbd>. <Kbd>Esc</Kbd>{' '}
@@ -34,14 +36,63 @@ const Body = () => (
         To reorder your views, drag one by the grip beside its name and drop it where you want it.
       </Step>
     </Steps>
+    <H3 id="sidebar">Your views, and views shared with you</H3>
+    <List>
+      <li>
+        <UI>My views</UI> lists the views you own. Hover one and click its <UI>×</UI> to close it. You are asked first.
+        A view only you can open is then deleted, and a view shared with anyone else is archived instead.
+      </li>
+      <li>
+        <UI>Shared with me</UI> lists views other people have shared with you. You see the version they last published.
+        Hover one for two buttons: <UI>Copy</UI> makes a copy of your own under My views, and <UI>Close</UI> takes it off
+        your sidebar. A closed view is still shared with you, and opening its link brings it back.
+      </li>
+      <li>
+        <UI>Archived</UI>, collapsed at the bottom, lists archived views you manage, each with <UI>Restore</UI> and{' '}
+        <UI>Delete permanently</UI>. See <GuideLink to="publishing" anchor="archive">Archive, restore or delete a view</GuideLink>.
+      </li>
+    </List>
     <P>
-      Hover a view and click the small X to close it. For a view you made, that deletes it right away, with no
-      confirmation. Views other people sent you appear under <UI>Shared Views</UI>; the X there only removes them from
-      your list.
+      An icon beside each view says who it is shared with: a lock for only the people on its list (often just you),
+      people for particular people or groups, and a globe for everyone in this app. On a view you manage, a small dot
+      means it has changes nobody else sees yet. The dot is grey when the view has never been published and amber when
+      it has unpublished changes.
     </P>
-    <Callout kind="warn" title="Closing deletes">
-      There is no undo for closing one of your own views. Copy it first if you might want it back.
+    <Callout kind="admin" title="Administrators and the sidebar">
+      Administrators can manage every view, but their sidebar lists only the views they own or that are shared with
+      them. <UI>Admin Panel → Content</UI> lists every view, and an Administrator can open any view by its link.
     </Callout>
+
+    <H2 id="header">The view header</H2>
+    <P>
+      On a view you manage, a chip beside its name says where it stands: <UI>Not published yet</UI>,{' '}
+      <UI>Published</UI> or <UI>Unpublished changes</UI>. Hover it to see what that means. On the right, in this order:
+    </P>
+    <List>
+      <li>
+        <UI>Draft</UI> / <UI>Published</UI>, only when the view has unpublished changes, or while you are looking at
+        Published so you can get back. See <GuideLink to="publishing" anchor="draft-and-published">The draft and the published version</GuideLink>.
+      </li>
+      <li>The <UI>⋯</UI> menu, described below.</li>
+      <li><UI>Share</UI>, for everyone who can open the view.</li>
+      <li>
+        <UI>Publish</UI>, the last and only filled button. It appears only when there is something to publish, so on a
+        view with no unpublished changes it isn&rsquo;t there at all.
+      </li>
+    </List>
+    <P>The <UI>⋯</UI> menu (<UI>More view options</UI>) holds what you need now and then, in three groups:</P>
+    <Table
+      head={['Group', 'Items']}
+      rows={[
+        [<UI key="l">Layout</UI>, <><UI>Cards on a grid</UI> or <UI>Full page</UI>, with a check against the current one, and <UI>Add a tab…</UI> on a view with one tab. Called <UI>This tab</UI> when the view has several tabs, because the choice applies to the tab you are on.</>],
+        [<UI key="v">View</UI>, <><UI>Preview as a viewer</UI> on a view that opens on its own, <UI>View settings…</UI>, and <UI>Lock layout</UI> or <UI>Unlock layout</UI>.</>],
+        [<UI key="h">Versions</UI>, <><UI>Version history…</UI> once the view has been published, and <UI>Discard draft…</UI> when it has unpublished changes. Only for people who can manage the view.</>],
+      ]}
+    />
+    <P>
+      On a view you can only use, the header shows <UI>Share</UI> and the <UI>⋯</UI> menu only when it has something
+      for you, such as <UI>Preview as a viewer</UI>.
+    </P>
 
     <H2 id="tabs">Add and manage tabs</H2>
     <P>
@@ -50,7 +101,8 @@ const Body = () => (
     </P>
     <Steps>
       <Step title="Add the second tab">
-        Click <UI>Add tab</UI> in the top right. Choose <UI>Cards on a grid</UI> or <UI>Full page</UI>, then name the new
+        Open the <UI>⋯</UI> menu in the top right and choose <UI>Add a tab…</UI>. Choose <UI>Cards on a grid</UI> or{' '}
+        <UI>Full page</UI>, then name the new
         tab. If the tab you are on has no name yet, the same dialog asks for it too; left empty, it becomes "Overview".
       </Step>
       <Step title="Add more">
@@ -65,9 +117,9 @@ const Body = () => (
     </Steps>
     <Shot
       name="use-tabs"
-      alt="The Add tab menu offering Cards on a grid and Full page"
+      alt="The Add a tab menu offering Cards on a grid and Full page"
       legend={[
-        'Add tab, at the top right of the view.',
+        'Add a tab…, in the ⋯ menu at the top right of the view.',
         'Cards on a grid: several widgets, each in a card you can move and resize.',
         'Full page: one widget that fills the whole tab.',
       ]}
@@ -85,8 +137,8 @@ const Body = () => (
       <Kbd>End</Kbd> to move along it, and <Kbd>Enter</Kbd> or <Kbd>Space</Kbd> to open a tab.
     </P>
     <Callout kind="admin" title="Who can change tabs">
-      Whoever may move widgets in a view may change its tabs. That is not possible while the view is locked, and on a
-      global view only an admin can do it.
+      Whoever can manage a view may change its tabs, in its draft. That is not possible while the view is locked, and
+      people who can only use the view see it read-only.
     </Callout>
 
     <H3 id="cards-or-page">Cards on a grid or a full page</H3>
@@ -97,12 +149,13 @@ const Body = () => (
     </P>
     <List>
       <li>
-        <UI>Add tab</UI> and the <UI>+</UI> ask which kind a new tab should be.
+        <UI>Add a tab…</UI> and the <UI>+</UI> ask which kind a new tab should be.
       </li>
       <li>
-        To switch the tab you are looking at, use <UI>Grid</UI> / <UI>Full page</UI> in the top right of the header. It
-        is there whenever you may change the view's tabs, including on a view with only one tab. <UI>Full page</UI> is
-        grayed out on a grid holding more than one widget; hover it to see why, and remove all but one widget first.
+        To switch the tab you are looking at, open the <UI>⋯</UI> menu and pick <UI>Cards on a grid</UI> or{' '}
+        <UI>Full page</UI>; the current one has a check. The choice is there whenever you may change the view's tabs,
+        including on a view with only one tab. <UI>Full page</UI> can&rsquo;t be picked on a grid holding more than one
+        widget; hover it to see why, and remove all but one widget first.
       </li>
       <li>
         To fill a page, drag a widget from the Widget Library onto it. Dropping another widget replaces the first,
@@ -113,75 +166,81 @@ const Body = () => (
       <P>
         On a full page, the toolbar in the top right corner is shown only to people who may change the tab, inside the
         Command Center. It has <UI>Choose a widget</UI> (or <UI>Change widget</UI>), <UI>Edit in Widget Studio</UI> for
-        editors of the widget's domain, a gear for the widget's settings, and a bin to take the widget off the page.
+        people who can manage the widget, a gear for the widget's settings, and a bin to take the widget off the page.
         The gear is grayed out when the widget was built without settings. A view opened on its own shows the page
         without the toolbar. Any widget can go on a page, but one built as a page in Widget Studio, marked{' '}
         <UI>PAGE</UI> in the library, is made to fill it.
       </P>
     </Details>
 
-    <H2 id="copy-a-global-view">Copy a global view</H2>
-    <P>
-      <UI>Global Views</UI> are ready-made views shared with a domain. You see only the ones in domains where you are at
-      least a Viewer, and you cannot change them unless you are an admin. To make one your own:
-    </P>
-    <Steps>
-      <Step>In the sidebar, hover the global view you want.</Step>
-      <Step>
-        Click the copy icon ("Copy this template to My Views"). A copy named "<em>name</em> (Copy)", with all its tabs,
-        opens under <UI>My Views</UI>, and you can edit it freely.
-      </Step>
-    </Steps>
-    <Shot
-      name="use-global-views-empty"
-      alt="The Global Views heading in the sidebar with the hint Click to view, hover to copy"
-      narrow
-      legend={['The Global Views section of the sidebar. Click a view to open it; hover over one to copy it.']}
-    />
-
     <H2 id="lock-and-unlock">Lock and unlock a view</H2>
     <P>
-      Click <UI>Lock</UI> in the top right once the layout is how you want it. A locked view cannot be dragged, resized
-      or have widgets added, removed or tabs changed. The button then reads <UI>Locked</UI>; click it to unlock when you
-      want to change things again. The Widget Library tells you the view is locked instead of adding widgets.
+      Once the layout is how you want it, open the <UI>⋯</UI> menu and choose <UI>Lock layout</UI>. It stops widgets
+      being moved, resized or removed by accident, and tabs can&rsquo;t be changed either. The menu item then reads{' '}
+      <UI>Unlock layout</UI>; choose it when you want to change things again. The Widget Library tells you the view is
+      locked instead of adding widgets.
     </P>
     <Shot
       name="use-lock"
-      alt="The view header before and after locking: Lock becomes Locked"
+      alt="A widget card before and after the view's layout is locked"
       legend={[
-        'Lock (above) becomes Locked (below). Click it again to unlock. The widget loses its grip, version box and remove button, and the + for new tabs goes.',
+        'Unlocked (above) and locked (below). A locked card loses its grip, version box and remove button, and the + for new tabs goes.',
       ]}
     />
     <P>
-      <UI>Lock</UI> and <UI>Share</UI> appear on views you own, and on global views for admins. Views shared with you do
-      not show them.
+      <UI>Lock layout</UI>, <UI>View settings…</UI>, the state chip and <UI>Publish</UI> are for people who can manage
+      the view. On views you can only use, they are not shown and the view is read-only. <UI>Share</UI> is there for
+      everyone who can open the view. It shows who has access and copies the link, and only people who can manage the
+      view can change the list.
+    </P>
+    <P>
+      A widget on the view that has never been published shows a <UI>Not published yet</UI> card, in its place, to people
+      who can only use the view.
     </P>
 
     <H2 id="share-a-view">Share a view</H2>
     <Steps>
       <Step>Open the view and click <UI>Share</UI> in the top right.</Step>
       <Step>
-        The button reads <UI>Copied!</UI> and a link to the view, on the tab you are on, is on your clipboard. Copying
-        the address from the browser's address bar gives the same link.
+        Add the people or groups who should see it, as <UI>Can use</UI> or <UI>Can manage</UI>, or choose{' '}
+        <UI>Everyone in this app can use</UI>. Changes save straight away. See{' '}
+        <GuideLink to="sharing" anchor="share">Share something</GuideLink>.
       </Step>
       <Step>
-        Send it. Whoever opens it, signed in, finds the view under <UI>Shared Views</UI>, read-only. For a global view
-        they also need access to its domain.
+        Publish the view if you haven&rsquo;t, so there is something for them to see. See{' '}
+        <GuideLink to="publishing">Drafts &amp; publishing</GuideLink>.
+      </Step>
+      <Step>
+        Click <UI>Copy link</UI> in the dialog and send it. The view also appears under <UI>Shared with me</UI> for the
+        people you shared it with.
       </Step>
     </Steps>
-    <Callout kind="note" title="The link carries the workspace">
-      A copied link opens in the workspace it was copied from, so send Test links to testers and Prod links to users.
-      Someone without access to Dev or Test who opens such a link sees Prod, with a note saying so.
+    <Callout kind="note" title="A link opens only for people the view is shared with">
+      Anyone else is told the view isn&rsquo;t there, and so is everyone while the view is archived. Inside the Command
+      Center, people who can manage the view see its draft and people who can use it see the latest published version.
+      A view set to open on its own always shows the published version there, read-only, even to its managers. Everyone
+      who could open a view before sharing was introduced still can.
     </Callout>
+    <H3 id="publish-a-view">Your changes are a draft until you publish</H3>
+    <P>
+      Moving widgets, changing tabs, View settings and the assistant pin all change the view&rsquo;s draft. The chip
+      beside the view&rsquo;s name shows <UI>Not published yet</UI>, <UI>Published</UI> or{' '}
+      <UI>Unpublished changes</UI>, and <UI>Publish</UI> makes your draft what everyone sees. In the <UI>⋯</UI> menu,{' '}
+      <UI>Version history…</UI> appears once the view has been published, and <UI>Discard draft…</UI> when it has
+      unpublished changes. A view that has never been published can&rsquo;t be discarded; delete it instead.
+      Publishing a view checks the widgets on it; see{' '}
+      <GuideLink to="publishing" anchor="publish-a-view">Publishing a view checks what is on it</GuideLink>.
+    </P>
     <Details summary="How links are written">
       <P>
-        Links use names, not codes. A global view's link is its name, for example{' '}
-        <Code>#/app/supply-hub/inventory</Code> for the Inventory tab of the Supply Hub view. A second global view with
-        the same name gets <Code>supply-hub-2</Code>. If a global view is renamed, links to its old name keep working.
+        Links use names, not codes. A published view's link is its name, for example{' '}
+        <Code>#/app/supply-hub/inventory</Code> for the Inventory tab of the Supply Hub view. A second view with the
+        same name gets <Code>supply-hub-2</Code>. If a view is renamed, it takes the new name when it is next published,
+        and links to its old name keep working.
       </P>
       <P>
-        A personal view's link is its name followed by a code. That code is what keeps a personal view to the people
-        you send it to, so do not strip it. A tab is named by its own name unless two tabs share one. After a tab is
+        A view that has never been published is linked by its name followed by a code. A tab is named by its own name
+        unless two tabs share one. After a tab is
         renamed, an old link to it opens the first tab. A link to the first tab leaves the tab out and opens whichever
         tab is first. Links from earlier releases still work.
       </P>
@@ -193,14 +252,14 @@ const Body = () => (
 
     <H2 id="view-settings">View settings</H2>
     <P>
-      Click <UI>Settings</UI> in the header to open <UI>View settings</UI>. It has four sections down its left side:{' '}
+      Open the <UI>⋯</UI> menu in the header and choose <UI>View settings…</UI>. It has four sections down its left side:{' '}
       <UI>Opening</UI>, <UI>Look</UI>, <UI>Filters</UI> and <UI>Assistant</UI>. Hover the <UI>?</UI> beside any field
       for a short explanation. A red dot marks a section with something to fix; the footer names it, and{' '}
-      <UI>Save</UI> stays off until you do. Nothing is stored until you press <UI>Save</UI>.
+      <UI>Save</UI> stays off until you do. Nothing is stored until you press <UI>Save</UI>, and <UI>Save</UI> writes the
+      view&rsquo;s draft: other people see the new settings once you publish.
     </P>
-    <Callout kind="admin" title="Who can open Settings">
-      The owner of a personal view. For a global view, an admin or an Editor in its domain. It is not offered on views
-      shared with you.
+    <Callout kind="admin" title="Who can open View settings">
+      Anyone who can manage the view. It is not offered to people who can only use it.
     </Callout>
     <Shot
       name="use-view-settings"
@@ -218,13 +277,13 @@ const Body = () => (
       or studios, under a title, logo and browser tab icon you set.
     </P>
     <Steps>
-      <Step>Open <UI>Settings → Opening</UI> and choose <UI>On its own</UI>.</Step>
+      <Step>Open <UI>View settings… → Opening</UI> and choose <UI>On its own</UI>.</Step>
       <Step>
         Fill in <UI>Title</UI>, <UI>Logo</UI> and <UI>Browser tab icon</UI>. These fields appear only once{' '}
         <UI>On its own</UI> is chosen. The title falls back to the view's name.
       </Step>
-      <Step><UI>Save</UI>, then click <UI>Preview</UI> in the header to see it as other people will.</Step>
-      <Step>Share the view's link. It opens only that view, read-only, under your title and logo.</Step>
+      <Step><UI>Save</UI>, then choose <UI>Preview as a viewer</UI> in the <UI>⋯</UI> menu to see it as other people will.</Step>
+      <Step>Publish the view, then share its link. It opens only that view, read-only, under your title and logo.</Step>
     </Steps>
     <Shot
       name="use-share"
@@ -238,8 +297,8 @@ const Body = () => (
     <Details summary="More about views that open on their own">
       <List>
         <li>
-          The view is read-only for everyone, including its owner; its tabs can be switched but not changed. The
-          assistant appears too, unless the view's agent is <UI>No agent</UI>.
+          The view is read-only for everyone, including its owner, and always shows the latest published version; its
+          tabs can be switched but not changed. The assistant appears too, unless the view's agent is <UI>No agent</UI>.
         </li>
         <li>
           <UI>Header</UI>: <UI>Show the header</UI> or <UI>No header: the page has its own</UI>. Choose the second when
@@ -247,27 +306,27 @@ const Body = () => (
           goes away, and the title is used only on the browser tab.
         </li>
         <li>
-          With <UI>No header</UI>, <UI>Copy link</UI>, <UI>Edit</UI> (or <UI>Back to editing</UI> in a preview) and the
-          workspace label sit in a small bar at the bottom left, shown only to people who get at least one of them.
-          Inside the Command Center, the view's editing buttons (<UI>Preview</UI>, <UI>Grid</UI> /{' '}
-          <UI>Full page</UI>, <UI>Add tab</UI>, <UI>Settings</UI>, <UI>Lock</UI>, <UI>Share</UI>) move to that bar too.
+          With <UI>No header</UI>, <UI>Share</UI>, <UI>Edit</UI> (or <UI>Back to editing</UI> in a preview) sit in a small bar at the bottom left, shown only to people who get at least one of them.
+          Inside the Command Center, the view's controls (the state chip, <UI>Draft</UI> / <UI>Published</UI>, the{' '}
+          <UI>⋯</UI> menu, <UI>Share</UI> and <UI>Publish</UI>) move to that bar too.
         </li>
         <li>
           While you edit the view inside the Command Center, its header shows the same title and logo, so editing looks
           like the finished page. The sidebar keeps the view's own name.
         </li>
         <li>
-          <UI>Copy link</UI> goes to the same people who get <UI>Share</UI>. <UI>Edit</UI> goes to anyone who may change
-          the view's settings and brings the view back into the Command Center, where it stays on reload.
+          <UI>Share</UI> goes to everyone who can open the view: it shows who has access and copies the link.{' '}
+          <UI>Edit</UI> goes to anyone who can manage the view and brings the view back into the Command Center, where it
+          stays on reload.
         </li>
         <li>
-          A view opened with <UI>Preview</UI> is labelled <UI>Preview</UI> and has <UI>Back to editing</UI> (or{' '}
+          A view opened with <UI>Preview as a viewer</UI> is labelled <UI>Preview</UI> and has <UI>Back to editing</UI> (or{' '}
           <UI>Back to Command Center</UI> for someone who cannot change it), which returns to the same tab. People
-          opening the link see neither. A workspace other than Prod is named beside the title.
+          opening the link see neither.
         </li>
         <li>
-          The logo and the tab icon take an upload of up to 256 KB, or an https:// address. Who can open the link is
-          unchanged, and opening someone else's personal view on its own still adds it to <UI>Shared Views</UI>.
+          The logo and the tab icon take an upload of up to 256 KB, or an https:// address. The link opens only for
+          people the view is shared with.
         </li>
       </List>
     </Details>
@@ -395,8 +454,8 @@ const Body = () => (
       <Card to="assistant" title="The assistant">
         Ask about a view and pin an agent to it.
       </Card>
-      <Card to="promotion" title="Promoting work">
-        Move a global view from Dev to Test to Prod.
+      <Card to="sharing" title="Sharing & permissions">
+        Choose who can use or manage your view.
       </Card>
     </Cards>
   </>
@@ -408,6 +467,6 @@ export const section: GuideSection = {
   title: 'Views & layouts',
   summary: 'Pages of widgets: tabs, settings, filters, locking and sharing.',
   icon: LayoutGrid,
-  keywords: 'new view tabs lock unlock share link copy template global shared standalone on its own header look theme filters settings preview',
+  keywords: 'new view tabs lock unlock layout share link shared with me archived draft publish standalone on its own header more options menu look theme filters settings preview version history discard',
   Body,
 };

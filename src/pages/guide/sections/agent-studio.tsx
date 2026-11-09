@@ -2,7 +2,7 @@
 import { Sparkles } from 'lucide-react';
 import type { GuideSection } from '../types';
 import {
-  Lead, H2, H3, P, List, Steps, Step, Callout, Needs, Details, Shot, UI, Kbd, Code, Table,
+  Lead, H2, H3, P, List, Steps, Step, Callout, Details, Shot, UI, Kbd, Code, Table,
   GuideLink, OpenLink, Ext, Cards, Card,
 } from '../kit';
 
@@ -10,14 +10,14 @@ const Body = () => (
   <>
     <Lead>
       An agent is an assistant with its own instructions, tools and model. You describe the one you want, an
-      authoring assistant drafts it, and you review, test and save it. <Needs role="Editor on a domain" />
+      authoring assistant drafts it, and you review, test, save and publish it. Anyone can use Agent Studio.
     </Lead>
     <P>
       An agent is a saved bundle of four things: a <strong>prompt</strong> that sets its role and rules,
       optional <strong>skills</strong> (named blocks of extra guidance), the <strong>tools</strong> it may use,
-      and optional small <strong>Python tools</strong> you write for it. Once saved, it appears in the agent
-      picker of the <GuideLink to="assistant">assistant</GuideLink> for everyone it is shared with. Building one
-      needs Editor access in at least one domain; see <GuideLink to="roles">Roles and permissions</GuideLink>.
+      and optional small <strong>Python tools</strong> you write for it. Once published, it appears in the agent
+      picker of the <GuideLink to="assistant">assistant</GuideLink> for everyone it is shared with. A new agent is
+      shared with nobody but you; see <GuideLink to="sharing">Sharing &amp; permissions</GuideLink>.
     </P>
 
     <H2 id="first-agent">Build your first agent</H2>
@@ -63,9 +63,10 @@ const Body = () => (
       </Step>
       <Step title="Try it">
         <P>
-          Open <UI>Try it</UI> and ask the agent a real question. It runs your current draft, unsaved edits
-          included, with tools limited to what you can reach. Nothing is saved from this chat. <UI>Clear</UI>{' '}
-          empties it.
+          Open <UI>Try it</UI> and ask the agent a real question. It runs what is on screen: your draft with unsaved
+          edits included, or the published version when you have switched to it. Tools are limited to what you can
+          reach. Chat in the assistant always runs the published version, for you as well as everyone else. Nothing
+          is saved from this chat. <UI>Clear</UI> empties it.
         </P>
         <Shot
           name="agent-try-it"
@@ -74,10 +75,18 @@ const Body = () => (
           legend={['The Try it tab.']}
         />
       </Step>
-      <Step title="Name it, share it and save">
+      <Step title="Name it and save">
         <P>
-          Back in <UI>Settings</UI>, give it an <UI>Agent Name</UI> (required), a <UI>Description</UI> and a{' '}
-          <UI>Sharing</UI> choice, then click <UI>Save</UI>. The button reads Saved when it is done.
+          Back in <UI>Settings</UI>, give it an <UI>Agent Name</UI> (required) and a <UI>Description</UI>, then click{' '}
+          <UI>Save</UI>. The button reads Saved when it is done. Saving writes the agent&rsquo;s draft.
+        </P>
+      </Step>
+      <Step title="Share and publish it">
+        <P>
+          Click <UI>Share</UI> to add the people or groups who should use the agent, as <UI>Can use</UI>, or who should
+          help maintain it, as <UI>Can manage</UI>. Then click <UI>Publish</UI> in the bar under the header. The assistant&rsquo;s
+          picker lists only published agents, so people with Can use see it there once it is published. See{' '}
+          <GuideLink to="publishing">Drafts &amp; publishing</GuideLink>.
         </P>
       </Step>
       <Step title="Use it">
@@ -100,35 +109,34 @@ const Body = () => (
         [<UI key="n">Agent Name</UI>, 'Required to save. Shown in the assistant\'s agent picker.'],
         [<UI key="d">Description</UI>, 'A line about what the agent is for. Shown beside the name in the Open menu.'],
         [<UI key="m">Model</UI>, 'A searchable list of the models in your workspace. Leave it blank to follow the deployment default an admin sets under Settings.'],
-        [<UI key="s">Sharing</UI>, 'Who can use the agent. See below.'],
       ]}
     />
-    <Table
-      head={['Sharing', 'Who can use it', 'Who can save it']}
-      rows={[
-        [<UI key="p">Personal</UI>, 'Only you.', 'Anyone who can open Agent Studio. No domain role is needed.'],
-        [<UI key="dm">Domain</UI>, 'Anyone with access to the domain you pick. A domain picker appears.', 'Editors of that domain.'],
-        [<UI key="g">Global</UI>, 'Every user of the app.', 'Global admins only. The option is greyed out for everyone else.'],
-      ]}
-    />
+    <P>
+      Who can use or change the agent is set with <UI>Share</UI>, at the end of the bar under the header, in the same dialog as views and
+      widgets: people, groups or everyone in this app, at <UI>Can use</UI> or <UI>Can manage</UI>. Agents that were
+      global before sharing was introduced are shared with everyone in this app. See{' '}
+      <GuideLink to="sharing" anchor="share">Share something</GuideLink>.
+    </P>
     <List>
       <li><UI>Unsaved changes</UI> appears beside the name while you have edits that are not saved. <UI>New agent</UI> and <UI>Open</UI> ask before they throw those edits away.</li>
-      <li><UI>Open</UI> lists every agent you can reach. Agents other people shared with you carry a <UI>Shared</UI> badge and the author's name.</li>
+      <li><UI>Open</UI> lists every agent you can use or manage. Agents other people shared with you carry a <UI>Shared</UI> badge and the author's name.</li>
       <li>The <UI>New conversation</UI> icon above the chat clears the conversation but keeps the agent you are editing. <UI>New agent</UI> starts over.</li>
       <li>If someone else saved the agent while you were editing it, saving is refused with a message to reload first.</li>
+      <li>
+        The bar under the header, for people who can manage the agent, shows a chip saying it is{' '}
+        <UI>Not published yet</UI>, <UI>Published</UI> or has <UI>Unpublished changes</UI> (hover it for what that means).
+        Beside it are the <UI>Draft</UI> / <UI>Published</UI> switch, only when there are unpublished changes or while
+        you are on Published; <UI>History</UI>, once the agent has been published; <UI>Discard draft</UI>, only with
+        unpublished changes; and <UI>Publish</UI>, hidden when there is nothing to publish. Switched to{' '}
+        <UI>Published</UI>, the agent is read-only.
+      </li>
+      <li>
+        An agent you can only use opens read-only, with a note that chat runs its published version. <UI>Save</UI> reads{' '}
+        <UI>Save a copy</UI> there: it saves the agent as a new one of your own, which you can then change.
+      </li>
       <li><UI>Delete agent</UI>, at the bottom of <UI>Settings</UI>, removes the agent with its skills and Python tools for you and everyone it is shared with. It asks first.</li>
     </List>
 
-    <Shot
-      name="agent-model-visibility"
-      alt="The Settings tab showing the Model and Sharing fields"
-      caption="Model and sharing on the Settings tab."
-      legend={[
-        'Model. Blank follows the deployment default.',
-        'Sharing: Personal, Domain or Global.',
-        'The domain picker, shown when Sharing is Domain.',
-      ]}
-    />
 
     <H2 id="authoring-assistant">Draft and review with the authoring assistant</H2>
     <P>
@@ -294,9 +302,9 @@ const Body = () => (
         A tool runs in a restricted process with the app's credentials removed and limits on time and memory.
         That stops common accidents, but it is a validation sandbox, not a lock, and it does not replace
         reading the code. Keep tools pure and deterministic, never put credentials or tokens in the code, and
-        pass data in as arguments. Read a new Python tool before you share its agent with a domain or everyone.
-        Admins decide who gets Editor access, which is what allows authoring; the guidance is in{' '}
-        <GuideLink to="settings">Settings and models</GuideLink>.
+        pass data in as arguments. Read a new Python tool before you share its agent widely or with everyone in
+        this app, and give Can manage on such an agent only to people you would trust to write server code; the
+        guidance is in <GuideLink to="settings">Settings and models</GuideLink>.
       </P>
     </Callout>
 
@@ -306,15 +314,15 @@ const Body = () => (
       picker. To make a view open with a particular agent, pin it from the
       assistant panel or under <UI>Settings → Assistant</UI> on the view; the steps and the warnings the panel
       shows are in <GuideLink to="assistant">The assistant</GuideLink> and{' '}
-      <GuideLink to="views">Views</GuideLink>. Pinning needs permission to change the view, and a pin is a
-      starting point, not a lock.
+      <GuideLink to="views">Views</GuideLink>. Pinning needs Can manage on the view, and a pin is a
+      starting point, not a lock. Using a view doesn&rsquo;t give anyone use of its pinned agent: people who can&rsquo;t
+      use it get the default agent on the view, so share the agent with the same people as the view.
     </P>
-    <Callout kind="note" title="Agents have no versions or promotion">
+    <Callout kind="note" title="Publishing a view checks its agent">
       <P>
-        Agent Studio shows only the latest saved agent. It has no history, restore or Promote button. An agent
-        belongs to the workspace (Dev, Test or Prod) you saved it in. When you promote a view that pins an agent,
-        the promotion warns you if the target workspace does not have it; save the agent again there, or pin
-        another one. See <GuideLink to="promotion">Promoting work</GuideLink>.
+        When you publish a view whose pinned agent has never been published, or has unpublished changes, the
+        Publish dialog lists it and offers to publish it too. See{' '}
+        <GuideLink to="publishing" anchor="publish-a-view">Publishing a view checks what is on it</GuideLink>.
       </P>
     </Callout>
     <P>
@@ -326,7 +334,7 @@ const Body = () => (
     <Cards cols={3}>
       <Card title="The assistant" to="assistant">Pick an agent and pin one to a view.</Card>
       <Card title="Settings and models" to="settings">Models, limits and switches that apply to every agent.</Card>
-      <Card title="Roles and permissions" to="roles">Who can build and share agents.</Card>
+      <Card title="Sharing & permissions" to="sharing">Who can use and change your agent.</Card>
     </Cards>
     <P>
       <OpenLink page="agent-studio">Open Agent Studio</OpenLink>
@@ -340,6 +348,6 @@ export const section: GuideSection = {
   title: 'Agent Studio',
   summary: 'Build an assistant with its own instructions, model and tools.',
   icon: Sparkles,
-  keywords: 'create agent assistant prompt skills tools genie sql python tool sandbox sharing personal domain global pin model mcp jira atlassian sign in',
+  keywords: 'create agent assistant prompt skills tools genie sql python tool sandbox sharing share publish draft can use can manage pin model mcp jira atlassian sign in',
   Body,
 };

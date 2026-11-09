@@ -1,4 +1,58 @@
+import { requestJson, type Level, type PublishState } from './sharing';
+
 const API_BASE = '/api';
+
+const widgetUrl = (id: string, action = '') =>
+    `${API_BASE}/widgets/custom/${encodeURIComponent(id)}${action ? `/${action}` : ''}`;
+
+/** A stored widget, published or draft, in the columns the studio opens it from. */
+export interface WidgetRecord {
+    name: string;
+    tsx_code: string;
+    description?: string | null;
+    help_text?: string | null;
+    category?: string | null;
+    domain?: string | null;
+    data_source_type?: string | null;
+    data_source?: string | null;
+    open_in_new_tab_link?: string | null;
+    is_executable?: number | null;
+    is_certified?: number | null;
+    default_w?: number | null;
+    default_h?: number | null;
+    configuration_mode?: 'none' | 'config_allowed' | 'config_required' | null;
+    config_schema?: string | unknown[] | null;
+    layout_kind?: string | null;
+    [column: string]: unknown;
+}
+
+/** Where a widget stands for the caller. `draft` is null for someone who can only use it, or with no draft. */
+export interface WidgetDraftInfo {
+    draft: WidgetRecord | null;
+    published: WidgetRecord | null;
+    published_version: number | null;
+    state: PublishState;
+    access: Level;
+}
+
+export const fetchWidgetDraft = (id: string) => requestJson<WidgetDraftInfo>(widgetUrl(id, 'draft'));
+
+/** Each of these throws an Error carrying the server's reason. */
+export const publishWidget = (id: string) =>
+    requestJson<{ version: number; state: PublishState }>(widgetUrl(id, 'publish'), { method: 'POST' });
+
+export const discardWidgetDraft = (id: string) =>
+    requestJson<{ state: PublishState }>(widgetUrl(id, 'discard'), { method: 'POST' });
+
+export const revertWidget = (id: string, version: number) =>
+    requestJson<{ state: PublishState }>(widgetUrl(id, 'revert'), { method: 'POST', body: JSON.stringify({ version }) });
+
+/** The latest published version unless `version` names another. */
+export const certifyWidget = (id: string, certified: boolean, version?: number) =>
+    requestJson<{ version: number; certified: boolean }>(widgetUrl(id, 'certify'), {
+        method: 'POST',
+        body: JSON.stringify(version === undefined ? { certified } : { certified, version }),
+    });
 
 export const logWidgetRun = async (widgetId: string) => {
     try {

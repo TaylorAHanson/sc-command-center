@@ -91,6 +91,12 @@ resources:
             value: "${var.lakebase_enabled}"
           - name: LAKEBASE_INSTANCE_NAME
             value: "${resources.database_instances.command_center_db.name}"
+          # The schema holding views, widgets and agents. There used to be one
+          # per Dev/Test/Prod workspace; drafts replaced them, and the startup
+          # migration folds Dev and Test into this one. Prod's is the one users
+          # already relied on, which is why it is kept.
+          - name: APP_CONTENT_ENV
+            value: "prod"
           # ⚠️ Demo kill-switch — when "true", ALL role/permission checks are
           # bypassed and every signed-in user is treated as a global admin.
           # Defaults to "false"; set it per-target only for a throwaway demo, and

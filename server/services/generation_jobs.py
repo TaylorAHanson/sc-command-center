@@ -169,7 +169,7 @@ class JobStore:
         from database import get_db_connection
         from services.settings_store import settings_env
 
-        return get_db_connection(settings_env())
+        return get_db_connection(settings_env(), physical=True)
 
     def _save(self, job_id: str, *, force: bool = False, prune: bool = False) -> None:
         if not self.persist:

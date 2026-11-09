@@ -79,24 +79,23 @@ def test_identical_activity_rows_are_counted_not_collapsed():
 
 def test_serial_ids_are_never_the_merge_key():
     # The two databases numbered their rows independently; id 7 in dev and id 7 in
-    # test are unrelated role mappings.
+    # test are unrelated domains.
     for spec in dm.TABLES:
         if spec.serial:
             assert "id" not in spec.key, spec.name
 
 
 def test_merge_leaves_serial_ids_to_the_target():
-    spec = dm.SPECS["role_mappings"]
-    cols, dropped = dm.choose_columns(["id", "external_role", "domain", "permission_level"],
-                                      ["id", "external_role", "domain", "permission_level", "timestamp"],
+    spec = dm.SPECS["widget_domains"]
+    cols, dropped = dm.choose_columns(["id", "name", "description"], ["id", "name", "description", "created_at"],
                                       spec, "merge")
-    assert cols == ["external_role", "domain", "permission_level"] and dropped == []
+    assert cols == ["name", "description"] and dropped == []
 
 
 def test_replace_keeps_serial_ids():
-    spec = dm.SPECS["role_mappings"]
-    cols, _ = dm.choose_columns(["id", "external_role"], ["id", "external_role"], spec, "replace")
-    assert cols == ["id", "external_role"]
+    spec = dm.SPECS["widget_domains"]
+    cols, _ = dm.choose_columns(["id", "name"], ["id", "name"], spec, "replace")
+    assert cols == ["id", "name"]
 
 
 def test_columns_the_target_lacks_are_reported_not_written():
@@ -107,14 +106,17 @@ def test_columns_the_target_lacks_are_reported_not_written():
 
 
 def test_every_table_the_schema_creates_is_covered():
-    # A table added to init_db and forgotten here would be silently left behind by
-    # every migration.
-    source = open(os.path.join(os.path.dirname(__file__), "..", "server", "database.py")).read()
+    # A table added to init_db (or the cutover) and forgotten here would be
+    # silently left behind by every migration.
     import re
-    created = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", source))
-    covered = set(dm.SPECS) | dm.NOT_COPIED
+    server = os.path.join(os.path.dirname(__file__), "..", "server")
+    created = set()
+    for path in ("database.py", "services/consolidation.py", "services/access_migration.py"):
+        created |= set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", open(os.path.join(server, path)).read()))
+    covered = set(dm.SPECS) | dm.NOT_COPIED | dm.LEGACY_TABLES
     assert created == covered, created ^ covered
     assert not (set(dm.SPECS) & dm.NOT_COPIED)
+    assert not (set(dm.SPECS) & dm.LEGACY_TABLES)
 
 
 def test_every_table_belongs_to_a_known_group():
@@ -164,7 +166,40 @@ def test_unknown_tables_are_ignored_not_fatal():
 
 def test_groups_select_their_tables():
     names = [t.name for t in dm.tables_for(["access"])]
-    assert names == ["widget_categories", "widget_domains", "role_mappings"]
+    assert names == ["object_permissions", "app_admins", "known_principals", "widget_categories", "widget_domains"]
+
+
+def test_drafts_travel_with_the_content():
+    assert dm.SPECS["object_drafts"].group == "content"
+    assert dm.SPECS["object_drafts"].key == ("object_type", "object_id")
+
+
+def test_access_lists_and_settings_go_where_they_are_read():
+    content, settings = dm.partition(dm.TABLES)
+    assert [s.name for s in settings] == ["object_permissions", "app_admins", "known_principals", "app_settings"]
+    assert "widget_domains" in [s.name for s in content] and "object_drafts" in [s.name for s in content]
+
+
+def test_role_mappings_are_read_from_old_files_but_never_written():
+    assert "role_mappings" not in dm.SPECS and "role_mappings" in dm.LEGACY_TABLES
+    old = {"format": dm.FORMAT, "format_version": 1, "tables": {
+        "role_mappings": {"columns": ["external_role", "domain", "permission_level"], "rows": [["a", "B", "viewer"]]}}}
+    assert dm.validate_snapshot(old) == []
+    old["tables"]["role_mappings"]["rows"] = [["a"]]
+    assert dm.validate_snapshot(old) != []
+
+
+def test_jsonb_values_are_adapted_for_writing():
+    # object_drafts.payload is JSONB: it comes back from the file as a dict, and
+    # psycopg2 refuses a bare dict.
+    try:
+        from psycopg2.extras import Json
+    except ImportError:  # pragma: no cover
+        return
+    payload = {"name": "Sales", "tags": ["a"]}
+    assert isinstance(dm._adapted(payload), Json) and dm._adapted(payload).adapted == payload
+    assert dm._adapted({"$b64": "AA=="}) == b"\x00"
+    assert dm._adapted("text") == "text"
 
 
 if __name__ == "__main__":

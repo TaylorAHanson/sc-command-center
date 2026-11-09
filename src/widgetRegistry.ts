@@ -3,6 +3,7 @@ import { useScript } from './hooks/useScript';
 import { brandReady, withBrandColors } from './brand';
 import { loadFontsNamedIn } from './fonts';
 import type { AppApi } from './appApi';
+import type { AccessSummary, Level, PublishState } from './sharing';
 
 // Define types broadly since we only need component matching
 export interface WidgetProps {
@@ -49,10 +50,36 @@ export interface WidgetDefinition {
   version?: number;
   availableVersions?: number[];
   latestVersion?: number;
-  createdBy?: string; // Username of whoever published this widget (custom widgets only)
+  createdBy?: string; // Username of whoever created this widget (custom widgets only)
   /** Built to fill a page tab rather than a card; any widget may go on either. */
   layoutKind?: 'card' | 'page';
+  /** The caller's level on the widget; null when only a view they can open lends it. */
+  access?: Level | null;
+  state?: PublishState;
+  sharing?: AccessSummary;
+  /** This definition is a manager's unpublished draft (registered as `id@draft`). */
+  isDraft?: boolean;
+  hasDraft?: boolean;
+  publishedVersion?: number | null;
+  /** False for a widget only lent by a view: it renders there, the library doesn't offer it. */
+  inLibrary?: boolean;
 }
+
+/** Where a manager's draft of a widget is registered. */
+export const draftKey = (id: string) => `${id}@draft`;
+
+/**
+ * The definition to render for a placed widget.
+ *
+ * In draft mode a widget the caller manages renders its draft. Otherwise the
+ * pinned version if there is one, then the widget's plain id — its latest
+ * published version, or for a widget never published, the draft only its
+ * managers are sent.
+ */
+export const resolveWidget = (type: string, version?: number | string | null, draft = false): WidgetDefinition | undefined =>
+  (draft ? widgetRegistry[draftKey(type)] : undefined)
+  || (version ? widgetRegistry[`${type}@${version}`] : undefined)
+  || widgetRegistry[type];
 
 export const widgetRegistry: Record<string, WidgetDefinition> = {};
 let registryVersion = 0;
@@ -215,8 +242,10 @@ const fetchVersionSource = async (id: string, version: number): Promise<string> 
   return data.widget?.tsx_code || data.tsx_code || '';
 };
 
-/** The whole library: what the workspace, its tray and its studios work from. */
-export const loadCustomWidgets = () => loadWidgetRows('/api/widgets/custom');
+const LIBRARY_URL = '/api/widgets/custom';
+
+/** Everything the caller can reach: what the workspace, its tray and its studios work from. */
+export const loadCustomWidgets = () => loadWidgetRows(LIBRARY_URL);
 
 /**
  * Only the widgets one app places, in the library's own row shape. An app opened
@@ -255,16 +284,26 @@ const registerRows = async (url: string) => {
     });
     
     const seenIds = new Set<string>();
+    const withDraft = new Set<string>();
 
     data.widgets.forEach((w: any) => {
       try {
-        const key = `${w.id}@${w.version}`;
+        const isDraft = !!w.is_draft;
+        const key = isDraft ? draftKey(w.id) : `${w.id}@${w.version}`;
+        // A published version never changes, so its id@version is a stable compile
+        // key. A draft changes with every save; keying it by when it was saved
+        // keeps the compile cache from serving an earlier save.
+        const compileKey = isDraft ? `${key}:${w.timestamp ?? ''}` : key;
         // The server sends the source of the current version and nothing else, so
         // an older version resolves its own when it is rendered.
         const source = w.tsx_code
           ? async () => w.tsx_code as string
           : () => fetchVersionSource(w.id, w.version);
-        const Component = lazyWidget(key, source);
+        const Component = lazyWidget(compileKey, source);
+        // `/apps/{id}/widgets` may not say what the caller holds; what the library
+        // said about the same widget stands until the library says otherwise.
+        const known = widgetRegistry[w.id];
+        const describesAccess = 'access' in w;
 
         const baseDef = {
           id: w.id,
@@ -305,15 +344,24 @@ const registerRows = async (url: string) => {
           openInNewTabLink: w.open_in_new_tab_link || undefined,
           createdBy: w.created_by || undefined,
           layoutKind: w.layout_kind === 'page' ? 'page' as const : 'card' as const,
-          accessControl: { mockHasAccess: true }
+          accessControl: { mockHasAccess: true },
+          access: describesAccess ? (w.access ?? null) : known?.access,
+          state: w.state ?? known?.state,
+          sharing: w.sharing ?? known?.sharing,
+          isDraft,
+          hasDraft: w.has_draft ?? known?.hasDraft,
+          publishedVersion: w.published_version !== undefined ? w.published_version : known?.publishedVersion,
+          inLibrary: w.in_library === false ? false : describesAccess ? true : (known?.inLibrary ?? false),
         };
 
         // Always register the versioned ID
         widgetRegistry[key] = { ...baseDef, id: key };
+        if (isDraft) withDraft.add(w.id);
 
         // The current version is also the widget under its plain id. The server
-        // says which that is; older payloads relied on newest-first ordering.
-        const isLatest = w.is_latest === undefined ? !seenIds.has(w.id) : !!w.is_latest;
+        // says which that is; older payloads relied on newest-first ordering. A
+        // draft is the latest only when nothing has been published.
+        const isLatest = w.is_latest === undefined ? !isDraft && !seenIds.has(w.id) : !!w.is_latest;
         if (isLatest && !seenIds.has(w.id)) {
           seenIds.add(w.id);
           widgetRegistry[w.id] = baseDef;
@@ -322,6 +370,13 @@ const registerRows = async (url: string) => {
         console.error(`Failed to load widget ${w.id}:`, err);
       }
     });
+    // The library holds every draft the caller has, so a widget it lists without
+    // one has been published or discarded since; its old draft must not render.
+    if (url === LIBRARY_URL) {
+      for (const id of seenIds) {
+        if (!withDraft.has(id)) delete widgetRegistry[draftKey(id)];
+      }
+    }
     // One notification for the whole library rather than one per row: each of
     // these re-renders every subscribed component.
     announce();
@@ -341,17 +396,6 @@ const registerRows = async (url: string) => {
  * pays for them.
  */
 let snapshotsLoaded = false;
-
-/** Drop every loaded widget. Switching workspaces would otherwise keep Prod's
- * tiles next to Dev's, and compile the wrong source for a reused id@version. */
-export const resetWidgetRegistry = () => {
-  for (const key of Object.keys(widgetRegistry)) delete widgetRegistry[key];
-  compiled.clear();
-  inFlight.clear();
-  snapshotsLoaded = false;
-  isRegistryLoading = true;
-  announce();
-};
 
 export const loadWidgetSnapshots = async () => {
   if (snapshotsLoaded) return;
@@ -377,29 +421,27 @@ export const loadWidgetSnapshots = async () => {
 
 // The widgetMap is completely dynamic, no hardcoded definitions here.
 
-export const getAvailableWidgets = () => Object.values(widgetRegistry).filter(w => !w.id.includes('@'));
+/** What the library offers: each widget once, leaving out those only a view lends. */
+const libraryWidgets = () =>
+  Object.values(widgetRegistry).filter(w => !w.id.includes('@') && w.inLibrary !== false);
+
+export const getAvailableWidgets = libraryWidgets;
 
 export const getWidgetCategories = () => {
   const categories = new Set<string>();
-  Object.values(widgetRegistry)
-    .filter(w => !w.id.includes('@'))
-    .forEach(w => {
-      categories.add(w.category || 'Uncategorized');
-    });
+  libraryWidgets().forEach(w => {
+    categories.add(w.category || 'Uncategorized');
+  });
   return Array.from(categories).sort();
 };
 
 export const getWidgetDomains = () => {
   const domains = new Set<string>();
-  Object.values(widgetRegistry)
-    .filter(w => !w.id.includes('@'))
-    .forEach(w => {
-      if (w.domain) domains.add(w.domain);
-    });
+  libraryWidgets().forEach(w => {
+    if (w.domain) domains.add(w.domain);
+  });
   return Array.from(domains).sort();
 };
 
-export const getWidgetsByCategory = (category: string) => {
-  return Object.values(widgetRegistry)
-    .filter(w => !w.id.includes('@') && (w.category || 'Uncategorized') === category);
-};
+export const getWidgetsByCategory = (category: string) =>
+  libraryWidgets().filter(w => (w.category || 'Uncategorized') === category);

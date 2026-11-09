@@ -162,8 +162,29 @@ def _connect(conn_kwargs: Dict[str, Any], env: str):
     return conn
 
 
-def get_db_connection(env: str = "dev", pooled: bool = True):
+CONTENT_ENVS = ("dev", "test", "prod")
+
+
+def content_env() -> str:
+    """The env whose schema holds every widget, view, agent and draft.
+
+    There used to be three content workspaces (Dev, Test, Prod) inside each
+    deployment, with promotion copying between them. Drafts replaced that, so
+    there is one content store; `prod` by default because that schema already
+    held what users saw, and a rollback to the old code reads it as Prod.
+    """
+    value = (os.environ.get("APP_CONTENT_ENV") or "prod").strip().lower()
+    return value if value in CONTENT_ENVS else "prod"
+
+
+def get_db_connection(env: str = "dev", pooled: bool = True, physical: bool = False):
     """Get a database connection for ``env``.
+
+    Any of ``dev`` / ``test`` / ``prod`` means the content store unless
+    ``physical`` is set: routes still receive the ``env`` older clients and stored
+    widget code send, and it must not pick a schema any more. ``physical=True``
+    addresses the schema that name really denotes — the settings schema, and the
+    one-time consolidation that reads the retired Dev and Test schemas.
 
     Connections are pooled per environment (see ``db_pool``), so most calls hand
     back a connection that is already open. Call ``close()`` when finished — that
@@ -175,6 +196,8 @@ def get_db_connection(env: str = "dev", pooled: bool = True):
     advisory lock, which would keep blocking other workers if the connection
     carrying it went back into circulation.
     """
+    if not physical and env in CONTENT_ENVS:
+        env = content_env()
     if not pooled:
         return _open_connection(env)
     return db_pool.acquire(env, lambda: _open_connection(env))
@@ -449,85 +472,46 @@ def _open_connection(env: str):
     _store_conn_kwargs(env, conn_kwargs)
     return conn
 
-#: The mapping init_db seeds when a deployment has no global admin. Never moved
-#: between schemas: carried into one whose admins have since replaced it, it
-#: would hand every user global admin again.
-_SEEDED_ADMIN = ("users", "global", "admin")
-
-
-def _gather_role_mappings(conn, env: str) -> None:
-    """Move role mappings out of the other workspaces' schemas into this one.
-
-    Each workspace used to keep its own mappings, so a deployment can arrive here
-    with some in test or prod (from a snapshot import, or an admin who had that
-    workspace selected). Only `env`'s are read now, so those would silently stop
-    granting anything. Each is copied unless an identical one is here, then
-    deleted at its source — deleted, not left, or a mapping an admin later
-    removes here would come back on the next restart.
-
-    Runs under `env`'s init lock. A schema that is really this same one (an
-    `APP_DB_SCHEMA` override points all three at one schema) is skipped, or the
-    copy-then-delete would empty the table.
-    """
-    def row_of(r):
-        return tuple(r.values()) if hasattr(r, "keys") else tuple(r)
-
+def _create_access_tables(conn) -> None:
+    """The sharing tables (services/access.py), in the settings schema."""
     c = conn.cursor()
-    try:
-        c.execute("SELECT current_database(), current_schema()")
-        here = row_of(c.fetchone())
-        conn.commit()
-    except Exception as e:  # noqa: BLE001
-        conn.rollback()
-        logging.warning(f"Could not identify the role mappings schema ({env}): {e}")
-        return
-
-    for other in ("dev", "test", "prod"):
-        if other == env:
-            continue
-        src = None
+    statements = (
+        '''
+        CREATE TABLE IF NOT EXISTS object_permissions (
+            object_type TEXT NOT NULL,
+            object_id TEXT NOT NULL,
+            principal TEXT NOT NULL,
+            principal_type TEXT NOT NULL,
+            level TEXT NOT NULL,
+            granted_by TEXT,
+            granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (object_type, object_id, principal)
+        )
+        ''',
+        "CREATE INDEX IF NOT EXISTS idx_object_permissions_principal ON object_permissions (principal)",
+        '''
+        CREATE TABLE IF NOT EXISTS app_admins (
+            principal TEXT PRIMARY KEY,
+            principal_type TEXT NOT NULL DEFAULT 'group',
+            added_by TEXT,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS known_principals (
+            principal TEXT PRIMARY KEY,
+            principal_type TEXT NOT NULL,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''',
+    )
+    for sql in statements:
         try:
-            src = get_db_connection(other, pooled=False)
-            s = src.cursor()
-            s.execute("SELECT current_database(), current_schema()")
-            if row_of(s.fetchone()) == here:
-                src.rollback()
-                continue
-            s.execute("SELECT id, external_role, domain, permission_level FROM role_mappings")
-            rows = [row_of(r) for r in s.fetchall()]
-            if not rows:
-                src.rollback()
-                continue
-            moved = 0
-            for _id, role, domain, level in rows:
-                if (role, (domain or "").lower(), level) == _SEEDED_ADMIN:
-                    continue
-                c.execute(
-                    "SELECT 1 FROM role_mappings WHERE external_role = %s AND domain = %s AND permission_level = %s",
-                    (role, domain, level),
-                )
-                if c.fetchone():
-                    continue
-                c.execute(
-                    "INSERT INTO role_mappings (external_role, domain, permission_level) VALUES (%s, %s, %s)",
-                    (role, domain, level),
-                )
-                moved += 1
+            c.execute(sql)
             conn.commit()
-            s.execute("DELETE FROM role_mappings WHERE id = ANY(%s)", ([r[0] for r in rows],))
-            src.commit()
-            logging.warning(
-                f"Role mappings now live only in env={env}: moved {moved} from env={other} "
-                f"and cleared its {len(rows)} row(s)."
-            )
-        except Exception as e:  # noqa: BLE001 - a schema not yet initialized has nothing to move
+        except Exception as e:  # noqa: BLE001
             conn.rollback()
-            if src is not None:
-                src.rollback()
-            logging.info(f"No role mappings moved from env={other}: {e}")
-        finally:
-            if src is not None:
-                src.close()
+            logging.warning(f"Could not create an access table: {e}")
 
 
 def _advisory_lock_key(env: str) -> int:
@@ -553,7 +537,7 @@ def init_db(env: str = "dev"):
     belongs to the session, so a connection that failed part-way through would
     otherwise return to the pool still holding it.
     """
-    conn = get_db_connection(env, pooled=False)
+    conn = get_db_connection(env, pooled=False, physical=True)
     c = conn.cursor()
 
     lock_key = _advisory_lock_key(env)
@@ -961,41 +945,61 @@ def init_db(env: str = "dev"):
         conn.rollback()
         pass
 
-    # Role mappings are deployment-wide and read from one schema only (see
-    # `routes.roles.roles_env`); the other two keep an unused, empty table.
-    from services.settings_store import settings_env
-    holds_roles = env == settings_env()
-    if holds_roles:
-        _gather_role_mappings(conn, env)
-
-    # Seed default global admin if none exists yet
+    # Drafts: the one editable working copy of a view, widget or agent. A table of
+    # its own rather than unpublished rows in the versioned tables, because code
+    # from before drafts reads the newest version as live — a draft stored as a
+    # version would go in front of everyone on a rollback. See services/drafts.py.
     try:
-        count = 0
-        if holds_roles:
-            c.execute(
-                "SELECT COUNT(*) FROM role_mappings WHERE LOWER(domain) IN ('global', 'all', 'app') AND permission_level = 'admin'"
+        c.execute(f'''
+            CREATE TABLE IF NOT EXISTS object_drafts (
+                object_type TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                payload JSONB NOT NULL,
+                base_version INTEGER,
+                updated_by TEXT,
+                updated_at TIMESTAMP {default_ts},
+                PRIMARY KEY (object_type, object_id)
             )
-            count = c.fetchone()[0]
-        if holds_roles and count == 0:
-            # Lockout prevention: a deployment with no global admin has nobody who
-            # can create the first role mapping, and no way back in. The cost is
-            # that `users` contains essentially everyone, so until an admin
-            # replaces this row the app has role checks switched on and a mapping
-            # that makes them moot. Warn rather than log quietly — this is the
-            # single most likely reason a hardened deployment isn't.
-            logging.warning(
-                "No global admin mapping found - seeding 'users' -> Global/admin so the deployment "
-                "is administrable. This grants EVERY member of the 'users' group global admin. "
-                "Replace it in Admin Panel -> Role Mappings with your real admin group."
-            )
-            c.execute(
-                "INSERT INTO role_mappings (external_role, domain, permission_level) VALUES (%s, %s, %s)",
-                ("users", "Global", "admin")
-            )
-            conn.commit()
-    except Exception as e:
+        ''')
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
         conn.rollback()
-        logging.warning(f"Could not seed default global admin mapping: {e}")
+        logging.warning(f"Could not create object_drafts in env={env}: {e}")
+
+    # Views someone closed in their sidebar. Sharing is the access list's job;
+    # this only records "not in my sidebar", which a subscription used to.
+    try:
+        c.execute(f'''
+            CREATE TABLE IF NOT EXISTS sidebar_hidden (
+                username TEXT NOT NULL,
+                app_id TEXT NOT NULL,
+                timestamp TIMESTAMP {default_ts},
+                PRIMARY KEY (username, app_id)
+            )
+        ''')
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        logging.warning(f"Could not create sidebar_hidden in env={env}: {e}")
+
+    for table in ("widgets", "dashboard_views", "agent_profiles"):
+        for column, kind in (("published_by", "TEXT"), ("published_at", "TIMESTAMP")):
+            try:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {kind}")
+                conn.commit()
+            except Exception:  # noqa: BLE001
+                conn.rollback()
+
+    # Who may do what is a property of the deployment, so the access tables live
+    # with the settings. Keyed by object id, which is the same everywhere.
+    #
+    # `role_mappings` is no longer written at all — not moved between schemas,
+    # not seeded. The access migration reads it once, and a rollback to the
+    # previous release must find it as that release left it. Lockout prevention
+    # moved with it: the migration seeds `app_admins` when nobody is an admin.
+    from services.settings_store import settings_env
+    if env == settings_env():
+        _create_access_tables(conn)
 
     # Link names for global views saved before they existed, or that arrived by
     # snapshot. Under the lock, so two workers don't hand one view two names.

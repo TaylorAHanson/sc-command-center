@@ -1,17 +1,18 @@
 """What an app is, independent of where it is stored.
 
-An app is the artifact a user composes and shares: a name, an owner and a domain
+An app is the artifact a user composes and shares: a name and a domain label
 (columns on its `dashboard_views` row, exactly as a view had) plus a *spec* — the
 tabs, each holding a widget layout, and how the app presents itself. A view is an
 app with one tab. Rows written before apps existed have no `spec_json`, and are
 read here as that one-tab app rather than migrated: an existing deployment holds
-every version of every view anyone ever saved, and rewriting them would mint a new
-version of each, and make promotion believe every view in every env had changed.
+every version of every view anyone ever published, and rewriting them would mint
+a new version of each. Who may open or change an app is its access list's to say
+(`services/access.py`), not anything here.
 
 Two entry points, deliberately different in temperament:
 
 - `read_spec` never raises. It is what every read path uses, including the creator
-  leaderboard and promotion, and one malformed row must not take a sidebar or a
+  leaderboard and the sidebar, and one malformed row must not take a sidebar or a
   ranking down with it. It keeps whatever widget entries it finds, verbatim.
 - `validate_spec` is for writes and refuses anything it would have to guess at.
 
@@ -664,23 +665,3 @@ def compose_spec(
     if presentation is not None:
         spec["presentation"] = presentation
     return validate_spec(spec, "", new_id=new_id)
-
-
-def can_read(app: Dict[str, Any], *, perms: Dict[str, Any]) -> bool:
-    """Whether the caller may open this app — exactly the rule views have always had.
-
-    A global app needs a role in its domain (or global admin), as the views list
-    always filtered it. A personal app is open to anyone holding its id: that is
-    what a share link has always meant, since opening one subscribes any caller to
-    any id that exists and the sidebar then shows it. Apps deliberately
-    inherit that model unchanged; tightening it is a separate decision, not a side
-    effect of introducing apps.
-
-    Unity Catalog, through the caller's OBO token, still decides what each
-    widget's queries return.
-    """
-    if app.get("is_global"):
-        if perms.get("is_admin"):
-            return True
-        return (app.get("domain") or "General") in (perms.get("domain_permissions") or {})
-    return True

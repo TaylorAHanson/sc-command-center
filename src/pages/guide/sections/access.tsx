@@ -2,152 +2,124 @@
 import { Users } from 'lucide-react';
 import type { GuideSection } from '../types';
 import {
-  Callout, Card, Cards, Code, Details, GuideLink, H2, Lead, List, Needs, OpenLink, P, Shot, Step, Steps, UI,
+  Callout, Card, Cards, Code, Details, GuideLink, H2, Lead, List, Needs, OpenLink, P, Step, Steps, UI,
 } from '../kit';
 
 const Body = () => (
   <>
     <Lead>
-      Give people access by linking a Databricks group, or one person, to a domain at a permission level. Only Global
-      admins can do this, and it needs no code or database work.
+      How to get access to something you can&rsquo;t open, and how Administrators look after the whole app: who is an
+      Administrator, and what to do with content nobody else can reach.
     </Lead>
 
-    <H2 id="map-group">Map a group or user to a domain</H2>
+    <H2 id="ask">Ask for access</H2>
     <P>
-      <Needs role="Global admin" /> The domain must exist before you can map to it, so start there if it is new.
-    </P>
-    <Steps>
-      <Step title="Open the Admin Panel">
-        Click <UI>Admin Panel</UI> (shield icon) under <UI>Resources</UI> in the sidebar, or use{' '}
-        <OpenLink page="admin">this link</OpenLink>. If you do not see it, you are not an Admin on any domain and not a Global admin.
-        <Shot
-          name="admin-overview"
-          alt="The Admin Panel with its tab bar"
-          caption="The Admin Panel. The text under the title says which tabs follow the selected workspace and which cover the whole app."
-          legend={[
-            'Admin Panel, at the bottom of the sidebar.',
-            'The tabs. Role Mappings is the one you need here.',
-            'Which tabs follow the selected workspace and which cover the whole app.',
-          ]}
-        />
-      </Step>
-      <Step title="Add the domain if it is new">
-        Open <UI>Categories &amp; Domains</UI>. In the <UI>Domains</UI> card, type a <UI>Domain name</UI> and click <UI>Add Domain</UI>.
-        A name that differs from an existing one only in capitals or spacing is refused, so <Code>Logistics</Code> and <Code>logistics</Code> cannot both exist.
-        <Shot
-          name="admin-domains"
-          alt="Categories & Domains with the Add Domain form"
-          caption="Categories & Domains. Add the domain here, then map it."
-          legend={[
-            'Category name and Add Category. Categories group widgets by function.',
-            'The Categories card.',
-            'Domain name and Add Domain. Type the domain and add it.',
-          ]}
-        />
-      </Step>
-      <Step title="Open Role Mappings">
-        Under <UI>Create Domain Mapping</UI>, type the group or user in <UI>Databricks group or user</UI>.
-        Copy the name from the workspace&rsquo;s Groups page rather than retyping it: it must match exactly, capitals included.
-      </Step>
-      <Step title="Choose the domain and the level">
-        Pick the domain from <UI>Mapped Domain</UI>. The list is the domains from <UI>Categories &amp; Domains</UI>. Then pick a{' '}
-        <UI>Role Type</UI>: <UI>Viewer</UI>, <UI>Editor</UI> or <UI>Admin</UI>. It starts on <UI>Editor</UI>.
-        The levels are explained in <GuideLink to="roles" anchor="levels">Roles &amp; permissions</GuideLink>.
-      </Step>
-      <Step title="Click Add Mapping">
-        The mapping appears in the table below. It applies to anyone whose group or username matches, the next time their
-        permissions are read. Ask them to reload the page, and allow a few minutes.
-        <Shot
-          name="admin-role-mappings"
-          alt="Role Mappings with the two forms and the mappings table"
-          caption="Role Mappings. The top form makes Global admins, the one below it maps a group or user to a domain."
-          legend={[
-            'The Databricks group or user, typed exactly as it appears in Databricks.',
-            'The domain it applies to.',
-            'The role type: Editor or Admin.',
-            'Add Mapping saves it.',
-          ]}
-        />
-      </Step>
-    </Steps>
-    <Callout kind="note" title="Mappings apply to the whole app">
-      There is no separate Dev, Test or Prod permission, so it does not matter which <UI>Workspace</UI> is selected when you add a mapping.
-    </Callout>
-
-    <H2 id="exact-match">Names must match exactly</H2>
-    <P>
-      The <UI>Databricks group or user</UI> field is plain text. It is not checked against Databricks when you save, because the app
-      cannot list your workspace&rsquo;s groups on your behalf. A typo or a wrong capital saves without complaint and grants nothing.
+      Views, widgets and agents are shared one at a time by the people who manage them, so ask the owner, or anyone who can
+      manage it, to share it with you or with a Databricks group you belong to. An Administrator can share anything.
     </P>
     <List>
-      <li>Group names are compared with the groups the person belongs to in Databricks.</li>
-      <li>To give one person access, type their username exactly as Databricks has it.</li>
-      <li>If someone you mapped still has no access, compare the name with the Groups page, character for character.</li>
+      <li>
+        <strong>A link that says the item isn&rsquo;t there</strong> may simply not be shared with you. The app answers the
+        same way for both, so that a link never reveals what exists. Ask the person who sent it.
+      </li>
+      <li>
+        <strong>Shared with you, but you still can&rsquo;t see it?</strong> It may never have been published. Ask its owner
+        to publish it.
+      </li>
+      <li>
+        <strong>Shared with a group you&rsquo;re in, but it doesn&rsquo;t work?</strong> The group name on the access list must
+        match the Databricks group exactly, capitals included. After you are added to a group, allow a few minutes and reload.
+      </li>
+      <li>
+        <strong>It opens, but its data is empty or refused?</strong> That is Unity Catalog, not this app. Data access is
+        granted in Databricks.
+      </li>
     </List>
 
-    <H2 id="global-admins">Make someone a Global admin</H2>
+    <H2 id="administrators">Administrators</H2>
     <P>
-      <Needs role="Global admin" /> At the top of <UI>Role Mappings</UI>, <UI>Assign Global Administrator</UI> takes a{' '}
-      <UI>Databricks group or user</UI>. Click <UI>Grant Global Admin</UI>. That adds a mapping of the <UI>Global</UI> domain at
-      the <UI>Admin</UI> level, which bypasses every domain check. See{' '}
-      <GuideLink to="roles" anchor="global-admin">Roles &amp; permissions</GuideLink> for what that allows.
+      <Needs role="Administrator" /> Administrators can manage every view, widget and agent in the app, and are the only people
+      who see the <UI>Admin Panel</UI>. Open it from <UI>Resources</UI> at the bottom of the sidebar, or use{' '}
+      <OpenLink page="admin">this link</OpenLink>. Its tabs are <UI>Content</UI>, <UI>Categories &amp; Domains</UI>,{' '}
+      <UI>Administrators</UI>, <UI>Settings</UI>, <UI>Data Migration</UI> and <UI>Action Logs</UI>, and all of them cover the
+      whole app.
     </P>
-    <Callout kind="warn" title="Replace the starter admin mapping">
-      A deployment with no Global admin starts with one mapping that makes every member of the Databricks group named <Code>users</Code> a
-      Global admin, so that someone can get in and administer it. Look for it in the table and replace it with your real admin group.
+    <Steps>
+      <Step title="Open Administrators">
+        In the Admin Panel, open the <UI>Administrators</UI> tab. It lists every person and group who is an Administrator.
+      </Step>
+      <Step title="Add a person or group">
+        Type a Databricks username or group name. Suggestions work as they do in the share dialog, and a name the app hasn&rsquo;t
+        seen is accepted if it matches Databricks exactly.
+      </Step>
+      <Step title="Remove one">
+        Remove an entry from the list. The last Administrator can&rsquo;t be removed, so add another first.
+      </Step>
+    </Steps>
+    <Callout kind="warn" title="Keep the list small">
+      Administrators can change anything in the app, including who else is an Administrator. Name a small group, not a
+      company-wide one; <UI>Everyone in this app</UI> can&rsquo;t be made one. If nobody was an admin before the upgrade to
+      sharing, the upgrade made the Databricks group named <Code>users</Code>, essentially everyone, an Administrator so
+      that someone could get in. Replace it with your real admin group.
     </Callout>
     <Details summary="Running the app locally">
       <P>
-        When the app runs on your own machine with <Code>DEV_MODE=true</Code>, you are a Global admin without any mapping. This
-        is for developers; a deployed app does not use it.
+        When the app runs on your own machine with <Code>DEV_MODE=true</Code>, you are an Administrator without being on the
+        list. This is for developers; a deployed app does not use it.
       </P>
     </Details>
 
-    <H2 id="change-mappings">Change or remove a mapping</H2>
+    <H2 id="content">Find and reassign content</H2>
     <P>
-      <Needs role="Global admin" /> Hover a row in the table to show its buttons. The pencil edits the row in place: change the
-      group, domain or level, then click the tick to save or the cross to cancel. The trash can asks you to confirm, and then the group
-      loses that access.
+      <Needs role="Administrator" /> The <UI>Content</UI> tab lists every view, widget and agent in the app, whoever owns it,
+      with its owner, whether it is published or has unpublished changes, and how widely it is shared. Use it to find
+      something nobody else can reach any more, for example after its owner has left, and share it with someone who should
+      manage it.
     </P>
-    <Details summary="A row says “not a domain”">
-      <P>
-        The mapping&rsquo;s domain is no longer in <UI>Categories &amp; Domains</UI>, usually because it was renamed or deleted, so
-        no widget or view can be filed under it and the mapping grants nothing. Add the domain back, or edit the mapping to choose one that exists.
-        Mappings to <UI>Global</UI>, <UI>All</UI> or <UI>App</UI> are never flagged: those names mean every domain.
-      </P>
-      <P>
-        When you add a mapping to a name that is not a domain, you get &ldquo;is not a domain. Add it under Categories &amp; Domains
-        first&rdquo;. If you only change the level of an old mapping, the app does not make you fix its domain first.
-      </P>
-    </Details>
 
-    <H2 id="blocked">When someone says they cannot get in</H2>
-    <Steps>
-      <Step>Check that a mapping exists for a Databricks group they belong to, or for their username, and that the name matches exactly.</Step>
-      <Step>Check the domain and level: a Viewer cannot edit, and Dev and Test need Editor or Admin on some domain.</Step>
-      <Step>Ask them to reload, and allow a few minutes after any change.</Step>
-      <Step>
-        If they can open a widget but its data is empty or refused, that is Unity Catalog, not this app. Data access is granted in Databricks.
-      </Step>
-    </Steps>
+    <H2 id="domains">Categories and domains</H2>
     <P>
-      More symptoms and fixes are on <GuideLink to="troubleshooting">Troubleshooting</GuideLink>.
+      <Needs role="Administrator" /> Under <UI>Categories &amp; Domains</UI>, type a name and click <UI>Add Category</UI> or{' '}
+      <UI>Add Domain</UI>. Categories group widgets by function, and domains label views, widgets and agents with a
+      business area. Both are only for finding things; neither decides who gets in. A name that differs from an existing
+      one only in capitals or spacing is refused.
+    </P>
+
+    <H2 id="migration-report">After the upgrade to sharing</H2>
+    <P>
+      When the app moved to sharing and drafts, it did two things once: it turned the old domain role mappings into access
+      lists and Administrators, so that everyone who could open something could still open it, and it turned work from the
+      old Dev and Test workspaces into drafts. A notice at the top of the Admin Panel reports how that went.{' '}
+      <UI>View details</UI> lists who gained or lost access and anything it couldn&rsquo;t carry over. Check the{' '}
+      <UI>Administrators</UI> list afterwards: whoever was a Global admin is now an Administrator.
+    </P>
+    <Callout kind="warn" title="If the notice says the move didn't finish">
+      The move runs only once, and restarting the app does not run it again. Open <UI>View details</UI> and click{' '}
+      <UI>Retry</UI> to run the part that failed. Anything already moved is left as it is.
+    </Callout>
+    <P>
+      How each old mapping became access is described in{' '}
+      <GuideLink to="sharing" anchor="who-can">Sharing &amp; permissions</GuideLink>, under &ldquo;What happened to Viewer,
+      Editor and Admin on a domain&rdquo;.
     </P>
 
     <H2 id="where-next">Where next</H2>
     <Cards cols={2}>
-      <Card title="Roles & permissions" to="roles">What each level, and Global admin, can do.</Card>
+      <Card title="Sharing & permissions" to="sharing">Can use, Can manage, and the share dialog.</Card>
       <Card title="Settings & models" to="settings">Choose models and limit what the assistant can reach.</Card>
     </Cards>
+    <P>
+      More symptoms and fixes are on <GuideLink to="troubleshooting">Troubleshooting</GuideLink>.
+    </P>
   </>
 );
 
 export const section: GuideSection = {
   id: 'access',
   group: 'admin',
-  title: 'Managing access',
-  summary: 'Map Databricks groups to domains and make global admins.',
+  title: 'Administrators & access',
+  summary: 'Ask for access, manage Administrators, and find content.',
   icon: Users,
-  keywords: 'role mapping group sign in permission grant global administrator domain add user',
+  keywords: 'access request administrator admin panel content owner group sign in permission domain category migration',
   Body,
 };

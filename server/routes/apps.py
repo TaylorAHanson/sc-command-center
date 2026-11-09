@@ -2,42 +2,45 @@
 
 An app is a row in `dashboard_views` under the id the view always had; a view is
 an app with one tab. See `services/app_spec.py` for what an app holds and
-`services/app_store.py` for how it is written. This replaced `/api/views`, which
-read and wrote the same rows; the handlers below that came from it (subscribe,
-archive, restore, delete, the archive list) do exactly what they did there.
+`services/app_store.py` for how it is written.
 
-Who may read and change an app is exactly who could read and change the view:
-`app_spec.can_read` for reading, `app_store.require_may_edit` for writing. Apps
-add two reads views never had, `GET /{id}` and `GET /{id}/widgets`; they write
-nothing and do not add or remove anyone's access.
+Who may do what is the app's access list (`services/access.py`): Can use to open
+it, Can manage to change, share, publish, archive or delete it. Managers edit a
+draft, saved in place (`services/drafts.py`); Publish makes the draft the next
+version, and that is all anyone with Can use ever sees. No access at all reads
+as missing, by id or by link name alike, so a link never confirms that a view
+exists to someone it isn't shared with.
 """
 import logging
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from databricks.sdk import WorkspaceClient
 from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
-from database import get_db_connection
+from database import content_env, get_db_connection
 from middleware.auth import get_db_client, get_db_client_sp
 from routes import custom_widgets as widget_routes
+from routes.roles import _get_current_username
 from routes.widget_studio import quick_helper_reply
-from routes.roles import _get_current_username, _get_user_permissions, require_domain_editor
-from services import app_links, app_spec, app_store, look_helper
+from services import access, app_links, app_spec, app_store, drafts, look_helper
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _NOT_FOUND = "App not found"
+APP, WIDGET, AGENT = access.APP, access.WIDGET, access.AGENT
+MANAGE, USE = access.MANAGE, access.USE
+MODES = ("draft", "published")
+_NOT_A_PERSON = {"", "system", "unknown", "dev"}
 
 
 class AppCreate(BaseModel):
     id: Optional[str] = None
     name: str
     domain: Optional[str] = "General"
-    is_global: bool = False
     is_locked: bool = False
     pinned_agent_id: Optional[str] = None
     spec: Optional[Dict[str, Any]] = None
@@ -46,7 +49,6 @@ class AppCreate(BaseModel):
 class AppUpdate(BaseModel):
     name: Optional[str] = None
     domain: Optional[str] = None
-    is_global: Optional[bool] = None
     is_locked: Optional[bool] = None
     # Absent keeps the pin, "" clears it; see app_spec.pin_value.
     pinned_agent_id: Optional[str] = None
@@ -66,151 +68,247 @@ class AppCompose(BaseModel):
     presentation: Optional[str] = None
 
 
+class PublishItem(BaseModel):
+    object_type: str
+    object_id: str
+
+
+class PublishRequest(BaseModel):
+    include: List[PublishItem] = []
+
+
+class RevertRequest(BaseModel):
+    version: int
+
+
+def _connect():
+    return get_db_connection(content_env())
+
+
 def _timestamp(value: Any) -> Optional[str]:
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
 
 
-def _public(row: Dict[str, Any], spec: Dict[str, Any], *, username: str, subscribed: bool,
-            link: Optional[str] = None) -> Dict[str, Any]:
-    is_global = bool(row.get("is_global"))
+def _person(name: Any) -> Optional[str]:
+    value = str(name or "").strip()
+    return None if value.lower() in _NOT_A_PERSON else value
+
+
+def _same(a: Optional[str], b: Optional[str]) -> bool:
+    return bool(a) and bool(b) and a.lower() == b.lower()
+
+
+def _acl_facts(app_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+    """Owner and sharing per app; when it can't be read, the row's creator stands in for the owner."""
+    return access.acl_facts(APP, app_ids)
+
+
+def _public(row: Dict[str, Any], *, level: str, published_version: Optional[int], has_draft: bool,
+            me: str, facts: Optional[Dict[str, Any]] = None, link: Optional[str] = None) -> Dict[str, Any]:
+    facts = facts or {}
+    owner = facts.get("owner") or _person(row.get("username"))
     return {
         "id": row["id"],
-        # What links to a global app name it by; see services/app_links.py.
-        "link": link if is_global else None,
-        "version": row["version"],
-        "name": row["name"],
+        # Names are claimed on publishing; see services/app_links.py.
+        "link": link if published_version else None,
+        "version": published_version or 0,
+        "name": row.get("name") or "",
         "domain": row.get("domain"),
         "username": row.get("username"),
-        "is_global": is_global,
         "is_locked": bool(row.get("is_locked")),
-        # Someone else's personal app that the caller has in their sidebar.
-        "is_shared": bool(subscribed and not is_global and row.get("username") != username),
         # The app-level agent; a tab's own pin, in the spec, overrides it.
         "pinned_agent_id": row.get("pinned_agent_id") or None,
-        # When this version was saved; View Promotion's "Last Modified".
-        "timestamp": _timestamp(row.get("timestamp")),
-        "spec": spec,
+        "timestamp": _timestamp(row.get("draft_updated_at") or row.get("timestamp")),
+        "spec": app_store.spec_of(row),
+        "access": level,
+        "state": drafts.state_of(has_draft, published_version),
+        "owner": owner,
+        "published_version": published_version,
+        "has_draft": has_draft,
+        "is_draft": bool(row.get("is_draft")),
+        "shared_with_me": not _same(owner, me),
+        # 'private' | 'shared' | 'everyone', for the sidebar's access icon.
+        "sharing": facts.get("sharing"),
     }
 
 
-def _caller(w: WorkspaceClient, env: str) -> Tuple[str, Dict[str, Any]]:
-    return _get_current_username(w), _get_user_permissions(w)
-
-
-def _require_readable(c, ref: str, username: str, perms: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], bool]:
-    """The app's head row, spec and whether the caller subscribes to it; else 404.
-
-    `ref` is whatever a link names the app by (`app_store.resolve_ref`); the row
-    says which app it turned out to be. Archived apps are out of circulation and
-    read as missing, as they drop out of the sidebar list; the archive list in the
-    admin screen is the way back to them.
-    """
-    app_id = app_store.resolve_ref(c, ref) or ref
-    row = app_store.head(c, app_id)
-    if row is None or app_store.is_archived(c, app_id) or not app_spec.can_read(row, perms=perms):
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
-    return row, app_store.spec_of(row), app_store.is_subscribed(c, username, app_id)
-
-
-@router.get("/")
-def list_apps(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """The caller's sidebar: their own apps, global apps in their domains, and subscriptions."""
-    username, perms = _caller(w, env)
-    conn = get_db_connection(env)
-    try:
-        c = conn.cursor()
-        c.execute(
-            f"""
-            SELECT {', '.join('dv.' + col for col in app_store.HEAD_COLUMNS)},
-                   CASE WHEN sv.username IS NOT NULL THEN 1 ELSE 0 END AS subscribed
-            FROM dashboard_views dv
-            INNER JOIN (
-                SELECT id, MAX(version) AS max_version
-                FROM dashboard_views
-                GROUP BY id
-            ) latest ON dv.id = latest.id AND dv.version = latest.max_version
-            LEFT JOIN shared_views sv ON dv.id = sv.view_id AND sv.username = %s
-            LEFT JOIN archived_views av ON dv.id = av.id
-            WHERE av.id IS NULL
-              AND ((dv.username = %s)
-                   OR (dv.is_global = 1)
-                   OR (sv.username IS NOT NULL))
-            """,
-            (username, username),
-        )
-        rows = app_store.fetch_rows(c)
-        links = _links(c, [r["id"] for r in rows if r.get("is_global")])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching apps: {str(e)}")
-    finally:
-        conn.close()
-
-    apps = []
-    for row in rows:
-        if not app_spec.can_read(row, perms=perms):
-            continue
-        apps.append(_public(row, app_store.spec_of(row), username=username,
-                            subscribed=bool(row.get("subscribed")), link=links.get(row["id"])))
-    return {"apps": apps}
-
-
-def _links(c, global_ids: List[str]) -> Dict[str, str]:
+def _links(c, app_ids: List[str]) -> Dict[str, str]:
     """Link names for these apps. Read last on the connection: a failure ends its transaction."""
     try:
-        return app_links.current(c, global_ids)
+        return app_links.current(c, app_ids)
     except Exception as e:  # noqa: BLE001 - without names, links carry ids, which always work
         logger.warning("Couldn't read app link names: %s", e)
         return {}
 
 
-@router.get("/archived")
-def list_archived_apps(w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """Archived global apps the caller could restore or delete, newest first.
+def _row_for(c, app_id: str, level: str, mode: Optional[str]) -> Tuple[Optional[Dict[str, Any]], Optional[int], bool]:
+    """What this caller sees of an app in this mode, its published version, and whether it has a draft.
 
-    Limited to domains the caller edits: the archive is where an app goes to be
-    forgotten, so it should not become a way to browse domains one can't see.
+    Only managers know about drafts: to someone with Can use an app is its newest
+    published version, and one never published isn't there at all.
     """
-    perms = _get_user_permissions(w)
-    is_admin = perms.get("is_admin", False)
-    domain_permissions = perms.get("domain_permissions", {})
+    published = app_store.head(c, app_id)
+    version = int(published["version"]) if published else None
+    if level != MANAGE:
+        return published, version, False
+    held = drafts.read(c, APP, app_id)
+    row = published if mode == "published" else drafts.merge(published, held, app_id)
+    return row, version, held is not None
 
-    conn = get_db_connection(env)
+
+def _open(c, who: access.Caller, ref: str, mode: Optional[str] = None,
+          ) -> Tuple[str, str, Dict[str, Any], Optional[int], bool]:
+    """The app a ref names, if the caller may open it: (id, level, row, published version, has draft); else 404.
+
+    Archived apps are out of circulation and read as missing, as they drop out of
+    the sidebar; the Archived group is the way back to them.
+    """
+    if mode is not None and mode not in MODES:
+        raise HTTPException(status_code=400, detail="mode must be 'draft' or 'published'.")
+    app_id = app_store.resolve_ref(c, ref)
+    if app_id is None:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    level = access.require(who, APP, app_id, USE, not_found=_NOT_FOUND)
+    if app_store.is_archived(c, app_id):
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    row, version, has_draft = _row_for(c, app_id, level, mode)
+    if row is None:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    return app_id, level, row, version, has_draft
+
+
+def _grant_owner(app_id: str, username: str) -> None:
+    """Make the creator the owner, after the content commit: the access list is in the settings schema."""
+    try:
+        access.grant_owner(APP, app_id, username)
+    except Exception as e:  # noqa: BLE001
+        logger.error("App %s was created but %s couldn't be made its owner: %s", app_id, username, e)
+        raise HTTPException(
+            status_code=500,
+            detail="The view was created, but you couldn't be given access to it. An app administrator can share it with you.",
+        )
+
+
+@router.get("/")
+def list_apps(w: WorkspaceClient = Depends(get_db_client)):
+    """The caller's sidebar: views they own and views shared with them, less those they closed.
+
+    Granted views only, admins included. An admin can manage every view, but
+    listing every view in the deployment in each admin's sidebar would bury their
+    own; Admin Panel → Content is where they see them all.
+    """
+    who = access.caller(w)
+    try:
+        grants = access.grants_for(who, APP)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching apps: {str(e)}")
+    ids = list(grants)
+    if not ids:
+        return {"apps": []}
+
+    conn = _connect()
     try:
         c = conn.cursor()
-        c.execute("""
-            SELECT dv.id, dv.version, dv.name, dv.domain, av.archived_by, av.timestamp AS archived_at
-            FROM archived_views av
-            INNER JOIN dashboard_views dv ON dv.id = av.id
+        c.execute(
+            f"""
+            SELECT {', '.join('dv.' + col for col in app_store.HEAD_COLUMNS)}
+            FROM dashboard_views dv
             INNER JOIN (
                 SELECT id, MAX(version) AS max_version
                 FROM dashboard_views
+                WHERE id = ANY(%s)
                 GROUP BY id
             ) latest ON dv.id = latest.id AND dv.version = latest.max_version
-            ORDER BY av.timestamp DESC
-        """)
+            """,
+            (ids,),
+        )
+        published = {r["id"]: r for r in app_store.fetch_rows(c)}
+        held = drafts.drafts(c, APP, ids)
+        hidden = app_store.hidden_ids(c, who.username)
+        archived = app_store.archived_ids(c)
+        links = _links(c, list(published))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching apps: {str(e)}")
+    finally:
+        conn.close()
+
+    shown = []
+    for app_id in ids:
+        if app_id in archived or app_id in hidden:
+            continue
+        level = MANAGE if who.is_admin else grants[app_id]
+        pub = published.get(app_id)
+        draft = held.get(app_id) if level == MANAGE else None
+        row = drafts.merge(pub, draft, app_id) if level == MANAGE else pub
+        if row is None:
+            continue
+        version = int(pub["version"]) if pub else None
+        shown.append((row, level, version, draft is not None))
+
+    facts = _acl_facts(row["id"] for row, *_ in shown)
+    apps = [
+        _public(row, level=level, published_version=version, has_draft=has_draft, me=who.username,
+                facts=facts.get(row["id"]), link=links.get(row["id"]))
+        for row, level, version, has_draft in shown
+    ]
+    apps.sort(key=lambda a: (a["name"].lower(), a["id"]))
+    return {"apps": apps}
+
+
+@router.get("/archived")
+def list_archived_apps(w: WorkspaceClient = Depends(get_db_client)):
+    """Archived apps the caller manages, newest first, for Restore and Delete.
+
+    Only those they manage: the archive is where an app goes to be forgotten, so
+    it should not become a way to find views one was never shown.
+    """
+    who = access.caller(w)
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        c.execute("SELECT id, archived_by, timestamp AS archived_at FROM archived_views ORDER BY timestamp DESC")
         rows = app_store.fetch_rows(c)
+        levels = access.levels_for(who, APP, [r["id"] for r in rows])
+        managed = [r for r in rows if levels.get(r["id"]) == MANAGE]
+        out = []
+        for r in managed:
+            published = app_store.head(c, r["id"])
+            held = drafts.read(c, APP, r["id"])
+            row = drafts.merge(published, held, r["id"])
+            if row is None:
+                continue
+            out.append({
+                "id": r["id"],
+                "version": int(published["version"]) if published else 0,
+                "name": row.get("name") or "",
+                "domain": row.get("domain"),
+                "archived_by": r.get("archived_by"),
+                "archived_at": _timestamp(r.get("archived_at")),
+            })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching archived views: {str(e)}")
     finally:
         conn.close()
-
-    return {"apps": [
-        {**r, "archived_at": _timestamp(r.get("archived_at"))}
-        for r in rows
-        if is_admin or domain_permissions.get(r.get("domain") or "General") in ("editor", "admin")
-    ]}
+    return {"apps": out}
 
 
 @router.get("/history")
-def app_history(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """Every version of an app in this env, newest first. Version numbers mean nothing across envs."""
-    username, perms = _caller(w, env)
-    conn = get_db_connection(env)
+def app_history(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """Every published version of an app, newest first. The draft is not a version.
+
+    Managers only, as on a Databricks dashboard: the list exists to revert from,
+    and who published what and when is the managers' business.
+    """
+    who = access.caller(w)
+    conn = _connect()
     try:
         c = conn.cursor()
-        _require_readable(c, app_id, username, perms)
+        app_id, level, *_ = _open(c, who, app_id)
+        if level != MANAGE:
+            raise HTTPException(status_code=403, detail="You need Can manage on this view to see its history.")
         c.execute(
-            "SELECT version, name, username, timestamp FROM dashboard_views WHERE id = %s ORDER BY version DESC",
+            "SELECT version, name, username, published_by, published_at, timestamp FROM dashboard_views "
+            "WHERE id = %s ORDER BY version DESC",
             (app_id,),
         )
         rows = app_store.fetch_rows(c)
@@ -220,7 +318,10 @@ def app_history(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: s
         raise HTTPException(status_code=500, detail=f"Error fetching app history: {str(e)}")
     finally:
         conn.close()
-    return {"history": [{**r, "timestamp": _timestamp(r.get("timestamp"))} for r in rows], "env": env}
+    return {"history": [
+        {**r, "timestamp": _timestamp(r.get("timestamp")), "published_at": _timestamp(r.get("published_at"))}
+        for r in rows
+    ]}
 
 
 @router.post("/look")
@@ -249,13 +350,13 @@ def suggest_look(body: LookRequest, w: WorkspaceClient = Depends(get_db_client),
 
 
 @router.post("/compose")
-def compose_app(body: AppCompose, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """Build a new personal app whose tabs are copies of existing views or apps.
+def compose_app(body: AppCompose, w: WorkspaceClient = Depends(get_db_client)):
+    """Build a new app, owned by the caller, whose tabs are copies of existing views or apps.
 
     The way into apps for a deployment that already has many views: pick several,
     get one app with a tab for each. The sources are not changed, moved or
-    archived, so their links and subscriptions keep working; the caller can archive
-    them afterwards. Every source must be one the caller could open.
+    archived, so their links keep working; the caller can archive them afterwards.
+    Every source must be one the caller can open, and is copied as they see it.
     """
     source_ids = list(dict.fromkeys(s for s in body.source_ids if s))
     if len(source_ids) > app_spec.MAX_TABS:
@@ -264,37 +365,28 @@ def compose_app(body: AppCompose, w: WorkspaceClient = Depends(get_db_client), e
     if not name:
         raise HTTPException(status_code=400, detail="Give the app a name.")
 
-    username, perms = _caller(w, env)
-    conn = get_db_connection(env)
+    who = access.caller(w)
+    app_id = str(uuid.uuid4())
+    conn = _connect()
     try:
         c = conn.cursor()
         sources = []
         for source_id in source_ids:
             try:
-                row, spec, _ = _require_readable(c, source_id, username, perms)
+                _, _, row, _, _ = _open(c, who, source_id)
             except HTTPException as e:
                 raise HTTPException(status_code=e.status_code, detail=f"{_NOT_FOUND}: {source_id}")
-            sources.append({"name": row["name"], "pinned_agent_id": row.get("pinned_agent_id"), "spec": spec})
+            sources.append({"name": row["name"], "pinned_agent_id": row.get("pinned_agent_id"),
+                            "spec": app_store.spec_of(row)})
         try:
             spec = app_spec.compose_spec(sources, presentation=body.presentation)
         except app_spec.SpecError as e:
             raise HTTPException(status_code=400, detail=str(e))
-
-        app_id = str(uuid.uuid4())
-        app_store.insert_version(
-            c,
-            app_id=app_id,
-            version=1,
-            name=name,
-            domain=body.domain or "General",
-            username=username,
-            is_global=False,
-            is_locked=False,
-            pinned_agent_id=None,
-            spec=spec,
+        app_store.create_draft(
+            c, app_id=app_id, name=name, domain=body.domain or "General", username=who.username,
+            is_locked=False, pinned_agent_id=None, spec=spec,
         )
         conn.commit()
-        return {"status": "success", "id": app_id, "version": 1, "tabs": len(spec["tabs"])}
     except HTTPException:
         conn.rollback()
         raise
@@ -303,42 +395,28 @@ def compose_app(body: AppCompose, w: WorkspaceClient = Depends(get_db_client), e
         raise HTTPException(status_code=500, detail=f"Error composing app: {str(e)}")
     finally:
         conn.close()
+    _grant_owner(app_id, who.username)
+    return {"status": "success", "id": app_id, "state": drafts.DRAFT_ONLY, "tabs": len(spec["tabs"])}
 
 
 @router.post("/")
-def create_app(body: AppCreate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    username = _get_current_username(w)
-    domain = body.domain or "General"
-    if body.is_global:
-        require_domain_editor(w, domain)
-
+def create_app(body: AppCreate, w: WorkspaceClient = Depends(get_db_client)):
+    """A new view, owned by the caller: a draft nobody else sees until they share and publish it."""
+    who = access.caller(w)
     app_id = body.id or str(uuid.uuid4())
     try:
         spec = app_spec.validate_spec(body.spec, app_id) if body.spec is not None else app_spec.legacy_spec(app_id, [])
     except app_spec.SpecError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    conn = get_db_connection(env)
+    conn = _connect()
     try:
         c = conn.cursor()
-        if app_store.head(c, app_id) is not None:
-            raise HTTPException(status_code=409, detail="An app with this id already exists.")
-        if body.is_global:
-            app_store.require_certified_widgets(c, spec, env)
-        app_store.insert_version(
-            c,
-            app_id=app_id,
-            version=1,
-            name=body.name,
-            domain=domain,
-            username="system" if body.is_global else username,
-            is_global=body.is_global,
-            is_locked=body.is_locked,
-            pinned_agent_id=app_spec.pin_value(body.pinned_agent_id, None),
-            spec=spec,
+        app_store.create_draft(
+            c, app_id=app_id, name=body.name, domain=body.domain or "General", username=who.username,
+            is_locked=body.is_locked, pinned_agent_id=app_spec.pin_value(body.pinned_agent_id, None), spec=spec,
         )
         conn.commit()
-        return {"status": "success", "id": app_id, "version": 1}
     except HTTPException:
         conn.rollback()
         raise
@@ -347,71 +425,79 @@ def create_app(body: AppCreate, w: WorkspaceClient = Depends(get_db_client), env
         raise HTTPException(status_code=500, detail=f"Error creating app: {str(e)}")
     finally:
         conn.close()
+    _grant_owner(app_id, who.username)
+    return {"status": "success", "id": app_id, "state": drafts.DRAFT_ONLY}
 
 
 @router.get("/{app_id}")
-def get_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """One app, if the caller may open it, by id or by what its link names it.
+def get_app(app_id: str, mode: Optional[str] = None, w: WorkspaceClient = Depends(get_db_client)):
+    """One app, by id or by what its link names it, if the caller can use it.
 
-    Reads only — opening a link subscribes nobody.
+    `mode` picks draft or published for a manager (default draft); someone with
+    Can use always gets the published version. Reads only.
     """
-    username, perms = _caller(w, env)
-    conn = get_db_connection(env)
+    who = access.caller(w)
+    conn = _connect()
     try:
         c = conn.cursor()
-        row, spec, subscribed = _require_readable(c, app_id, username, perms)
-        links = _links(c, [row["id"]] if row.get("is_global") else [])
+        app_id, level, row, version, has_draft = _open(c, who, app_id, mode)
+        links = _links(c, [app_id] if version else [])
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching app: {str(e)}")
     finally:
         conn.close()
-    return {"app": _public(row, spec, username=username, subscribed=subscribed, link=links.get(row["id"]))}
+    shown = "published" if level != MANAGE or mode == "published" else "draft"
+    app = _public(row, level=level, published_version=version, has_draft=has_draft, me=who.username,
+                  facts=_acl_facts([app_id]).get(app_id), link=links.get(app_id))
+    return {"app": app, "mode": shown}
 
 
 @router.get("/{app_id}/widgets")
-def app_widgets(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
+def app_widgets(app_id: str, mode: Optional[str] = None, w: WorkspaceClient = Depends(get_db_client)):
     """The library rows for the widgets this app places, in the shape `/api/widgets/custom` sends.
 
     Enough to render the app without loading the whole library: each placed
-    widget's versions, with the source of the current one and of any version a
-    tab pins. Filtered by domain exactly as the library is, so an app shows a
-    viewer the widgets they could already see and no others.
+    widget's published versions, with the source of the current one and of any
+    version a tab pins. Can use on the app is enough to see them, without Can use
+    on each widget: sharing a view shares what it shows. In draft mode a manager
+    also gets the drafts of the widgets they manage.
     """
-    username, perms = _caller(w, env)
-    conn = get_db_connection(env)
+    who = access.caller(w)
+    conn = _connect()
     try:
         c = conn.cursor()
-        _, spec, _ = _require_readable(c, app_id, username, perms)
-        ids, pinned = app_spec.placed_widgets(spec)
-        rows = widget_routes.library_rows(c, ids, pinned) if ids else []
+        _, level, row, _, _ = _open(c, who, app_id, mode)
+        ids, pinned = app_spec.placed_widgets(app_store.spec_of(row))
+        rows = widget_routes.bundle_rows(c, who, ids, pinned, draft=level == MANAGE and mode != "published")
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching app widgets: {str(e)}")
     finally:
         conn.close()
-    return {"widgets": widget_routes._visible(rows, perms)}
+    return {"widgets": rows}
 
 
 @router.put("/{app_id}")
-def update_app(app_id: str, body: AppUpdate, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    username = _get_current_username(w)
-    conn = get_db_connection(env)
+def update_app(app_id: str, body: AppUpdate, w: WorkspaceClient = Depends(get_db_client)):
+    """Save the draft. Nobody with only Can use sees it until it is published."""
+    who = access.caller(w)
+    access.require(who, APP, app_id, MANAGE, not_found=_NOT_FOUND)
+    conn = _connect()
     try:
         c = conn.cursor()
-        new_version = app_store.save_version(
-            c, w, env, app_id, username,
+        state = app_store.save_draft(
+            c, app_id, who.username,
             name=body.name,
             domain=body.domain,
-            is_global=body.is_global,
             is_locked=body.is_locked,
             pinned_agent_id=body.pinned_agent_id,
             spec=body.spec,
         )
         conn.commit()
-        return {"status": "success", "id": app_id, "version": new_version}
+        return {"status": "success", "id": app_id, "state": state}
     except HTTPException:
         conn.rollback()
         raise
@@ -422,105 +508,256 @@ def update_app(app_id: str, body: AppUpdate, w: WorkspaceClient = Depends(get_db
         conn.close()
 
 
-@router.post("/{app_id}/subscribe")
-def subscribe_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """Put an app into the caller's sidebar, which is what opening a shared link has always done.
+def _shared_beyond_owner(app_id: str) -> Tuple[bool, bool]:
+    """(shared with anyone besides its owner, shared with everyone), from the access list."""
+    summary = access.summary_of(access.get_acl(APP, app_id), access.owner_of(APP, app_id))
+    return summary != "private", summary == "everyone"
 
-    Any app that exists, for anyone holding its id: that is what a share link
-    means here. It reveals nothing; reading the app still goes through `can_read`.
-    A link name reaches only a global app (`app_store.resolve_ref`), so it can't be
-    used to subscribe to someone's personal one.
+
+def _includes(items: List[PublishItem]) -> List[Tuple[str, str]]:
+    out = []
+    for item in items:
+        if item.object_type not in (WIDGET, AGENT):
+            raise HTTPException(status_code=400, detail="Only widgets and agents can be published with a view.")
+        if item.object_id and (item.object_type, item.object_id) not in out:
+            out.append((item.object_type, item.object_id))
+    return out
+
+
+@router.post("/{app_id}/publish/preflight")
+def publish_preflight(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """What publishing this view would leave behind, for the Publish dialog.
+
+    Widgets it places and agents it pins that people with Can use couldn't see
+    yet (never published, or with unpublished changes), each saying whether the
+    caller may publish it along with the view; and, when the certified-widgets
+    setting is on and the view is shared beyond its owner, the widgets that would
+    have it refused.
     """
-    username = _get_current_username(w)
-    conn = get_db_connection(env)
+    who = access.caller(w)
+    access.require(who, APP, app_id, MANAGE, not_found=_NOT_FOUND)
+    shared, _ = _shared_beyond_owner(app_id)
+    conn = _connect()
     try:
         c = conn.cursor()
-        app_id = app_store.resolve_ref(c, app_id) or app_id
-        c.execute("SELECT id FROM dashboard_views WHERE id = %s", (app_id,))
-        if not c.fetchone():
-            raise HTTPException(status_code=404, detail="View not found")
-        c.execute("""
-            INSERT INTO shared_views (username, view_id)
-            VALUES (%s, %s)
-            ON CONFLICT (username, view_id) DO NOTHING
-        """, (username, app_id))
+        has_draft = drafts.read(c, APP, app_id) is not None
+        row = drafts.current(c, APP, app_id, MANAGE)
+        if row is None:
+            raise HTTPException(status_code=404, detail=_NOT_FOUND)
+        spec = app_store.spec_of(row)
+        widget_ids = app_store.custom_widget_ids(spec)
+        agent_ids = app_store.pinned_agent_ids(row, spec)
+        published: Dict[str, Dict[str, Any]] = {
+            WIDGET: {i: h.get("name") for i, h in app_store.widget_heads(c, widget_ids).items()},
+            AGENT: {},
+        }
+        for agent_id in agent_ids:
+            agent = drafts.latest(c, AGENT, agent_id)
+            if agent is not None:
+                published[AGENT][agent_id] = agent.get("name")
+        held = {WIDGET: drafts.drafts(c, WIDGET, widget_ids), AGENT: drafts.drafts(c, AGENT, agent_ids)}
+        problem = app_store.certification_problem(c, spec, shared)
+        uncertified = app_store.uncertified_widgets(c, spec) if problem else []
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking the view: {str(e)}")
+    finally:
+        conn.close()
+
+    items: List[Dict[str, Any]] = []
+    for object_type, ids in ((WIDGET, widget_ids), (AGENT, agent_ids)):
+        drafted = [i for i in ids if i in held[object_type]]
+        levels = access.levels_for(who, object_type, drafted)
+        for object_id in drafted:
+            name = (held[object_type][object_id].get("payload") or {}).get("name") or published[object_type].get(object_id)
+            items.append({
+                "object_type": object_type,
+                "object_id": object_id,
+                "name": name or object_id,
+                "reason": "unpublished_changes" if object_id in published[object_type] else "never_published",
+                "can_publish": levels.get(object_id) == MANAGE,
+            })
+    items.extend({"object_type": WIDGET, "object_id": wid, "name": name, "reason": "uncertified", "can_publish": False}
+                 for wid, name in uncertified)
+    blocking = [] if has_draft else ["There are no unpublished changes to publish."]
+    if problem:
+        blocking.append(problem)
+    return {"items": items, "blocking": blocking}
+
+
+@router.post("/{app_id}/publish")
+def publish_app(app_id: str, body: PublishRequest, w: WorkspaceClient = Depends(get_db_client)):
+    """Publish the draft as the next version, after the widgets and agents named in `include`.
+
+    One transaction: if the view can't be published (no draft, or refused under
+    the certified-widgets setting), the widgets and agents published with it roll
+    back too, so nobody is left with half of what they confirmed.
+    """
+    who = access.caller(w)
+    access.require(who, APP, app_id, MANAGE, not_found=_NOT_FOUND)
+    include = _includes(body.include)
+    for object_type in (WIDGET, AGENT):
+        wanted = [i for t, i in include if t == object_type]
+        levels = access.levels_for(who, object_type, wanted)
+        refused = [i for i in wanted if levels.get(i) != MANAGE]
+        if refused:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You need Can manage on every {object_type} you publish with the view.",
+            )
+    shared, everyone = _shared_beyond_owner(app_id)
+
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        held = drafts.read(c, APP, app_id)
+        if held is None:
+            raise HTTPException(status_code=409, detail="There are no unpublished changes to publish.")
+        for object_type, object_id in include:
+            # Someone else may have published it since the dialog opened; that's done, not an error.
+            if drafts.read(c, object_type, object_id) is not None:
+                drafts.publish(c, object_type, object_id, who.username)
+        payload = dict(held.get("payload") or {})
+        problem = app_store.certification_problem(c, app_store.spec_of({"id": app_id, **payload}), shared)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        if bool(payload.get("is_global")) != everyone:
+            payload["is_global"] = int(everyone)
+            drafts.save(c, APP, app_id, payload, held.get("updated_by") or who.username,
+                        base_version=held.get("base_version"))
+        version = drafts.publish(c, APP, app_id, who.username)
+        app_store.claim_link(c, app_id, payload.get("name") or "")
         conn.commit()
-        return {"status": "success", "message": f"Subscribed to shared view {app_id}"}
     except HTTPException:
         conn.rollback()
         raise
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Error subscribing to shared view: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error publishing view: {str(e)}")
     finally:
         conn.close()
+    return {"status": "success", "version": version}
+
+
+@router.post("/{app_id}/discard")
+def discard_draft(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """Throw the draft away; the view goes back to its newest published version."""
+    who = access.caller(w)
+    access.require(who, APP, app_id, MANAGE, not_found=_NOT_FOUND)
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        if app_store.head(c, app_id) is None:
+            # The draft is all there is, so discarding it would delete the view
+            # without the confirmation Delete asks for.
+            raise HTTPException(status_code=409, detail="This view has never been published, so there is nothing to go back to. Delete it instead.")
+        discarded = drafts.discard(c, APP, app_id)
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error discarding the draft: {str(e)}")
+    finally:
+        conn.close()
+    return {"status": "success", "discarded": discarded, "state": drafts.PUBLISHED}
+
+
+@router.post("/{app_id}/revert")
+def revert_app(app_id: str, body: RevertRequest, w: WorkspaceClient = Depends(get_db_client)):
+    """Make a published version the draft, replacing any draft; publishing it is a separate step."""
+    who = access.caller(w)
+    access.require(who, APP, app_id, MANAGE, not_found=_NOT_FOUND)
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        drafts.revert(c, APP, app_id, body.version, who.username)
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error reverting view: {str(e)}")
+    finally:
+        conn.close()
+    return {"status": "success", "state": drafts.PUBLISHED_WITH_DRAFT}
+
+
+def _set_hidden(app_id: str, w: WorkspaceClient, hidden: bool) -> Dict[str, Any]:
+    who = access.caller(w)
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        if hidden:
+            access.require(who, APP, app_id, USE, not_found=_NOT_FOUND)
+            c.execute(
+                "INSERT INTO sidebar_hidden (username, app_id) VALUES (%s, %s) ON CONFLICT (username, app_id) DO NOTHING",
+                (who.username, app_id),
+            )
+        else:
+            c.execute("DELETE FROM sidebar_hidden WHERE username = %s AND app_id = %s", (who.username, app_id))
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error updating the sidebar: {str(e)}")
+    finally:
+        conn.close()
+    return {"status": "success", "id": app_id, "hidden": hidden}
+
+
+@router.post("/{app_id}/hide")
+def hide_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """Close a view shared with the caller: out of their sidebar, still shared with them."""
+    return _set_hidden(app_id, w, True)
+
+
+@router.delete("/{app_id}/hide")
+def unhide_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    return _set_hidden(app_id, w, False)
+
+
+@router.post("/{app_id}/subscribe")
+def subscribe_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """What opening a shared link used to do. Sharing now decides who sees a view, so this only checks Can use."""
+    who = access.caller(w)
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        app_id, *_ = _open(c, who, app_id)
+    finally:
+        conn.close()
+    return {"status": "success", "id": app_id}
 
 
 @router.delete("/{app_id}/subscribe")
-def unsubscribe_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    username = _get_current_username(w)
-    conn = get_db_connection(env)
-    try:
-        c = conn.cursor()
-        c.execute("DELETE FROM shared_views WHERE username = %s AND view_id = %s", (username, app_id))
-        conn.commit()
-        return {"status": "success"}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Error unsubscribing from shared view: {str(e)}")
-    finally:
-        conn.close()
-
-
-def _owner_and_domain(c, app_id: str) -> Optional[Dict[str, Any]]:
-    """Who owns an app and which domain it is filed under, from its newest version.
-
-    Newest, not any: the domain can change between versions, and the permission
-    check has to be made against the one people can currently see.
-    """
-    c.execute(
-        "SELECT username, is_global, domain FROM dashboard_views "
-        "WHERE id = %s ORDER BY version DESC LIMIT 1",
-        (app_id,),
-    )
-    row = c.fetchone()
-    return dict(zip([column[0] for column in c.description], row)) if row else None
-
-
-def _global_app_for_editor(c, w, app_id: str, env: str) -> Dict[str, Any]:
-    """The app, if it is global and the caller may edit its domain; otherwise raise.
-
-    Archiving and restoring act on global apps only. A personal app is already
-    private to its owner, so "removing it from circulation" has no meaning there —
-    closing it in the sidebar deletes it, as it always has.
-    """
-    app = _owner_and_domain(c, app_id)
-    if not app:
-        raise HTTPException(status_code=404, detail="View not found")
-    if not app["is_global"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Only global views are archived. Close a personal view to delete it.",
-        )
-    require_domain_editor(w, app.get("domain") or "General")
-    return app
+def unsubscribe_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    _get_current_username(w)
+    return {"status": "success"}
 
 
 @router.post("/{app_id}/archive")
-def archive_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """Take a global app out of everyone's sidebar without deleting anything.
+def archive_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """Take an app out of every sidebar without deleting anything.
 
-    Every version stays, so restoring is exact and nothing an author built is
-    lost to a misclick. Idempotent: archiving twice is the same as once.
+    Every version and the draft stay, so restoring is exact and nothing an author
+    built is lost to a misclick. Idempotent: archiving twice is the same as once.
     """
-    username = _get_current_username(w)
-    conn = get_db_connection(env)
+    who = access.caller(w)
+    access.require(who, APP, app_id, MANAGE, not_found=_NOT_FOUND)
+    conn = _connect()
     try:
         c = conn.cursor()
-        _global_app_for_editor(c, w, app_id, env)
+        if not app_store.exists(c, app_id):
+            raise HTTPException(status_code=404, detail="View not found")
         c.execute(
             "INSERT INTO archived_views (id, archived_by) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
-            (app_id, username),
+            (app_id, who.username),
         )
         conn.commit()
         return {"status": "success", "id": app_id, "archived": True}
@@ -535,18 +772,16 @@ def archive_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: s
 
 
 @router.post("/{app_id}/restore")
-def restore_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    """Put an archived global app back exactly as it was."""
-    conn = get_db_connection(env)
+def restore_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """Put an archived app back exactly as it was."""
+    who = access.caller(w)
+    access.require(who, APP, app_id, MANAGE, not_found=_NOT_FOUND)
+    conn = _connect()
     try:
         c = conn.cursor()
-        _global_app_for_editor(c, w, app_id, env)
         c.execute("DELETE FROM archived_views WHERE id = %s", (app_id,))
         conn.commit()
         return {"status": "success", "id": app_id, "archived": False}
-    except HTTPException:
-        conn.rollback()
-        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Error restoring view: {str(e)}")
@@ -555,33 +790,30 @@ def restore_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: s
 
 
 @router.delete("/{app_id}")
-def delete_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: str = "dev"):
-    username = _get_current_username(w)
-    conn = get_db_connection(env)
+def delete_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """Delete an app: every version, the draft, its names and its access list. Nothing brings it back."""
+    who = access.caller(w)
+    access.require(who, APP, app_id, MANAGE, not_found=_NOT_FOUND)
+    shared, _ = _shared_beyond_owner(app_id)
+    conn = _connect()
     try:
         c = conn.cursor()
-        existing = _owner_and_domain(c, app_id)
-        if not existing:
+        if not app_store.exists(c, app_id):
             raise HTTPException(status_code=404, detail="View not found")
-
-        if existing["is_global"]:
-            require_domain_editor(w, existing.get("domain") or "General")
-            # Deleting is the second step, after archiving: every version goes and
-            # nothing brings them back, so a global app must first have been taken
-            # out of circulation where someone could have noticed and said so.
-            if not app_store.is_archived(c, app_id):
-                raise HTTPException(
-                    status_code=409,
-                    detail="Archive this global view before deleting it permanently.",
-                )
-        elif existing["username"] != username:
-            raise HTTPException(status_code=403, detail="You can only delete your own views")
-
+        # A view other people can open is archived first, where someone could
+        # notice it gone and say so before it is gone for good. One only its
+        # owner can see is theirs to delete outright, as closing it always has.
+        if shared and not app_store.is_archived(c, app_id):
+            raise HTTPException(
+                status_code=409,
+                detail="This view is shared with other people. Archive it before deleting it permanently.",
+            )
         c.execute("DELETE FROM dashboard_views WHERE id = %s", (app_id,))
+        drafts.discard(c, APP, app_id)
         c.execute("DELETE FROM archived_views WHERE id = %s", (app_id,))
+        c.execute("DELETE FROM sidebar_hidden WHERE app_id = %s", (app_id,))
         app_links.forget(c, app_id)
         conn.commit()
-        return {"status": "success", "message": f"View {app_id} deleted"}
     except HTTPException:
         conn.rollback()
         raise
@@ -590,3 +822,8 @@ def delete_app(app_id: str, w: WorkspaceClient = Depends(get_db_client), env: st
         raise HTTPException(status_code=500, detail=f"Error deleting view: {str(e)}")
     finally:
         conn.close()
+    try:
+        access.delete_acl(APP, app_id)
+    except Exception as e:  # noqa: BLE001 - grants on an id that no longer exists open nothing
+        logger.warning("View %s was deleted but its access list wasn't: %s", app_id, e)
+    return {"status": "success", "message": f"View {app_id} deleted"}

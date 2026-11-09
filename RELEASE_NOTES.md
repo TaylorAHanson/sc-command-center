@@ -22,6 +22,43 @@
 
 # Release Notes
 
+## 2.0.0 — 2026-11-09
+
+### Added
+
+- **Share like a Databricks dashboard.** **Share** on a view, widget or agent gives people, groups or everyone in this app **Can use** or **Can manage**.
+- **Drafts and Publish.** Your edits save to a draft only you and other managers see; **Publish** makes them what everyone else sees, with **History** to revert.
+- **Unpublished changes are marked.** A dot beside a view in the sidebar means it has changes you haven't published yet.
+- **Shared with me.** The sidebar lists **My views**, **Shared with me** and **Archived**; hover a shared view to **Copy** it or **Close** it.
+- **See who something is shared with.** Anyone who can use a view, widget or agent can open **Share** to see its access list, and copy a view's link.
+- **Share from the Widget Library.** Hover a widget and click the share icon, without opening Widget Studio.
+- **Publishing a view checks its widgets.** The Publish dialog lists unpublished widgets and agents on the view and offers to publish them too.
+- **Save a copy of an agent.** In Agent Studio, an agent you can use but not manage offers **Save a copy** to make your own.
+- **Retry the upgrade.** If the Admin Panel says the move to sharing didn't finish, **View details** has a **Retry** button.
+
+### Changed
+
+- **The Workspace switcher is gone.** Your Dev and Test work is now a draft; unsaved Widget Studio sessions from before the upgrade aren't restored.
+- **Anyone can build.** Widget Studio and Agent Studio are open to everyone, and what you build is private until you share it.
+- **Links open only for people something is shared with.** Everyone who could open a view before still can; an archived view's link stops opening.
+- **A standalone view's link shows the published version.** It's read-only there; people who manage it use **Edit** to change it.
+- **A simpler view header.** A chip beside the name reads **Not published yet**, **Published** or **Unpublished changes**; **Share** and **Publish** sit on the right.
+- **Occasional view actions moved to the ⋯ menu.** Layout, **Add a tab…**, **View settings…**, **Lock layout**, **Version history…** and **Discard draft…** moved there.
+- **Publish shows only when there's something to publish.** The **Draft** / **Published** switch likewise appears only with unpublished changes, in views and both studios.
+- **Closing your own view asks first.** The × in **My views** deletes a private view and archives one you've shared.
+- **Unpublished widgets show "Not published yet".** People who can only use a view see that card until the widget is published.
+- **Widget Studio saves drafts.** **Save draft** keeps your work, and the bar under the tabs holds **Publish**, **Discard**, **Certify** and **Share**.
+- **Publishing a widget checks it again.** Publish runs the same safety check as saving, so a widget that fails it stays unpublished.
+- **Certify applies to the latest published version.** Only people who can manage a widget certify it, from the bar in Widget Studio.
+- **The certified-widgets setting covers shared views.** **Shared views may only contain certified widgets** applies to any view shared beyond its owner.
+- **Widget Library filters by who built it.** **Mine** and **Shared with me** go by author, and a chip marks widgets you manage with unpublished work.
+- **A shared view brings its widgets.** They show on the view but aren't added to your Widget Library.
+- **The agent picker lists published agents you can use.** Chat always runs the published version; any other agent answers "That agent isn't available to you."
+- **Domains are filters only.** They help you find things in the Widget Library and no longer decide who gets access.
+- **Admin Panel → Content and Administrators replace promotion and Role Mappings.** Administrators can find any view, widget or agent and choose who else administers the app.
+- **Check your Administrators.** If nobody administered the app before the upgrade, the workspace's users group was added; change that under Admin Panel → Administrators.
+- **Older Data Migration snapshots still import.** Their role mappings become sharing and Administrators, the same way this app's own did.
+
 ## 1.17.0 — 2026-10-27
 
 ### Added

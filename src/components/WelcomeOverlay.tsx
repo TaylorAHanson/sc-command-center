@@ -1,14 +1,16 @@
 import React, { useEffect } from 'react';
-import { ArrowRight, Bot, Code, LayoutGrid, Lock, Plus, Search, Sparkles, X } from 'lucide-react';
-import clsx from 'clsx';
+import { ArrowRight, Bot, Code, LayoutGrid, Plus, Search, Sparkles, X } from 'lucide-react';
 
-/** The part of the workspace a welcome card is about, so Layout can light it up. */
+/**
+ * The part of the workspace a welcome card is about, so Layout can light it up.
+ * `global-views` is the sidebar's views shared with you; the name predates sharing.
+ */
 export type WelcomeSpot = 'assistant' | 'global-views' | 'library' | 'studio' | 'agent-studio';
 
 const STARTER_QUESTIONS = [
   'What can you help me with?',
   'What data can I look at here?',
-  'Which global view should I start with?',
+  'Which view should I start with?',
 ];
 
 const VIEWS_SHOWN = 3;
@@ -19,24 +21,20 @@ const Tile: React.FC<{
   icon: React.ReactNode;
   title: string;
   body: string;
-  locked?: boolean;
   children: React.ReactNode;
-}> = ({ spot, onSpot, icon, title, body, locked, children }) => (
+}> = ({ spot, onSpot, icon, title, body, children }) => (
   <div
     onMouseEnter={() => onSpot(spot)}
     onMouseLeave={() => onSpot(null)}
     onFocus={() => onSpot(spot)}
     onBlur={() => onSpot(null)}
-    className={clsx(
-      'flex flex-col rounded-xl border p-4 transition-all',
-      locked ? 'border-gray-200 bg-gray-50' : 'border-gray-200 bg-white hover:border-brand-blue/40 hover:shadow-md',
-    )}
+    className="flex flex-col rounded-xl border border-gray-200 bg-white p-4 transition-all hover:border-brand-blue/40 hover:shadow-md"
   >
     <div className="flex items-center gap-2 mb-1">
-      <span className={clsx('flex h-7 w-7 items-center justify-center rounded-lg', locked ? 'bg-gray-200 text-gray-500' : 'bg-brand-blue/10 text-brand-blue')}>
+      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-blue/10 text-brand-blue">
         {icon}
       </span>
-      <h3 className={clsx('text-sm font-semibold', locked ? 'text-gray-600' : 'text-gray-900')}>{title}</h3>
+      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
     </div>
     <p className="text-xs text-gray-600 leading-relaxed mb-3">{body}</p>
     <div className="mt-auto">{children}</div>
@@ -54,13 +52,6 @@ const TileAction: React.FC<{ onClick: () => void; children: React.ReactNode }> =
   </button>
 );
 
-const NeedsEditor: React.FC = () => (
-  <p className="flex items-center gap-1.5 text-xs text-gray-500">
-    <Lock className="w-3.5 h-3.5" />
-    Needs editor access in a domain; ask an admin.
-  </p>
-);
-
 /**
  * What a first visit can do, laid over the canvas. Each card is a doorway rather
  * than a description: it opens the thing it names. Hovering one reports its spot,
@@ -72,16 +63,20 @@ export const WelcomeOverlay: React.FC<{
   agentName: string | null;
   /** Opens the assistant; a prompt is typed in for the user to send, never sent. */
   onAsk: (prompt?: string) => void;
-  globalViews: { id: string; name: string }[];
+  /** Published views shared with this person, to open as they are. */
+  sharedViews?: { id: string; name: string }[];
+  /** @deprecated Use `sharedViews`. */
+  globalViews?: { id: string; name: string }[];
   onOpenView: (id: string) => void;
   onOpenLibrary: () => void;
-  canBuild: boolean;
+  /** @deprecated Everyone may build; ignored. */
+  canBuild?: boolean;
   onOpenStudio: (page: 'studio' | 'agent-studio') => void;
   onBlankView: () => void;
   onSpot: (spot: WelcomeSpot | null) => void;
   /** Absent when there is nothing behind the panel to go back to. */
   onDismiss?: () => void;
-}> = ({ agentName, onAsk, globalViews, onOpenView, onOpenLibrary, canBuild, onOpenStudio, onBlankView, onSpot, onDismiss }) => {
+}> = ({ agentName, onAsk, sharedViews, globalViews, onOpenView, onOpenLibrary, onOpenStudio, onBlankView, onSpot, onDismiss }) => {
   useEffect(() => {
     if (!onDismiss) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); };
@@ -89,8 +84,9 @@ export const WelcomeOverlay: React.FC<{
     return () => document.removeEventListener('keydown', onKey);
   }, [onDismiss]);
 
-  const shownViews = globalViews.slice(0, VIEWS_SHOWN);
-  const moreViews = globalViews.length - shownViews.length;
+  const views = sharedViews ?? globalViews ?? [];
+  const shownViews = views.slice(0, VIEWS_SHOWN);
+  const moreViews = views.length - shownViews.length;
 
   return (
     <div className="absolute inset-0 z-30 flex justify-center overflow-y-auto bg-brand-navy/30 backdrop-blur-sm p-6">
@@ -165,8 +161,8 @@ export const WelcomeOverlay: React.FC<{
               spot="global-views"
               onSpot={onSpot}
               icon={<LayoutGrid className="w-4 h-4" />}
-              title="Browse global views"
-              body="Ready-made views your team shares. Open one as it is, or copy it to My Views to make it yours."
+              title="Browse shared views"
+              body="Views people have shared with you. Open one as it is, or copy it to make your own version."
             >
               {shownViews.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -184,7 +180,7 @@ export const WelcomeOverlay: React.FC<{
                   {moreViews > 0 && <span className="text-xs text-gray-500">+{moreViews} more in the sidebar</span>}
                 </div>
               ) : (
-                <p className="text-xs text-gray-500">None in your domain yet.</p>
+                <p className="text-xs text-gray-500">Nothing has been shared with you yet.</p>
               )}
             </Tile>
 
@@ -206,9 +202,8 @@ export const WelcomeOverlay: React.FC<{
               icon={<Code className="w-4 h-4" />}
               title="Build your own widget"
               body="Describe what you need. Widget Studio writes it, connects your data and shows it running as it goes."
-              locked={!canBuild}
             >
-              {canBuild ? <TileAction onClick={() => onOpenStudio('studio')}>Open Widget Studio</TileAction> : <NeedsEditor />}
+              <TileAction onClick={() => onOpenStudio('studio')}>Open Widget Studio</TileAction>
             </Tile>
 
             <Tile
@@ -217,9 +212,8 @@ export const WelcomeOverlay: React.FC<{
               icon={<Sparkles className="w-4 h-4" />}
               title="Build your own agent"
               body="Give an assistant its own instructions, data and tools, try it out, then pin it to a view."
-              locked={!canBuild}
             >
-              {canBuild ? <TileAction onClick={() => onOpenStudio('agent-studio')}>Open Agent Studio</TileAction> : <NeedsEditor />}
+              <TileAction onClick={() => onOpenStudio('agent-studio')}>Open Agent Studio</TileAction>
             </Tile>
           </div>
         </div>

@@ -1,10 +1,11 @@
 """Moving a whole deployment's data from one Command Center app to another.
 
-Promotion (`routes/promotion.py`) copies one widget or view between the dev,
-test and prod schemas of *one* Lakebase instance. That stopped being enough when
-each bundle target got an instance of its own (`command-center-<env>-v1`): the
-test app cannot see the dev app's database at all, so moving people from the dev
-app to the test app meant rebuilding every widget and agent by hand.
+Each bundle target has a Lakebase instance of its own (`command-center-<env>-v1`):
+the test app cannot see the dev app's database at all, so without this, moving
+people from one app to another meant rebuilding every widget and agent by hand.
+A deployment keeps its content in one store (`database.content_env()`) and its
+access lists and settings in another (`settings_env()`); a snapshot carries
+both, and each table goes back to the store its kind lives in.
 
 This moves data as a **snapshot file** rather than over a connection between the
 two apps, on purpose:
@@ -28,7 +29,8 @@ Two modes, because "migrate" means two different things:
 
   * **merge** (default) — add what the target is missing and leave everything it
     already has. Versioned rows are matched on `(id, version)`, taxonomy on name,
-    role mappings on their three fields, and activity rows on their content, so a
+    access entries on object and principal (the target's level wins), drafts on
+    their object (the target's draft wins), and activity rows on their content, so a
     merge can be repeated without duplicating anything. Serial ids are *not*
     carried: the two databases numbered their rows independently, and reusing the
     source's ids would collide with the target's.
@@ -36,9 +38,13 @@ Two modes, because "migrate" means two different things:
     with ids preserved and sequences moved past them. What you want for "dev is
     the source of truth, make test a copy".
 
-Everything for one schema is one transaction. A failure part-way leaves the
-target exactly as it was, which matters more here than speed: half a migration
+Everything for one schema is one transaction. A failure part-way leaves that
+schema exactly as it was, which matters more here than speed: half a migration
 is a deployment in a state nobody designed.
+
+Snapshots from before sharing (format 1) carry `role_mappings` instead of access
+lists. Those are no longer written anywhere; the route turns them into the
+access lists the startup migration would have (`access_migration`).
 
 Nothing in this module imports the database or FastAPI, so the planning — which
 rows a merge would skip, how values survive JSON — is tested without either.
@@ -54,7 +60,9 @@ from collections import Counter
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 FORMAT = "command-center-snapshot"
-FORMAT_VERSION = 1
+#: 2: one content store plus access lists, drafts and admins; 1 was one
+#: workspace (dev, test or prod) with role mappings.
+FORMAT_VERSION = 2
 
 
 class TableSpec:
@@ -74,13 +82,17 @@ class TableSpec:
 TABLES: List[TableSpec] = [
     TableSpec("widgets", "content", ("id", "version")),
     TableSpec("dashboard_views", "content", ("id", "version")),
+    TableSpec("agent_profiles", "content", ("id", "version")),
+    TableSpec("object_drafts", "content", ("object_type", "object_id")),
     TableSpec("shared_views", "content", ("username", "view_id")),
+    TableSpec("sidebar_hidden", "content", ("username", "app_id")),
     TableSpec("archived_views", "content", ("id",)),
     TableSpec("app_links", "content", ("slug",)),
-    TableSpec("agent_profiles", "content", ("id", "version")),
+    TableSpec("object_permissions", "access", ("object_type", "object_id", "principal")),
+    TableSpec("app_admins", "access", ("principal",)),
+    TableSpec("known_principals", "access", ("principal",)),
     TableSpec("widget_categories", "access", ("name",), serial=True),
     TableSpec("widget_domains", "access", ("name",), serial=True),
-    TableSpec("role_mappings", "access", ("external_role", "domain", "permission_level"), serial=True),
     TableSpec("app_settings", "settings", ("key",)),
     TableSpec("widget_runs", "activity", ("widget_id", "username", "timestamp"), serial=True),
     TableSpec("action_logs", "activity",
@@ -92,17 +104,28 @@ TABLES: List[TableSpec] = [
 ]
 SPECS: Dict[str, TableSpec] = {t.name: t for t in TABLES}
 
+#: Tables that live in the settings schema rather than the content store; see
+#: `database.settings_env()`. Everything else goes to `content_env()`.
+SETTINGS_TABLES = frozenset({"app_settings", "object_permissions", "app_admins", "known_principals"})
+
+#: Read from old snapshots, never written: access lists replaced role mappings,
+#: and the route converts them (`access_migration.tables_from_legacy_snapshot`).
+LEGACY_TABLES = frozenset({"role_mappings"})
+
 #: Tables deliberately left out of snapshots. A stop record only matters while
 #: its turn is still streaming on the app that recorded it, and a generation job
-#: only while the studio that started it is polling.
-NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs"})
+#: only while the studio that started it is polling. The cutover log records
+#: what startup did on *this* deployment; the target ran its own.
+NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs", "cutover_log"})
 
 GROUPS: List[Dict[str, Any]] = [
     {"key": "content", "label": "Widgets, views and agents",
-     "help": "Every version of every widget, view and Agent Studio agent, plus who is subscribed to which shared view.",
+     "help": "Every published version and unpublished draft of every widget, view and agent, plus whose sidebar "
+             "holds which view.",
      "default": True},
-    {"key": "access", "label": "Categories, domains and role mappings",
-     "help": "The taxonomy and who may edit which domain. Replacing these replaces the target's access control.",
+    {"key": "access", "label": "Sharing, administrators, categories and domains",
+     "help": "Who can use and manage each item, who administers the app, and the taxonomy. Replacing these "
+             "replaces the target's access control.",
      "default": True},
     {"key": "settings", "label": "Deployment settings",
      "help": "Admin Panel → Settings: models, limits and switches. Merge keeps any the target has already set.",
@@ -128,6 +151,13 @@ def tables_for(groups: Iterable[str]) -> List[TableSpec]:
     return [t for t in TABLES if t.group in wanted]
 
 
+def partition(specs: Iterable[TableSpec]) -> Tuple[List[TableSpec], List[TableSpec]]:
+    """(content-store tables, settings-schema tables), each in import order."""
+    specs = list(specs)
+    return ([s for s in specs if s.name not in SETTINGS_TABLES],
+            [s for s in specs if s.name in SETTINGS_TABLES])
+
+
 # ------------------------------------------------------------------ values
 
 def encode_value(value: Any) -> Any:
@@ -149,6 +179,18 @@ def encode_value(value: Any) -> Any:
 def decode_value(value: Any) -> Any:
     if isinstance(value, dict) and set(value) == {"$b64"}:
         return base64.b64decode(value["$b64"])
+    return value
+
+
+def _adapted(value: Any) -> Any:
+    """A decoded value psycopg2 can write. JSONB (`object_drafts.payload`) comes back
+    from the file as a dict, which psycopg2 refuses; no copied table has an array
+    column, so a list is JSON too."""
+    value = decode_value(value)
+    if isinstance(value, (dict, list)):
+        from psycopg2.extras import Json
+
+        return Json(value)
     return value
 
 
@@ -183,7 +225,7 @@ def validate_snapshot(snapshot: Any) -> List[str]:
         return ["The snapshot has no tables."]
     problems = []
     for name, body in tables.items():
-        if name not in SPECS:
+        if name not in SPECS and name not in LEGACY_TABLES:
             continue  # reported as ignored, not an error: a newer app may add tables
         if not isinstance(body, dict) or not isinstance(body.get("columns"), list) \
                 or not isinstance(body.get("rows"), list):
@@ -253,10 +295,10 @@ def _quoted(columns: Sequence[str]) -> str:
     return ", ".join(f'"{c}"' for c in columns)
 
 
-def summarize(cur, groups: Iterable[str] = GROUP_KEYS) -> List[Dict[str, Any]]:
+def summarize(cur, specs: Iterable[TableSpec] = TABLES) -> List[Dict[str, Any]]:
     """Row counts and on-disk size per table, for the export form."""
     out = []
-    for spec in tables_for(groups):
+    for spec in specs:
         try:
             cur.execute(
                 f'SELECT COUNT(*), pg_total_relation_size(to_regclass(%s)) FROM "{spec.name}"',
@@ -351,7 +393,7 @@ def import_tables(cur, tables: Dict[str, Any], specs: Iterable[TableSpec], mode:
                 existing = [tuple(dict(zip(key_cols, e)).get(k) for k in spec.key) for e in existing]
             todo, entry["skipped"] = plan_merge(rows, source_columns, spec, existing)
 
-        values = [tuple(decode_value(r[i]) for i in index) for r in todo]
+        values = [tuple(_adapted(r[i]) for i in index) for r in todo]
         written = _insert(cur, spec.name, columns, values) if values else 0
         entry["inserted"] = written
         # A unique key other than the one planned on (a PK in merge, say) can still

@@ -75,11 +75,31 @@ async def startup_event():
     # uvicorn stop the ENTIRE app ("Child process failed to start, stopping the
     # parent process"), which is far worse than one worker skipping a no-op init
     # the other worker already completed.
-    for _env in ("dev", "test", "prod"):
+    #
+    # One content store now, not a schema per Dev/Test/Prod workspace; the
+    # settings schema is still its own, and is where access lists live.
+    from database import content_env
+    from services.settings_store import settings_env
+
+    stores = list(dict.fromkeys((content_env(), settings_env())))
+    for _env in stores:
         try:
             init_db(_env)
         except Exception as e:  # noqa: BLE001
             logging.error(f"init_db({_env}) failed during startup: {e}", exc_info=True)
+
+    # The move to sharing and drafts, done once per deployment: fold the old
+    # Dev/Test workspaces into drafts, then turn role mappings into access lists.
+    # In that order, so the second finds every object the first brought over.
+    # Each records what it did (or why it failed) for the Admin Panel instead of
+    # raising, for the same reason init_db doesn't.
+    from services import access_migration, consolidation
+
+    for _step in (consolidation, access_migration):
+        try:
+            _step.run_once()
+        except Exception as e:  # noqa: BLE001
+            logging.error(f"{_step.__name__} failed during startup: {e}", exc_info=True)
 
     # Leave a few connections open per environment so the first page load doesn't
     # pay for handshakes. It fires around ten API calls at once, and each one that
@@ -101,7 +121,7 @@ async def startup_event():
                 logging.warning(f"Could not warm the {env} connection pool: {e}")
                 return None
 
-        wanted = [env for env in ("dev", "test", "prod") for _ in range(warm)]
+        wanted = [env for env in stores for _ in range(warm)]
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(wanted)) as pool:
             for conn in list(pool.map(_open, wanted)):
                 if conn is not None:
@@ -271,8 +291,9 @@ from routes import custom_widgets
 from routes import widget_studio
 from routes import agent_studio_profiles
 from routes import agent_proxy
-from routes import promotion
 from routes import apps
+from routes import sharing
+from routes import cutover
 from routes import databricks_api
 from routes import taxonomy
 from routes import app_settings
@@ -283,8 +304,10 @@ app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_w
 app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widget_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
 app.include_router(agent_proxy.router, prefix="/api/agent", tags=["agent_proxy"])
-app.include_router(promotion.router, prefix="/api/promotion", tags=["promotion"])
 app.include_router(apps.router, prefix="/api/apps", tags=["apps"])
+# Before sharing: its /{object_type}/{object_id} would otherwise claim /migration/report.
+app.include_router(cutover.router, prefix="/api/sharing/migration", tags=["sharing"])
+app.include_router(sharing.router, prefix="/api/sharing", tags=["sharing"])
 app.include_router(databricks_api.router, prefix="/api/databricks", tags=["databricks_api"])
 app.include_router(taxonomy.router, prefix="/api/taxonomy", tags=["taxonomy"])
 app.include_router(app_settings.router, prefix="/api/settings", tags=["app_settings"])

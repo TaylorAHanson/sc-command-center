@@ -3,7 +3,7 @@ import { useDashboardContext, buildContextPreamble, type DashboardContext } from
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
 import { DEFAULT_AGENT_NAME, pinnedAgentOf } from '../store/appSpec';
 import { useChatUploads } from './useChatUploads';
-import { getContentEnv } from '../contentEnv';
+import type { Level, PublishState } from '../sharing';
 
 export type { Attachment } from './useChatUploads';
 
@@ -16,11 +16,12 @@ export interface AgentProfile {
     id: string;
     name: string;
     description?: string;
-    location_label?: string;
+    domain?: string;
     author?: string;
     owned_by_me?: boolean;
-    /** 'personal' | 'domain' | 'global' — who else can run this agent. */
-    visibility?: string;
+    access?: Level;
+    state?: PublishState;
+    published_version?: number | null;
 }
 
 export interface MessageAttachment {
@@ -104,8 +105,15 @@ const GREETING: AgentMessage = {
 // Which conversation the user was last in. The transcript itself lives in the
 // database (so it survives a reload, and so uploaded files have an owner); this
 // only remembers where to reopen, since "most recently updated" is not always the
-// one they were reading.
-const conversationKey = () => `sccc-agent-conversation:${getContentEnv()}`;
+// one they were reading. The suffixed keys are from when each workspace (Prod,
+// Dev, Test) had its own conversations; they are read until this one is written.
+const CONVERSATION_KEY = 'sccc-agent-conversation';
+const conversationKey = () => CONVERSATION_KEY;
+const rememberedConversation = (): string =>
+    localStorage.getItem(CONVERSATION_KEY)
+    || localStorage.getItem(`${CONVERSATION_KEY}:prod`)
+    || localStorage.getItem(`${CONVERSATION_KEY}:dev`)
+    || '';
 
 const newConversationId = (): string =>
     'conv-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-6);
@@ -312,7 +320,7 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         (async () => {
             try {
                 let remembered = '';
-                try { remembered = localStorage.getItem(conversationKey()) || ''; } catch { /* private browsing */ }
+                try { remembered = rememberedConversation(); } catch { /* private browsing */ }
                 const [list, opened] = await Promise.all([
                     refreshConversations(),
                     remembered ? openConversation(remembered, { yieldToUser: true }) : Promise.resolve(false),
@@ -412,13 +420,13 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
     }, [activePlace, pinnedAgentId, pinnedAgentUnavailable, selectedProfileId,
         isRestoring, isLoading, isDraftMode, persists]);
 
-    // Agent Studio profile discovery is LAZY: listing them triggers a UC scan
-    // (or a pinned-location lookup) server-side, so we don't pay it on every
-    // drawer mount for every user. The picker calls loadProfilesOnce() the first
-    // time the user interacts with it.
+    // Agent Studio profile discovery is LAZY: listing them resolves the caller's
+    // identity and access list server-side, so we don't pay it on every drawer
+    // mount for every user. The picker calls loadProfilesOnce() the first time
+    // the user interacts with it.
     // Throttled (not single-latch): refresh at most once per window so opening
-    // the drawer re-checks for newly saved profiles, but we never hammer the
-    // (UC-scanning) endpoint. Errors reset the clock so the next interaction retries.
+    // the drawer re-checks for newly published or shared agents, but we never
+    // hammer the endpoint. Errors reset the clock so the next interaction retries.
     const lastProfileLoadRef = useRef(0);
     // Within the window a caller gets the last load, still in flight or not, so
     // whoever needs the list to decide something never decides on an empty one.
@@ -430,7 +438,8 @@ export const useAgentChat = (options: UseAgentChatOptions = {}) => {
         lastProfileLoadRef.current = now;
         profileLoadRef.current = (async () => {
             try {
-                const r = await fetch('/api/agent/studio/profiles');
+                // Only what chat can run: a published version the caller can use.
+                const r = await fetch('/api/agent/studio/profiles?usable=true');
                 if (r.ok) {
                     const d = await r.json();
                     const profiles: AgentProfile[] = d.profiles || [];

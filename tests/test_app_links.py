@@ -1,8 +1,8 @@
-"""Tests for the names in links to global views (`services/app_links.py`).
+"""Tests for the names in links to views (`services/app_links.py`).
 
-What matters is that a name never stands in for a personal view's id, which is
-the only thing keeping a personal view to the people it was shared with, and
-that a name once handed out keeps pointing at the same view.
+What matters is that a name never takes over another view's `<name>-<id>` link,
+that a name once handed out keeps pointing at the same view, and that every
+published view gets one.
 """
 import os
 import sys
@@ -46,14 +46,14 @@ def test_a_name_with_nothing_to_spell_is_view():
     assert app_links.slugify("!!!") == "view" and app_links.slugify(None) == "view"
 
 
-def test_a_name_cannot_pose_as_a_personal_views_link():
-    # Resolving a personal link reads the id at its end; a global view named so
-    # would otherwise answer for someone else's.
+def test_a_name_cannot_pose_as_a_name_and_id_link():
+    # Resolving such a link reads the id at its end; a view named so would
+    # otherwise answer for another view's.
     assert app_links.id_in(app_links.slugify(f"Ops {UUID}")) is None
     assert app_links.slugify(UUID) == "view"
 
 
-def test_a_personal_link_carries_its_id():
+def test_a_name_and_id_link_carries_its_id():
     assert app_links.id_in(f"q3-review-{UUID}") == UUID
     assert app_links.id_in(UUID.upper()) == UUID
     assert app_links.id_in("supply-hub") is None
@@ -74,6 +74,31 @@ def test_a_taken_name_gets_the_next_number_and_a_view_keeps_its_own():
 def test_every_number_taken_falls_back_to_the_id():
     taken = {"ops": "x", **{f"ops-{n}": "x" for n in range(2, app_links.MAX_SUFFIX + 1)}}
     assert app_links.claim(Links(**taken), "g1", "Ops") is None
+
+
+class Backfill(Links):
+    """The startup query's answer, then the claims it makes."""
+
+    def __init__(self, unnamed, **taken):
+        super().__init__(**taken)
+        self.unnamed = list(unnamed)
+        self.queries = []
+
+    def execute(self, sql, params=None):
+        if params is None:
+            self.queries.append(" ".join(sql.split()))
+            return
+        super().execute(sql, params)
+
+    def fetchall(self):
+        return self.unnamed
+
+
+def test_startup_names_every_published_view_not_only_widely_shared_ones():
+    links = Backfill([("p1", "Ops"), ("p2", "Ops")])
+    assert app_links.backfill(links) == 2
+    assert links.rows == {"ops": "p1", "ops-2": "p2"}, "the oldest keeps the plain name"
+    assert "is_global" not in links.queries[0]
 
 
 if __name__ == "__main__":

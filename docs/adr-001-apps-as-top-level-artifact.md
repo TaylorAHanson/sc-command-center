@@ -677,3 +677,29 @@ From root `AGENTS.md` / `server/AGENTS.md` / `src/AGENTS.md`:
 | 2026-10-05 | Slice 7 built (§4.3f): `nav` (tabs top or side), `theme` (two brand colours as CSS variables, white-text contrast enforced, standalone only), `filters` (a filter bar that sets dashboard variables); all edited in View settings. |
 | 2026-10-05 | Follow-ups (§4.3g): per-tab agent pin menu; theme also in the workspace, scoped to the view's area; Q3 decided (personal saves coalesce for 5 minutes); app-open cost measured and `tools/app_open_probe.mjs` committed. Q4, Q5, Q10 decided: no. |
 | 2026-10-05 | `branding.assistant_name` replaced by an **Agent** picker in View settings that sets the app's pin; the launcher names the selected agent. |
+| 2026-11-09 | Access model superseded: per-object sharing plus drafts replaced the domain rules (see *Follow-up* below). |
+
+## Follow-up (2026-11-09): sharing and drafts supersede §2.3
+
+The decision recorded on 2026-10-05 — apps inherit the views' security model
+unchanged — no longer holds. Access is now per object, the way Databricks
+dashboards share: every app, widget and agent has its own access list granting
+**Can use** (`USE`) or **Can manage** (`MANAGE`) to users, groups or everyone,
+the owner gets `MANAGE`, and app Administrators manage everything
+(`services/access.py`). Domains are filter labels only. So §2.3's rules — a
+global app needs a role in its domain, a personal app opens for anyone holding
+its id, editor rights on the resulting domain — and the coalescing of personal
+saves (Q3) are superseded. A link opens only for people the app is shared with,
+and a published app's link is its name whatever its old personal/global state.
+
+Each object also has one **draft**, edited in place by its managers, and
+published versions that `USE` holders read (`services/drafts.py`,
+`object_drafts`). That replaced the in-app Dev/Test/Prod workspaces and
+promotion, so `transfer_app` and its preflight are gone; publishing an app runs
+the equivalent preflight and can publish its unpublished widgets and agent in the
+same transaction. Q10 is moot with promotion gone: the certified-widgets rule
+(`require_certified_for_global_views`, now labelled "Shared views may only
+contain certified widgets") is enforced when an app is published, for any app
+shared beyond its owner, across all tabs. "Version numbers are per environment" above now only applies
+between separate deployments. Everything else in this ADR — apps as the
+top-level artifact, specs, tabs, links, the standalone shell — stands.

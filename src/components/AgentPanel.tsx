@@ -5,6 +5,7 @@ import { AgentConversation } from './AgentConversation';
 import { ConversationHistory } from './ConversationHistory';
 import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
 import { DEFAULT_AGENT_NAME, pinnedAgentOf, tabLabel, type CanvasBackground } from '../store/appSpec';
+import { accessSummary, fetchAcl } from '../sharing';
 
 export const AgentPanel: React.FC<{
     chat: AgentChat;
@@ -45,12 +46,28 @@ export const AgentPanel: React.FC<{
         && !availableProfiles.some(p => p.id === selectedProfileId),
     );
 
-    // Pinning a personal agent to a view other people open leaves them with the
-    // default agent and no explanation, so say so at the moment it happens.
-    const selectedProfile = availableProfiles.find(p => p.id === selectedProfileId);
-    const pinnedButPrivate = Boolean(
-        isPinnedHere && activeApp?.is_global && selectedProfile?.visibility === 'personal',
-    );
+    // Pinning an agent shared more narrowly than the view leaves the people in
+    // between with the default agent and no explanation, so say so at the moment
+    // it happens. Only the plain cases are caught (a private agent on a shared
+    // view, or a view for everyone): comparing two lists of groups needs
+    // memberships the browser doesn't have.
+    const checkId = isPinnedHere && selectedProfileId && activeApp ? selectedProfileId : '';
+    const checkApp = activeApp?.id ?? '';
+    const [narrower, setNarrower] = useState<{ key: string; value: boolean } | null>(null);
+    const pinnedNarrower = Boolean(checkId && narrower?.key === `${checkId}|${checkApp}` && narrower.value);
+    useEffect(() => {
+        if (!checkId) return;
+        let live = true;
+        const key = `${checkId}|${checkApp}`;
+        Promise.all([fetchAcl('agent', checkId), fetchAcl('app', checkApp)])
+            .then(([agent, view]) => {
+                const a = accessSummary(agent.entries);
+                const v = accessSummary(view.entries);
+                if (live) setNarrower({ key, value: (v !== 'private' && a === 'private') || (v === 'everyone' && a !== 'everyone') });
+            })
+            .catch(() => { if (live) setNarrower({ key, value: false }); });
+        return () => { live = false; };
+    }, [checkId, checkApp]);
 
     // With one tab there is one place to pin: whichever pin is in force (a view
     // built from others may carry it on its tab). With several, the menu chooses.
@@ -111,7 +128,7 @@ export const AgentPanel: React.FC<{
                             <option value="">{DEFAULT_AGENT_NAME} (default)</option>
                             {availableProfiles.map(p => {
                                 const provenance = p.owned_by_me
-                                    ? (p.location_label ? ` · ${p.location_label}` : '')
+                                    ? ''
                                     : ` · shared${p.author ? ` by ${p.author}` : ''}`;
                                 return (
                                     <option key={p.id} value={p.id}>
@@ -201,8 +218,8 @@ export const AgentPanel: React.FC<{
                 footnote={`Sees ${widgetCount} widget${widgetCount === 1 ? '' : 's'} on this tab.`}
                 notice={pinnedAgentUnavailable ? (
                     { warn: true, text: 'This view is pinned to an agent you can’t open, so it stays on the one above.' }
-                ) : pinnedButPrivate ? (
-                    { warn: true, text: `This agent is private, so others on this view still get the ${DEFAULT_AGENT_NAME}.` }
+                ) : pinnedNarrower ? (
+                    { warn: true, text: `Some people who can open this view can’t use this agent, so they get the ${DEFAULT_AGENT_NAME}. Share the agent with them in Agent Studio.` }
                 ) : pinnedAgentId && !isPinnedHere ? (
                     { warn: false, text: `${nameOf(pinnedAgentId)} is pinned to ${pinnedWhere}.` }
                 ) : pinnedAgentId && multiTab ? (

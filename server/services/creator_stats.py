@@ -39,10 +39,11 @@ NOT_A_PERSON = {"", "unknown", "dev", "none", "null", "system", "n/a"}
 def is_person(name: Optional[str]) -> bool:
     """Whether an author string names someone we can credit.
 
-    Also the rule for whether a row has an owner at all: a widget whose author is a
-    placeholder belongs to nobody, so anyone may delete it. That check used to know
-    about one placeholder and not the others, which left every widget the identity
-    bug stamped "dev" owned by a user who cannot exist, and so undeletable.
+    Also the rule for whether a widget can be claimed: one whose author is a
+    placeholder was written by nobody we know, so a manager who recognises it as
+    their own may put their name on it. That check used to know about one
+    placeholder and not the others, which left every widget the identity bug
+    stamped "dev" credited to a user who cannot exist.
 
     A service principal's application id is excluded too. It is a real caller, and
     right to record as the owner of what it created, but a leaderboard of people
@@ -58,8 +59,7 @@ def same_person(a: Optional[str], b: Optional[str]) -> bool:
     """Whether two author strings name the same person.
 
     Case-insensitive: SCIM is not consistent about the case of an address, and two
-    spellings of one person must not read as two creators — or as someone else's
-    widget when they go to delete their own.
+    spellings of one person must not read as two creators.
     """
     return bool(a) and bool(b) and str(a).strip().lower() == str(b).strip().lower()
 
@@ -154,7 +154,10 @@ def tally(
 
 
 def _latest_widget_authors(cursor) -> Dict[str, str]:
-    """Widget id to author, for the newest live version of each widget."""
+    """Widget id to author, for the newest live published version of each widget.
+
+    Drafts are not rows here, so work nobody has published yet earns nothing.
+    """
     cursor.execute(
         """
         SELECT w.id, w.created_by
@@ -177,7 +180,7 @@ def _runs(cursor) -> List[Tuple[str, Optional[str]]]:
 
 
 def _placements(cursor) -> List[Tuple[str, Optional[str]]]:
-    """Every widget sitting on any tab of the current version of someone's app."""
+    """Every widget sitting on any tab of the latest published version of someone's app."""
     from services.app_spec import all_widgets, read_spec
 
     cursor.execute(
@@ -201,11 +204,11 @@ def _placements(cursor) -> List[Tuple[str, Optional[str]]]:
     return found
 
 
-def leaderboard(env: str = "dev", limit: int = 10) -> Dict[str, Any]:
+def leaderboard(limit: int = 10) -> Dict[str, Any]:
     """The ranked creators, plus the weights so the UI can explain the ranking."""
     from database import get_db_connection
 
-    conn = get_db_connection(env)
+    conn = get_db_connection()
     try:
         cursor = conn.cursor()
         authors = _latest_widget_authors(cursor)

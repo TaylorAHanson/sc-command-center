@@ -4,13 +4,16 @@ import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { ExternalLink, Link2, Check } from 'lucide-react';
 import { useDashboardStore, type WidgetLayout } from '../store/dashboardStore';
-import { widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
+import { resolveWidget, widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { BaseWidget } from './BaseWidget';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
 import clsx from 'clsx';
 import { canvasTone, cardClasses, cardSpacing, effectiveTheme, isPage } from '../store/appSpec';
 import { PageTab } from './PageTab';
 import { useAppApi } from '../appApi';
+
+// Authored widgets are stored under UUIDs; built-in types ship with the app and are always registered.
+const AUTHORED_WIDGET = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Custom WidthProvider since it's missing in RGL v2.1.0 exports
 const WidthProvider = (ComposedComponent: React.ComponentType<any>) => {
@@ -82,7 +85,7 @@ const ShareWidgetButton: React.FC<{ onShare: () => Promise<boolean> }> = ({ onSh
 };
 
 export const DashboardGrid: React.FC = () => {
-  const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, username, variables, setVariable, generateWidgetShareLink, pendingWidgetId, clearPendingWidget, canEditLayout, standalone } = useDashboardStore();
+  const { activeApp, activeAppTab, updateLayout, removeWidget, addWidget, openConfigModal, updateWidget, activeDomain, username, variables, setVariable, generateWidgetShareLink, pendingWidgetId, clearPendingWidget, canEditLayout, standalone, modeOf } = useDashboardStore();
   const { loading: isRegistryLoading } = useWidgetRegistry();
   const appApi = useAppApi();
   const cardLook = React.useMemo(() => cardClasses(effectiveTheme(activeApp).cards), [activeApp]);
@@ -92,6 +95,8 @@ export const DashboardGrid: React.FC = () => {
   const [draggedWidget, setDraggedWidget] = useState<{ type: string; w: number; h: number } | null>(null);
   const [fullscreenWidget, setFullscreenWidget] = useState<{ id: string; type: string; title: string } | null>(null);
   const isReadOnly = !canEditLayout(activeApp);
+  // A view's draft shows its widgets' drafts too, so a manager sees what Publish would put out.
+  const draftMode = activeApp?.access === 'MANAGE' && modeOf(activeApp) === 'draft';
 
   // Once the widget registry is loaded, any widget on the current tab whose type no
   // longer exists in the registry is an orphan (widget was deleted). The intent was
@@ -100,26 +105,24 @@ export const DashboardGrid: React.FC = () => {
   // orphan is hidden by `visibleWidgets` below instead.
   useEffect(() => {
     if (isRegistryLoading || !activeApp || !activeAppTab || isReadOnly) return;
-    const orphans = activeAppTab.widgets.filter(w => {
-      const versionedKey = w.props?._version ? `${w.type}@${w.props._version}` : w.type;
-      return !widgetRegistry[versionedKey] && !widgetRegistry[w.type];
-    });
+    const orphans = activeAppTab.widgets.filter(w => !resolveWidget(w.type, w.props?._version, draftMode));
     if (orphans.length === 0) return;
     const cleaned = activeAppTab.widgets.filter(w => !orphans.includes(w));
     updateLayout(activeApp.id, activeAppTab.id, cleaned as WidgetLayout[]);
-  }, [isRegistryLoading, activeApp?.id, activeAppTab?.id, activeAppTab?.widgets, isReadOnly]);
+  }, [isRegistryLoading, activeApp?.id, activeAppTab?.id, activeAppTab?.widgets, isReadOnly, draftMode]);
 
   const visibleWidgets = React.useMemo(() => {
     return activeAppTab?.widgets.filter(widget => {
-      const versionedKey = widget.props?._version ? `${widget.type}@${widget.props._version}` : widget.type;
-      const def = widgetRegistry[versionedKey] || widgetRegistry[widget.type];
+      const def = resolveWidget(widget.type, widget.props?._version, draftMode);
       // Hide widgets whose definition is missing once the registry has finished loading.
-      // While loading we keep them so we don't render an empty grid mid-load.
-      if (!def) return isRegistryLoading;
+      // While loading we keep them so we don't render an empty grid mid-load. A
+      // reader keeps an authored one too, as a placeholder: its author may not have
+      // published it yet, and a hole in the layout would read as a broken view.
+      if (!def) return isRegistryLoading || (isReadOnly && AUTHORED_WIDGET.test(widget.type));
       if (activeDomain && def.domain && def.domain !== activeDomain) return false;
       return true;
     }) || [];
-  }, [activeAppTab?.widgets, activeDomain, isRegistryLoading]);
+  }, [activeAppTab?.widgets, activeDomain, isRegistryLoading, isReadOnly, draftMode]);
 
   const layouts = React.useMemo(() => {
     return {
@@ -473,10 +476,19 @@ export const DashboardGrid: React.FC = () => {
         onDropDragOver={handleDropDragOver as any}
       >
         {visibleWidgets.map((widget: WidgetLayout) => {
-          const versionToUse = widget.props?._version;
-          const lookupKey = versionToUse ? `${widget.type}@${versionToUse}` : widget.type;
-          const def = widgetRegistry[lookupKey] || widgetRegistry[widget.type];
+          const def = resolveWidget(widget.type, widget.props?._version, draftMode);
           
+          if (!def && !isRegistryLoading) {
+            return (
+              <div
+                key={widget.i}
+                className="bg-white/80 border border-dashed border-gray-300 rounded h-full flex flex-col justify-center items-center text-center p-4 text-gray-500"
+              >
+                <p className="text-sm font-medium">Not published yet</p>
+                <p className="text-xs mt-1">This widget hasn’t been published, or has been removed.</p>
+              </div>
+            );
+          }
           if (!def) {
             // Registry is still loading - render a lightweight skeleton placeholder.
             // Once loading completes the parent effect removes the widget entirely.

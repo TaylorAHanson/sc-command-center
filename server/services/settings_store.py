@@ -263,15 +263,15 @@ SETTING_SPECS: Dict[str, Spec] = {
     ),
     "require_certified_for_global_views": Spec(
         env="REQUIRE_CERTIFIED_FOR_GLOBAL_VIEWS",
-        # Off by default because certification is applied during promotion to
-        # production: on a dev or test deployment nothing is certified yet, and
-        # defaulting this on would mean no global view could be created there at
-        # all. Turn it on for the deployment where "published to everyone" is
-        # supposed to mean "someone reviewed this".
+        # The key keeps its old name because saved rows are found by it. Off by
+        # default: certification is a deliberate review step, and switched on
+        # before anyone has certified anything it would stop every shared view
+        # from being published. Turn it on where "shared" is supposed to mean
+        # "someone reviewed this".
         default="false",
         kind="bool",
-        label="Global views may only contain certified widgets",
-        help="On, a view shared with everyone can only hold widgets an admin has certified. Leave off in dev and test, where nothing is certified yet.",
+        label="Shared views may only contain certified widgets",
+        help="On, a view shared with anyone besides its owner can only be published while every widget in it is certified.",
         group="tools",
     ),
     "widget_query_max_rows": Spec(
@@ -345,7 +345,7 @@ def _read_rows() -> Dict[str, str]:
 
     conn = None
     try:
-        conn = get_db_connection(settings_env())
+        conn = get_db_connection(settings_env(), physical=True)
         c = conn.cursor()
         c.execute("SELECT key, value FROM app_settings")
         return {row[0]: (row[1] or "") for row in c.fetchall()}
@@ -716,7 +716,7 @@ def save_settings(values: Dict[str, Any], username: str = "") -> Dict[str, Any]:
 
     saved: List[str] = []
     cleared: List[str] = []
-    conn = get_db_connection(settings_env())
+    conn = get_db_connection(settings_env(), physical=True)
     try:
         c = conn.cursor()
         for key, value in cleaned.items():

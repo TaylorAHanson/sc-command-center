@@ -1,20 +1,19 @@
-"""The names in links to global views: `#/app/supply-hub` instead of `#/app/<uuid>`.
+"""The names in links to views: `#/app/supply-hub` instead of `#/app/<uuid>`.
 
-Only global views are linked by name. A personal view is open to anyone holding
-its id (`app_spec.can_read`), so its id is the secret its link carries; a name
-anyone could guess would turn every personal view into one anyone could open.
-Its link is `<name>-<id>` instead: readable, and still unguessable. A global
-view needs a role in its domain whatever its link says, so its name is safe to
-publish.
+A published view is linked by name. A name anyone could guess is safe because a
+link opens only for people the view is shared with (Can use); to anyone else
+the answer is the same as for a view that doesn't exist, so a name confirms
+nothing. A view that has never been published has no name yet: its link is
+`<name>-<id>`, which still reads well and opens the same view after it is.
 
 A name, once a view has held it, stays with that view (`app_links`), so a link
 handed out before a rename still opens the view and nobody else's. The newest
 name a view claimed is the one its links use. Two views can't share a name; the
 second to want one gets `-2`, then `-3`.
 
-Claimed on every save of a global version (`app_store.insert_version`), by
-promotion, and at startup for views that predate this or arrived by snapshot,
-never on opening one: opening a view writes nothing.
+Claimed on every publish (`routes/apps.py`) and at startup for views that
+predate this or arrived by snapshot, never on opening one: opening a view
+writes nothing.
 """
 from __future__ import annotations
 
@@ -26,9 +25,9 @@ MAX_LENGTH = 60
 #: How many views may want one name before the rest fall back to their id.
 MAX_SUFFIX = 20
 
-# A personal view's link ends in its id, and an id is what a link resolves first,
-# so a name may not look like one: a global view named after someone's personal
-# view would otherwise take over that view's link.
+# A link without a name ends in the view's id, and an id is what a link resolves
+# first, so a name may not look like one: a view named after another view's
+# `<name>-<id>` link would otherwise take that link over.
 _UUID_TAIL = re.compile(
     r"(?:^|-)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
     re.IGNORECASE,
@@ -45,7 +44,7 @@ def slugify(name: Any) -> str:
 
 
 def id_in(ref: str) -> Optional[str]:
-    """The id a personal view's `<name>-<id>` link ends in, if it ends in one."""
+    """The id a `<name>-<id>` link ends in, if it ends in one."""
     match = _UUID_TAIL.search(ref or "")
     return match.group(1).lower() if match else None
 
@@ -81,7 +80,7 @@ def claim(c, app_id: str, name: str) -> Optional[str]:
 
 
 def owner(c, slug: str) -> Optional[str]:
-    """The view a link name belongs to, if any; whether it is still global is the caller's to check."""
+    """The view a link name belongs to, if any; whether the caller may open it is checked elsewhere."""
     c.execute("SELECT app_id FROM app_links WHERE slug = %s", (slug,))
     return _first(c.fetchone())
 
@@ -111,7 +110,7 @@ def forget(c, app_id: str) -> None:
 
 
 def backfill(c) -> int:
-    """Name every global view that has no link name yet, oldest first, so it keeps the plain name."""
+    """Name every published view that has no link name yet, oldest first, so it keeps the plain name."""
     c.execute(
         """
         SELECT v.id, v.name
@@ -119,8 +118,7 @@ def backfill(c) -> int:
           JOIN (SELECT id, MAX(version) AS version, MIN(timestamp) AS created
                   FROM dashboard_views GROUP BY id) h
             ON v.id = h.id AND v.version = h.version
-         WHERE v.is_global = 1
-           AND NOT EXISTS (SELECT 1 FROM app_links l WHERE l.app_id = v.id)
+         WHERE NOT EXISTS (SELECT 1 FROM app_links l WHERE l.app_id = v.id)
          ORDER BY h.created NULLS LAST, v.id
         """
     )

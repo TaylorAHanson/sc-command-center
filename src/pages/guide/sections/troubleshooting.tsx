@@ -11,39 +11,44 @@ const Body = () => (
       Find the symptom, read why it happens, and follow the link to the page that explains the fix. Some fixes need an admin; those say so.
     </Lead>
 
-    <H2 id="access-problems">Access and workspaces</H2>
+    <H2 id="access-problems">Access and sharing</H2>
     <Table
       head={head}
       rows={[
         [
           'No Admin Panel in the sidebar.',
-          'It shows only for Global admins and people with the Admin level on a domain.',
-          <>Ask a Global admin for access. See <GuideLink to="roles" anchor="levels">Roles &amp; permissions</GuideLink>.</>,
+          'It shows only for Administrators.',
+          <>Ask an Administrator if you need something there. See <GuideLink to="access" anchor="administrators">Administrators &amp; access</GuideLink>.</>,
         ],
         [
-          'You are in a group that was given access, but you still cannot edit.',
-          'The name in the mapping must match the Databricks group exactly, capitals included. A change can also take a few minutes to apply.',
-          <>An admin compares the name with the Groups page and fixes it. See <GuideLink to="access" anchor="exact-match">Names must match exactly</GuideLink>.</>,
+          'A link says the view isn\u2019t there.',
+          'It isn\u2019t shared with you, or it has been archived. The app answers the same way as for something that doesn\u2019t exist.',
+          <>Ask whoever sent it to share it with you. See <GuideLink to="access" anchor="ask">Ask for access</GuideLink>.</>,
         ],
         [
-          <>A mapping row says <UI>not a domain</UI>.</>,
-          'Its domain was renamed or deleted, so it grants nothing.',
-          <>An admin edits the mapping or adds the domain back. See <GuideLink to="access" anchor="change-mappings">Change or remove a mapping</GuideLink>.</>,
+          'Something was shared with you, but you can\u2019t see it.',
+          'It has never been published, and people with Can use only see published versions.',
+          <>Ask its owner to publish it. See <GuideLink to="publishing">Drafts &amp; publishing</GuideLink>.</>,
         ],
         [
-          <><UI>Dev</UI> and <UI>Test</UI> are greyed out.</>,
-          'Those workspaces need Editor or Admin on a domain.',
-          <>Ask for Editor on the domain you work in. See <GuideLink to="promotion" anchor="workspaces">Dev, Test and Prod</GuideLink>.</>,
+          'It was shared with a group you are in, but it doesn\u2019t work for you.',
+          'The group name must match the Databricks group exactly, capitals included, and group membership is remembered for a few minutes.',
+          <>Compare the name with the workspace&rsquo;s Groups page, and reload after a few minutes. See <GuideLink to="sharing" anchor="who">Who you can share with</GuideLink>.</>,
         ],
         [
-          'A link opens Prod with a note that it needs Editor or Admin on a domain.',
-          'The link was copied from Dev or Test, and you cannot open those.',
-          <>Ask for the Prod link, or for Editor access. See <GuideLink to="promotion" anchor="workspaces">Dev, Test and Prod</GuideLink>.</>,
+          'You can open something but not change it.',
+          'You have Can use. Editing, publishing and sharing need Can manage.',
+          <>Ask its owner for Can manage, or clone a widget to make your own. See <GuideLink to="sharing" anchor="levels">The two levels</GuideLink>.</>,
         ],
         [
-          <><UI>Create Global View</UI> says you cannot edit any domain, or &ldquo;Couldn&rsquo;t load domains&rdquo;.</>,
-          'Global views are filed under a domain you can edit, and the list could not be read.',
-          <>Choose <UI>Retry</UI>. If it stays empty, you need Editor on a domain. See <GuideLink to="roles">Roles &amp; permissions</GuideLink>.</>,
+          'A colleague opens your view, but the assistant can\u2019t use its agent.',
+          'Using a view doesn\u2019t give use of the agent pinned to it, so they get the default assistant.',
+          <>Share the agent with the same people, and publish it. See <GuideLink to="sharing" anchor="rules">How access is worked out</GuideLink>.</>,
+        ],
+        [
+          <>The assistant says &ldquo;That agent isn&rsquo;t available to you&rdquo;.</>,
+          'The agent you are chatting with is not published, or is no longer shared with you.',
+          <>Pick another agent in the assistant, or ask its owner to share and publish it. See <GuideLink to="agent-studio">Agent Studio</GuideLink>.</>,
         ],
         [
           'A widget opens but its data is empty or refused.',
@@ -53,34 +58,49 @@ const Body = () => (
       ]}
     />
 
-    <H2 id="promotion-problems">Promoting work</H2>
+    <H2 id="publishing-problems">Publishing</H2>
     <Table
       head={head}
       rows={[
         [
-          <><UI>Promote</UI> is greyed out in Widget Studio. The tooltip says to publish first.</>,
-          'Only a published widget can be promoted.',
-          <>Click <UI>Publish</UI>, then promote. See <GuideLink to="promotion" anchor="promote-widget">Promote a widget</GuideLink>.</>,
+          'You saved, but other people still see the old version.',
+          'Saving only changes the draft.',
+          <>Click <UI>Publish</UI> (on a view, the last button in the header). See <GuideLink to="publishing" anchor="publish">Publish</GuideLink>.</>,
         ],
         [
-          'The new version is not what Test or Prod shows.',
-          'Promotion copies the last saved version, and each workspace numbers its own versions.',
-          <>Save first, then promote, and compare content rather than numbers. See <GuideLink to="promotion" anchor="versions">Versions</GuideLink>.</>,
+          <>There is no <UI>Publish</UI> button.</>,
+          'The draft matches the published version, so there is nothing to publish and the button is hidden. Or you can only use it, not manage it.',
+          <>Make a change first; the chip beside the name then reads <UI>Unpublished changes</UI> and <UI>Publish</UI> appears. If you can only use it, ask whoever manages it.</>,
         ],
         [
-          'A promoted view is missing widgets, or shows the wrong version of one.',
-          'Widgets are separate from views in each workspace, and a pinned version number means nothing across workspaces.',
-          <>Promote the widgets first, or leave <UI>Promote them too</UI> ticked in the dialog. See <GuideLink to="promotion" anchor="promote-view">Promote a view</GuideLink>.</>,
+          <>The <UI>Draft</UI> / <UI>Published</UI> switch, <UI>Version history…</UI> or <UI>Discard draft…</UI> is missing.</>,
+          'The switch and Discard draft appear only when there are unpublished changes, and a view\u2019s Version history only once it has been published. All three are for people who can manage it.',
+          <>On a view, look in the <UI>⋯</UI> menu for <UI>Version history…</UI> and <UI>Discard draft…</UI>. See <GuideLink to="views" anchor="header">The view header</GuideLink>.</>,
         ],
         [
-          'The assistant in Test or Prod cannot open a pinned agent.',
-          'Agents are not promoted with a view.',
-          <>Recreate the agent in that workspace, or pin another. See <GuideLink to="agent-studio">Agent Studio</GuideLink>.</>,
+          <>A card on a view says &ldquo;Not published yet&rdquo;.</>,
+          'The widget on it has never been published.',
+          <>Whoever manages the widget publishes it, or publish it with the view from the Publish dialog. See <GuideLink to="publishing" anchor="publish-a-view">Publishing a view</GuideLink>.</>,
         ],
         [
-          'Saving a global view is refused because widgets are not certified.',
-          'An admin turned on the certified-only setting.',
-          <>Certify the widgets in Prod, or ask an admin about the setting. See <GuideLink to="promotion" anchor="certify">Certify a widget</GuideLink>.</>,
+          'People using a view don\u2019t see your latest widget changes.',
+          'A view shows each widget at its latest published version.',
+          <>Publish the widget, or let the Publish dialog publish it with the view. See <GuideLink to="publishing" anchor="publish-a-view">Publishing a view</GuideLink>.</>,
+        ],
+        [
+          'The Publish dialog lists widgets that are not certified, and the view won\u2019t publish.',
+          'An Administrator turned on Shared views may only contain certified widgets, and this view is shared with someone besides you.',
+          <>Ask whoever manages each widget to certify it, or ask an Administrator about the setting. See <GuideLink to="publishing" anchor="certify">Certify a widget</GuideLink>.</>,
+        ],
+        [
+          <>Discarding a draft is refused.</>,
+          'It has never been published, so there is no published version to go back to.',
+          <>Delete it instead, if you no longer want it. See <GuideLink to="publishing" anchor="history">History, Revert and Discard draft</GuideLink>.</>,
+        ],
+        [
+          'Deleting a view asks you to archive it first.',
+          'It is shared with other people, so it is archived first, where they can notice it is gone.',
+          <>Archive it, then delete it from <UI>Archived</UI>. See <GuideLink to="publishing" anchor="archive">Archive, restore or delete a view</GuideLink>.</>,
         ],
       ]}
     />
@@ -185,8 +205,8 @@ const Body = () => (
         ],
         [
           'A Replace import is refused because it would lock you out.',
-          'The file\u2019s role mappings would not leave you a Global admin.',
-          <>Add your group as a Global admin in the source app and export again, or use Merge. See <GuideLink to="migration" anchor="safety">Safety checks</GuideLink>.</>,
+          'The file would not leave you an Administrator.',
+          <>Make your group an Administrator in the source app and export again, or use Merge. See <GuideLink to="migration" anchor="safety">Safety checks</GuideLink>.</>,
         ],
         [
           'An import says the snapshot is too large.',
@@ -203,9 +223,9 @@ const Body = () => (
       permission, name the page above to the admin who can change it.
     </P>
     <Cards cols={3}>
-      <Card title="Roles & permissions" to="roles">Who can do what.</Card>
+      <Card title="Sharing & permissions" to="sharing">Who can do what.</Card>
       <Card title="Settings & models" to="settings">Limits and switches an admin can change.</Card>
-      <Card title="Promoting work" to="promotion">Dev, Test and Prod.</Card>
+      <Card title="Drafts & publishing" to="publishing">How changes reach people.</Card>
     </Cards>
   </>
 );

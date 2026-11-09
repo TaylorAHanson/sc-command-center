@@ -2,7 +2,7 @@
 import { Code } from 'lucide-react';
 import type { GuideSection } from '../types';
 import {
-  Lead, H2, H3, P, List, Steps, Step, Callout, Needs, Details, Shot, UI, Kbd, Code as C, Table,
+  Lead, H2, H3, P, List, Steps, Step, Callout, Details, Shot, UI, Kbd, Code as C, Table,
   GuideLink, OpenLink, Cards, Card,
 } from '../kit';
 
@@ -11,7 +11,7 @@ const Body = () => (
     <Lead>
       Build a widget by describing it in plain language. The studio's agent writes the code, shows it running
       beside the chat, and fixes what breaks. You don't need to know React for simple and moderately complex
-      widgets. <Needs role="Editor on a domain" />
+      widgets. Anyone can use it.
     </Lead>
 
     <H2 id="first-widget">Build your first widget</H2>
@@ -19,8 +19,8 @@ const Body = () => (
       <Step title="Open the studio">
         <P>
           Click <UI>Widget Studio</UI> in the sidebar. To change a widget that already exists, use its edit
-          button in the Widget Library instead; the studio opens with that widget loaded. Both need Editor
-          access in at least one domain (see <GuideLink to="roles">Roles and permissions</GuideLink>).
+          button in the Widget Library instead; the studio opens with that widget loaded. Editing an existing widget
+          needs <UI>Can manage</UI> on it (see <GuideLink to="sharing">Sharing &amp; permissions</GuideLink>).
         </P>
         <Shot
           name="studio-overview"
@@ -30,15 +30,15 @@ const Body = () => (
             'The chat with the agent. Type your request here.',
             'The Card / Page switch: what you are building.',
             'The three tabs: Live Preview, TSX Editor and Configuration.',
-            'Widget actions: History, Reload, Promote, the ⋯ menu, Save and close.',
+            'Widget actions: History, Reload, the ⋯ menu, Save draft and close.',
           ]}
         />
       </Step>
       <Step title="Name it and pick a domain">
         <P>
           Open the <UI>Configuration</UI> tab and fill in <UI>Widget Name</UI>, <UI>Description</UI>,{' '}
-          <UI>Category</UI> and <UI>Domain</UI>. The domain decides who can see the widget, so pick the one
-          whose people should see its data. The agent can suggest these from your request, but it never
+          <UI>Category</UI> and <UI>Domain</UI>. The domain is a label that helps people find the widget in the
+          library; it doesn&rsquo;t decide who can see it. The agent can suggest these from your request, but it never
           overwrites a field you have typed in or chosen yourself.
         </P>
       </Step>
@@ -68,32 +68,23 @@ const Body = () => (
           the agent to fix everything listed. <UI>TSX Editor</UI> shows the code if you want to edit it by hand.
         </P>
       </Step>
-      <Step title="Save">
+      <Step title="Save draft">
         <P>
-          Click <UI>Publish</UI> (the first time) or <UI>Save</UI> (after that). Saving needs Editor access on
-          the widget's domain. The widget is saved to the workspace chosen in the sidebar (Dev, Test or Prod)
-          and appears in that workspace's Widget Library straight away. You stay in the studio. Click the{' '}
-          <UI>X</UI> when you have finished with the widget.
+          Click <UI>Save draft</UI>. Saving writes your draft and adds no version; only people who can manage the widget
+          see the draft. You stay in the studio, so save as often as you like. Click the <UI>X</UI> when you have
+          finished with the widget.
         </P>
       </Step>
-      <Step title="Promote it">
+      <Step title="Share and publish it">
         <P>
-          Author in Dev, then click the rocket button (<UI>Promote</UI>) to copy the saved widget to Test and
-          then Prod. The button stays disabled until the widget has been saved once.
+          A new widget is shared with nobody but you. In the bar under the tabs, click <UI>Share</UI> to add the
+          people or groups who should use it (see <GuideLink to="sharing" anchor="share">Share something</GuideLink>),
+          then <UI>Publish</UI>. Publishing checks the code again, then turns your draft into the next published
+          version, which is what people you shared with see in the Widget Library and on views.
         </P>
-        <Shot
-          name="studio-promote"
-          alt="The Promotion panel showing Dev, Test and Prod versions with Promote buttons"
-          caption="The Promotion panel. It copies the last saved version, not unsaved edits in the editor."
-          legend={[
-            'Promote opens the Dev → Test → Prod panel for this widget.',
-            'Promote to Test copies Dev\'s latest saved version into Test.',
-            'Promote to Prod copies Test\'s current version into Prod.',
-          ]}
-        />
         <P>
-          Rolling back and certifying are in the same panel; the rules are in{' '}
-          <GuideLink to="promotion">Promoting work</GuideLink>.
+          Discarding a draft, reverting to an older version and certifying are explained in{' '}
+          <GuideLink to="publishing">Drafts &amp; publishing</GuideLink>.
         </P>
       </Step>
     </Steps>
@@ -109,7 +100,7 @@ const Body = () => (
         [<UI key="d">Description</UI>, 'What the widget is for. Required to save. The assistant reads it when it answers questions about a view.'],
         [<UI key="h">Help Text (Optional)</UI>, 'Instructions on how to use the widget. Markdown is supported.'],
         [<UI key="c">Category</UI>, 'The widget\'s category, from the list an admin keeps under Categories & Domains. Required to save.'],
-        [<UI key="dm">Domain</UI>, 'Who can see and edit the widget (see Roles and permissions). Required to save.'],
+        [<UI key="dm">Domain</UI>, 'A business-area label for finding the widget in the library. It does not decide who can see it; Share does. Required to save.'],
         [<UI key="w">Default Width (cols)</UI>, 'How wide the card is when first placed, from 1 to 12 grid columns.'],
         [<UI key="ht">Default Height (rows)</UI>, 'How tall the card is when first placed, from 1 to 12 grid rows.'],
         [<UI key="o">Open in New Tab Link</UI>, 'If set, a button in the widget\'s header opens this address in a new tab.'],
@@ -194,15 +185,15 @@ const Body = () => (
       (<UI>Text / String</UI>, <UI>Number</UI>, <UI>Choice (Select)</UI>, <UI>Large Text (Textarea)</UI> or{' '}
       <UI>Link</UI>). Fields can also carry a default, a <UI>Required</UI> tick, a placeholder and help text.
     </P>
-    <Details summary="Where parameter values live, and Dev, Test and Prod">
+    <Details summary="Where parameter values live">
       <P>
-        Parameter values belong to the placed card in the current <UI>Workspace</UI>. For values that differ in
-        Dev, Test and Prod, ask the studio to make them <UI>Required</UI> without a default. Drop the promoted
-        widget in each workspace and fill in <UI>Widget settings</UI> there; use its gear later to change them.
+        Parameter values belong to the card placed on a view. For values that differ from one view to another, or in
+        another deployed app, ask the studio to make them <UI>Required</UI> without a default. Dropping the widget
+        then opens <UI>Widget settings</UI> before it is placed; use its gear later to change them.
       </P>
       <P>
-        Promoting a whole view copies its existing card settings, so open each promoted card's gear when those
-        values must differ in the target workspace.
+        Moving a view to another app with Data Migration copies its card settings with it, so open each card&rsquo;s
+        gear there when those values must differ.
       </P>
     </Details>
 
@@ -404,7 +395,7 @@ const Body = () => (
       ]}
     />
     <P>
-      To embed or call another Databricks App, a global admin adds its host, or its whole workspace, to{' '}
+      To embed or call another Databricks App, an Administrator adds its host, or its whole workspace, to{' '}
       <UI>Databricks Apps widgets may embed or call</UI> in{' '}
       <GuideLink to="settings" anchor="reach">Settings</GuideLink>. An app approved through its workspace can be shown
       in an iframe; fetching data from it needs the app listed by its own host. Libraries still load only from the CDNs above. The browser
@@ -421,18 +412,45 @@ const Body = () => (
       </List>
     </Details>
 
-    <H2 id="save-history-promote">Save, history, promote and stop</H2>
-    <H3 id="save-publish">Save and publish</H3>
+    <H2 id="save-history-publish">Save, publish, history and stop</H2>
+    <H3 id="save-publish">Save draft and publish</H3>
     <P>
-      <UI>Save</UI> (or <UI>Publish</UI>, the first time) writes your code to the workspace selected in the
-      sidebar (Dev, Test or Prod) and increments the version. It is immediately available in that workspace's
-      Widget Library, and the result shows under the buttons. Saving leaves you in the studio, so you can keep
-      working and save as often as you like. The <UI>X</UI> closes the studio when you have finished.
+      <UI>Save draft</UI> writes your code and settings to the widget&rsquo;s draft, in place, and the result shows under
+      the buttons. It adds no version, and only people who can manage the widget see the draft. Saving leaves you in the
+      studio, so you can keep working and save as often as you like. The <UI>X</UI> closes the studio when you have
+      finished.
     </P>
     <P>
-      Every control for the widget sits on the right, above the preview: <UI>History</UI>, <UI>Reload</UI>,{' '}
-      <UI>Promote</UI>, the <UI>⋯</UI> menu (<UI>Import from file…</UI>, <UI>Export to file</UI>,{' '}
-      <UI>Reset studio</UI>), then <UI>Save</UI> and close. Only the agent's own settings sit above the chat.
+      Once the widget is saved, a bar under the tabs holds everything about publishing it, for people who can manage it:
+    </P>
+    <List>
+      <li>
+        A chip with the state: <UI>Not published yet</UI>, <UI>Published</UI> or <UI>Unpublished changes</UI>. Hover it
+        to see what it means.
+      </li>
+      <li>
+        The <UI>Draft</UI> / <UI>Published</UI> switch, only when there are unpublished changes (or while you are on
+        Published, so you can get back). <UI>Published</UI> is a read-only preview of what people see; editing the code
+        or asking the agent for a change goes back to the draft.
+      </li>
+      <li><UI>Discard draft</UI>, only when there are unpublished changes. It asks to confirm first.</li>
+      <li>
+        <UI>Publish</UI>, which runs the safety check again and then turns the draft into the next published version.
+        It is hidden when there is nothing to publish.
+      </li>
+      <li>
+        <UI>Certify</UI>, once the widget has been published. It marks the latest published version as reviewed; see{' '}
+        <GuideLink to="publishing" anchor="certify">Certify a widget</GuideLink>.
+      </li>
+      <li><UI>Share</UI>, to set who can use or manage the widget.</li>
+    </List>
+    <P>
+      See <GuideLink to="publishing">Drafts &amp; publishing</GuideLink>.
+    </P>
+    <P>
+      The other controls sit on the right of the tabs, above the preview: <UI>History</UI>, <UI>Reload</UI>, the{' '}
+      <UI>⋯</UI> menu (<UI>Import from file…</UI>, <UI>Export to file</UI>, <UI>Reset studio</UI>), then{' '}
+      <UI>Save draft</UI> and close. Only the agent's own settings sit above the chat.{' '}
       <UI>Reload</UI> recompiles and remounts the widget so anything it loads on start runs again.{' '}
       <UI>Reset studio</UI> asks first, then clears the studio for a new widget; a snapshot of the code is kept
       in <UI>History</UI>.
@@ -451,7 +469,7 @@ const Body = () => (
     <P>
       <UI>Export to file</UI> downloads the widget's code and every setting as a <C>.widget.json</C> file, so
       you can share it or move it between apps. <UI>Import from file…</UI> loads such a file into the studio as a
-      new widget; review it, then <UI>Publish</UI> to save it.
+      new widget; review it, then <UI>Save draft</UI> and <UI>Publish</UI> it.
     </P>
 
     <H3 id="history">History</H3>
@@ -460,11 +478,11 @@ const Body = () => (
     </P>
     <List>
       <li><UI>This session</UI>: a snapshot is taken automatically before the agent, an import or a reset changes your code, and as you type.</li>
-      <li><UI>Published versions</UI>: every version you have saved, with who saved it and when.</li>
+      <li><UI>Published versions</UI>: every version that has been published, with who published it and when.</li>
     </List>
     <P>
-      <UI>Restore</UI> loads that code into the editor and nothing else. Your settings stay as they are and
-      nothing is published until you save.
+      <UI>Restore</UI> loads that code into the editor and nothing else. Your settings stay as they are, and
+      nothing reaches anyone else until you save and publish.
     </P>
     <Shot
       name="studio-history"
@@ -476,13 +494,6 @@ const Body = () => (
         'Published versions, each with Restore.',
       ]}
     />
-
-    <H3 id="promote">Promote</H3>
-    <P>
-      <UI>Promote</UI> copies the last saved version from Dev to Test, then Test to Prod. Unsaved edits are not
-      included, so save first. Each workspace numbers its own versions. See{' '}
-      <GuideLink to="promotion">Promoting work</GuideLink> for rollback, certification and who may promote.
-    </P>
 
     <H3 id="stop">Stop the agent</H3>
     <P>
@@ -497,7 +508,7 @@ const Body = () => (
 
     <H2 id="where-next">Where next</H2>
     <Cards cols={3}>
-      <Card title="Promote your widget" to="promotion">Move it from Dev to Test and Prod.</Card>
+      <Card title="Share and publish" to="publishing">Get your widget to the people who need it.</Card>
       <Card title="Action logs" to="action-logs">See what the audit trail records for executable widgets.</Card>
       <Card title="Build an agent" to="agent-studio">Give the assistant its own instructions and tools.</Card>
     </Cards>
@@ -511,7 +522,7 @@ export const section: GuideSection = {
   id: 'widget-studio',
   group: 'build',
   title: 'Widget Studio',
-  summary: 'Build a widget by describing it, then save and promote it.',
+  summary: 'Build a widget by describing it, then save, share and publish it.',
   icon: Code,
   keywords: 'create widget build generate code tsx data source sql legacy query api preview agent page card configuration executable action',
   Body,

@@ -37,7 +37,7 @@ The Enterprise Command Center is an enterprise application composed of a modern 
 ### Backend
 - **Framework**: FastAPI (Python) located in `server/main.py`.
 - **API Features**: Serving as a robust API Gateway connecting the frontend application to various enterprise tools. Support for local proxy headers and automated authentication middleware.
-- **Databases**: Hosted Lakebase (Postgres) databases divided by environment (dev, test, prod) storing core application state including roles, configured views, custom widget states, and the action logs required for the AI Maturity Model.
+- **Databases**: A hosted Lakebase (Postgres) database per deployment, storing core application state including access lists, configured views, custom widget states, and the action logs required for the AI Maturity Model.
 
 ### Integrations
 The backend natively integrates with various enterprise tools:
@@ -72,52 +72,49 @@ If an external tool supports secure, client-side embedding (such as an iframe fo
 
 **Backend-Mediated Integrations (e.g., Databricks, Custom APIs)**
 If an integration requires static secrets, service principal credentials, complex orchestration, or database access, it **MUST** be routed through the FastAPI backend. You must create a new API endpoint in `server/routes/`.
-* **Governance Rule**: The frontend must never hold raw API keys, machine-to-machine secrets, or database credentials. The backend acts as a secure, authenticated proxy to these enterprise services, enforcing RBAC access control and preventing secret leakage.
+* **Governance Rule**: The frontend must never hold raw API keys, machine-to-machine secrets, or database credentials. The backend acts as a secure, authenticated proxy to these enterprise services, enforcing access control and preventing secret leakage.
 
 #### On-Behalf-Of (OBO) Integrations
 All integrations must use On-Behalf-Of (OBO) authentication to do anything on the Databricks platform, like SQL Queries. This means that the frontend will make a request to the backend, and the backend will make a request to Databricks on behalf of the user, using their credentials and entitlements.
 
 ## Operations Manual: 
 
-### Roles System
+### Sharing and Permissions
 
-The Command Center employs a dynamic Role-Based Access Control (RBAC) system to govern who can view, edit, or administer different dashboard "Domains". This includes the ability to create and manage views and widgets and promote them to other environments.
+The Command Center shares content the way a Databricks dashboard does. Views, widgets and agents each carry their own access list; there are no domain roles.
 
 #### Concepts
-- **Domains**: Logical groupings of views and widgets (e.g., "Enterprise", "Finance", "Supply Chain", "Sales", "Marketing", "Product", "Engineering", "HR", "Finance", "Legal", etc.).
-- **External Roles**: There exists an admin screen on which an admin can map and external role (qgroup) to a domain and permission level combination.
-  - Example: "Supply Chain" domain + "viewer" permission level = "supply-chain-viewers" qgroup.
-- **Domain Permission Levels**: Granular control levels within a domain:
-  - `viewer`: Can only see the dashboards.
-  - `editor`: Can modify dashboard layouts and create views.
-- **Application Permission Levels**: Granular control levels within the application:
-  - `admin`: Full control including managing user access mappings for the domain.
+- **Access levels**: Each entry on an access list grants one of two levels:
+  - **Can use** (`USE`): see and open the latest published version, place a published widget on your own views, chat with a published agent.
+  - **Can manage** (`MANAGE`): everything Can use allows, plus edit the draft, publish, discard, revert, certify widget versions, change the access list, and archive or delete.
+- **Principals**: An entry names a Databricks user (matched ignoring case), a Databricks group (its exact display name), or **Everyone in this app**. The highest level a person gets through any entry wins.
+- **Owner**: Whoever creates a view, widget or agent gets Can manage automatically. An access list must keep at least one manager.
+- **Administrators**: A short list of users and groups who can manage everything and are the only people who see the Admin Panel.
+- **Domains**: Labels such as "Finance" or "Supply Chain" for filtering the Widget Library. They grant nothing.
+- **Anyone can build**: Widget Studio and Agent Studio are open to every signed-in user; what they build is private until shared.
+
+A published view carries its widgets: anyone who can use the view sees each widget on it at its published version, without the widget being shared separately. It does not carry its pinned agent, which must be shared on its own. Links open only for people something is shared with; anyone else gets the same "not found" as for something that doesn't exist.
 
 #### Managing Access
-Access control mappings are administered entirely through the Command Center UI. Users with `admin` privileges can navigate to the **Access Management** screen to easily configure roles. 
-From this interface, administrators can add new rules to link an external role (qgroup) to a specific domain and designate the appropriate permission level (`viewer`, `editor`, or `admin`). The UI provides a clear, at-a-glance view of all existing role bindings, allowing seamless updates or removals of access without needing to interact with the backend code or database directly.
+Sharing is done from the **Share** button on a view, in Widget Studio or in Agent Studio, by anyone with Can manage. Changes save immediately. Administrators are managed under **Admin Panel → Administrators**, and **Admin Panel → Content** lists every view, widget and agent with its owner and sharing, so an Administrator can reassign something whose owner has left. No database work is needed for either.
 
-### Promoting Work (Widgets & Views)
-The Command Center manages separate database environments (`dev`, `test`, `prod`). As you develop widgets and configure views, you will need to promote them through the environments. This ensures that experimental work doesn't impact production users.
+The upgrade to sharing migrated the old domain role mappings once: on widgets, global views and domain agents whose domain is exactly the mapping's (General when none was set), `viewer` became Can use and `editor` and `admin` became Can manage. Owners got Can manage, people subscribed to a view got Can use, only global agents became shared with everyone, and an `admin` mapping on Global, All or App made that principal an Administrator; a viewer or editor mapping on those names covered only items literally under them. If nobody ended up an Administrator, the workspace `users` group was added, so review **Admin Panel → Administrators** afterwards.
 
-*   **Domain Access Limitations:** A user's ability to promote a widget or a view is governed by the domains they have `editor` or `admin` access to in the target environment. You can only promote widgets and views that belong to your assigned domains. For example, a user who is an editor in the "Supply Chain" domain cannot promote widgets belonging to the "Finance" domain.
+The move ran once per deployment and records each step (done, skipped or failed) in the `cutover_log` table of the settings schema. A failed step is not retried on restart; the Admin Panel shows a notice whose **View details** lists what happened and offers **Retry**.
 
-#### Promoting Widgets
-Users with promotion access can promote a single widget from its **Promote** button in Widget Studio, or manage every widget's lifecycle via the **Widget Promotion** screen in the admin UI. 
-The interface displays a table of all widgets alongside their current versions in Dev, Test, and Prod. 
-*   **How to Promote/Rollback**: Under the target environment column, select the desired version number from the dropdown. 
-    *   Selecting a version *higher* than the current environment's version will prompt a **Promote Widget** confirmation. 
-    *   Selecting a version *lower* than the current version will prompt a **Roll Back** confirmation.
-*   **Certification**: In the Prod environment column, you can click the **Certify** button to formally flag a widget as enterprise-ready (`is_certified`).
-*   **Preview & History**: You can click **Preview** to render a live version of the widget at a specific version, or **Version History** to see an audit trail of authors and timestamps.
+### Drafts and Publishing (Widgets, Views & Agents)
+Every view, widget and agent has one **draft** and any number of **published versions**. Managers edit the draft, which is saved in place and adds no version; **Publish** turns it into the next version, which is what people with Can use see. **History** lists published versions, **Revert** copies one back into the draft, and **Discard draft** drops unpublished changes.
 
-#### Promoting Views
-Global view layouts are managed similarly via the **View Promotion** screen. 
-*   **How to Promote/Rollback**: Use the version dropdowns beneath the Dev, Test, or Prod columns to change the active version of a view in that environment.
-*   **What to Check**: Before promoting a view, ensure that **all widgets** included in that view have already been successfully promoted to the target environment. If a view references a widget ID that doesn't exist in the target environment, the view may fail to render correctly.
+*   **Publishing a view** runs a preflight that lists widgets and the pinned agent that are unpublished or have unpublished changes, and offers to publish them together with the view. With **Shared views may only contain certified widgets** on (Admin Panel → Settings), a view shared with anyone besides its owner can't be published while any widget on it is uncertified; private views are never affected.
+*   **Publishing a widget** re-runs the same safety check as saving it.
+*   **Certification** belongs to one published widget version and is set by its managers, by default on the latest published version. A new version starts uncertified.
+*   **Discard draft** is refused for something never published; delete it instead.
+*   **Archiving** a view hides it from everyone's sidebar and stops its link opening; managers restore it, or delete it permanently, from **Archived**. A shared view must be archived before it can be deleted; a private one can be deleted directly.
+*   People with Can use always see the published version. A widget on a view that has no published version shows a "Not published yet" card to them.
 
-#### Temporary Note
-RBAC is under development and will be fully implemented in a future release. Additional development and careful testing is required before production use. 
+Data Migration snapshots are format 2: they carry drafts, access lists and Administrators. Format-1 snapshots from before sharing still import, and their role mappings are converted the same way as above.
+
+There is no longer an in-app Dev / Test / Prod workspace or promotion. A one-time consolidation made Prod the published version and newer Dev (or Test) work the draft. Separate deployments (a dev app, stage, prod) remain, each with its own database, and content moves between them with **Admin Panel → Data Migration** snapshots.
 
 ## Contributing to the Codebase
 
@@ -165,7 +162,7 @@ To create a new widget or modify an existing one, navigate to the **Widget Studi
 1. **Configuration (`Settings` Mode):**
    - **Name & Description:** Define a descriptive name and brief explanation for your widget.
    - **Category:** Organize the widget within the library (e.g., `Analytics`, `Monitoring`, `Actions`).
-   - **Domain:** Assign the widget to a specific domain (e.g., `Supply Chain`, `Finance`) to enforce Role-Based Access Control (RBAC). Only users with access to that domain can view or use the widget.
+   - **Domain:** Label the widget with a business area (e.g., `Supply Chain`, `Finance`) so people can filter for it in the Widget Library. It does not control access; **Share** does.
    - **Default Dimensions:** Specify the widget's default layout grid width (cols) and height (rows).
    - **Data Source:** Select the data external provider type (`None`, `API`, or `Databricks API`). Provide the desired URL or path, and click the **Test & Extract Schema** button to securely send a test request and preview the structured data available for your widget code. There is no SQL option: for tables, leave it on `None` and name the table to the agent, which writes the SQL into the widget and runs it to check it. Widgets saved earlier with a SQL data source keep it, read-only.
    - **Is Executable Action:** Check this box if the widget is designed to trigger external pipelines, submit forms, or execute actions rather than strictly displaying data. This is the toggle that labels a widget an "effect" in our cause and effect data collection system, explained at the top.
@@ -179,7 +176,7 @@ To create a new widget or modify an existing one, navigate to the **Widget Studi
 
 3. **Preview & Publish:**
    - Use the **Preview** toggle to test your widget's appearance and functionality in real-time.
-   - Once satisfied, click **Publish** (or **Update** if editing an existing widget) to save it to the database. It will immediately become available in the Widget Library for authorized users to add to their dashboard views.
+   - Once satisfied, click **Save** to write your draft, **Share** to choose who can use it, and **Publish** to make the draft the version those people see in the Widget Library and on views.
 
 ### Creating and Editing Complex Widgets
 

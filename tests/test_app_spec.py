@@ -1,10 +1,11 @@
-"""Tests for what an app is: reading stored rows, validating saves, composing, access.
+"""Tests for what an app is: reading stored rows, validating saves, composing.
 
 Most of what is pinned here is about the deployment that already exists. Every
 row in it was written before apps, holds only `widgets_json`, and must read as
 exactly the one-canvas view it was — same id, same layout, same sidebar — with no
 migration having run. The rest is the write path refusing what it would otherwise
-have to guess at, and the access rule that decides who may open an app at all.
+have to guess at. Who may open an app is its access list's to decide, and is
+tested with the routes (`test_apps_routes.py`).
 """
 import copy
 import itertools
@@ -16,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 from services import app_spec  # noqa: E402
 from services.app_spec import (  # noqa: E402
-    MAX_IMAGE_CHARS, MAX_TABS, SpecError, all_widgets, can_read, compose_spec, dumps,
+    MAX_IMAGE_CHARS, MAX_TABS, SpecError, all_widgets, compose_spec, dumps,
     first_tab_widgets, legacy_spec, read_spec, validate_spec,
 )
 
@@ -443,27 +444,6 @@ def test_composing_checks_the_presentation():
         raise AssertionError("an unknown presentation was accepted")
     except SpecError:
         pass
-
-
-# --------------------------------------------------------------- who may read
-
-PERSONAL = {"username": ME, "is_global": 0, "domain": "General"}
-GLOBAL = {"username": "system", "is_global": 1, "domain": "Sales"}
-NOBODY = {"is_admin": False, "domain_permissions": {}}
-
-
-def test_a_personal_app_opens_for_anyone_holding_its_id_as_a_view_always_did():
-    # `?shared_view=<id>` subscribes any caller to any personal view, so the id
-    # has always been the key. Apps keep that, neither wider nor narrower.
-    assert can_read(PERSONAL, perms=NOBODY)
-
-
-def test_a_global_app_needs_a_role_in_its_domain_as_a_global_view_does():
-    assert can_read(GLOBAL, perms={"is_admin": False, "domain_permissions": {"Sales": "viewer"}})
-    assert not can_read(GLOBAL, perms={"is_admin": False, "domain_permissions": {"Finance": "editor"}})
-    assert not can_read(GLOBAL, perms=NOBODY)
-    assert can_read(GLOBAL, perms={"is_admin": True, "domain_permissions": {}})
-    assert can_read({**GLOBAL, "domain": None}, perms={"is_admin": False, "domain_permissions": {"General": "viewer"}})
 
 
 def test_pin_semantics_are_unchanged():

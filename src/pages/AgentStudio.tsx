@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     Bot, Save, RefreshCw, Trash2, Plus, Settings, FileText, Sparkles,
     ListChecks, AlertTriangle, Wrench, ChevronDown, FolderOpen, Play,
-    Code2, ShieldCheck, Search, MessageSquarePlus, FilePlus2, Check,
+    Code2, ShieldCheck, Search, MessageSquarePlus, FilePlus2, Check, Share2, X,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -13,6 +13,8 @@ import { AgentConversation } from '../components/AgentConversation';
 import { CodeEditor } from '../components/CodeEditor';
 import { ModelSelect } from '../components/ModelSelect';
 import { SendStopButton } from '../components/SendStopButton';
+import { DraftBar, ShareDialog, type DraftMode } from '../components/sharing';
+import { LEVEL_LABELS, STATE_LABELS, type Level, type PublishState } from '../sharing';
 
 const DARK_CHAT_MARKDOWN: Components = { img: DarkChatImage };
 
@@ -88,8 +90,6 @@ const loadToolFilters = (): ToolFilters => {
     return { hidden: DEFAULT_HIDDEN_SOURCES, internal: false, v: TOOL_FILTER_VERSION };
 };
 
-type Visibility = 'personal' | 'domain' | 'global';
-
 interface ProfileSummary {
     id: string;
     name: string;
@@ -97,10 +97,26 @@ interface ProfileSummary {
     model: string;
     tools: string[];
     domain: string;
-    visibility: Visibility;
-    location_label: string;
     author?: string;
     owned_by_me?: boolean;
+    access: Level;
+    state: PublishState;
+    published_version: number | null;
+}
+
+/** One agent with its body, as GET / POST /profiles and /revert return it. */
+interface LoadedProfile extends ProfileSummary {
+    prompt?: string;
+    skills?: SkillDraft[];
+    python_tools?: PythonToolDraft[];
+    updated_at?: string;
+}
+
+interface PublishedVersion {
+    version: number;
+    name: string;
+    published_by?: string | null;
+    published_at?: string | null;
 }
 
 interface ReviewReport {
@@ -139,25 +155,22 @@ interface DraftFields {
     prompt: string;
     skills: SkillDraft[];
     pythonTools: PythonToolDraft[];
-    visibility: Visibility;
     domain: string;
 }
 
-// Domain only counts while the agent is domain-shared: the picker is hidden
-// otherwise, and refreshDomains can move it on mount when the user has no
-// 'General' role, which would flag an untouched new agent as unsaved.
+const DEFAULT_DOMAIN = 'General';
+
 const draftSignature = (f: DraftFields) => JSON.stringify({
     p: f.prompt,
     t: f.tools,
     s: f.skills.map(s => [s.name, s.description, s.content]),
     y: f.pythonTools.map(t => [t.name, t.description, t.code]),
-    n: f.name, d: f.description, m: f.model,
-    v: f.visibility, dm: f.visibility === 'domain' ? f.domain : '',
+    n: f.name, d: f.description, m: f.model, dm: f.domain,
 });
 
 const NEW_AGENT_SIGNATURE = draftSignature({
     name: 'New Agent', description: '', model: '', tools: [], prompt: DEFAULT_PROMPT,
-    skills: [], pythonTools: [], visibility: 'personal', domain: '',
+    skills: [], pythonTools: [], domain: DEFAULT_DOMAIN,
 });
 
 export const AgentStudio: React.FC = () => {
@@ -222,21 +235,38 @@ export const AgentStudio: React.FC = () => {
         }),
     });
 
-    // Sharing / visibility (domain-scoped, like widgets & views)
-    const [visibility, setVisibility] = useState<Visibility>('personal');
-    const [domain, setDomain] = useState<string>('General');
+    // A label for finding the agent; who can reach it is its access list (Share).
+    const [domain, setDomain] = useState<string>(DEFAULT_DOMAIN);
+
+    // Where the open agent stands. `access` is null for a new agent nobody has
+    // saved yet, which its author will manage once they do.
+    const [access, setAccess] = useState<Level | null>(null);
+    const [publishState, setPublishState] = useState<PublishState | undefined>(undefined);
+    const [publishedVersion, setPublishedVersion] = useState<number | null>(null);
+    const [viewMode, setViewMode] = useState<DraftMode>('draft');
+    const [publishing, setPublishing] = useState(false);
+    const [showShare, setShowShare] = useState(false);
+    const [versions, setVersions] = useState<PublishedVersion[] | null>(null);
+    const canManage = access !== 'USE';
+    // A manager looking at the published version is reading what users get;
+    // edits belong in the draft.
+    const readOnly = canManage && viewMode === 'published';
 
     const [savedSignature, setSavedSignature] = useState(NEW_AGENT_SIGNATURE);
     const currentSignature = draftSignature({
         name, description, model, tools: selectedTools, prompt: agentPrompt,
-        skills, pythonTools, visibility, domain,
+        skills, pythonTools, domain,
     });
     const isDirty = currentSignature !== savedSignature;
+    // Edits not yet saved are unpublished changes too, so Publish stays offered.
+    const barState: PublishState | undefined = !canManage ? undefined
+        : !profileId ? 'draft_only'
+            : isDirty && publishState === 'published' ? 'published_with_draft'
+                : publishState;
 
     // Catalog data
     const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
-    const [domains, setDomains] = useState<string[]>(['General']);
-    const [isAdmin, setIsAdmin] = useState<boolean>(false);
+    const [domains, setDomains] = useState<string[]>([DEFAULT_DOMAIN]);
     const [tools, setTools] = useState<ToolInfo[]>([]);
     const [toolsLoading, setToolsLoading] = useState(false);
     const [toolProblems, setToolProblems] = useState<ToolProblem[]>([]);
@@ -310,17 +340,12 @@ export const AgentStudio: React.FC = () => {
 
     const refreshDomains = async () => {
         try {
-            const [dr, pr] = await Promise.all([
-                fetch('/api/roles/my-domains'),
-                fetch('/api/roles/my-permissions'),
-            ]);
-            const dd = await dr.json();
-            if (dr.ok && Array.isArray(dd.domains) && dd.domains.length) {
-                setDomains(dd.domains);
-                setDomain(prev => (dd.domains.includes(prev) ? prev : dd.domains[0]));
+            const r = await fetch('/api/taxonomy/domains');
+            const d = await r.json();
+            if (r.ok && Array.isArray(d.domains)) {
+                const names = (d.domains as { name?: string }[]).map(x => x?.name || '').filter(Boolean);
+                setDomains(Array.from(new Set([DEFAULT_DOMAIN, ...names])));
             }
-            const pp = await pr.json();
-            if (pr.ok) setIsAdmin(!!pp.is_admin);
         } catch (e) { console.error('list domains failed', e); }
     };
 
@@ -364,7 +389,11 @@ export const AgentStudio: React.FC = () => {
         setActiveSkillIdx(null);
         setPythonTools([]);
         setActivePyToolIdx(null);
-        setVisibility('personal');
+        setDomain(DEFAULT_DOMAIN);
+        setAccess(null);
+        setPublishState(undefined);
+        setPublishedVersion(null);
+        setViewMode('draft');
         setReview(null);
         setReviewStale(false);
         skipStaleRef.current = true;   // resetting fields shouldn't mark anything stale
@@ -390,39 +419,49 @@ export const AgentStudio: React.FC = () => {
         loadProfile(id);
     };
 
-    const loadProfile = async (id: string) => {
+    // Put an agent as the server returned it (a load, a save or a revert) in the editor.
+    const showProfile = (d: LoadedProfile) => {
+        const loaded: DraftFields = {
+            name: d.name || '',
+            description: d.description || '',
+            model: d.model || '',
+            tools: d.tools || [],
+            prompt: d.prompt || DEFAULT_PROMPT,
+            skills: (d.skills || []).map(s => ({ slug: s.slug, name: s.name, description: s.description, content: s.content })),
+            pythonTools: (d.python_tools || []).map(t => ({ slug: t.slug, name: t.name, description: t.description, code: t.code })),
+            domain: d.domain || DEFAULT_DOMAIN,
+        };
+        setProfileId(d.id);
+        setLoadedUpdatedAt(d.updated_at || '');
+        setName(loaded.name);
+        setDescription(loaded.description);
+        setModel(loaded.model);
+        setSelectedTools(loaded.tools);
+        setAgentPrompt(loaded.prompt);
+        setSkills(loaded.skills);
+        setPythonTools(loaded.pythonTools);
+        setDomain(loaded.domain);
+        setSavedSignature(draftSignature(loaded));
+        setAccess(d.access || 'MANAGE');
+        setPublishState(d.state);
+        setPublishedVersion(d.published_version ?? null);
+        setActiveSkillIdx(null);
+        setActivePyToolIdx(null);
+    };
+
+    const loadProfile = async (id: string, mode?: DraftMode) => {
         try {
-            const r = await fetch(`${API}/profiles/${encodeURIComponent(id)}`);
+            const query = mode ? `?mode=${mode}` : '';
+            const r = await fetch(`${API}/profiles/${encodeURIComponent(id)}${query}`);
             const d = await r.json();
             if (!r.ok) { alert(d.detail || 'Failed to load profile'); return; }
             // Only once the load has landed, so a failed open doesn't also throw
             // away a generation that was still drafting the current agent.
             supersedeGeneration();
-            const loaded: DraftFields = {
-                name: d.name || '',
-                description: d.description || '',
-                model: d.model || '',
-                tools: d.tools || [],
-                prompt: d.prompt || DEFAULT_PROMPT,
-                skills: (d.skills || []).map((s: any) => ({ slug: s.slug, name: s.name, description: s.description, content: s.content })),
-                pythonTools: (d.python_tools || []).map((t: any) => ({ slug: t.slug, name: t.name, description: t.description, code: t.code })),
-                visibility: (d.visibility as Visibility) || 'personal',
-                domain: d.domain || domain,
-            };
-            setProfileId(d.id);
-            setLoadedUpdatedAt(d.updated_at || '');
-            setName(loaded.name);
-            setDescription(loaded.description);
-            setModel(loaded.model);
-            setSelectedTools(loaded.tools);
-            setAgentPrompt(loaded.prompt);
-            setSkills(loaded.skills);
-            setPythonTools(loaded.pythonTools);
-            setVisibility(loaded.visibility);
-            setDomain(loaded.domain);
-            setSavedSignature(draftSignature(loaded));
-            setActiveSkillIdx(null);
-            setActivePyToolIdx(null);
+            showProfile(d);
+            setViewMode(mode ?? (d.access === 'USE' ? 'published' : 'draft'));
+            // Switching between draft and published keeps the conversation and tab.
+            if (mode) return;
             // Keep any prior review visible but mark it stale — it described a
             // different draft. (Reviews aren't saved with the profile.) The
             // signature effect will flip the flag once the loaded fields land.
@@ -558,11 +597,14 @@ export const AgentStudio: React.FC = () => {
         }
     };
 
-    const handleSave = async () => {
-        if (!name.trim()) { alert('Please provide an agent name.'); setRightTab('settings'); return; }
+    // Saves the draft (someone who can only use the agent saves a copy of their
+    // own instead) and returns the agent's id, or null if nothing was saved.
+    const handleSave = async (): Promise<string | null> => {
+        if (!name.trim()) { alert('Please provide an agent name.'); setRightTab('settings'); return null; }
         // What was sent, not what's on screen when the reply lands: edits made
         // while the request is in flight are still unsaved.
         const sentSignature = currentSignature;
+        const asCopy = !canManage;
         setIsSaving(true);
         setSavedFlash(false);
         try {
@@ -572,39 +614,122 @@ export const AgentStudio: React.FC = () => {
                 body: JSON.stringify({
                     name, prompt: agentPrompt, description, model,
                     tools: selectedTools, skills, python_tools: pythonTools,
-                    visibility, domain,
-                    profile_id: profileId,
-                    expected_updated_at: loadedUpdatedAt || null,
+                    domain,
+                    profile_id: asCopy ? null : profileId,
+                    expected_updated_at: asCopy ? null : (loadedUpdatedAt || null),
                 }),
             });
             const d = await r.json();
             if (r.status === 409) {
                 alert(d.detail || 'This profile was changed elsewhere. Reload before saving.');
-                return;
+                return null;
             }
-            if (r.status === 403) {
-                alert(d.detail || 'You do not have permission to share an agent in that domain.');
-                setRightTab('settings');
-                return;
-            }
-            if (!r.ok) { alert(`Save failed: ${d.detail || r.statusText}`); return; }
+            if (!r.ok) { alert(`Save failed: ${d.detail || r.statusText}`); return null; }
             setProfileId(d.id);
             setLoadedUpdatedAt(d.updated_at || '');
             setSavedSignature(sentSignature);
+            setAccess(d.access || 'MANAGE');
+            setPublishState(d.state);
+            setPublishedVersion(d.published_version ?? null);
+            setViewMode('draft');
+            if (asCopy) {
+                setMessages(prev => [...prev, { role: 'system', content: `Saved "${d.name}" as your own agent. Only you can see it until you publish and share it.` }]);
+            }
             setSavedFlash(true);
             if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
             savedFlashTimerRef.current = setTimeout(() => setSavedFlash(false), 2000);
             await refreshProfiles();
+            return d.id as string;
         } catch (e) {
             alert(`Error: ${e}`);
+            return null;
         } finally {
             setIsSaving(false);
         }
     };
 
+    // Publish what's in the editor: unsaved edits are saved into the draft first,
+    // since publishing only ever takes the saved draft.
+    const handlePublish = async () => {
+        if (publishing) return;
+        setPublishing(true);
+        try {
+            const id = isDirty || !profileId ? await handleSave() : profileId;
+            if (!id) return;
+            const r = await fetch(`${API}/profiles/${encodeURIComponent(id)}/publish`, { method: 'POST' });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) { alert(`Publish failed: ${d.detail || r.statusText}`); return; }
+            setPublishState('published');
+            setPublishedVersion(d.version ?? null);
+            setMessages(prev => [...prev, { role: 'system', content: `Published version ${d.version}. Everyone it's shared with now gets this version in chat.` }]);
+            await refreshProfiles();
+        } catch (e) {
+            alert(`Error: ${e}`);
+        } finally {
+            setPublishing(false);
+        }
+    };
+
+    // Back to the published version: the saved draft is thrown away on the
+    // server, and edits never saved simply aren't kept.
+    const handleDiscard = async () => {
+        if (!profileId) return;
+        setPublishing(true);
+        try {
+            if (publishState === 'published_with_draft') {
+                const r = await fetch(`${API}/profiles/${encodeURIComponent(profileId)}/discard`, { method: 'POST' });
+                if (!r.ok) { const d = await r.json().catch(() => ({})); alert(`Discard failed: ${d.detail || r.statusText}`); return; }
+            }
+            await loadProfile(profileId, 'draft');
+            await refreshProfiles();
+        } finally {
+            setPublishing(false);
+        }
+    };
+
+    const handleModeChange = (mode: DraftMode) => {
+        if (!profileId) return;
+        if (isDirty && !confirm(`Switching versions drops your unsaved edits to "${name || 'this agent'}". Continue?`)) return;
+        loadProfile(profileId, mode);
+    };
+
+    const openHistory = async () => {
+        if (!profileId) return;
+        try {
+            const r = await fetch(`${API}/profiles/${encodeURIComponent(profileId)}/history`);
+            const d = await r.json();
+            if (!r.ok) { alert(d.detail || 'Could not load the published versions.'); return; }
+            setVersions(d.versions || []);
+        } catch (e) {
+            alert(`Error: ${e}`);
+        }
+    };
+
+    const handleRevert = async (version: number) => {
+        if (!profileId) return;
+        if (isDirty && !confirm(`Reverting replaces your unsaved edits to "${name || 'this agent'}". Continue?`)) return;
+        try {
+            const r = await fetch(`${API}/profiles/${encodeURIComponent(profileId)}/revert`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ version }),
+            });
+            const d = await r.json();
+            if (!r.ok) { alert(`Revert failed: ${d.detail || r.statusText}`); return; }
+            setVersions(null);
+            supersedeGeneration();
+            showProfile(d);
+            setViewMode('draft');
+            setMessages(prev => [...prev, { role: 'system', content: `Your draft is now version ${version}. Publish it to make it what users get.` }]);
+            await refreshProfiles();
+        } catch (e) {
+            alert(`Error: ${e}`);
+        }
+    };
+
     const handleDelete = async () => {
         if (!profileId) return;
-        if (!confirm(`Delete "${name}"? This removes the AGENT.md and its skills.`)) return;
+        if (!confirm(`Delete "${name}"? It is removed, with its skills and Python tools, for everyone it is shared with.`)) return;
         try {
             const r = await fetch(`${API}/profiles/${encodeURIComponent(profileId)}`, { method: 'DELETE' });
             if (!r.ok) { const d = await r.json(); alert(`Delete failed: ${d.detail || r.statusText}`); return; }
@@ -784,7 +909,8 @@ export const AgentStudio: React.FC = () => {
                                                 )}
                                             </div>
                                             <div className="text-xs text-slate-500 truncate">
-                                                {p.location_label}
+                                                {p.access === 'MANAGE' ? STATE_LABELS[p.state] : LEVEL_LABELS.USE}
+                                                {p.domain && p.domain !== DEFAULT_DOMAIN ? ` · ${p.domain}` : ''}
                                                 {!p.owned_by_me && p.author ? ` · by ${p.author}` : ''}
                                                 {' · '}{p.description || 'No description'}
                                             </div>
@@ -794,14 +920,47 @@ export const AgentStudio: React.FC = () => {
                             )}
                         </div>
                         <button
-                            onClick={handleSave}
-                            disabled={isSaving}
-                            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors font-medium min-w-[5.5rem] justify-center ${isSaving ? 'bg-indigo-400 cursor-not-allowed text-indigo-100' : savedFlash ? 'bg-emerald-600 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
+                            onClick={() => { void handleSave(); }}
+                            disabled={isSaving || readOnly}
+                            title={readOnly ? 'This is the published version. Switch to Draft to edit.'
+                                : canManage ? 'Save the draft. People who can only use it keep the published version until you publish.'
+                                    : 'You can use this agent but not change it. Save a copy to make it your own.'}
+                            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors font-medium min-w-[5.5rem] justify-center disabled:cursor-not-allowed ${isSaving ? 'bg-indigo-400 text-indigo-100' : readOnly ? 'bg-slate-700 text-slate-400' : savedFlash ? 'bg-emerald-600 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
                             {isSaving ? <RefreshCw size={14} className="animate-spin" /> : savedFlash ? <Check size={14} /> : <Save size={14} />}
-                            {isSaving ? 'Saving...' : savedFlash ? 'Saved' : 'Save'}
+                            {isSaving ? 'Saving...' : savedFlash ? 'Saved' : canManage ? 'Save' : 'Save a copy'}
                         </button>
                     </div>
                 </div>
+                <div className="flex items-center justify-between gap-3 px-4 h-11 border-b border-slate-800 bg-slate-900 shrink-0">
+                    {canManage ? (
+                        <DraftBar
+                            variant="dark"
+                            state={barState}
+                            mode={viewMode}
+                            onModeChange={handleModeChange}
+                            onPublish={() => { void handlePublish(); }}
+                            onDiscard={handleDiscard}
+                            onHistory={profileId && publishedVersion ? openHistory : undefined}
+                            busy={publishing || isSaving}
+                        />
+                    ) : (
+                        <span className="text-xs text-slate-400">
+                            You can use this agent. Chat runs its published version; save a copy to change it.
+                        </span>
+                    )}
+                    <button
+                        onClick={() => setShowShare(true)}
+                        disabled={!profileId}
+                        title={profileId ? 'Choose who can use or manage this agent' : 'Save the agent to share it'}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-700">
+                        <Share2 size={13} /> Share
+                    </button>
+                </div>
+                {readOnly && (
+                    <div className="px-4 py-1.5 text-xs text-sky-200 bg-sky-500/10 border-b border-sky-500/20 shrink-0">
+                        Viewing published version {publishedVersion}, which is what chat runs. Switch to Draft to edit; Try it runs what you see here.
+                    </div>
+                )}
                 <div className="flex border-b border-slate-800 bg-slate-900/50 px-4 pt-1 gap-2 items-end overflow-x-auto shrink-0">
                     {tabBtn('prompt', 'Prompt', FileText)}
                     {tabBtn('skills', `Skills${skills.length ? ` (${skills.length})` : ''}`, Sparkles)}
@@ -812,6 +971,9 @@ export const AgentStudio: React.FC = () => {
                 </div>
 
                 <div className="flex-1 relative overflow-hidden">
+                    {/* A disabled fieldset disables every control inside it, so the
+                        published version can be read and tried but not edited. */}
+                    <fieldset disabled={readOnly} className="contents">
                     {rightTab === 'prompt' && (
                         <div className="absolute inset-0 flex flex-col bg-[#1e1e1e] p-4">
                             <div className="text-xs text-slate-500 mb-2 font-mono">AGENT.md — system prompt (markdown)</div>
@@ -1021,33 +1183,17 @@ export const AgentStudio: React.FC = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Sharing</label>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <select
-                                            value={visibility}
-                                            onChange={e => setVisibility(e.target.value as Visibility)}
-                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
-                                            <option value="personal">Personal — private to me</option>
-                                            <option value="domain">Domain — shared with a domain</option>
-                                            <option value="global" disabled={!isAdmin}>
-                                                Global — everyone{isAdmin ? '' : ' (admins only)'}
-                                            </option>
-                                        </select>
-                                        {visibility === 'domain' && (
-                                            <select
-                                                value={domain}
-                                                onChange={e => setDomain(e.target.value)}
-                                                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
-                                                {domains.map(dm => (
-                                                    <option key={dm} value={dm}>{dm}</option>
-                                                ))}
-                                            </select>
-                                        )}
-                                    </div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Domain</label>
+                                    <select
+                                        value={domain}
+                                        onChange={e => setDomain(e.target.value)}
+                                        className="w-full sm:w-1/2 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+                                        {(domains.includes(domain) ? domains : [...domains, domain]).map(dm => (
+                                            <option key={dm} value={dm}>{dm}</option>
+                                        ))}
+                                    </select>
                                     <p className="text-xs text-slate-500 mt-1">
-                                        {visibility === 'personal' && 'Only you can see this agent. Saving requires no domain role.'}
-                                        {visibility === 'domain' && 'Visible to anyone with access to this domain. Saving requires editor rights on it.'}
-                                        {visibility === 'global' && 'Visible to every user of Command Center. Only global admins can save global agents.'}
+                                        A label for finding the agent. It doesn’t decide who can use it — Share does.
                                     </p>
                                 </div>
 
@@ -1065,7 +1211,7 @@ export const AgentStudio: React.FC = () => {
                                     </div>
                                     <p className="text-xs text-slate-500 mb-2">
                                         Every agent can also look up how the Command Center works (widgets,
-                                        views, roles, promotion) — that tool is always attached and is not
+                                        views, sharing, publishing) — that tool is always attached and is not
                                         listed here.
                                     </p>
                                     {toolProblems.map(p => (
@@ -1229,7 +1375,7 @@ export const AgentStudio: React.FC = () => {
                                     )}
                                 </div>
 
-                                {profileId && (
+                                {profileId && access === 'MANAGE' && (
                                     <div className="border border-rose-500/30 bg-rose-500/5 rounded-lg p-4">
                                         <div className="text-sm font-medium text-rose-300">Delete agent</div>
                                         <p className="text-xs text-slate-400 mt-1">
@@ -1244,6 +1390,7 @@ export const AgentStudio: React.FC = () => {
                             </div>
                         </div>
                     )}
+                    </fieldset>
 
                     {rightTab === 'tryit' && (
                         <div className="absolute inset-0 flex flex-col">
@@ -1271,6 +1418,52 @@ export const AgentStudio: React.FC = () => {
                 </div>
             </div>
 
+            {showShare && profileId && (
+                <ShareDialog
+                    objectType="agent"
+                    objectId={profileId}
+                    name={name || 'this agent'}
+                    published={publishedVersion != null}
+                    onClose={() => setShowShare(false)}
+                    onChanged={() => { void refreshProfiles(); }}
+                />
+            )}
+
+            {versions && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onMouseDown={() => setVersions(null)}>
+                    <div role="dialog" aria-label="Published versions" onMouseDown={e => e.stopPropagation()}
+                        className="w-[28rem] max-h-[70vh] flex flex-col rounded-lg border border-slate-600 bg-slate-800 shadow-2xl">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+                            <div className="text-sm font-semibold text-slate-100">Published versions</div>
+                            <button onClick={() => setVersions(null)} aria-label="Close" className="p-1 text-slate-400 hover:text-slate-100 rounded">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="overflow-y-auto">
+                            {versions.length === 0 ? (
+                                <div className="px-4 py-3 text-sm text-slate-400 italic">Nothing has been published yet.</div>
+                            ) : versions.map(v => (
+                                <div key={v.version} className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-700/50 last:border-0">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-sm text-slate-200">
+                                            Version {v.version}{v.version === publishedVersion ? ' · current' : ''}
+                                        </div>
+                                        <div className="text-xs text-slate-500 truncate">
+                                            {v.published_at ? new Date(v.published_at).toLocaleString() : 'Date unknown'}
+                                            {v.published_by ? ` · ${v.published_by}` : ''}
+                                        </div>
+                                    </div>
+                                    <button onClick={() => { void handleRevert(v.version); }}
+                                        title="Make this version your draft. Users keep the current version until you publish."
+                                        className="shrink-0 px-2.5 py-1 text-xs font-medium rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200">
+                                        Revert to this
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

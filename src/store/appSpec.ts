@@ -1,5 +1,6 @@
 // What an app is on the client. Mirrors `server/services/app_spec.py`, which
 // validates every save; keep the two in step.
+import type { AccessSummary, Level, PublishState } from '../sharing';
 
 export interface WidgetLayout {
   i: string;
@@ -208,18 +209,32 @@ export interface AppSpec {
 export interface App {
   id: string;
   name: string;
-  /** A global app's name in links (`#/app/supply-hub`); see `appRoute.appRef`. */
+  /** A published app's name in links (`#/app/supply-hub`); see `appRoute.appRef`. */
   link?: string | null;
   spec: AppSpec;
   locked?: boolean;
+  /** A label for filtering; it grants nothing. */
   domain?: string;
-  is_global?: boolean;
-  is_shared?: boolean;
+  /** Who created it, as recorded on the row. `owner` is who to show. */
   username?: string;
+  /** The published version this row is, or 0 for a draft never published. */
   version?: number;
   timestamp?: string | null;
   /** Agent Studio profile the assistant opens with on this app. Null = no pin. */
   pinned_agent_id?: string | null;
+  /** The signed-in user's level on it. */
+  access?: Level;
+  /** Sent to managers only; to everyone else an app is what was published. */
+  state?: PublishState;
+  owner?: string | null;
+  published_version?: number | null;
+  has_draft?: boolean;
+  /** Somebody else's: the sidebar lists it under Shared with me. */
+  shared_with_me?: boolean;
+  /** How widely it is shared, for the access icon. */
+  sharing?: AccessSummary | null;
+  /** This copy is the draft, merged over the published version. */
+  is_draft?: boolean;
 }
 
 export const newAppSpec = (tabId: string): AppSpec => ({
