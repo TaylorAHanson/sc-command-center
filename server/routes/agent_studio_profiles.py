@@ -507,11 +507,11 @@ def _server_tools(ws: WorkspaceClient, server_url: str, title: str, fresh: bool,
                   problems: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """One server's tools, as catalog entries. An unreachable server lists none,
     and is recorded in ``problems`` when the caller passes a list."""
-    from databricks_mcp import DatabricksMCPClient
     from services.agent_runtime import _is_genie_ask_tool
+    from services.mcp_client import mcp_client
 
     def build() -> List[Dict[str, Any]]:
-        client = DatabricksMCPClient(server_url=server_url, workspace_client=ws)
+        client = mcp_client(server_url, ws)
         tools = [t for t in _list_tools_with_retry(client) if getattr(t, "name", None)]
         label = _server_label(server_url)
         source = _source_of(server_url)

@@ -462,7 +462,13 @@ Two behaviors that look odd but are intentional:
   reported the hidden poll tool under `review.missing` (`tests/test_mcp_catalog.py`).
   Each Genie space also has a server of its own (`/api/2.0/mcp/genie/<id>`)
   whose tool names needn't match the general one's, so discovery records each
-  ask tool's `poll_tool` and `_exec_mcp` polls with that.
+  ask tool's `poll_tool` and `_exec_mcp` polls with that. Its arguments differ
+  too: a space's poll requires `message_id` where Genie One's takes
+  `response_id` (`_genie_poll_args`), and a space answers with Genie's message
+  as JSON and no `final_answer`, which `_space_answer` turns into the prose, the
+  SQL and a capped table. A space's ask holds the request open 10–15 s before
+  answering or handing back a handle, which is what the MCP client's timeout
+  (below) has to allow for.
 - **The tool catalog is unfiltered; the picker filters.** `discover_mcp_tools`
   asks the configured servers (the `mcp_servers` setting, see *Deployment
   settings*; `AGENT_STUDIO_MCP_SERVERS` is its fallback) and, with
@@ -511,6 +517,29 @@ Two behaviors that look odd but are intentional:
   SQL is deliberately *not* wrapped this way — `execute_sql` answers inline for
   normal queries and `poll_sql_result` stays model-facing by design, which is
   part of why the step cap is 8 rather than 6.
+
+### MCP connections (`services/mcp_client.py`)
+
+Every MCP call — the runtime's tools, the picker's discovery, the studios'
+`ask_genie` — goes through `mcp_client(server_url, ws)`, not
+`databricks_mcp.DatabricksMCPClient`. On mcp 2.x, `databricks-mcp` 0.9.2 (the
+newest release) builds its HTTP client with no timeout, so httpx's 5 s default
+applied to every read and every Genie space call failed with a `ReadTimeout`.
+The client is built from public pieces only (mcp's `Client` and
+`streamable_http_client`, `databricks_mcp`'s `DatabricksOAuthClientProvider`),
+with the read bounded by `chat_tool_timeout` and never below 30 s. Two things
+to keep:
+
+- **Don't reach into `databricks_mcp` privates to fix something.** Pinning
+  `mcp<2` would also have restored the timeouts, and it was rejected: it freezes
+  the client that carries users' tokens and brings the bug back on any upgrade.
+  `tests/test_mcp_client.py` fails if a piece the client is built from moves.
+- **Read both spellings of a result's fields.** mcp 2.x says `structured_content`
+  / `is_error`; `_parse_mcp_result` read only the 1.x names, so a tool error read
+  as an answer. Errors are also unwrapped from the transport's task group,
+  which reported every failure as "unhandled errors in a TaskGroup".
+
+Tests replace `services.mcp_client.mcp_client`, where the call sites look it up.
 
 `RUNTIME_CONTRACT`'s *Charts* section tells the model to answer with a fenced
 `vega-lite` block of inline `data.values`, which the drawer renders (see
@@ -1363,8 +1392,9 @@ settles as *completed* with an apology: the user's code is already fine.
 ```bash
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 23 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 15 passed
-PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 9 passed
-PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 33 passed
+PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 10 passed
+PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 35 passed
+PYTHONPATH=server .venv/bin/python tests/test_mcp_client.py           # 5 passed
 PYTHONPATH=server .venv/bin/python tests/test_code_patch.py           # 22 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed

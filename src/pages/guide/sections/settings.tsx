@@ -183,7 +183,7 @@ const Body = () => (
       head={['Setting', 'Starts at', 'Allowed', 'Raise it if…']}
       rows={[
         [<UI key="a">Response length limit (tokens)</UI>, '16,000', '256 to 128,000', 'Long chat answers are cut off. Models that allow less are clamped to their own limit.'],
-        [<UI key="b">Tool call timeout (seconds)</UI>, '90', '5 to 600', 'A SQL query or MCP call runs longer than that and the agent is told it timed out.'],
+        [<UI key="b">Tool call timeout (seconds)</UI>, '90', '5 to 600', 'A SQL query or MCP call runs longer than that and the agent is told it timed out. MCP calls always get at least 30, which a Genie space needs.'],
         [<UI key="c">Genie query timeout (seconds)</UI>, '150', '10 to 900', 'You use large warehouses. Genie is polled until this runs out.'],
         [<UI key="d">Widget response length limit (tokens)</UI>, '16,000', '1,000 to 128,000', 'You want fewer round trips. A cut-off reply is continued automatically anyway.'],
         [<UI key="e">Widget generation timeout (seconds)</UI>, '300', '30 to 1,800', 'Large widgets give up before they finish.'],

@@ -78,6 +78,7 @@ server/                 FastAPI gateway — see server/AGENTS.md
                         conversation_store.py + upload_store.py + upload_tools.py
                         + file_extract.py (saved chats and attached files),
                         caller_identity.py (who is calling, cached),
+ mcp_client.py (every MCP call, with real timeouts),
                         research_tools.py (studio SQL/Genie research),
                         data_migration.py (app-to-app snapshots),
                         app_links.py (the names in view links),

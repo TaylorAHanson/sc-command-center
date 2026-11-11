@@ -421,7 +421,8 @@ const Body = () => (
       finished.
     </P>
     <P>
-      Once the widget is saved, a bar under the tabs holds everything about publishing it, for people who can manage it:
+      Once the widget is saved, a bar under the tabs holds everything about publishing it. Someone who can only use the
+      widget sees just <UI>Share</UI> there, to check who has it; the rest is for people who can manage it:
     </P>
     <List>
       <li>
@@ -442,7 +443,7 @@ const Body = () => (
         <UI>Certify</UI>, once the widget has been published. It marks the latest published version as reviewed; see{' '}
         <GuideLink to="publishing" anchor="certify">Certify a widget</GuideLink>.
       </li>
-      <li><UI>Share</UI>, to set who can use or manage the widget.</li>
+      <li><UI>Share</UI>, to set who can use or manage the widget, or just see that if you can only use it.</li>
     </List>
     <P>
       See <GuideLink to="publishing">Drafts &amp; publishing</GuideLink>.

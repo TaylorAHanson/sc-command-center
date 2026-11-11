@@ -41,6 +41,16 @@ def test_parse_mcp_result_handles_list_text():
     assert is_error is False
 
 
+def test_parse_mcp_result_reads_mcp_2_field_names():
+    """mcp 2.x renamed them; reading only the old names lost every tool error."""
+    block = SimpleNamespace(text="permission denied", data=None)
+    result = SimpleNamespace(structured_content={"status": "FAILED"}, content=[block], is_error=True)
+    structured, text, is_error = _parse_mcp_result(result)
+    assert structured == {"status": "FAILED"}
+    assert text == "permission denied"
+    assert is_error is True
+
+
 def test_history_keeps_both_sides_of_the_conversation():
     """The client used to label assistant turns `agent`, and they were dropped."""
     replayed = _history_messages([
@@ -220,6 +230,7 @@ if __name__ == "__main__":
         test_as_text_handles_structured_content_blocks,
         test_as_text_hides_object_reasoning_blocks,
         test_parse_mcp_result_handles_list_text,
+        test_parse_mcp_result_reads_mcp_2_field_names,
         test_history_keeps_both_sides_of_the_conversation,
         test_replayed_history_is_declared_as_real_work,
         test_stop_mid_answer_keeps_the_partial_text_and_closes_the_stream,

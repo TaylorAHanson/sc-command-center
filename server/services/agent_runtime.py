@@ -366,7 +366,7 @@ def _parse_python_signature(code: str) -> Tuple[Optional[str], List[str]]:
 # ------------------------------------------------------------------- Genie
 # The AI Gateway Genie MCP server is ASYNCHRONOUS: `genie_ask` returns only a
 # {conversation_id, response_id} handle, and the answer must be drained by
-# polling `genie_poll_response`. `DatabricksMCPClient.call_tool` does a single
+# polling `genie_poll_response`. An MCP `call_tool` does a single
 # round-trip (no polling), so a naive synchronous call hands the model a useless
 # handle. We therefore detect Genie and drive the poll loop INSIDE tool
 # execution — the model calls the ask tool (`genie_one`, for Genie One) once and
@@ -382,6 +382,7 @@ LEGACY_GENIE_PATH = "/api/2.0/mcp/genie"
 # and models as `genie_one` (routes.agent_studio_profiles.GENIE_ONE_TOOL), but
 # the server only answers to this name, so every call is made with it.
 GENIE_ONE_ASK_TOOL = "genie_ask"
+GENIE_ONE_POLL_TOOL = "genie_poll_response"
 
 
 def _is_genie_server(url: str) -> bool:
@@ -437,8 +438,12 @@ _GENIE_URL_FIELDS = (
 
 
 def _parse_mcp_result(res) -> Tuple[Optional[Dict[str, Any]], str, bool]:
-    """(structured_payload | None, joined_text, is_error) from a CallToolResult."""
-    structured = getattr(res, "structuredContent", None)
+    """(structured_payload | None, joined_text, is_error) from a CallToolResult.
+
+    mcp 2.x names the fields `structured_content` / `is_error`; read only the 1.x
+    names, every tool error read as a normal reply and Genie's status was lost.
+    """
+    structured = getattr(res, "structured_content", None) or getattr(res, "structuredContent", None)
     parts: List[str] = []
     for block in (getattr(res, "content", None) or []):
         text = getattr(block, "text", None)
@@ -449,7 +454,7 @@ def _parse_mcp_result(res) -> Tuple[Optional[Dict[str, Any]], str, bool]:
     return (
         structured if isinstance(structured, dict) else None,
         "\n".join(p for p in parts if p),
-        bool(getattr(res, "isError", False)),
+        bool(getattr(res, "is_error", False) or getattr(res, "isError", False)),
     )
 
 
@@ -514,6 +519,49 @@ def _genie_answer_text(text: str) -> str:
     return text.strip()
 
 
+_SPACE_ANSWER_ROWS = 50
+
+
+def _space_answer(payload: Dict[str, Any]) -> str:
+    """The answer in a Genie space's reply, which has no `final_answer`.
+
+    A space's own server answers with Genie's message as JSON: `textAttachments`
+    are the prose, `queryAttachments` the SQL with its result. Handed over raw, the
+    result rows came first and the 8000-character cap could cut the prose off.
+    """
+    content = payload.get("content")
+    if not isinstance(content, dict):
+        return ""
+    parts = [_as_text(t) for t in content.get("textAttachments") or [] if _as_text(t).strip()]
+    for query in content.get("queryAttachments") or []:
+        if not isinstance(query, dict):
+            continue
+        if query.get("query"):
+            parts.append(f"```sql\n{query['query']}\n```")
+        statement = query.get("statement_response") or {}
+        columns = [c.get("name", "") for c in
+                   (((statement.get("manifest") or {}).get("schema") or {}).get("columns") or [])]
+        rows = ((statement.get("result") or {}).get("data_array")) or []
+        if not columns or not rows:
+            continue
+        lines = ["| " + " | ".join(columns) + " |", "|" + "---|" * len(columns)]
+        for row in rows[:_SPACE_ANSWER_ROWS]:
+            cells = row.get("values", []) if isinstance(row, dict) else row
+            values = [c.get("string_value", "") if isinstance(c, dict) else c for c in cells]
+            lines.append("| " + " | ".join("" if v is None else str(v) for v in values) + " |")
+        if len(rows) > _SPACE_ANSWER_ROWS:
+            lines.append(f"({len(rows) - _SPACE_ANSWER_ROWS} more rows not shown)")
+        parts.append("\n".join(lines))
+    return "\n\n".join(parts)
+
+
+def _genie_poll_args(poll_tool: str, conv: str, resp: str) -> Dict[str, str]:
+    # Genie One's poll takes the id as `response_id`; a space's own server calls
+    # the same id `message_id` and refuses a poll without it.
+    id_arg = "response_id" if poll_tool == GENIE_ONE_POLL_TOOL else "message_id"
+    return {"conversation_id": conv, id_arg: resp}
+
+
 def _genie_budget(timeout: Optional[float]) -> float:
     return _genie_timeout() if timeout is None else max(1.0, min(timeout, _genie_timeout()))
 
@@ -550,12 +598,13 @@ def _genie_wait(client, conv: str, resp: str, budget: float,
     started = time.monotonic()
     deadline = started + budget
     interval = _genie_poll_interval()
+    poll_tool = poll_tool or GENIE_ONE_POLL_TOOL
     last_answer, last_status, link, polls, warned = "", "", None, 0, False
     while time.monotonic() < deadline:
         time.sleep(interval)
         polls += 1
         pstruct, ptext, perr = _parse_mcp_result(
-            client.call_tool(poll_tool or "genie_poll_response", {"conversation_id": conv, "response_id": resp})
+            client.call_tool(poll_tool, _genie_poll_args(poll_tool, conv, resp))
         )
         if perr:
             return f"Genie poll error: {ptext or 'unknown error'}", False
@@ -571,18 +620,19 @@ def _genie_wait(client, conv: str, resp: str, budget: float,
         if answer:
             last_answer = answer
         if status in _GENIE_DONE:
-            final = last_answer or _genie_answer_text(ptext) or "(Genie returned no answer text.)"
+            final = (last_answer or _space_answer(payload) or _genie_answer_text(ptext)
+                     or "(Genie returned no answer text.)")
             if link and link not in final:
                 final += f"\n\n[Open in Databricks Genie]({link})"
             return final, False
         if status in _GENIE_INCOMPLETE:
-            partial = last_answer or _genie_answer_text(ptext)
+            partial = last_answer or _space_answer(payload) or _genie_answer_text(ptext)
             note = "(Genie stopped before it finished this question, so the answer may be partial.)"
             if link and link not in partial:
                 note += f"\n\n[Open in Databricks Genie]({link})"
             return f"{partial}\n\n{note}" if partial else note, False
         if status in _GENIE_FAILED:
-            return "Genie query failed: " + (
+            return "Genie query failed: " + _as_text(
                 payload.get("error") or payload.get("error_message")
                 or payload.get("status_message") or ptext or "unknown error"
             ), False
@@ -612,9 +662,9 @@ def _exec_genie(client, ask_tool: str, args: Dict[str, Any], timeout: Optional[f
 
 def _exec_mcp(ws, server_url: str, real_name: str, args: Dict[str, Any],
               poll_tool: Optional[str] = None) -> str:
-    from databricks_mcp import DatabricksMCPClient
+    from services.mcp_client import mcp_client
 
-    client = DatabricksMCPClient(server_url=server_url, workspace_client=ws)
+    client = mcp_client(server_url, ws)
 
     # Genie: one ask call, driven to completion internally (see note above).
     if _is_genie_server(server_url) and _is_genie_ask_tool(real_name):

@@ -995,6 +995,9 @@ The limits, each a ceiling that costs nothing until something needs the room:
 | Tool calls per turn | 8 | 1 to 30 |
 | Most rows one widget query can return | 1,000,000 | 1,000 to 10,000,000 |
 
+A call to an MCP tool (SQL, Genie, a function) gets at least 30 seconds whatever
+the tool call timeout says, because a Genie space takes 10 to 15 seconds to answer.
+
 A deployment can start with other values, so the label above the field decides.
 
 The response length limit is a ceiling, not a target — raising it costs nothing

@@ -22,6 +22,13 @@
 
 # Release Notes
 
+## 2.0.1 — 2026-11-11
+
+### Fixed
+
+- **Agents can use a single Genie space.** A Genie space picked under **Tools** in Agent Studio now answers, with its SQL and results, instead of failing.
+- **Slow tools no longer give up after a few seconds.** SQL and other tool calls wait up to the **Tool call timeout** in Admin Panel → Settings.
+
 ## 2.0.0 — 2026-11-09
 
 ### Added

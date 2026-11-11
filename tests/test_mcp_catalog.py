@@ -16,6 +16,7 @@ import types
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 from routes import agent_studio_profiles as ap  # noqa: E402
+from services import mcp_client as mcp_module  # noqa: E402
 from services import settings_store  # noqa: E402
 
 # No settings table here: the server list resolves to AGENT_STUDIO_MCP_SERVERS.
@@ -69,6 +70,11 @@ class FakeGenie:
         return types.SimpleNamespace(spaces=spaces, next_page_token=None)
 
 
+def use_client(cls):
+    """Answer every MCP call with `cls`, patched where the call sites look it up."""
+    mcp_module.mcp_client = cls
+
+
 class FakeStatements:
     """Answers the information_schema read that finds schemas holding functions."""
     state = "SUCCEEDED"
@@ -117,7 +123,7 @@ def workspace(token="tok-a"):
 
 
 def catalog(ws=None, configured=f"{GENIE_ONE},/api/2.0/mcp/sql", **kwargs):
-    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=FakeClient)
+    use_client(FakeClient)
     os.environ["AGENT_STUDIO_MCP_SERVERS"] = configured
     return {t["id"]: t for t in ap.discover_mcp_tools(ws or workspace(), **kwargs)}
 
@@ -245,7 +251,7 @@ def test_the_default_servers_are_sql_and_genie_one():
 def test_the_research_tools_ask_genie_one():
     from services import research_tools as rts
 
-    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=FakeClient)
+    use_client(FakeClient)
     client = rts._genie_client(types.SimpleNamespace(config=types.SimpleNamespace(host="https://host/")))
     assert client.path == GENIE_ONE
 
@@ -359,7 +365,7 @@ def test_a_server_that_refuses_once_is_listed_on_the_retry():
                 raise RuntimeError("Server returned an error response")
             return super().list_tools()
 
-    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=Flaky)
+    use_client(Flaky)
     os.environ["AGENT_STUDIO_MCP_SERVERS"] = "/api/2.0/mcp/sql"
     tools = {t["id"] for t in ap.discover_mcp_tools(workspace())}
     assert "sql/execute_sql" in tools and attempts.count("/api/2.0/mcp/sql") == 2
@@ -377,7 +383,7 @@ def test_a_server_that_keeps_failing_is_given_up_on_after_a_few_tries():
             attempts.append(1)
             raise RuntimeError("Server returned an error response")
 
-    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=Broken)
+    use_client(Broken)
     os.environ["AGENT_STUDIO_MCP_SERVERS"] = "/api/2.0/mcp/sql"
     assert ap.discover_mcp_tools(workspace()) == [] and len(attempts) == ap._LIST_ATTEMPTS
 
@@ -394,19 +400,53 @@ def test_an_unreachable_server_lists_nothing_and_the_rest_still_arrive():
     assert not any(t.startswith("genie.s1/") for t in tools)
 
 
-def test_a_space_ask_is_polled_with_that_spaces_poll_tool():
+# What a Genie space's own server sent back when asked, trimmed: the ask answers
+# with a camelCase handle, the poll requires `message_id`, and the answer is
+# Genie's message as JSON (no `final_answer`). mcp 2.x names the result fields
+# `structured_content` / `is_error`.
+SPACE_STILL_RUNNING = {
+    "content": {"queryAttachments": [], "textAttachments": ["Query is still processing. Use the poll_response_s1 tool."],
+                "suggestedQuestions": []},
+    "conversationId": "c1", "messageId": "m1", "status": "ASKING_AI",
+}
+SPACE_DONE = {
+    "content": {
+        "queryAttachments": [{
+            "query": "SELECT region, COUNT(*) AS customers FROM v_customers GROUP BY region",
+            "statement_response": {
+                "status": {"state": "SUCCEEDED"},
+                "manifest": {"schema": {"columns": [{"name": "region"}, {"name": "customers"}]}},
+                "result": {"data_array": [{"values": [{"string_value": "West"}, {"string_value": "34"}]},
+                                          {"values": [{"string_value": "East"}, {"string_value": "26"}]}]},
+            },
+        }],
+        "textAttachments": ["**West** has the most customers, with **34**."],
+        "suggestedQuestions": ["How many customers are in each segment?"],
+    },
+    "conversationId": "c1", "messageId": "m1", "status": "COMPLETED",
+}
+
+
+def space_reply(body):
     import json
+
+    return types.SimpleNamespace(content=[types.SimpleNamespace(text=json.dumps(body), data=None)],
+                                 structured_content=body, is_error=False)
+
+
+def test_a_space_ask_is_polled_with_that_spaces_poll_tool_and_message_id():
     from services import agent_runtime as rt
 
     calls = []
 
     class Space:
         def call_tool(self, name, args):
-            calls.append(name)
-            body = ({"conversation_id": "c1", "response_id": "r1"} if name == "query_space_s1"
-                    else {"status": "completed", "final_answer": "42"})
-            return types.SimpleNamespace(content=[types.SimpleNamespace(text=json.dumps(body))],
-                                         structuredContent=body, isError=False)
+            calls.append((name, dict(args)))
+            if name == "query_space_s1":
+                return space_reply(SPACE_STILL_RUNNING)
+            if "message_id" not in args:
+                raise RuntimeError("missing required argument: message_id")
+            return space_reply(SPACE_DONE)
 
     interval, rt._genie_poll_interval = rt._genie_poll_interval, lambda: 0.0
     try:
@@ -414,7 +454,29 @@ def test_a_space_ask_is_polled_with_that_spaces_poll_tool():
         out = rt._exec_genie(Space(), "query_space_s1", {"query": "q"}, timeout=5, poll_tool="poll_response_s1")
     finally:
         rt._genie_poll_interval = interval
-    assert out == "42" and calls == ["query_space_s1", "poll_response_s1"]
+    assert calls[1] == ("poll_response_s1", {"conversation_id": "c1", "message_id": "m1"})
+    # The prose first, then the SQL and its rows as a table, never the raw JSON.
+    assert out.startswith("**West** has the most customers")
+    assert "SELECT region" in out and "| region | customers |" in out and "| West | 34 |" in out
+    assert "queryAttachments" not in out
+
+
+def test_genie_one_is_still_polled_with_response_id():
+    from services import agent_runtime as rt
+
+    assert rt._genie_poll_args(rt.GENIE_ONE_POLL_TOOL, "c1", "r1") == {"conversation_id": "c1", "response_id": "r1"}
+    assert rt._genie_poll_args("poll_response_s1", "c1", "m1") == {"conversation_id": "c1", "message_id": "m1"}
+
+
+def test_a_space_answer_with_many_rows_says_how_many_it_left_out():
+    from services import agent_runtime as rt
+
+    rows = [{"values": [{"string_value": str(i)}]} for i in range(rt._SPACE_ANSWER_ROWS + 7)]
+    body = {"content": {"queryAttachments": [{"statement_response": {
+        "manifest": {"schema": {"columns": [{"name": "n"}]}}, "result": {"data_array": rows}}}]}}
+    out = rt._space_answer(body)
+    assert out.count("\n| ") == rt._SPACE_ANSWER_ROWS and "(7 more rows not shown)" in out
+    assert rt._space_answer({"status": "completed", "final_answer": "x"}) == ""
 
 
 def test_an_agent_saved_with_the_old_genie_ask_id_gets_genie_one():
@@ -464,7 +526,7 @@ def test_a_server_waiting_for_sign_in_is_reported_and_not_retried():
                 raise RuntimeError(NOT_SIGNED_IN)
             return super().list_tools()
 
-    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=NeedsSignIn)
+    use_client(NeedsSignIn)
     os.environ["AGENT_STUDIO_MCP_SERVERS"] = f"/api/2.0/mcp/sql,{ATLASSIAN}"
     problems = []
     tools = {t["id"] for t in ap.discover_mcp_tools(workspace(), problems=problems)}
@@ -483,7 +545,7 @@ def test_a_configured_server_that_fails_is_reported_but_a_discovered_one_is_not(
                 raise RuntimeError("Server returned an error response")
             return super().list_tools()
 
-    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=SomeFail)
+    use_client(SomeFail)
     os.environ["AGENT_STUDIO_MCP_SERVERS"] = "/api/2.0/mcp/sql"
     problems = []
     ap.discover_mcp_tools(workspace(), genie_spaces=True, problems=problems)
@@ -494,7 +556,7 @@ def test_a_configured_server_that_fails_is_reported_but_a_discovered_one_is_not(
 
 def test_the_server_list_saved_in_settings_replaces_the_deployments():
     fresh_start()
-    sys.modules["databricks_mcp"] = types.SimpleNamespace(DatabricksMCPClient=FakeClient)
+    use_client(FakeClient)
     os.environ["AGENT_STUDIO_MCP_SERVERS"] = "/api/2.0/mcp/sql"
     settings_store._read_rows = lambda: {"mcp_servers": f"{GENIE_ONE}\nhttps://elsewhere.example/mcp"}
     settings_store.invalidate()
