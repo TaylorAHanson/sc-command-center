@@ -1484,6 +1484,7 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 31 passe
 PYTHONPATH=server .venv/bin/python tests/test_background.py           # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed
+PYTHONPATH=server .venv/bin/python tests/test_actions_routes.py       # 7 passed
 ```
 
 `test_file_extract.py` and `test_upload_tools.py` need the venv interpreter, not
