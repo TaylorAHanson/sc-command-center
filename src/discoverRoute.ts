@@ -54,9 +54,16 @@ export interface DiscoverRoute {
     rail?: RailName;
     certified?: boolean;
     opened?: 'never' | '90d';
+    /** The page's facet filters, so Back, reload and a copied address keep them. */
+    domain?: string[];
+    owner?: string[];
+    standalone?: boolean;
+    status?: 'draft' | 'published';
 }
 
 const SCOPES: readonly string[] = ['all', 'mine', 'shared', 'favorites', 'everything'];
+// More than a page could have ticked; an address past this is someone else's string.
+const MAX_FACET_VALUES = 20;
 const SORTS: readonly string[] = ['relevance', 'popular', 'trending', 'updated', 'name', 'favorites'];
 const RAILS: readonly string[] = ['featured', 'certified', 'popular', 'trending', 'updated', 'new_for_you'];
 
@@ -69,6 +76,10 @@ export const discoverHref = (route: DiscoverRoute = {}): string => {
     if (route.rail) qs.set('rail', route.rail);
     if (route.certified !== undefined) qs.set('certified', String(route.certified));
     if (route.opened) qs.set('opened', route.opened);
+    for (const d of route.domain ?? []) qs.append('domain', d);
+    for (const o of route.owner ?? []) qs.append('owner', o);
+    if (route.standalone !== undefined) qs.set('standalone', String(route.standalone));
+    if (route.status) qs.set('status', route.status);
     const s = qs.toString();
     return s ? `#/discover?${s}` : '#/discover';
 };
@@ -90,6 +101,16 @@ export const parseDiscoverHref = (hash: string): DiscoverRoute => {
     if (certified === 'true' || certified === 'false') route.certified = certified === 'true';
     const opened = qs.get('opened');
     if (opened === 'never' || opened === '90d') route.opened = opened;
+    const listOf = (name: string) =>
+        [...new Set(qs.getAll(name).filter(Boolean))].slice(0, MAX_FACET_VALUES).map(v => v.slice(0, 200));
+    const domain = listOf('domain');
+    if (domain.length) route.domain = domain;
+    const owner = listOf('owner');
+    if (owner.length) route.owner = owner;
+    const standalone = qs.get('standalone');
+    if (standalone === 'true' || standalone === 'false') route.standalone = standalone === 'true';
+    const status = qs.get('status');
+    if (status === 'draft' || status === 'published') route.status = status;
     return route;
 };
 

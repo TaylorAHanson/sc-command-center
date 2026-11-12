@@ -42,6 +42,7 @@ const pageImports = {
   'user-guide': () => import('../pages/UserGuidePage'),
   'release-notes': () => import('../pages/ReleaseNotesPage'),
   schedules: () => import('../pages/SchedulesPage'),
+  discover: () => import('../pages/DiscoverPage'),
 };
 
 const AdminPage = React.lazy(() => pageImports.admin().then(m => ({ default: m.AdminPage })));
@@ -53,6 +54,7 @@ const AgentStudio = React.lazy(() => pageImports['agent-studio']().then(m => ({ 
 const UserGuidePage = React.lazy(() => pageImports['user-guide']().then(m => ({ default: m.UserGuidePage })));
 const ReleaseNotesPage = React.lazy(() => pageImports['release-notes']().then(m => ({ default: m.ReleaseNotesPage })));
 const SchedulesPage = React.lazy(() => pageImports.schedules().then(m => ({ default: m.SchedulesPage })));
+const DiscoverPage = React.lazy(() => pageImports.discover().then(m => ({ default: m.DiscoverPage })));
 
 const PageLoading: React.FC = () => (
   <div className="flex items-center justify-center h-full w-full text-gray-400">
@@ -62,7 +64,7 @@ const PageLoading: React.FC = () => (
 
 // Every full-page screen `currentPage` can name. Reload and Back/Forward both
 // read this list, so a page missing from it is one the browser can't return to.
-const PAGES = ['admin', 'studio', 'agent-studio', 'settings', 'help', 'about', 'user-guide', 'release-notes', 'schedules'];
+const PAGES = ['admin', 'studio', 'agent-studio', 'settings', 'help', 'about', 'user-guide', 'release-notes', 'schedules', 'discover'];
 // `#/user-guide/<section>` is still the guide: a page may carry a path of its own
 // after its name, which that page reads itself (the guide's sections, for one).
 const pageOf = (hash: string): string | null =>
@@ -541,7 +543,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         {!isFullScreenStudio && (() => {
           const name = branded?.title || activeApp?.name;
           // These pages are not views, so the header must not keep showing the last view's name.
-          const pageTitle = currentPage ? ({ admin: 'Admin Panel', 'user-guide': 'User Guide', 'release-notes': 'Release Notes', help: 'Getting Started', schedules: 'My schedules' } as Record<string, string>)[currentPage] : undefined;
+          const pageTitle = currentPage ? ({ admin: 'Admin Panel', 'user-guide': 'User Guide', 'release-notes': 'Release Notes', help: 'Getting Started', schedules: 'My schedules', discover: 'Discover' } as Record<string, string>)[currentPage] : undefined;
           const title = pageTitle ? pageTitle : name || 'Command Center';
           const manages = !currentPage && activeRow?.access === 'MANAGE';
           const tab = !currentPage && activeApp && activeAppTab && canEditLayout(activeApp) ? activeAppTab : null;
@@ -719,6 +721,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {currentPage === 'user-guide' && <UserGuidePage />}
             {currentPage === 'release-notes' && <ReleaseNotesPage />}
             {currentPage === 'schedules' && <SchedulesPage />}
+            {currentPage === 'discover' && <DiscoverPage />}
             {currentPage === 'settings' && <SettingsPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}

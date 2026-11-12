@@ -2,6 +2,7 @@ import type { GuideSection } from './types';
 import { section as overview } from './sections/overview';
 import { section as quickstart } from './sections/quickstart';
 import { section as views } from './sections/views';
+import { section as discover } from './sections/discover';
 import { section as widgets } from './sections/widgets';
 import { section as schedules } from './sections/schedules';
 import { section as assistant } from './sections/assistant';
@@ -21,6 +22,7 @@ export const SECTIONS: GuideSection[] = [
   overview,
   quickstart,
   views,
+  discover,
   widgets,
   schedules,
   assistant,

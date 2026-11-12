@@ -57,7 +57,8 @@ deliberately cover only pure helpers so they need no Databricks credentials. Use
 the venv interpreter to run them all: the file-parsing tests need pandas, openpyxl,
 pypdf and python-docx. `server/AGENTS.md` lists each file with its expected count.
 The TypeScript tests, `tests/link_state.test.ts`, `tests/schedules.test.ts`,
-`tests/discover_route.test.ts` and `tests/working_set.test.ts`, run under Node
+`tests/discover_route.test.ts`, `tests/discover_page.test.ts` and
+`tests/working_set.test.ts`, run under Node
 instead; see the end of `src/AGENTS.md`.
 
 ## Layout
