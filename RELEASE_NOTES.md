@@ -22,39 +22,29 @@
 
 # Release Notes
 
-## 2.1.0 — unreleased
+## 2.1.0 — 2026-11-12
 
 ### Added
 
-- **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
-- **Clone, Edit and Delete in the Widget Library's list view.** Hover a row for the same icons as a card; **Status** now shows the **PAGE** badge too.
-- **See who did what.** Admin Panel → **Activity** lists publishing, sharing, deletes, studio generations, chats and setting changes, who is active now, and a summary per person.
-- **Open anything from Content.** Admin Panel → Content has **Open** on views and **Edit** on widgets and agents, going straight to the view or its studio.
-- **Choose how long activity is kept.** *Delete activity events after (days)* in Admin Panel → Settings starts at 365; 0 keeps everything.
+- **Discover.** **Browse views** opens a page to search every view you can open, browse rails such as Featured and Popular this month, and filter by domain or owner.
+- **Search by meaning.** With hybrid search on (Admin Panel → Settings → **Search**), Discover finds views by what they're about, so "late shipments" finds "Delayed deliveries".
+- **Favorites and Recent.** Star a view to keep it at the top of the sidebar, and drag or press Alt+↑/↓ to reorder; **Recent** lists the last five views you opened.
+- **Search from the sidebar.** Matching views appear as you type, Enter shows them all in Discover, and **New for you** links to views shared with you lately.
+- **Feature, certify or hide views.** Administrators **Feature** or **Certify** a view from its **⋯** menu in Discover; anyone can **Hide from rails** to stop seeing it recommended.
+- **Combine views.** **Combine views…** in Discover makes one new view with a tab for each view you pick, leaving those views as they are.
+- **Unpublished views in Mine.** Discover's **Mine** lists the views you've never published first, marked **Not published yet**.
+- **Links keep what you see.** A view's filters and widget settings are saved in its address, so a reload, Back or **Copy link** opens it exactly as it was.
+- **Widgets can keep their settings in the link.** Widget Studio builds sorts, searches and date ranges to be saved in the view's link; ask the agent to leave any out.
 - **Email from widgets.** A widget's email button opens a **Send** dialog where you choose recipients, preview the email, and send it with its table attached as a CSV.
 - **Email settings.** Admin Panel → Settings → **Email** sets the From address, which domains email may go to, and per-person limits. Email stays off until Amazon SES is set up.
-- **Set up scheduling.** Paste your OAuth app connection's client id under **Scheduling** in Admin Panel → Settings; the User Guide's **Set up scheduling** shows how to create one.
-- **Reminders to reconnect.** Anyone with a schedule running gets an email a week and a day before their connection ends; their schedules restart once they reconnect.
-- **Failing schedules pause themselves.** A schedule that fails 3 runs in a row pauses and emails its owner until they resume it.
-- **Scheduling limits.** Admin Panel → Settings → **Scheduling** sets how many failures in a row pause a schedule and how many schedules each person may have.
-- **The address keeps your filters.** A view's filters and widget settings are saved in its address, so a reload or Back opens it set the same way.
-- **Copy link shares what you see.** **Copy link** and a widget's share link include the current filters and settings, and open exactly as sent.
-- **Widgets can keep their settings in the link.** Widget Studio now builds sorts, searches and date ranges to be saved in the view's link; ask the agent to leave any out.
-- **Schedule a report.** A widget's **Schedule** button opens a dialog to email its results hourly, daily, weekly or monthly, to the people you choose.
+- **Schedule a report.** A widget's **Schedule** button emails its results hourly, daily, weekly or monthly to the people you choose; ask Widget Studio to add one.
 - **My schedules.** Resources → **My schedules** lists your schedules with their last and next runs: **Run now**, pause, edit, delete or see each one's history.
-- **Reminder to reconnect.** A banner across the top warns when your schedules' connection ends within a week or needs reconnecting, and links to My schedules.
-- **Widgets can offer a Schedule button.** Ask Widget Studio for "a button that emails this every Monday" and it adds one that opens the Schedule dialog.
-- **Choose how views are searched.** A **Search** card in Admin Panel → Settings sets the search mode and embedding model; Setup's **View search** row shows the mode running.
-- **Discover.** **Browse views** opens a page to search every view you can open, browse rails such as Featured and Popular this month, and filter by domain or owner.
-- **Search by meaning.** With hybrid search on, Discover also finds views by what they're about, so "late shipments" finds "Delayed deliveries".
-- **Feature and certify views.** Administrators can **Feature** or **Certify** a view from its **⋯** menu in Discover, and list views nobody opened in 90 days.
-- **Hide a view from the rails.** **Hide from rails** in a view's **⋯** menu in Discover stops recommending it to you; search still finds it.
-- **Combine views.** **Combine views…** in Discover makes one new view with a tab for each view you pick, leaving those views as they are.
-- **Unpublished views in Mine.** Discover's **Mine** lists the views you've never published first, marked **Not published yet**, beside the ones search finds.
-- **Favorites.** Star a view beside its title or on its sidebar row to keep it at the top of the sidebar; drag favorites, or press Alt+↑/↓, to reorder them.
-- **Recent views.** The sidebar's **Recent** lists the last five views you opened; **×** takes one off until you open it again.
-- **Search from the sidebar.** Matching views appear as you type in the sidebar's search box; press Enter to see every match in **Browse views**.
-- **New for you.** The sidebar shows how many views were shared with you lately and links straight to them.
+- **Schedules look after themselves.** A banner and emails remind you before your connection ends, and a schedule that fails 3 runs in a row pauses and tells you.
+- **Set up scheduling.** Paste your OAuth app connection's client id under Admin Panel → Settings → **Scheduling**, which also sets limits; the User Guide shows how.
+- **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
+- **See who did what.** Admin Panel → **Activity** lists publishing, sharing, deletes, studio generations, chats and setting changes, and who is active now; kept 365 days by default.
+- **Open anything from Content.** Admin Panel → Content has **Open** on views and **Edit** on widgets and agents, going straight to the view or its studio.
+- **Clone, Edit and Delete in the Widget Library's list view.** Hover a row for the same icons as a card; **Status** now shows the **PAGE** badge too.
 
 ### Changed
 
@@ -63,6 +53,7 @@
 - **Opens where you left off.** Opening the app without a link shows the view you opened last.
 - **Faster start with many views.** The app loads only the views you open, not every view shared with you.
 - **Make a copy moved to the ⋯ menu.** It's in the view's ⋯ menu for any view you can open.
+- **Reload once after the update.** A tab left open from before this release shows an empty sidebar until you reload it.
 
 ### Fixed
 
