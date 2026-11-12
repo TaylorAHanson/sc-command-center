@@ -951,17 +951,19 @@ per view per tab). Its search parameters and the page's own address,
 `owner`, `certified`, `standalone`, `status`, `opened`), are in `discoverRoute.ts`
 (`discoverHref`, `parseDiscoverHref`), so the sidebar and the page agree on it.
 `pageOf` in `Layout.tsx` accepts `#/<page>?…` as well as `#/<page>/…`.
+Star, reorder, hide and curate only through `setFavorite`, `orderFavorites`,
+`setHidden` and `curateView`: each fires `cc:discover-changed` once the server
+accepts, and the sidebar and the Discover page both follow it through
+`onDiscoverChanged`, so a change in one shows in the other. A `fetch` of your
+own leaves both stale.
 
 The page (`pages/DiscoverPage.tsx`) keeps its decisions in `discoverPage.ts`:
 what an address searches for, what each rail's *See all* opens, which filters a
-change keeps, and how a star, hide or curation folds into rows and rails. Typing
-rewrites the current history entry; anything else the reader does pushes one,
-so Back steps through searches. Once the server accepts a star, hide or
-curation, call `announceDiscoverChange` (`DISCOVER_CHANGED`,
-`'cc:discover-changed'` on `window`, detail `{ id, change, … }`); the page
-listens for it, and the sidebar should too, so a view starred in one place is
-starred in the other without a refetch. Anything that lets someone pick a view
-uses `components/discover/ViewSearchBox.tsx` over `suggestViews`/`searchViews`,
+change keeps, and how a change folds into rows and rails (`applyChange`; a
+change may carry only an `order`, or only curation fields). Typing rewrites the
+current history entry; anything else the reader does pushes one, so Back steps
+through searches. Anything that lets someone pick a view uses
+`components/discover/ViewSearchBox.tsx` over `suggestViews`/`searchViews`,
 never a list of every view: a deployment can hold tens of thousands.
 `components/discover/ComposeDialog.tsx` (Combine views, `POST
 /api/apps/compose`) is the model: a search box, then an ordered pick list.

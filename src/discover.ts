@@ -105,35 +105,61 @@ export const fetchDiscoverStatus = () => requestJson<DiscoverStatus>(`${BASE}/st
 
 export const fetchFavorites = async () => (await requestJson<{ favorites: ViewRow[] }>(`${BASE}/favorites`)).favorites;
 
-export const setFavorite = (id: string, favorite: boolean) =>
-    requestJson<{ id: string; favorite: boolean }>(item('favorites', id), { method: favorite ? 'PUT' : 'DELETE' });
-
-/** `ids` go first in that order; favorites not named keep their order after them. */
-export const orderFavorites = async (ids: string[]) =>
-    (await requestJson<{ ids: string[] }>(`${BASE}/favorites/order`, { method: 'PUT', body: JSON.stringify({ ids }) })).ids;
-
-/** Hidden views leave the rails; search still finds them. */
-export const setHidden = (id: string, hidden: boolean) =>
-    requestJson<{ id: string; hidden: boolean }>(item('hidden', id), { method: hidden ? 'PUT' : 'DELETE' });
-
-/** Administrators only. Omit a field to leave it alone; `featured_position: null` unfeatures. */
-export const curateView = (id: string, changes: { featured_position?: number | null; certified?: boolean }) =>
-    requestJson<Curation>(item('curation', id), { method: 'PUT', body: JSON.stringify(changes) });
-
 /**
- * Fired on `window` once the server has accepted a star, a hide or a curation,
- * so a list showing the same view (the sidebar, the Discover page) can update
- * that row instead of refetching. The detail carries the new values.
+ * Fired on `window` once the server has accepted a star, a new favorites order,
+ * a hide or a curation, so every list showing that view (the sidebar, the
+ * Discover page) updates it without reading its list again. Only the four
+ * functions below dispatch it: a change saved any other way leaves those lists stale.
  */
 export const DISCOVER_CHANGED = 'cc:discover-changed';
 
-export type DiscoverChange =
-    | { id: string; change: 'favorite'; favorite: boolean }
-    | { id: string; change: 'hidden'; hidden: boolean }
-    | { id: string; change: 'curation'; featured_position: number | null; certified: boolean };
+/** Only what changed is set. */
+export interface DiscoverChange {
+    id?: string;
+    favorite?: boolean;
+    hidden?: boolean;
+    /** The favorites' new order, first to last. */
+    order?: string[];
+    featured_position?: number | null;
+    certified?: boolean;
+}
 
-export const announceDiscoverChange = (detail: DiscoverChange): void => {
+const announce = (detail: DiscoverChange) => {
     window.dispatchEvent(new CustomEvent<DiscoverChange>(DISCOVER_CHANGED, { detail }));
+};
+
+/** Calls `listener` with each change; returns what stops it. */
+export const onDiscoverChanged = (listener: (change: DiscoverChange) => void): (() => void) => {
+    const handle = (e: Event) => listener((e as CustomEvent<DiscoverChange>).detail ?? {});
+    window.addEventListener(DISCOVER_CHANGED, handle);
+    return () => window.removeEventListener(DISCOVER_CHANGED, handle);
+};
+
+export const setFavorite = async (id: string, favorite: boolean) => {
+    const saved = await requestJson<{ id: string; favorite: boolean }>(item('favorites', id), { method: favorite ? 'PUT' : 'DELETE' });
+    announce({ id, favorite: saved.favorite });
+    return saved;
+};
+
+/** `ids` go first in that order; favorites not named keep their order after them. */
+export const orderFavorites = async (ids: string[]) => {
+    const order = (await requestJson<{ ids: string[] }>(`${BASE}/favorites/order`, { method: 'PUT', body: JSON.stringify({ ids }) })).ids;
+    announce({ order });
+    return order;
+};
+
+/** Hidden views leave the rails; search still finds them. */
+export const setHidden = async (id: string, hidden: boolean) => {
+    const saved = await requestJson<{ id: string; hidden: boolean }>(item('hidden', id), { method: hidden ? 'PUT' : 'DELETE' });
+    announce({ id, hidden: saved.hidden });
+    return saved;
+};
+
+/** Administrators only. Omit a field to leave it alone; `featured_position: null` unfeatures. */
+export const curateView = async (id: string, changes: { featured_position?: number | null; certified?: boolean }) => {
+    const saved = await requestJson<Curation>(item('curation', id), { method: 'PUT', body: JSON.stringify(changes) });
+    announce({ id, featured_position: saved.featured_position, certified: saved.certified });
+    return saved;
 };
 
 const counted = new Map<string, number>();

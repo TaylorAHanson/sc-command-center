@@ -230,17 +230,30 @@ export const mergePages = (shown: ViewRow[], next: ViewRow[]): ViewRow[] => {
     return out;
 };
 
+/**
+ * `row` with whatever `c` set. A change sets only what changed, and one with no
+ * `id` (a new favorites order) changes no row: no list here is in that order.
+ */
 export const applyChange = (row: ViewRow, c: DiscoverChange): ViewRow => {
-    if (row.id !== c.id) return row;
-    switch (c.change) {
-        case 'favorite': return row.favorite === c.favorite ? row : { ...row, favorite: c.favorite };
-        case 'hidden': return row.hidden === c.hidden ? row : { ...row, hidden: c.hidden };
-        case 'curation': return { ...row, featured_position: c.featured_position, featured: c.featured_position !== null, certified: c.certified };
+    if (!c.id || row.id !== c.id) return row;
+    const next: ViewRow = { ...row };
+    if (c.favorite !== undefined) next.favorite = c.favorite;
+    if (c.hidden !== undefined) next.hidden = c.hidden;
+    if (c.featured_position !== undefined) {
+        next.featured_position = c.featured_position;
+        next.featured = c.featured_position !== null;
     }
+    if (c.certified !== undefined) next.certified = c.certified;
+    const same = next.favorite === row.favorite && next.hidden === row.hidden
+        && next.featured_position === row.featured_position && next.certified === row.certified;
+    return same ? row : next;
 };
 
-export const applyToRows = (rows: ViewRow[], c: DiscoverChange): ViewRow[] =>
-    rows.some(r => r.id === c.id) ? rows.map(r => applyChange(r, c)) : rows;
+export const applyToRows = (rows: ViewRow[], c: DiscoverChange): ViewRow[] => {
+    if (!c.id || !rows.some(r => r.id === c.id)) return rows;
+    const out = rows.map(r => applyChange(r, c));
+    return out.every((r, i) => r === rows[i]) ? rows : out;
+};
 
 const byFeaturedPosition = (a: ViewRow, b: ViewRow) =>
     (a.featured_position ?? Infinity) - (b.featured_position ?? Infinity) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -252,21 +265,28 @@ const byFeaturedPosition = (a: ViewRow, b: ViewRow) =>
  * unhidden view comes back with the next fetch: only the server knows where.
  */
 export const applyToRails = (rails: Rails, c: DiscoverChange, row?: ViewRow): Rails => {
+    const id = c.id;
+    if (!id) return rails;
     const out = {} as Rails;
     for (const name of RAIL_ORDER) {
         const rows = applyToRows(rails[name] ?? [], c);
-        out[name] = c.change === 'hidden' && c.hidden ? rows.filter(r => r.id !== c.id) : rows;
+        out[name] = c.hidden && rows.some(r => r.id === id) ? rows.filter(r => r.id !== id) : rows;
     }
-    if (c.change !== 'curation') return out;
-    const known = RAIL_ORDER.map(name => out[name].find(r => r.id === c.id)).find(Boolean)
-        ?? (row && row.id === c.id ? applyChange(row, c) : undefined);
-    const addable = known && !known.hidden ? known : undefined;
-    if (c.featured_position === null) out.featured = out.featured.filter(r => r.id !== c.id);
-    else if (addable && !out.featured.some(r => r.id === c.id)) out.featured = [...out.featured, addable].sort(byFeaturedPosition);
-    else out.featured = [...out.featured].sort(byFeaturedPosition);
-    if (!c.certified) out.certified = out.certified.filter(r => r.id !== c.id);
-    else if (addable && !out.certified.some(r => r.id === c.id)) out.certified = [...out.certified, addable];
-    return out;
+    if (c.featured_position !== undefined || c.certified !== undefined) {
+        const known = RAIL_ORDER.map(name => out[name].find(r => r.id === id)).find(Boolean)
+            ?? (row && row.id === id ? applyChange(row, c) : undefined);
+        const addable = known && !known.hidden ? known : undefined;
+        const inFeatured = out.featured.some(r => r.id === id);
+        if (c.featured_position === null) {
+            if (inFeatured) out.featured = out.featured.filter(r => r.id !== id);
+        } else if (c.featured_position !== undefined && (inFeatured || addable)) {
+            out.featured = [...out.featured, ...(inFeatured || !addable ? [] : [addable])].sort(byFeaturedPosition);
+        }
+        const inCertified = out.certified.some(r => r.id === id);
+        if (c.certified === false && inCertified) out.certified = out.certified.filter(r => r.id !== id);
+        else if (c.certified && addable && !inCertified) out.certified = [...out.certified, addable];
+    }
+    return RAIL_ORDER.every(name => out[name] === rails[name]) ? rails : out;
 };
 
 export const MAX_FEATURED_POSITION = 10_000;

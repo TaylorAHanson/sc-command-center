@@ -6,7 +6,7 @@ import clsx from 'clsx';
 import { findCapability, useCapabilities } from '../capabilities';
 import { fetchMe } from '../sharing';
 import {
-    announceDiscoverChange, curateView, DISCOVER_CHANGED, discoverHref, fetchDiscoverStatus, fetchRails, parseDiscoverHref,
+    curateView, discoverHref, fetchDiscoverStatus, fetchRails, onDiscoverChanged, parseDiscoverHref,
     searchQuery, searchViews, setFavorite, setHidden,
     type DiscoverChange, type DiscoverRoute, type DiscoverStatus, type RailName, type Rails, type SearchMode, type SearchResponse, type ViewRow,
 } from '../discover';
@@ -256,18 +256,15 @@ export const DiscoverPage: React.FC = () => {
             const rows = applyToRows(p.rows, c);
             return rows === p.rows ? p : { ...p, rows };
         });
-        setRails(r => (r?.data ? { ...r, data: applyToRails(r.data, c, row) } : r));
+        setRails(r => {
+            if (!r?.data) return r;
+            const data = applyToRails(r.data, c, row);
+            return data === r.data ? r : { ...r, data };
+        });
     }, []);
 
-    // The sidebar stars and hides too; its changes land here without a refetch.
-    useEffect(() => {
-        const onChange = (e: Event) => {
-            const c = (e as CustomEvent<DiscoverChange>).detail;
-            if (c?.id) patch(c);
-        };
-        window.addEventListener(DISCOVER_CHANGED, onChange);
-        return () => window.removeEventListener(DISCOVER_CHANGED, onChange);
-    }, [patch]);
+    // Every accepted star, hide or curation, the sidebar's and this page's own, arrives here.
+    useEffect(() => onDiscoverChanged(c => patch(c)), [patch]);
 
     // ------------------------------------------------------------- navigation
 
@@ -298,26 +295,24 @@ export const DiscoverPage: React.FC = () => {
 
     const toggleFavorite = (row: ViewRow) => {
         const favorite = !row.favorite;
-        patch({ id: row.id, change: 'favorite', favorite });
+        patch({ id: row.id, favorite });
         setFavorite(row.id, favorite)
-            .then(() => announceDiscoverChange({ id: row.id, change: 'favorite', favorite }))
             .catch(e => {
-                patch({ id: row.id, change: 'favorite', favorite: !favorite });
+                patch({ id: row.id, favorite: !favorite });
                 setNotice(`Couldn’t ${favorite ? 'star' : 'unstar'} “${row.name}”: ${message(e)}`);
             });
     };
 
     const toggleHidden = (row: ViewRow) => {
         const hidden = !row.hidden;
-        patch({ id: row.id, change: 'hidden', hidden });
+        patch({ id: row.id, hidden });
         setHidden(row.id, hidden)
             .then(() => {
-                announceDiscoverChange({ id: row.id, change: 'hidden', hidden });
                 // Only the server knows where an unhidden view goes back in the rails.
                 if (!hidden && wantsRails) setRefresh(n => n + 1);
             })
             .catch(e => {
-                patch({ id: row.id, change: 'hidden', hidden: !hidden });
+                patch({ id: row.id, hidden: !hidden });
                 if (hidden) setRefresh(n => n + 1);
                 setNotice(`Couldn’t ${hidden ? 'hide' : 'unhide'} “${row.name}”: ${message(e)}`);
             });
@@ -326,9 +321,8 @@ export const DiscoverPage: React.FC = () => {
     const curate = async (row: ViewRow, changes: { featured_position?: number | null; certified?: boolean }, verb: string) => {
         try {
             const saved = await curateView(row.id, changes);
-            const c: DiscoverChange = { id: row.id, change: 'curation', featured_position: saved.featured_position, certified: saved.certified };
-            patch(c, row);
-            announceDiscoverChange(c);
+            // The event has updated every row already shown; `row` lets a view join a rail it wasn't in.
+            patch({ id: row.id, featured_position: saved.featured_position, certified: saved.certified }, row);
         } catch (e) {
             setNotice(`Couldn’t ${verb} “${row.name}”: ${message(e)}`);
         }

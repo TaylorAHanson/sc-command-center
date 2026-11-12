@@ -159,35 +159,60 @@ test('pages merge without repeating a view', () => {
 
 test('a change patches only its own row, and leaves a list alone when absent', () => {
   const rows = [row('a'), row('b')];
-  const starred = applyToRows(rows, { id: 'b', change: 'favorite', favorite: true });
+  const starred = applyToRows(rows, { id: 'b', favorite: true });
   assert.equal(starred[1].favorite, true);
   assert.equal(starred[0], rows[0]);
-  assert.equal(applyToRows(rows, { id: 'z', change: 'hidden', hidden: true }), rows);
-  const curated = applyToRows(rows, { id: 'a', change: 'curation', featured_position: 3, certified: true });
+  assert.equal(applyToRows(rows, { id: 'z', hidden: true }), rows);
+  const curated = applyToRows(rows, { id: 'a', featured_position: 3, certified: true });
   assert.deepEqual([curated[0].featured, curated[0].featured_position, curated[0].certified], [true, 3, true]);
+  // The page's own optimistic star, then the client's event with the same value: nothing new to draw.
+  assert.equal(applyToRows(starred, { id: 'b', favorite: true }), starred);
+});
+
+test('a change sets only the fields it carries; a new favorites order changes no row', () => {
+  const rows = [row('a', { favorite: true, featured: true, featured_position: 2, certified: true })];
+  const certifiedOnly = applyToRows(rows, { id: 'a', certified: false });
+  assert.deepEqual(
+    [certifiedOnly[0].certified, certifiedOnly[0].featured_position, certifiedOnly[0].featured, certifiedOnly[0].favorite],
+    [false, 2, true, true],
+  );
+  assert.equal(applyToRows(rows, { order: ['a'] }), rows);
+  const start = rails({ popular: rows, featured: rows });
+  assert.equal(applyToRails(start, { order: ['a'] }), start);
+  assert.equal(applyToRails(start, { id: 'a', favorite: true }), start);
 });
 
 test('hiding takes a view off every rail; curation moves it in and out', () => {
   const start = rails({ popular: [row('a'), row('b')], updated: [row('a')], featured: [row('f', { featured: true, featured_position: 0 })] });
-  const hidden = applyToRails(start, { id: 'a', change: 'hidden', hidden: true });
+  const hidden = applyToRails(start, { id: 'a', hidden: true });
   assert.deepEqual(hidden.popular.map(r => r.id), ['b']);
   assert.deepEqual(hidden.updated, []);
 
-  const featured = applyToRails(start, { id: 'b', change: 'curation', featured_position: 1, certified: true });
+  const featured = applyToRails(start, { id: 'b', featured_position: 1, certified: true });
   assert.deepEqual(featured.featured.map(r => r.id), ['f', 'b']);
   assert.deepEqual(featured.certified.map(r => r.id), ['b']);
   assert.equal(featured.popular[1].certified, true);
 
-  const off = applyToRails(featured, { id: 'b', change: 'curation', featured_position: null, certified: false });
+  const off = applyToRails(featured, { id: 'b', featured_position: null, certified: false });
   assert.deepEqual(off.featured.map(r => r.id), ['f']);
   assert.deepEqual(off.certified, []);
 
+  // Certifying alone leaves Featured as it was.
+  const certifiedOnly = applyToRails(featured, { id: 'b', certified: false });
+  assert.deepEqual(certifiedOnly.featured.map(r => r.id), ['f', 'b']);
+  assert.deepEqual(certifiedOnly.certified, []);
+
   // A view on no rail yet joins Featured from the card it was featured on, in position order.
   const later = rails({ featured: [row('f', { featured: true, featured_position: 2 })] });
-  const outside = applyToRails(later, { id: 'n', change: 'curation', featured_position: 1, certified: false }, row('n'));
+  const outside = applyToRails(later, { id: 'n', featured_position: 1, certified: false }, row('n'));
   assert.deepEqual(outside.featured.map(r => r.id), ['n', 'f']);
   assert.deepEqual(outside.certified, []);
-  const hiddenRow = applyToRails(start, { id: 'h', change: 'curation', featured_position: 5, certified: true }, row('h', { hidden: true }));
+  // Without the card (the event alone), it waits for the next fetch.
+  assert.equal(applyToRails(later, { id: 'n', featured_position: 1, certified: false }), later);
+  // The event first, then the page's own patch with the card: one copy, in order.
+  const twice = applyToRails(outside, { id: 'n', featured_position: 1, certified: false }, row('n'));
+  assert.deepEqual(twice.featured.map(r => r.id), ['n', 'f']);
+  const hiddenRow = applyToRails(start, { id: 'h', featured_position: 5, certified: true }, row('h', { hidden: true }));
   assert.deepEqual(hiddenRow.featured.map(r => r.id), ['f']);
   assert.deepEqual(hiddenRow.certified, []);
 });
