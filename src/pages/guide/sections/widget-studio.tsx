@@ -403,6 +403,15 @@ const Body = () => (
       <li>A web address opens in a new browser tab.</li>
       <li>A tile whose link isn't set yet looks muted and does nothing.</li>
     </List>
+    <H3 id="link-settings">Settings saved in the link</H3>
+    <P>
+      A widget the studio builds keeps what someone picks to choose what it shows, such as a sort, a search, a date
+      range, a selected segment or tab, or a page size, in the view&rsquo;s link, so a reload or a copied link opens it
+      set the same way. The agent says which settings it saved there; ask it to keep any out and it will. In the
+      preview they are only kept in memory. See{' '}
+      <GuideLink to="views" anchor="link-settings">A link keeps what the view is set to</GuideLink>.
+    </P>
+
     <H3 id="email-buttons">Email buttons</H3>
     <P>
       Ask for "a button that emails this table" and the widget gets one that opens the app&rsquo;s <UI>Send</UI> dialog with a subject, a message and
@@ -558,6 +567,6 @@ export const section: GuideSection = {
   title: 'Widget Studio',
   summary: 'Build a widget by describing it, then save, share and publish it.',
   icon: Code,
-  keywords: 'create widget build generate code tsx data source sql legacy query api preview agent page card configuration executable action email send',
+  keywords: 'create widget build generate code tsx data source sql legacy query api preview agent page card configuration executable action email send link settings saved in the link',
   Body,
 };

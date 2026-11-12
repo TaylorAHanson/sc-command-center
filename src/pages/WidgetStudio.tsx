@@ -4,6 +4,8 @@ import { toBlob, toPng } from 'html-to-image';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry, widgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
+import { LinkStateContext, useLinkState, WidgetInstanceContext } from '../hooks/useLinkState';
+import { createLinkStateStore } from '../linkState';
 import { pastedFiles, useChatUploads } from '../hooks/useChatUploads';
 import { BaseWidget } from '../components/BaseWidget';
 import { CodeEditor } from '../components/CodeEditor';
@@ -766,6 +768,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const setVariable = React.useCallback((key: string, value: any) => {
         setVariables(prev => ({ ...prev, [key]: value }));
     }, []);
+    // The preview's `useLinkState` settings, in memory: the address is the
+    // studio's, not a view's. Kept across recompiles, like `variables`.
+    const [previewLinkState] = useState(createLinkStateStore);
 
     const { version: registryVersion } = useWidgetRegistry();
 
@@ -1133,8 +1138,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 // `fetch` and `console` are the recorder's, so the widget's own
                 // requests and logging are what gets recorded, not the studio's.
                 // eslint-disable-next-line no-new-func
-                const createComponent = new Function('React', 'useScript', 'Highcharts', 'fetch', 'console', executableCode);
-                const Component = createComponent(React, useScript, HC, recorder.fetch, recorder.console);
+                const createComponent = new Function('React', 'useScript', 'useLinkState', 'Highcharts', 'fetch', 'console', executableCode);
+                const Component = createComponent(React, useScript, useLinkState, HC, recorder.fetch, recorder.console);
                 setPreviewComponent(() => Component);
                 // Clean compile: clear the auto-retry budget for the next error.
                 autoRetryCountRef.current = 0;
@@ -2251,17 +2256,23 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // under the widget's plain id (a manager's draft is registered beside it).
     const publishedCandidate = studioMode === 'published' && editingId ? widgetRegistry[editingId] : undefined;
     const publishedDef = publishedCandidate && !publishedCandidate.isDraft ? publishedCandidate : undefined;
-    const shownWidget = publishedDef ? (
-        <WidgetErrorBoundary resetKey={publishedDef.component}>
-            <ExecuteActionPropInjector>
-                {React.createElement(publishedDef.component, {
-                    id: 'preview-widget',
-                    app: previewApp.app,
-                    data: { ...(publishedDef.defaultProps || {}), username, variables, setVariable },
-                })}
-            </ExecuteActionPropInjector>
-        </WidgetErrorBoundary>
-    ) : previewWidget;
+    const shownWidget = (
+        <LinkStateContext.Provider value={previewLinkState}>
+            <WidgetInstanceContext.Provider value="preview-widget">
+                {publishedDef ? (
+                    <WidgetErrorBoundary resetKey={publishedDef.component}>
+                        <ExecuteActionPropInjector>
+                            {React.createElement(publishedDef.component, {
+                                id: 'preview-widget',
+                                app: previewApp.app,
+                                data: { ...(publishedDef.defaultProps || {}), username, variables, setVariable },
+                            })}
+                        </ExecuteActionPropInjector>
+                    </WidgetErrorBoundary>
+                ) : previewWidget}
+            </WidgetInstanceContext.Provider>
+        </LinkStateContext.Provider>
+    );
 
     return (
         <div className="flex h-full w-full bg-slate-900 text-slate-100 overflow-hidden font-sans">

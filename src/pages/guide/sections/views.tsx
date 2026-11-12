@@ -211,8 +211,8 @@ const Body = () => (
         <GuideLink to="publishing">Drafts &amp; publishing</GuideLink>.
       </Step>
       <Step>
-        Click <UI>Copy link</UI> in the dialog and send it. The view also appears under <UI>Shared with me</UI> for the
-        people you shared it with.
+        Click <UI>Copy link</UI> in the dialog and send it. It opens the view set the way you have it now, filters
+        included. The view also appears under <UI>Shared with me</UI> for the people you shared it with.
       </Step>
     </Steps>
     <Callout kind="note" title="A link opens only for people the view is shared with">
@@ -221,6 +221,12 @@ const Body = () => (
       A view set to open on its own always shows the published version there, read-only, even to its managers. Everyone
       who could open a view before sharing was introduced still can.
     </Callout>
+    <H3 id="link-settings">A link keeps what the view is set to</H3>
+    <P>
+      The address follows the view&rsquo;s filters, the values widgets pass to each other, and the settings a widget
+      keeps in the link, such as a sort, a search or a date range. A reload, Back, or a link you copy and send all
+      open the view set the same way. Switching tabs keeps them; opening another view starts it without them.
+    </P>
     <H3 id="publish-a-view">Your changes are a draft until you publish</H3>
     <P>
       Moving widgets, changing tabs, View settings and the assistant pin all change the view&rsquo;s draft. The chip
@@ -245,7 +251,15 @@ const Body = () => (
         tab is first. Links from earlier releases still work.
       </P>
       <P>
-        The share icon on a single widget copies a different link: one that opens that widget full screen. See{' '}
+        What the view is set to sits before the <Code>#</Code>, as in{' '}
+        <Code>{'?v.region=West&w.3f2a91c0.sort=revenue'}</Code>. A setting still at its default is left out, and if
+        the settings would make a link longer than about 1,500 characters, the largest are left out of it. A link
+        that carries settings opens with exactly those, not the filter choices you last left the view on; a filter
+        option the view no longer offers falls back to its default.
+      </P>
+      <P>
+        The share icon on a single widget copies a different link: one that opens that widget full screen, with the
+        view&rsquo;s filters and that widget&rsquo;s own settings. See{' '}
         <GuideLink to="widgets" anchor="full-screen">Using widgets</GuideLink>.
       </P>
     </Details>
@@ -421,7 +435,8 @@ const Body = () => (
       </li>
       <li>
         Each person comes back to the choices they last made on the view, remembered in their own browser. Another
-        browser or computer starts from the defaults.
+        browser or computer starts from the defaults. A link that carries filter choices opens on those instead, and
+        the address follows each choice, so a link you copy shares them.
       </li>
       <li>
         A view can have up to 10 filters and 100 options each. A variable uses letters, digits and underscores and
@@ -467,6 +482,6 @@ export const section: GuideSection = {
   title: 'Views & layouts',
   summary: 'Pages of widgets: tabs, settings, filters, locking and sharing.',
   icon: LayoutGrid,
-  keywords: 'new view tabs lock unlock layout share link shared with me archived draft publish standalone on its own header more options menu look theme filters settings preview version history discard',
+  keywords: 'new view tabs lock unlock layout share link shared with me archived draft publish standalone on its own header more options menu look theme filters settings preview version history discard address url reload back saved in the link',
   Body,
 };

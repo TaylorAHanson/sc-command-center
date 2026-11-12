@@ -41,6 +41,8 @@ export type LintOptions = {
 
 const MAX_FINDINGS = 30;
 
+const LINK_STATE_KEY_RE = /^(['"`])[A-Za-z0-9_-]+\1$/;
+
 // Mirrors the `require` shim in WidgetStudio's compile step and widgetRegistry:
 // React, ReactDOM, or a global of that name (Highcharts preloaded by index.html).
 const sandboxHasModule = (name: string): boolean => {
@@ -207,6 +209,21 @@ export function lintWidget(code: string, options: LintOptions = {}): LintFinding
         if (!isAllowedScriptUrl(url)) {
             add('script-host', 'error', match.index ?? 0,
                 `useScript will refuse \`${url}\`: scripts must be https from cdn.jsdelivr.net, code.highcharts.com, unpkg.com or cdnjs.cloudflare.com.`);
+        }
+    }
+
+    const redefinedLinkState = /\b(?:function\s+useLinkState\b|(?:const|let|var)\s+useLinkState\s*=)/.exec(code);
+    if (redefinedLinkState) {
+        add('redefined-useLinkState', 'error', redefinedLinkState.index,
+            '`useLinkState` is provided by the runtime. Defining your own keeps the widget\'s settings out of the view\'s link.');
+    }
+
+    // The key names the setting in the view's link, so it has to be the same on
+    // every render and for everyone who opens the link.
+    for (const match of code.matchAll(/(?<!\bfunction\s+)\buseLinkState\s*\(\s*([^,)]*)/g)) {
+        if (!LINK_STATE_KEY_RE.test(match[1].trim())) {
+            add('link-state-key', 'error', match.index ?? 0,
+                '`useLinkState` needs a literal string key of letters, digits, `_` or `-`, such as `useLinkState(\'sort\', \'revenue\')`: the key names the setting in the view\'s link.');
         }
     }
 

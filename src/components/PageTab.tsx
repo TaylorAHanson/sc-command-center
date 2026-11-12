@@ -6,6 +6,7 @@ import { useDashboardStore } from '../store/dashboardStore';
 import { resolveWidget, widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { useActionLogger } from '../hooks/useActionLogger';
 import { ActionProvider, ExecuteActionPropInjector } from '../contexts/ActionContext';
+import { WidgetInstanceContext } from '../hooks/useLinkState';
 import { useWorkspaceTools } from '../contexts/WorkspaceTools';
 import type { App, AppTab } from '../store/appSpec';
 import type { AppApi } from '../appApi';
@@ -113,9 +114,11 @@ export const PageTab: React.FC<{ app: App; tab: AppTab; readOnly: boolean; appAp
       {def ? (
         <ActionProvider value={runAction}>
           <React.Suspense fallback={<div className="h-full w-full flex items-center justify-center text-xs text-gray-400">Loading page…</div>}>
-            <ExecuteActionPropInjector>
-              <def.component id={widget!.i} data={data} app={appApi} key={widget!.i} />
-            </ExecuteActionPropInjector>
+            <WidgetInstanceContext.Provider value={widget!.i}>
+              <ExecuteActionPropInjector>
+                <def.component id={widget!.i} data={data} app={appApi} key={widget!.i} />
+              </ExecuteActionPropInjector>
+            </WidgetInstanceContext.Provider>
           </React.Suspense>
         </ActionProvider>
       ) : (

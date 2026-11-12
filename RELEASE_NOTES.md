@@ -34,6 +34,9 @@
 - **Email from widgets.** A widget's email button opens a **Send** dialog where you choose recipients, preview the email, and send it with its table attached as a CSV.
 - **Email settings.** Admin Panel → Settings → **Email** sets the From address, which domains email may go to, and per-person limits. Email stays off until Amazon SES is set up.
 - **Set up scheduling.** Paste your OAuth app connection's client id under **Scheduling** in Admin Panel → Settings; the User Guide's **Set up scheduling** shows how to create one.
+- **The address keeps your filters.** A view's filters and widget settings are saved in its address, so a reload or Back opens it set the same way.
+- **Copy link shares what you see.** **Copy link** and a widget's share link include the current filters and settings, and open exactly as sent.
+- **Widgets can keep their settings in the link.** Widget Studio now builds sorts, searches and date ranges to be saved in the view's link; ask the agent to leave any out.
 
 ### Changed
 

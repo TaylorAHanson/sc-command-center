@@ -140,6 +140,18 @@ def test_clean_widget_passes():
     check("test_clean_widget_passes", review_widget_code(code) == [])
 
 
+def test_link_state_widget_passes():
+    code = """
+    const C = ({ data }) => {
+      const [sort, setSort] = useLinkState('sort', 'revenue');
+      const [range, setRange] = useLinkState("range", { from: '2026-01-01', to: null });
+      return <button onClick={() => setSort(s => (s === 'revenue' ? 'units' : 'revenue'))}>{sort}</button>;
+    };
+    export default C;
+    """
+    check("test_link_state_widget_passes", review_widget_code(code) == [])
+
+
 def test_eval_is_refused():
     check("test_eval_is_refused", len(review_widget_code("const x = eval('1+1');")) == 1)
 

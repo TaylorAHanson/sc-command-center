@@ -15,6 +15,9 @@
 // `resolvedRoute` turns them into ids; everything past that works in ids.
 //
 // Links no longer carry a workspace: `?env=` from before is stripped on load.
+//
+// What the view is set to (its filters, its widgets' settings) rides in the
+// query string beside the route: see `linkState.ts`.
 import { shownTab, type App, type AppTab } from './appSpec';
 
 export interface AppRoute {
@@ -143,10 +146,15 @@ export const routeTab = (app: App, tabRefOrId: string | null): string | null =>
 /** Whether an app shows on its own when a link to it is opened. */
 export const isStandalone = (app?: App | null): boolean => app?.spec?.presentation === 'standalone';
 
-export const appLink = (app: App, tabId?: string | null, widgetId?: string | null): string =>
-  `${window.location.origin}${window.location.pathname}${appHash(app, tabId, widgetId)}`;
+/** `search` is what the view is set to (`writeLinkState`), so the link opens on it. */
+export const appLink = (app: App, tabId?: string | null, widgetId?: string | null, search = ''): string =>
+  `${window.location.origin}${window.location.pathname}${search}${appHash(app, tabId, widgetId)}`;
 
-/** The query string once a link has been read, so a reload doesn't act on it again. */
+/**
+ * The query string once a link has been read, so a reload doesn't act on it
+ * again. What the view is set to (`v.*`, `w.*`, see `linkState.ts`) stays: it is
+ * the link's to keep.
+ */
 export const withoutRouteParams = (search: string): string => {
   const params = new URLSearchParams(search);
   params.delete('shared_view');

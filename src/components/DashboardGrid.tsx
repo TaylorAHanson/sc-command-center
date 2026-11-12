@@ -7,6 +7,7 @@ import { useDashboardStore, type WidgetLayout } from '../store/dashboardStore';
 import { resolveWidget, widgetRegistry, useWidgetRegistry } from '../widgetRegistry';
 import { BaseWidget } from './BaseWidget';
 import { ExecuteActionPropInjector } from '../contexts/ActionContext';
+import { WidgetInstanceContext } from '../hooks/useLinkState';
 import clsx from 'clsx';
 import { canvasTone, cardClasses, cardSpacing, effectiveTheme, isPage } from '../store/appSpec';
 import { PageTab } from './PageTab';
@@ -588,14 +589,16 @@ export const DashboardGrid: React.FC = () => {
                     </div>
                   </div>
                 }>
-                  <ExecuteActionPropInjector>
-                    <Component
-                      id={widget.i}
-                      data={dataById[widget.i]}
-                      app={appApi}
-                      key={widget.i}
-                    />
-                  </ExecuteActionPropInjector>
+                  <WidgetInstanceContext.Provider value={widget.i}>
+                    <ExecuteActionPropInjector>
+                      <Component
+                        id={widget.i}
+                        data={dataById[widget.i]}
+                        app={appApi}
+                        key={widget.i}
+                      />
+                    </ExecuteActionPropInjector>
+                  </WidgetInstanceContext.Provider>
                 </React.Suspense>
               </BaseWidget>
               </div>
