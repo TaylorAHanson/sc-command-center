@@ -29,6 +29,10 @@
 - **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
 - **Clone, Edit and Delete in the Widget Library's list view.** Hover a row for the same icons as a card; **Status** now shows the **PAGE** badge too.
 
+### Changed
+
+- **Widget Studio asks before using Genie.** It shows each question and why: **Allow once**, **Always allow** or **Continue without Genie**. Change it under Agent settings → **Genie**.
+
 ### Fixed
 
 - **Only Administrators can read Action Logs.** The app refuses the action log to everyone else; everyone's actions are still recorded.

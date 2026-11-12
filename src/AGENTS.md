@@ -300,6 +300,16 @@ Two behaviors there are easy to break by accident:
 - **Agent settings are per user, so they live in `localStorage`.** `app_settings`
   is deployment-global and these are one person's preference about their own turns.
   Read through `readAgentPrefs`, which must tolerate a missing or malformed value.
+  `geniePermission` (`ask` | `always` | `off`) goes out as `genie_permission` on
+  generate turns only, and anything unknown reads as `ask`, on both sides.
+- **A Genie approval card re-sends the turn it paused, not the composer.** A
+  settled result with `genie_request` becomes `StudioMessage.genieRequest`, a
+  `GenieHold` carrying that turn's prompt, history length, attachments and error
+  log; `handleGenieDecision` re-sends exactly that with `approved_genie` (Allow
+  once / Always allow, which also flips the pref) or `genie_declined`, and
+  `allow_clarify: false`. The buttons show only on the newest message while idle,
+  like **Build it anyway**. A paused turn queues no review and skips the end-of-run
+  follow-up (`lastSettledRef`), so nothing starts a new turn over the card.
 - **The error boundary has to be told the code changed.** A React error boundary
   that has caught something renders its fallback forever; new children don't clear
   it. `WidgetErrorBoundary` takes `resetKey={previewComponent}` and clears itself

@@ -530,13 +530,24 @@ open each card's gear there when those values must differ.
   rather than being pasted in as fixed numbers. Each step of a multi-step build
   can do this too, and it runs any SQL it writes once before handing the code
   back. Admins can switch either tool off in Admin Panel → Settings.
+  **Before it asks Genie anything** it stops and shows the exact question and a
+  one-line reason on a card in the chat. **Allow once** asks that question and
+  carries on with the answer; **Always allow** does the same and switches the
+  *Genie* agent setting to Always allow; **Continue without Genie** carries on
+  without it, and the agent says which business definitions it assumed. Any
+  other question needs a new card. A message that itself tells the agent to ask
+  Genie ("ask Genie how late is defined") is the OK for that turn. It asks
+  Genie at most one question a turn and only about what business terms mean —
+  never for table names, values or row counts, which it checks with SQL. In a
+  multi-step build, steps finished before the card stay in the editor. With
+  Genie switched off by an admin there is no Genie and no card.
 - **Attachments and screenshots** — the paperclip attaches spreadsheets,
   documents and images for the agent to read, a screenshot or copied image can
   be pasted straight into the message box, and **Send screenshot to agent**
   under the preview attaches a picture of the widget as it currently looks.
   Neither sends on its own: the file waits on the next message, so "this column
   is too narrow" arrives with the thing it describes.
-- **Agent settings** (the sliders icon above the chat) — two options, remembered
+- **Agent settings** (the sliders icon above the chat) — three options, remembered
   in that browser rather than set for everyone. *Conduct review after change*
   (off by default) has the agent re-read its own code once it has compiled and
   run in the preview, as a QA pass over behaviour, states, layout and
@@ -550,7 +561,10 @@ open each card's gear there when those values must differ.
   edit or send, so acting on a suggestion is one click rather than retyping it.
   It costs an extra turn. *Ask before large builds* (on by default) is the
   clarifying-question behaviour above, and can be switched off by anyone who
-  would rather it always guessed.
+  would rather it always guessed. *Genie* — **Ask each time** (the default),
+  **Always allow** or **Off** — decides whether the agent shows each Genie
+  question first, asks without stopping, or never uses Genie. An admin
+  switching Genie off in Admin Panel → Settings overrides it for everyone.
 
 ## Widget Studio: preview and pages
 
