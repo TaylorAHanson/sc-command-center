@@ -700,14 +700,42 @@ replace it with your admin group.
 
 **Admin Panel** is under Resources at the bottom of the sidebar. It appears only
 for Administrators (see *Sharing and permissions*). Its tabs are **Content**,
-**Categories & Domains**, **Administrators**, **Settings**, **Data Migration**
-and **Action Logs**, and all of them apply to the whole app.
+**Activity**, **Categories & Domains**, **Administrators**, **Settings**,
+**Data Migration** and **Action Logs**, and all of them apply to the whole app.
 
 - **Content** lists every view, widget and agent in the app, whoever owns it,
   with its owner, whether it is published or has unpublished changes, and how
   widely it is shared. It is where an Administrator finds something nobody else
   can reach any more — for example after its owner left — and shares it with
   someone who should manage it.
+  Each row's **Open** (views) or **Edit** (widgets and agents) goes straight to
+  it: a view opens in the canvas, a widget in Widget Studio and an agent in
+  Agent Studio. Archived views have **Restore** instead.
+- **Activity** shows who did what in the app, newest first. It records
+  creating, publishing, reverting, discarding the draft of, archiving,
+  restoring, deleting and sharing views, widgets and agents; certifying a
+  widget; finished Widget Studio and Agent Studio generations (completed,
+  failed or cancelled); assistant chat turns; Settings changes; adding or
+  removing Administrators; and, merged in from Action Logs, each executable
+  widget action. Only metadata is kept: who, what kind, which object, when,
+  and small facts such as a version number or how many entries an access list
+  has. Prompts, chat text, widget code, query results, setting values and the
+  names on an access list are never recorded. Recording started with this
+  release, so earlier events aren't there.
+  - Filter by kind (Publishing, New drafts, Sharing & administrators, Archive &
+    delete, Studio generations, Chat, Widget actions, Settings), object type,
+    time range or an exact username. **Only this** on a row narrows to that
+    object; clicking a kind narrows to it; **Show older** loads the next page.
+  - The strip at the top lists people active in the last 15 minutes. Someone
+    counts as seen when they use the app, noted at most every ten minutes, so
+    it is approximate.
+  - Clicking a person shows their last 30 days: counts by kind, the views,
+    widgets and agents they worked on most, and when they were last seen.
+  - **Open** / **Edit** on a row works as in Content, for objects that still
+    exist and aren't archived.
+  - Events older than **Delete activity events after (days)** (Settings, the
+    Retention and context card; starts at 365, 0 keeps them) are deleted by an
+    hourly job. Widget action rows in Action Logs are kept regardless.
 - **Categories & Domains**: *categories* group widgets by function (Monitoring,
   Analytics…) in Widget Studio and the Widget Library; *domains* label widgets,
   views and agents with a business area so people can filter by it. Neither
@@ -724,7 +752,7 @@ and **Action Logs**, and all of them apply to the whole app.
   whole app. Two kinds of event write a row: a button press in an
   **Executable** widget (the widget, the action name, who pressed it, when, and
   the view it was on) and a data migration export or import. Views, publishing
-  and sharing changes are not logged. The columns are Timestamp, Widget, Action,
+  and sharing changes are not logged here; they are on **Activity**. The columns are Timestamp, Widget, Action,
   User, Domain, User Explanation and Action ID; opening a row also shows a
   **Request ID** and **Dashboard Context**, a snapshot of the view's name, tab
   and every widget on the tab with its settings. **Search logs…** searches only

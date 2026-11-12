@@ -877,6 +877,78 @@ so call it from a sync handler (see *Blocking work belongs in a sync handler*).
 listed in `NOT_COPIED`. `activity_events` travels with the activity group;
 `background_jobs` is never copied, since it describes this deployment's own runs.
 
+### The Activity tab (`services/activity_feed.py`, `routes/activity.py`)
+
+Admin Panel → Activity reads `activity_events` and approved widget actions from
+`action_logs` as one feed. These are the verbs recorded today. A new one belongs
+here and in `VERB_LABELS` in `src/pages/admin/ActivityLog.tsx`, which falls back
+to showing the raw verb:
+
+| Verb | Recorded by | `detail` |
+| --- | --- | --- |
+| `view.create` | `routes/apps.py` `create_app`, `compose_app` | compose: `tabs`, `composed` |
+| `view.publish` | `publish_app` | `version`, `with` (widgets and agents published alongside) |
+| `view.discard` / `view.revert` | `discard_draft` (only if a draft existed) / `revert_app` | revert: `version` |
+| `view.archive` / `view.restore` / `view.delete` | `archive_app` / `restore_app` / `delete_app` | — |
+| `widget.create` | `routes/custom_widgets.py` `create_custom_widget` (new widgets only) | — |
+| `widget.publish` / `widget.revert` | `publish_widget` / `revert_widget` | `version` |
+| `widget.discard` / `widget.delete` | `discard_widget_draft` (only if a draft existed) / `delete_custom_widget` | — |
+| `widget.certify` | `certify_widget` | `version`, `certified` |
+| `agent.create` | `agent_studio_store.save_draft` (new agents only) | — |
+| `agent.publish` / `agent.revert` | `publish` / `revert` | `version` |
+| `agent.discard` / `agent.delete` | `discard` / `delete_profile` | — |
+| `view.share` / `widget.share` / `agent.share` | `routes/sharing.py` `put_acl` | `entries`, `everyone`, `managers` (counts, never names) |
+| `admin.add` / `admin.remove` | `add_admin` / `remove_admin` | object `principal` / the name |
+| `widget.generate` | `routes/widget_studio.py` `_record_generation` | `status`, `edit`, `layout` |
+| `agent.generate` | `routes/agent_studio_profiles.py` `_record_authoring` | `status`, `edit` |
+| `chat.turn` | `routes/agent_proxy.py` `_turn_recorder` | `saved`, `tools`, `failed`; object is the agent if one was picked |
+| `settings.update` | `routes/app_settings.py` `update_settings` | `keys`, `count`, never values |
+| `widget.action` | *never recorded*: each `action_logs` row, merged in when read | `widget_name`, `action_name` |
+
+The verb says *view*, which is what people call it; `object_type` says `app`, as
+`object_permissions` and `object_drafts` do, so one id joins all three. "A first
+draft" is `*.create`, not every draft save, which would bury everything else.
+Generations have no object yet, so they carry none. Every site records with the
+identity the handler already resolved (`who.username`, or `caller_identity`'s
+per-token cache in the studios' background tasks); don't add a lookup. Widget
+Studio queues `_record_generation` as a second background task, which Starlette
+runs after the generation, so it reads the settled job. Agent Studio records
+inside `_authoring_task`, after `asyncio.run`.
+
+Route tests that reach these handlers fake `activity.record` in their harness
+(`test_apps_routes`, `test_widget_publish`, `test_agent_studio_store`,
+`test_agent_studio_authoring`). The real one fails quietly without credentials,
+but with Lakebase variables exported it would write to a real database, and a
+harness that fakes `get_db_connection` would see its INSERT as a stray query.
+
+**The feed.** `GET /api/activity` (filters `person`, `verb`, `object_type`,
+`object_id`, `since`, `until`; `cursor`, `limit`), `GET /api/activity/active` and
+`GET /api/activity/person`, each behind `access.require_app_admin` before any
+connection opens. `verb` takes comma-separated patterns where `*` stands for any
+run of characters (`*.share,admin.*`); only `[a-z0-9_.*]` is accepted, and `_` is
+escaped in the `LIKE`. Paging is keyset, never `OFFSET`: each source is read
+`limit + 1` rows past the cursor, merged in Python by `(at, source rank, id)`
+descending, and the cursor is the last row's `at|source|id`. Ties at the same
+instant are why the source is in the key: `_keyset` puts every `action` row
+before every `event` row of that instant, so no row repeats or goes missing at a
+page boundary. `action_logs.timestamp` has no zone and is cast with the session's
+zone, the same one `CURRENT_TIMESTAMP` wrote it in. Object names come from one
+`object_drafts` query plus one latest-version query per type, so a page costs a
+fixed handful of queries however many rows it has; an object found nowhere reads
+as deleted. Indexes for the person filter and `action_logs`' order are created
+by `_create_activity_feed_indexes` in `database.py`.
+
+"Active now" is `known_principals.last_seen` in the settings schema, which
+`access.caller` refreshes at most every ten minutes per worker, so the window is
+fifteen minutes: narrower would drop people between refreshes.
+
+**Retention.** `activity_retention_days` (Settings → Retention and context,
+default 365, 0 keeps everything) drives the hourly `activity_retention` job,
+which deletes from `activity_events` only, `PURGE_BATCH` rows per statement and
+at most `PURGE_MAX_BATCHES` per run, committing each so a large backlog never
+holds one long lock. `action_logs` is the audit trail of what widgets changed
+and is never purged here.
+
 ## What each model will accept (`services/llm_params.py`)
 
 Endpoints disagree about the optional parameters, so nothing optional is sent unless
@@ -1442,7 +1514,7 @@ settles as *completed* with an apology: the user's code is already fine.
 
 ```bash
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 23 passed
-PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 15 passed
+PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 10 passed
 PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 35 passed
 PYTHONPATH=server .venv/bin/python tests/test_mcp_client.py           # 5 passed
@@ -1485,6 +1557,7 @@ PYTHONPATH=server .venv/bin/python tests/test_background.py           # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed
 PYTHONPATH=server .venv/bin/python tests/test_actions_routes.py       # 7 passed
+PYTHONPATH=server .venv/bin/python tests/test_activity_feed.py        # 24 passed
 ```
 
 `test_file_extract.py` and `test_upload_tools.py` need the venv interpreter, not

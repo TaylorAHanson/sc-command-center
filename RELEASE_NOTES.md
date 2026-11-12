@@ -28,6 +28,9 @@
 
 - **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
 - **Clone, Edit and Delete in the Widget Library's list view.** Hover a row for the same icons as a card; **Status** now shows the **PAGE** badge too.
+- **See who did what.** Admin Panel → **Activity** lists publishing, sharing, deletes, studio generations, chats and setting changes, who is active now, and a summary per person.
+- **Open anything from Content.** Admin Panel → Content has **Open** on views and **Edit** on widgets and agents, going straight to the view or its studio.
+- **Choose how long activity is kept.** *Delete activity events after (days)* in Admin Panel → Settings starts at 365; 0 keeps everything.
 
 ### Fixed
 

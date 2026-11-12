@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    AlertCircle, Archive, ArchiveRestore, Bot, Layers, LayoutGrid, Loader2, RefreshCw, Search, Share2, Trash2, X,
+    AlertCircle, Archive, ArchiveRestore, Bot, ExternalLink, Layers, LayoutGrid, Loader2, Pencil, RefreshCw, Search, Share2, Trash2, X,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { AccessIcon, ShareDialog } from '../../components/sharing';
+import { useWorkspaceTools } from '../../contexts/WorkspaceTools';
+import { OPEN_LABEL, openObject } from './openObject';
 import {
     EVERYONE, STATE_LABELS, accessSummaryFromCount, requestJson,
     type AccessSummary, type Acl, type ObjectType, type PublishState,
@@ -82,6 +84,13 @@ export const AdminContent: React.FC = () => {
     const [sharing, setSharing] = useState<ContentItem | null>(null);
     const [pending, setPending] = useState<Pending | null>(null);
     const [busy, setBusy] = useState<string | null>(null);
+    const tools = useWorkspaceTools();
+
+    const openItem = (item: ContentItem) => {
+        if (!openObject(item.object_type, item.object_id, tools)) {
+            setActionError(`Couldn't open “${item.name}” from here. Open Widget Studio from the sidebar instead.`);
+        }
+    };
 
     const settle = useCallback((request: Promise<{ items?: ContentItem[] }>) => request
         .then(data => { setItems(data.items || []); setLoadError(null); })
@@ -177,7 +186,7 @@ export const AdminContent: React.FC = () => {
                     </h2>
                     <p className="text-sm text-gray-500 mt-1 max-w-2xl">
                         Every view, widget and agent in this app. As an administrator you can manage all of them:
-                        share any of them, and archive, restore or delete them.
+                        open or edit any of them, share them, and archive, restore or delete them.
                     </p>
                     {!loading && !loadError && (
                         <p className="text-xs text-gray-400 mt-1">
@@ -320,6 +329,16 @@ export const AdminContent: React.FC = () => {
                                             <td className="px-4 py-3 text-right whitespace-nowrap">
                                                 <div className="flex justify-end items-center gap-1">
                                                     {rowBusy && <Loader2 size={16} className="animate-spin text-gray-400 mr-1" />}
+                                                    {!item.archived && (
+                                                        <button
+                                                            onClick={() => openItem(item)}
+                                                            disabled={rowBusy}
+                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+                                                            title={isView ? 'Open this view' : `Edit in ${item.object_type === 'widget' ? 'Widget' : 'Agent'} Studio`}
+                                                        >
+                                                            {isView ? <ExternalLink size={14} /> : <Pencil size={14} />} {OPEN_LABEL[item.object_type]}
+                                                        </button>
+                                                    )}
                                                     <button
                                                         onClick={() => setSharing(item)}
                                                         disabled={rowBusy}

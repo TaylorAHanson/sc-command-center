@@ -41,6 +41,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from fastapi import HTTPException
 
 from services import access, drafts
+from services import activity
 from services.creator_stats import same_person
 
 logger = logging.getLogger(__name__)
@@ -770,6 +771,7 @@ class AgentStudioStore:
             conn.close()
         if creating:
             access.grant_owner(access.AGENT, profile_id, who.username)
+            activity.record(who.username, "agent.create", access.AGENT, profile_id)
         return self._as_ref(saved, who, access.MANAGE, published, True)
 
     def publish(self, who: Any, profile_id: str) -> int:
@@ -798,6 +800,7 @@ class AgentStudioStore:
             raise
         finally:
             conn.close()
+        activity.record(who.username, "agent.publish", access.AGENT, profile_id, {"version": version})
         return version
 
     def discard(self, who: Any, profile_id: str) -> None:
@@ -821,6 +824,7 @@ class AgentStudioStore:
             raise
         finally:
             conn.close()
+        activity.record(who.username, "agent.discard", access.AGENT, profile_id)
 
     def revert(self, who: Any, profile_id: str, version: int) -> ProfileRef:
         """Make an earlier published version the draft, to publish again or not."""
@@ -840,6 +844,7 @@ class AgentStudioStore:
             raise
         finally:
             conn.close()
+        activity.record(who.username, "agent.revert", access.AGENT, profile_id, {"version": int(version)})
         return self._as_ref(saved, who, access.MANAGE, published, True)
 
     def delete_profile(self, who: Any, profile_id: str) -> None:
@@ -867,6 +872,7 @@ class AgentStudioStore:
             conn.close()
         if not had_versions:
             access.delete_acl(access.AGENT, profile_id)
+        activity.record(who.username, "agent.delete", access.AGENT, profile_id)
 
     def history(self, who: Any, profile_id: str) -> List[Dict[str, Any]]:
         """Published versions, newest first, for a manager choosing one to revert to."""

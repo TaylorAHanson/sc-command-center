@@ -171,6 +171,11 @@ const Body = () => (
         indefinitely. People can always delete their own from the chat drawer.
       </li>
       <li>
+        <strong><UI>Delete activity events after (days)</UI></strong> deletes events on the{' '}
+        <GuideLink to="access" anchor="activity">Activity</GuideLink> tab once they are that old. It starts at <Code>365</Code>;{' '}
+        <Code>0</Code> keeps them indefinitely. Widget actions in Action logs are kept either way.
+      </li>
+      <li>
         <strong><UI>Tell the assistant what is on screen</UI></strong> controls whether each question carries a summary of the current dashboard: widget names, titles and
         configuration. Off, the assistant sees only the question. Choose that where widget configuration is itself sensitive.
       </li>
