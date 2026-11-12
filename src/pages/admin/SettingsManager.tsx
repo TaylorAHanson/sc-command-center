@@ -14,7 +14,7 @@ interface Setting {
     key: string;
     label: string;
     help: string;
-    kind: 'endpoint' | 'int' | 'json' | 'bool' | 'hosts' | 'mcp_servers' | 'text';
+    kind: 'endpoint' | 'int' | 'json' | 'bool' | 'hosts' | 'mcp_servers' | 'email' | 'domains' | 'text';
     /** Which card this belongs under; the backend decides the grouping. */
     group: string;
     /** Value in force right now, whatever its source. */
@@ -178,7 +178,7 @@ export const SettingsManager: React.FC = () => {
         .filter(card => card.items.length);
 
     const field = (setting: Setting) => (
-        <div key={setting.key} className={setting.kind === 'json' || setting.kind === 'hosts' || setting.kind === 'mcp_servers' ? 'sm:col-span-2' : undefined}>
+        <div key={setting.key} className={setting.kind === 'json' || setting.kind === 'hosts' || setting.kind === 'mcp_servers' || setting.kind === 'domains' ? 'sm:col-span-2' : undefined}>
             <div className="mb-1 flex items-baseline justify-between gap-3">
                 <label className="text-sm font-medium text-gray-800">{setting.label}</label>
                 <span className="text-[11px] text-gray-400">{SOURCE_NOTE[setting.source]}</span>
@@ -222,6 +222,27 @@ export const SettingsManager: React.FC = () => {
                     onChange={e => edit(setting.key, e.target.value)}
                     aria-label={setting.label}
                     placeholder={'/api/2.0/mcp/sql\nsystem.ai.genie_one_mcp\nsystem.ai.atlassian'}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 focus:border-brand-blue focus:outline-none"
+                />
+            ) : setting.kind === 'email' ? (
+                <input
+                    type="email"
+                    spellCheck={false}
+                    value={draft[setting.key] ?? ''}
+                    onChange={e => edit(setting.key, e.target.value)}
+                    aria-label={setting.label}
+                    placeholder="command-center@example.com"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-brand-blue focus:outline-none"
+                />
+            ) : setting.kind === 'domains' ? (
+                // Checked on save; empty is a setting in itself (each sender's own domain).
+                <textarea
+                    rows={3}
+                    spellCheck={false}
+                    value={draft[setting.key] ?? ''}
+                    onChange={e => edit(setting.key, e.target.value)}
+                    aria-label={setting.label}
+                    placeholder={'example.com\n*.example.com'}
                     className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 focus:border-brand-blue focus:outline-none"
                 />
             ) : setting.kind === 'bool' ? (

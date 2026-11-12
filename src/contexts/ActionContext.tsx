@@ -1,4 +1,6 @@
 import React, { createContext, useContext } from 'react';
+import { appOfChildren, useWidgetEmail } from '../email';
+import { SendEmailDialog } from '../components/SendEmailDialog';
 
 /**
  * What a widget's action callback is handed once the action is logged.
@@ -24,15 +26,23 @@ export const useActionContext = () => {
 
 export const ExecuteActionPropInjector: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const executeAction = useActionContext();
+    // `props.app.sendEmail` opens a dialog whose Send goes through this widget's
+    // executeAction, so an email is logged like any other action.
+    const app = appOfChildren(children);
+    const email = useWidgetEmail(app, !!executeAction);
 
     return (
         <>
             {React.Children.map(children, child => {
                 if (React.isValidElement(child)) {
-                    return React.cloneElement(child as React.ReactElement<any>, { executeAction });
+                    const own = app && (child.props as { app?: unknown }).app === app;
+                    return React.cloneElement(child as React.ReactElement<any>, own ? { executeAction, app: email.app } : { executeAction });
                 }
                 return child;
             })}
+            {email.request && executeAction && (
+                <SendEmailDialog request={email.request} executeAction={executeAction} onClose={email.close} />
+            )}
         </>
     );
 };

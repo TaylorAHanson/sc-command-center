@@ -126,6 +126,11 @@ NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs", "cutover_lo
 #: ten minutes on the app that started it.
 NOT_COPIED = NOT_COPIED | {"user_oauth_tokens", "oauth_pending"}
 
+#: The email log is what this deployment sent, and its rows are what each
+#: person's daily cap counts; copied, they would spend the target's allowance on
+#: emails it never sent. Each send's activity event travels with the activity log.
+NOT_COPIED = NOT_COPIED | frozenset({"email_log"})
+
 GROUPS: List[Dict[str, Any]] = [
     {"key": "content", "label": "Widgets, views and agents",
      "help": "Every published version and unpublished draft of every widget, view and agent, plus whose sidebar "

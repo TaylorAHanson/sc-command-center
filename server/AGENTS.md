@@ -882,6 +882,138 @@ so call it from a sync handler (see *Blocking work belongs in a sync handler*).
 listed in `NOT_COPIED`. `activity_events` travels with the activity group;
 `background_jobs` is never copied, since it describes this deployment's own runs.
 
+### The Activity tab (`services/activity_feed.py`, `routes/activity.py`)
+
+Admin Panel → Activity reads `activity_events` and approved widget actions from
+`action_logs` as one feed. These are the verbs recorded today. A new one belongs
+here and in `VERB_LABELS` in `src/pages/admin/ActivityLog.tsx`, which falls back
+to showing the raw verb:
+
+| Verb | Recorded by | `detail` |
+| --- | --- | --- |
+| `view.create` | `routes/apps.py` `create_app`, `compose_app` | compose: `tabs`, `composed` |
+| `view.publish` | `publish_app` | `version`, `with` (widgets and agents published alongside) |
+| `view.discard` / `view.revert` | `discard_draft` (only if a draft existed) / `revert_app` | revert: `version` |
+| `view.archive` / `view.restore` / `view.delete` | `archive_app` / `restore_app` / `delete_app` | — |
+| `widget.create` | `routes/custom_widgets.py` `create_custom_widget` (new widgets only) | — |
+| `widget.publish` / `widget.revert` | `publish_widget` / `revert_widget` | `version` |
+| `widget.discard` / `widget.delete` | `discard_widget_draft` (only if a draft existed) / `delete_custom_widget` | — |
+| `widget.certify` | `certify_widget` | `version`, `certified` |
+| `agent.create` | `agent_studio_store.save_draft` (new agents only) | — |
+| `agent.publish` / `agent.revert` | `publish` / `revert` | `version` |
+| `agent.discard` / `agent.delete` | `discard` / `delete_profile` | — |
+| `view.share` / `widget.share` / `agent.share` | `routes/sharing.py` `put_acl` | `entries`, `everyone`, `managers` (counts, never names) |
+| `admin.add` / `admin.remove` | `add_admin` / `remove_admin` | object `principal` / the name |
+| `widget.generate` | `routes/widget_studio.py` `_record_generation` | `status`, `edit`, `layout` |
+| `agent.generate` | `routes/agent_studio_profiles.py` `_record_authoring` | `status`, `edit` |
+| `chat.turn` | `routes/agent_proxy.py` `_turn_recorder` | `saved`, `tools`, `failed`; object is the agent if one was picked |
+| `settings.update` | `routes/app_settings.py` `update_settings` | `keys`, `count`, never values |
+| `widget.action` | *never recorded*: each `action_logs` row, merged in when read | `widget_name`, `action_name` |
+
+The verb says *view*, which is what people call it; `object_type` says `app`, as
+`object_permissions` and `object_drafts` do, so one id joins all three. "A first
+draft" is `*.create`, not every draft save, which would bury everything else.
+Generations have no object yet, so they carry none. Every site records with the
+identity the handler already resolved (`who.username`, or `caller_identity`'s
+per-token cache in the studios' background tasks); don't add a lookup. Widget
+Studio queues `_record_generation` as a second background task, which Starlette
+runs after the generation, so it reads the settled job. Agent Studio records
+inside `_authoring_task`, after `asyncio.run`.
+
+Route tests that reach these handlers fake `activity.record` in their harness
+(`test_apps_routes`, `test_widget_publish`, `test_agent_studio_store`,
+`test_agent_studio_authoring`). The real one fails quietly without credentials,
+but with Lakebase variables exported it would write to a real database, and a
+harness that fakes `get_db_connection` would see its INSERT as a stray query.
+
+**The feed.** `GET /api/activity` (filters `person`, `verb`, `object_type`,
+`object_id`, `since`, `until`; `cursor`, `limit`), `GET /api/activity/active` and
+`GET /api/activity/person`, each behind `access.require_app_admin` before any
+connection opens. `verb` takes comma-separated patterns where `*` stands for any
+run of characters (`*.share,admin.*`); only `[a-z0-9_.*]` is accepted, and `_` is
+escaped in the `LIKE`. Paging is keyset, never `OFFSET`: each source is read
+`limit + 1` rows past the cursor, merged in Python by `(at, source rank, id)`
+descending, and the cursor is the last row's `at|source|id`. Ties at the same
+instant are why the source is in the key: `_keyset` puts every `action` row
+before every `event` row of that instant, so no row repeats or goes missing at a
+page boundary. `action_logs.timestamp` has no zone and is cast with the session's
+zone, the same one `CURRENT_TIMESTAMP` wrote it in. Object names come from one
+`object_drafts` query plus one latest-version query per type, so a page costs a
+fixed handful of queries however many rows it has; an object found nowhere reads
+as deleted. Indexes for the person filter and `action_logs`' order are created
+by `_create_activity_feed_indexes` in `database.py`.
+
+"Active now" is `known_principals.last_seen` in the settings schema, which
+`access.caller` refreshes at most every ten minutes per worker, so the window is
+fifteen minutes: narrower would drop people between refreshes.
+
+**Retention.** `activity_retention_days` (Settings → Retention and context,
+default 365, 0 keeps everything) drives the hourly `activity_retention` job,
+which deletes from `activity_events` only, `PURGE_BATCH` rows per statement and
+at most `PURGE_MAX_BATCHES` per run, committing each so a large backlog never
+holds one long lock. `action_logs` is the audit trail of what widgets changed
+and is never purged here.
+
+## Email (`services/email_service.py`, `routes/email.py`)
+
+Everything that sends email calls **`email_service.send_email(sender_username,
+sender_email, to, subject, message_md, table=None, attach_csv=False,
+view_name=None, view_link=None, source="widget", request_id=None)`**. It needs no
+request, so a background job can call it, and it never raises: it returns
+`{ok, status, reason, transport, message_id, recipients, error, log_id}`, where
+`status` is `sent` / `logged` (ok) or `refused` / `unavailable` / `failed` and
+`error` is a sentence for the person. The caller decides who the sender is (the
+route takes the caller's OBO identity and ignores any sender in the body; a
+schedule passes its owner); everything else is enforced inside, so no caller can
+skip it:
+
+- **Recipients.** Addresses are normalized and anything malformed is refused.
+  Without `email_allowed_domains`, only the sender's own domain; with it, only
+  those entries (`*.example.com` is subdomains, not the apex). At most
+  `email_max_recipients` (default 10, never above SES's 50).
+- **Daily cap.** `email_daily_limit` (default 50) per sender over a rolling 24
+  hours. `reserve` takes a transaction-scoped advisory lock on the sender, counts
+  their `sending` / `sent` / `logged` rows and inserts this one as `sending` in
+  the same transaction, which is what makes the cap hold across both workers. A
+  row that can't be written means nothing is sent.
+- **Content.** Markdown goes through a small renderer here that escapes every
+  character it doesn't recognize, links only to http/https/mailto, and turns
+  images into links (an `<img>` would report who opened the email). A table is
+  data (`{columns, rows}`), drawn up to 50 rows, with an optional CSV (formula
+  cells prefixed with `'`, capped at 10,000 rows and 5 MB). The subject loses
+  control characters, so it can't add a header. There is no way to pass HTML.
+- **The record.** `email_log` (content schema, `_create_email_tables`) holds
+  sender, recipients, subject, status, transport, message id and error, never the
+  body; `activity.record(..., "email.send", "email", log_id, ...)` follows each
+  send and each refusal. The activity detail says `via`, not `source`, because
+  `source` is one of activity's content keys and would be dropped. `email_log`
+  is in `NOT_COPIED`: copied, it would spend the target's daily allowance.
+
+**Transport** (`choose_transport`, pure and tested): `ses` when `email_enabled`,
+a From address, both AWS key env vars and a region (`AWS_REGION` or
+`AWS_DEFAULT_REGION`) are present; else `log` when `APP_ENVIRONMENT=local`, which
+writes the rendered email to the server log and records it as `logged`; else
+`off`. A deployed app never pretends to send. Only the env vars count as
+credentials: boto3's own chain would also try instance metadata, where a
+platform role must not read as "set up". The keys arrive as app secret resources;
+they never go in `app_settings`, the database, the browser or a log line, which
+is why there is no setting for them or for the region. The `email` capability
+(registered in `main.py`'s startup) reports the same three states, with `missing`
+and `next_step` in fix-it order.
+
+**Routes.** `POST /api/email/preview` renders what Send would send and the
+problem that would stop it, writing nothing; `POST /api/email/send` sends.
+Refusals are 400, the daily cap 429, not set up 503 and an SES failure 502, each
+with the sentence as `detail`. The view link is the browser's to send, so it is
+kept only when it is on the request's own origin (`own_view_link`).
+
+**The browser side.** `props.app.sendEmail` never sends: `ExecuteActionPropInjector`
+binds it per widget to the Send dialog (`src/components/SendEmailDialog.tsx`),
+whose Send goes through that widget's `executeAction`, so the action log row is
+written first and its `request_id` is stored on the `email_log` row. Widget code
+could still call `/api/email/send` itself; the contract forbids it, and the
+recipient policy, caps and log apply either way.
+
 ## Token vault (`services/token_vault.py`, `routes/oauth.py`)
 
 **This is the way unattended work keeps running as the user.** A scheduled run,
@@ -1107,6 +1239,32 @@ a new widget always gets them. And `run_sql` answers a SELECT of constants only
 result (`ping_result`: the row, then `PING_NOTE`), not a refusal: told "Not run",
 the agent read a failed check and sent the same `SELECT 1` again. A second ping
 in one run gets `PING_REPEATED`, which tells it to return the code.
+
+**Widget Studio asks the author before Genie is sent anything.** It passes a
+`GenieGate` to `langchain_tools(genie=…)`, built by `_genie_gate` from the
+request's `genie_permission` (`ask` | `always` | `off`; missing or unknown reads
+as `ask`, so an old client can't send an unapproved question). With a gate,
+`ask_genie` is a different tool: it takes a `reason` and its docstring limits it
+to business meaning, never names, values, row counts or styling, at most one
+question a turn. In `ask` mode a question isn't sent: `hold` records
+`{question, reason}`, tells the agent to end its turn (`GENIE_HELD`), and every
+later `run_sql` or second question in that turn gets a refusal. The job then
+settles as a pause through `_genie_pause` (next to `_clarify`):
+`code: None` (or, after a planned run, the steps that landed), `genie_request`,
+and `GENIE_PAUSE_TEXT`. The check runs after `_research`, after each step in
+`_run_stages(genie=…)` (that step and the rest are marked `skipped`), and after
+the one-pass agent, whose reply is discarded. The card re-sends the turn with
+`approved_genie`, which `_approved_genie` asks *before* the agent starts, on its
+own `GENIE_APPROVED_SECONDS` slice that leaves `MIN_ONE_PASS_SECONDS`. The
+answer goes into the system prompt as findings and is remembered in the gate,
+so the agent asking it again gets it without a second wait; any other question
+is held again. `genie_declined` ("Continue without Genie") and `off` bind no
+Genie tool. A prompt that itself tells the agent to ask Genie
+(`asks_for_genie`, deliberately conservative: the verb must open a clause, so an
+"Ask Genie" button or "a box where users ask Genie" don't count) approves that
+turn, though never on an auto-fix (`error_log`). The admin switch still wins:
+with `enable_genie_tool` off there is no tool, so nothing is held and no card
+appears. Agent Studio passes no gate, so its tool and docstring are unchanged.
 
 ## Moving data between apps (`services/data_migration.py`, `routes/data_migration.py`)
 
@@ -1431,7 +1589,10 @@ judgement that decides a request is worth planning decides it is worth a questio
 because that is exactly where a wrong guess costs minutes. A question set settles
 the job with `code: None` and a `questions` list; nothing is generated. Two guards
 stop a loop: the client sends `allow_clarify: false` on the answering turn, and
-`CLARIFY_MARKER` in the history means one has already been asked.
+`CLARIFY_MARKER` in the history means one has already been asked. A Genie pause
+(`_genie_pause`, see *Studio research tools*) settles the same way with a
+`genie_request` instead, and a turn re-sent from its card (`approved_genie` or
+`genie_declined`) never asks clarifying questions, having stopped once already.
 
 **The data-source test runs as the user (`get_db_client`).** It ran as the SP,
 with no statement check, which let anyone with studio access run any SQL with the
@@ -1521,7 +1682,7 @@ settles as *completed* with an apology: the user's code is already fine.
 
 ```bash
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 23 passed
-PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 15 passed
+PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 10 passed
 PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 35 passed
 PYTHONPATH=server .venv/bin/python tests/test_mcp_client.py           # 5 passed
@@ -1530,7 +1691,7 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_helper.py  # 25 passed
-PYTHONPATH=server .venv/bin/python tests/test_widget_agent_context.py # 23 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_context.py # 34 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
 PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_creator_stats.py        # 16 passed
@@ -1550,7 +1711,7 @@ PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 26 passe
 .venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server .venv/bin/python tests/test_conversation_store.py   # 5 passed
 PYTHONPATH=server .venv/bin/python tests/test_db_pool.py              # 14 passed
-PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 30 passed
+PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 44 passed
 PYTHONPATH=server .venv/bin/python tests/test_data_migration.py       # 25 passed
 PYTHONPATH=server .venv/bin/python tests/test_app_help.py            # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_role_mappings_home.py   # 2 passed
@@ -1563,6 +1724,10 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 31 passe
 PYTHONPATH=server .venv/bin/python tests/test_background.py           # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed
+PYTHONPATH=server .venv/bin/python tests/test_actions_routes.py       # 7 passed
+PYTHONPATH=server .venv/bin/python tests/test_activity_feed.py        # 24 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_service.py        # 44 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_routes.py         # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_token_vault.py          # 48 passed
 ```
 

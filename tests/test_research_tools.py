@@ -2,8 +2,9 @@
 
 Pinned: nothing that writes is ever sent, a query can't pull a whole table into
 the prompt, a clipped result says it was clipped, an admin switch removes the tool
-rather than leaving it to fail, and Widget Studio's planned runs only pay for a
-research round when the request points at data.
+rather than leaving it to fail, Widget Studio's planned runs only pay for a
+research round when the request points at data, and Widget Studio's Genie gate
+sends only what the author approved while Agent Studio's tool stays as it was.
 """
 import json
 import os
@@ -262,6 +263,156 @@ def test_research_tools_stay_where_data_may_be_involved():
     assert may("make it blue", current_code=HUB, data_source_type="sql")       # has a data source
     assert may("make it blue", current_code="fetch('/api/sql/execute-raw', {})")  # queries in code
     assert may("add totals from main.supply.shipments", current_code=HUB)      # names a table
+
+
+# ------------------------------------------------- Widget Studio's Genie gate
+
+LATE = "How is a late shipment defined?"
+ANSWER = "Late means delivered after the promised date."
+
+
+def studio(gate, fn, sql=True, genie=True):
+    """Run `fn(tools by name)` on Widget Studio's tools behind `gate`.
+
+    Returns what `fn` returned and the questions that reached Genie; none is sent.
+    """
+    asked = []
+
+    def fake_ask(ws, question, conversation_id="", timeout=None, response_id=""):
+        asked.append(response_id or question)
+        return ANSWER
+
+    original = rt.ask_genie
+    rt.ask_genie = fake_ask
+    try:
+        tools = with_switches(sql, genie, lambda: rt.langchain_tools(object(), genie=gate))
+        return fn({t.name: t for t in tools}), asked
+    finally:
+        rt.ask_genie = original
+
+
+def ask(tools, question=LATE, reason="decides which rows turn red"):
+    return tools["ask_genie"].invoke({"question": question, "reason": reason})
+
+
+def test_anything_but_a_known_genie_setting_reads_as_ask():
+    assert [rt.genie_mode(v) for v in ("ask", "ALWAYS", " off ")] == ["ask", "always", "off"]
+    assert [rt.genie_mode(v) for v in (None, "", "yes", 1)] == ["ask"] * 4
+
+
+def test_a_message_telling_the_agent_to_use_genie_is_its_approval():
+    for text in ("Ask Genie how late shipments are defined.",
+                 "Build a chart. You can ask Genie what active means.",
+                 "Build a table and then use Genie to define OTIF",
+                 "First, ask genie what counts as late",
+                 "- query Genie for the definition",
+                 "Can you ask Genie what net revenue means?",
+                 "Please consult Databricks Genie about churn",
+                 "build it, but check with Genie first",
+                 "(ask Genie if unsure)"):
+        assert rt.asks_for_genie(text), text
+
+
+def test_a_widget_that_mentions_genie_is_not_an_approval():
+    for text in ("Add a box where you can ask Genie questions",
+                 "Add an Ask Genie button", "Build an Ask Genie widget", "Embed a Genie chat",
+                 'Add a button labelled "Ask Genie"', "a panel so users ask Genie",
+                 "users can ask genie from the widget", "Use Genie's API to answer",
+                 "use genie spaces to answer",
+                 "Don't ask Genie", "Please don't use Genie", "Never use Genie for this",
+                 "You can't use Genie", "", None):
+        assert not rt.asks_for_genie(text), text
+
+
+def test_ask_mode_holds_the_question_and_sends_nothing():
+    gate = rt.GenieGate("ask")
+    (first, second, sql), asked = studio(gate, lambda t: (
+        ask(t), ask(t, "What is an active supplier?"), t["run_sql"].invoke({"query": "SELECT 1"})))
+    assert first == rt.GENIE_HELD and asked == []
+    assert gate.request == {"question": LATE, "reason": "decides which rows turn red"}
+    # One question a turn, and nothing else runs while it waits.
+    assert second == rt.GENIE_ONE_PER_TURN and gate.request["question"] == LATE
+    assert sql == rt.GENIE_WAITING
+
+
+def test_a_question_with_nothing_in_it_is_not_held():
+    gate = rt.GenieGate("ask")
+    out, asked = studio(gate, lambda t: ask(t, "  "))
+    assert out == "ask_genie needs a question." and gate.request is None and asked == []
+
+
+def test_always_allow_asks_straight_away():
+    gate = rt.GenieGate("always")
+    out, asked = studio(gate, ask)
+    assert out == ANSWER and asked == [LATE] and gate.request is None
+    assert gate.answer_for(LATE) == ANSWER
+
+
+def test_off_and_declined_bind_no_genie_tool():
+    for gate in (rt.GenieGate("off"), rt.GenieGate("ask", declined=True), rt.GenieGate("always", declined=True)):
+        names, _ = studio(gate, sorted)
+        assert names == ["run_sql"], gate.mode
+
+
+def test_a_message_asking_for_genie_asks_without_a_card():
+    gate = rt.GenieGate("ask", explicit=True)
+    out, asked = studio(gate, ask)
+    assert out == ANSWER and asked == [LATE] and gate.request is None
+
+
+def test_an_approved_question_is_answered_once_and_any_other_waits_again():
+    gate = rt.GenieGate("ask", approved=LATE)
+    gate.remember(LATE, ANSWER)
+    (same, other), asked = studio(gate, lambda t: (
+        ask(t, "  how is a LATE shipment defined "), ask(t, "What is an active supplier?")))
+    assert same == ANSWER and asked == []
+    assert other == rt.GENIE_HELD and gate.request["question"] == "What is an active supplier?"
+
+
+def test_keeping_waiting_on_an_answer_needs_no_new_approval():
+    gate = rt.GenieGate("ask")
+    out, asked = studio(gate, lambda t: t["ask_genie"].invoke({"conversation_id": "c1", "response_id": "r1"}))
+    assert out == ANSWER and asked == ["r1"] and gate.request is None
+
+
+def test_the_admin_switch_wins_over_every_genie_setting():
+    for gate in (rt.GenieGate("always"), rt.GenieGate("ask", explicit=True), rt.GenieGate("ask", approved=LATE)):
+        names, asked = studio(gate, sorted, genie=False)
+        assert names == ["run_sql"] and asked == [] and gate.request is None
+
+
+def test_agent_studio_keeps_the_genie_tool_it_had():
+    (tool,) = with_switches(False, True, lambda: rt.langchain_tools(object()))
+    assert sorted(tool.args) == ["conversation_id", "question", "response_id"]
+    assert "Pass `conversation_id` from an earlier answer to ask a follow-up" in tool.description
+    original = rt.ask_genie
+    rt.ask_genie = lambda ws, question, *a, **k: ANSWER
+    try:
+        assert tool.invoke({"question": LATE}) == ANSWER
+    finally:
+        rt.ask_genie = original
+
+
+def test_widget_studios_genie_tool_asks_for_meaning_and_a_reason():
+    tools, _ = studio(rt.GenieGate("ask"), dict)
+    tool = tools["ask_genie"]
+    assert "reason" in tool.args
+    assert "Never use it for table or column names" in tool.description
+    assert "at most one question per turn" in tool.description
+
+
+def test_the_prompt_says_what_the_genie_setting_means():
+    def section(gate, genie=True):
+        return with_switches(True, genie, lambda: rt.prompt_section(rt.langchain_tools(object(), genie=gate), gate))
+
+    asking = section(rt.GenieGate("ask"))
+    assert "never for table or column names" in asking and "approves each question" in asking
+    assert "approves each question" not in section(rt.GenieGate("always"))
+    assert "continue without Genie" in section(rt.GenieGate("ask", declined=True))
+    assert "Genie isn't available" in section(rt.GenieGate("off", explicit=True))
+    assert "Genie isn't available" in section(rt.GenieGate("ask", explicit=True), genie=False)
+    assert "Genie isn't available" not in section(rt.GenieGate("ask", explicit=True))
+    assert rt.prompt_section([], rt.GenieGate("always")) == ""
 
 
 if __name__ == "__main__":

@@ -29,6 +29,11 @@ The admin switches in Admin Panel → Settings (`enable_sql_tool`,
 deployment that has kept the assistant away from Genie has not done so only for
 the drawer. A switched-off tool is not offered at all, as in `agent_runtime`.
 
+Widget Studio also asks the author before Genie is sent anything (`GenieGate`).
+Genie reads Genie spaces the author may not have thought about, and a question is
+slow, so by default each one waits on an approval card in the studio. Agent
+Studio passes no gate and gets the tool it always had.
+
 Results are text and bounded. A studio's context window also holds the widget
 file, the instructions and the history, and a model handed a clipped table
 without being told summarises it as if it were whole — so the cut is said aloud.
@@ -77,6 +82,12 @@ _GENIE_FAILURES = (
     "ask_genie needs", "Genie is unavailable", "Genie could not", "Genie did not",
     "Genie poll error", "Genie query failed",
 )
+
+
+def genie_failed(answer: str) -> bool:
+    """Whether an `ask_genie` reply is a failure rather than Genie's answer."""
+    return (answer or "").startswith(_GENIE_FAILURES)
+
 
 TOOL_LABELS = {
     "run_sql": "Running SQL",
@@ -340,10 +351,130 @@ def ask_genie(ws, question: str, conversation_id: str = "",
     return answer
 
 
+# ------------------------------------------------- Genie's gate (Widget Studio)
+
+#: Widget Studio's Genie setting, one author's choice (Agent settings → Genie).
+GENIE_MODES = ("ask", "always", "off")
+DEFAULT_GENIE_MODE = "ask"
+
+GENIE_HELD = (
+    "Not asked yet. In Widget Studio the author approves each Genie question, and yours is "
+    "now waiting for them with your reason. End your turn now: reply with one short sentence "
+    "saying what Genie's answer will settle, with no code and no more tool calls. If they "
+    "allow it, the request comes back with Genie's answer; if not, it comes back without Genie."
+)
+GENIE_ONE_PER_TURN = (
+    "Not asked: a Genie question is already waiting for the author's approval, and a turn "
+    "asks at most one. End your turn now, with no code."
+)
+GENIE_WAITING = (
+    "Not run: a Genie question is waiting for the author's approval, so this turn is over. "
+    "End it now, with one short sentence and no code."
+)
+
+
+def genie_mode(value: Any) -> str:
+    """A Genie setting from a request, read as `ask` when missing or unknown.
+
+    `ask` is the safe misreading: it costs the author a click, where reading an
+    unknown value as `always` would send a question nobody approved.
+    """
+    mode = str(value or "").strip().lower()
+    return mode if mode in GENIE_MODES else DEFAULT_GENIE_MODE
+
+
+# A message telling the agent to use Genie has approved it already. Read
+# conservatively, since a false match sends a question the author never saw: the
+# verb must open a clause aimed at the agent ("Ask Genie…", "then use Genie to…",
+# "You can ask Genie"), so "a box where you can ask Genie", an "Ask Genie" button
+# or Genie's API don't count, and a negated verb never matches ("don't" sits
+# between the clause start and the verb).
+_GENIE_DIRECTIVE_RE = re.compile(
+    r"(?:^|[.!?;:,(\n]|\b(?:and|but)\b)\s*"
+    r"(?:[-*•]\s*)?"
+    r"(?:(?:first|then|now|also|just|please)\s+)*"
+    r"(?:(?:you\s+(?:can|may|could|should)|feel\s+free\s+to|go\s+ahead\s+and|(?:can|could|would)\s+you"
+    r"|i(?:['’]d|\s+would)\s+like\s+you\s+to|i\s+want\s+you\s+to"
+    r"|(?:it['’]s\s+|it\s+is\s+)?(?:ok|okay|fine)\s+to)\s+)?"
+    r"(?:please\s+)?"
+    r"(?:ask|use|query|consult|check\s+with)\s+(?:databricks\s+)?genie\b"
+    r"(?!['’]s\b)"
+    r"(?!\s+(?:widgets?|buttons?|box(?:es)?|panels?|chats?|tabs?|pages?|cards?|spaces?|rooms?"
+    r"|apis?|integrations?|components?|features?|bars?|links?|icons?|modals?)\b)",
+    re.IGNORECASE,
+)
+
+
+def asks_for_genie(text: Optional[str]) -> bool:
+    """Whether a message itself tells the agent to ask Genie."""
+    return bool(_GENIE_DIRECTIVE_RE.search(text or ""))
+
+
+def _question_key(question: str) -> str:
+    return " ".join((question or "").lower().split()).rstrip(" ?.!")
+
+
+class GenieGate:
+    """Whether Widget Studio's agent may ask Genie this turn, and what it wants to ask.
+
+    In `ask` mode a question isn't sent: it is held here with the agent's reason,
+    the agent is told to end its turn, and the studio shows the author both on an
+    approval card. Allowing re-sends the turn with the question as `approved`,
+    which the studio asks before anything else and `remember`s, so the agent asking
+    it again gets that answer; any other question is held again. A message that
+    itself tells the agent to use Genie (`explicit`) is the approval, for its turn.
+    `always` never holds; `off`, or a turn the author `declined`, gets no Genie tool.
+
+    The admin switch isn't here: with it off `langchain_tools` binds no Genie tool,
+    so there is nothing to gate and no card can appear.
+    """
+
+    def __init__(self, mode: Any = DEFAULT_GENIE_MODE, *, approved: str = "",
+                 explicit: bool = False, declined: bool = False) -> None:
+        self.mode = genie_mode(mode)
+        self.approved = " ".join((approved or "").split())
+        self.explicit = bool(explicit)
+        self.declined = bool(declined)
+        #: The question waiting for the author, as `{"question", "reason"}`.
+        self.request: Optional[Dict[str, str]] = None
+        self._answers: Dict[str, str] = {}
+
+    @property
+    def offered(self) -> bool:
+        """Whether this turn gets a Genie tool at all."""
+        return self.mode != "off" and not self.declined
+
+    @property
+    def asks_first(self) -> bool:
+        """Whether a question not yet approved waits for the author."""
+        return self.mode == "ask" and not self.explicit
+
+    def approves(self, question: str) -> bool:
+        return not self.asks_first or (
+            bool(self.approved) and _question_key(question) == _question_key(self.approved))
+
+    def remember(self, question: str, answer: str) -> None:
+        self._answers[_question_key(question)] = answer
+
+    def answer_for(self, question: str) -> Optional[str]:
+        return self._answers.get(_question_key(question))
+
+    def hold(self, question: str, reason: str) -> str:
+        """Keep a question for the author, and tell the agent to stop."""
+        if self.request is not None:
+            return GENIE_ONE_PER_TURN
+        self.request = {
+            "question": " ".join((question or "").split())[:1000],
+            "reason": " ".join((reason or "").split())[:300],
+        }
+        return GENIE_HELD
+
+
 # --------------------------------------------------------------- LangChain
 
 def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
-                    seconds_left: Optional[Callable[[], float]] = None) -> List[Any]:
+                    seconds_left: Optional[Callable[[], float]] = None,
+                    genie: Optional[GenieGate] = None) -> List[Any]:
     """The research tools this deployment allows, bound to one caller.
 
     `note` hears one line per call, for a studio that narrates its work (Widget
@@ -351,6 +482,10 @@ def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
     run without the time to finish says so instead of starting, and Genie's wait is
     capped to what remains — so research can make a widget late but never cost the
     turn it was meant to help.
+
+    `genie` is Widget Studio's gate: with one, `ask_genie` takes a `reason`, asks
+    only what the gate allows and holds the rest for the author (see `GenieGate`).
+    Without one, as in Agent Studio, it is the tool it always was.
     """
     from langchain_core.tools import tool
 
@@ -394,6 +529,10 @@ def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
             data is refused. Returns up to `max_rows` rows (default 50, at most 200)
             as a table.
             """
+            # The turn is over once a question is held, and anything run after it
+            # is redone when the author answers.
+            if genie is not None and genie.request is not None:
+                return GENIE_WAITING
             if is_ping(query or ""):
                 pings.append(query)
                 if len(pings) > 1:
@@ -410,7 +549,22 @@ def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
 
         tools.append(run_sql_tool)
 
-    if allowed.get("ask_genie"):
+    def consult(question: str, conversation_id: str, response_id: str) -> str:
+        late = out_of_time()
+        if late:
+            return late
+        if (response_id or "").strip():
+            say("still waiting on Genie's answer")
+        else:
+            say(f"asking Genie: {' '.join((question or '').split())[:160]}")
+        left = remaining()
+        answer = ask_genie(ws, question, conversation_id,
+                           timeout=(left - MIN_SECONDS) if left is not None else None,
+                           response_id=response_id)
+        say(answer.split("\n", 1)[0][:160] if genie_failed(answer) else "Genie answered")
+        return answer
+
+    if allowed.get("ask_genie") and genie is None:
         @tool("ask_genie")
         def ask_genie_tool(question: str = "", conversation_id: str = "", response_id: str = "") -> str:
             """Ask Databricks Genie a natural-language question about the data.
@@ -424,50 +578,99 @@ def langchain_tools(ws, note: Optional[Callable[[str], None]] = None,
             call says Genie is still working, pass the `conversation_id` and
             `response_id` it gives (no question) to keep waiting for that answer.
             """
-            late = out_of_time()
-            if late:
-                return late
-            if (response_id or "").strip():
-                say("still waiting on Genie's answer")
-            else:
-                say(f"asking Genie: {' '.join((question or '').split())[:160]}")
-            left = remaining()
-            answer = ask_genie(ws, question, conversation_id,
-                               timeout=(left - MIN_SECONDS) if left is not None else None,
-                               response_id=response_id)
-            say(answer.split("\n", 1)[0][:160] if answer.startswith(_GENIE_FAILURES) else "Genie answered")
-            return answer
+            return consult(question, conversation_id, response_id)
 
         tools.append(ask_genie_tool)
+
+    elif allowed.get("ask_genie") and genie.offered:
+        @tool("ask_genie")
+        def studio_ask_genie(question: str = "", reason: str = "", conversation_id: str = "",
+                             response_id: str = "") -> str:
+            """Ask Databricks Genie what a business term means here, as the current user.
+
+            Genie answers from the definitions curated in the user's Genie spaces:
+            what counts as a "late" shipment, how "active supplier" or "net revenue"
+            is defined. Use it only for meaning like that, which the schema and
+            run_sql can't settle. Never use it for table or column names, a
+            column's values, row counts or styling: run_sql answers those exactly,
+            and faster.
+
+            Ask at most one question per turn. Make it self-contained, since Genie
+            hasn't seen this conversation, and give `reason`: one line, shown to the
+            author, on what the answer decides in the widget. The author may have
+            to approve the question before it is sent. If a call says Genie is
+            still working, pass the `conversation_id` and `response_id` it gives
+            (no question) to keep waiting for that answer.
+            """
+            # Waiting on an answer asks nothing new, and its handle only exists
+            # because the question was allowed.
+            if not (response_id or "").strip():
+                known = genie.answer_for(question)
+                if known is not None:
+                    say("Genie already answered that question")
+                    return known
+                if not genie.approves(question):
+                    if not (question or "").strip():
+                        return "ask_genie needs a question."
+                    say(f"holding a question for your approval: {' '.join(question.split())[:160]}")
+                    return genie.hold(question, reason)
+                if (reason or "").strip():
+                    say(f"why Genie: {' '.join(reason.split())[:160]}")
+            answer = consult(question, conversation_id, response_id)
+            if (question or "").strip() and not genie_failed(answer):
+                genie.remember(question, answer)
+            return answer
+
+        tools.append(studio_ask_genie)
 
     return tools
 
 
-def prompt_section(tools: List[Any]) -> str:
-    """What to tell a studio agent about the research tools it has, or "".
+def prompt_section(tools: List[Any], genie: Optional[GenieGate] = None) -> str:
+    """What to tell Widget Studio's agent about the research tools it has, or "".
 
     Generated from the tools actually bound, so an admin switch that removes one
     removes it from the instructions too — an agent told about a tool it doesn't
-    have spends a step discovering that.
+    have spends a step discovering that. `genie` adds what this turn's Genie
+    setting means for the agent, including when it has no Genie tool at all.
     """
     names = [getattr(t, "name", "") for t in tools]
-    if not names:
-        return ""
-    lines = ["## Researching the user's data",
-             "You can look at the user's data before you rely on it. Everything runs "
-             "as the signed-in user, so you see only what they are allowed to see."]
+    lines: List[str] = []
+    if names:
+        lines = ["## Researching the user's data",
+                 "You can look at the user's data before you rely on it. Everything runs "
+                 "as the signed-in user, so you see only what they are allowed to see."]
     if "run_sql" in names:
         lines.append("- `run_sql` runs a read-only query on the warehouse this app uses. "
                      "Use it to confirm table and column names (DESCRIBE TABLE), see the "
                      "real values of a column, and check how much data there is.")
     if "ask_genie" in names:
-        lines.append("- `ask_genie` asks Databricks Genie, which knows the business "
-                     "definitions curated in the user's Genie spaces. It is slow; use it "
-                     "for meaning (what counts as 'late'?), not for rows.")
-    lines.append("Research when the request names data you have not been shown, or when "
-                 "a wrong guess about a column or value would break the result. Skip it "
-                 "when the schema you were given already answers the question, and when "
-                 "the request doesn't depend on the data at all — layout, styling and "
-                 "wording changes need no tool calls. Findings inform what you write; "
-                 "they are never pasted in as hardcoded data.")
+        line = ("- `ask_genie` asks Databricks Genie what a business term means in this "
+                "organization (what counts as 'late', how an 'active' supplier is defined). "
+                "Use it only for meaning the schema and `run_sql` can't settle, never for "
+                "table or column names, values, row counts or styling. Ask at most one "
+                "self-contained question per turn")
+        if genie is None:
+            line += "."
+        else:
+            line += ", with a one-line `reason` the author will see."
+            if genie.asks_first:
+                line += (" The author approves each question before it is sent and your turn "
+                         "ends while it waits, so ask only when the answer changes what you build.")
+        lines.append(line)
+    if names:
+        lines.append("Research when the request names data you have not been shown, or when "
+                     "a wrong guess about a column or value would break the result. Skip it "
+                     "when the schema you were given already answers the question, and when "
+                     "the request doesn't depend on the data at all — layout, styling and "
+                     "wording changes need no tool calls. Findings inform what you write; "
+                     "they are never pasted in as hardcoded data.")
+    if genie is not None and genie.declined:
+        lines.append("The author chose to continue without Genie for this request. Build from "
+                     "the schema and what you can confirm, and say in one line which business "
+                     "definitions you assumed.")
+    elif genie is not None and genie.explicit and "ask_genie" not in names:
+        lines.append("The request asks for Genie, but Genie isn't available in this studio "
+                     "right now (it is off in Agent settings, or for this app). Say so in one "
+                     "line, and build from what you can confirm.")
     return "\n".join(lines)

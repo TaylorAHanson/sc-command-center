@@ -5,8 +5,9 @@ calls the data source. These cover the channel back — sample rows from the tes
 source, what happened when the widget last ran, the studio's pattern checks, and
 a screenshot — and that each arrives bounded, only when it applies, and pointed
 at the right action. Also the data-source test, which runs as the user and must
-never execute a write or fetch an arbitrary URL on the server, and the helper
-model's no-reasoning default with its fallbacks.
+never execute a write or fetch an arbitrary URL on the server, the helper
+model's no-reasoning default with its fallbacks, and the turn that stops to ask
+the author before Genie is sent a question.
 """
 import os
 import sys
@@ -32,10 +33,14 @@ try:
         _sql_check_hint,
         test_datasource as run_datasource_test,
     )
-    from services import llm_params, native_files
+    from langchain_core.messages import AIMessage
+    from services import llm_params, native_files, research_tools
 except Exception as e:  # pragma: no cover - needs the backend venv (langchain, fastapi)
     print(f"SKIP test_widget_agent_context: {e}")
     sys.exit(0)
+
+# Jobs stay in memory here; there is no database to mirror them to.
+widget_studio.generation_jobs.persist = False
 
 WIDGET = "export default function Widget(props) {\n  return <div className=\"p-4\" />;\n}"
 PNG = "data:image/png;base64," + "iVBORw0KGgoA" * 10
@@ -285,6 +290,194 @@ def test_a_page_review_gets_longer_but_never_past_the_admin_timeout():
     assert widget_studio._review_seconds("card", 300) == widget_studio.REVIEW_SECONDS
 
 
+# --------------------------------------------------- asking before Genie
+
+LATE = "How is a late shipment defined?"
+ANSWER = "Late means delivered after the promised date."
+ASK_LATE = ("ask_genie", {"question": LATE, "reason": "decides which rows turn red"})
+BUILT = "Late rows are red.\n```tsx\n" + WIDGET + "\n```"
+
+
+def turn(request, calls=(), reply=BUILT, genie_on=True):
+    """One Widget Studio turn with a scripted agent and Genie; returns (job, record).
+
+    The agent calls `calls` on the tools it was given, then replies `reply`.
+    `record` has the tool names it got, the prompts it was built with, what each
+    call returned, and the questions that reached Genie, with the clock each got.
+    """
+    record = {"tools": [], "prompts": [], "results": [], "genie": []}
+
+    def fake_agent(model, tools, prompt):
+        by_name = {t.name: t for t in tools}
+        record["tools"].append(sorted(by_name))
+
+        class Agent:
+            def invoke(self, inputs, config=None):
+                record["prompts"].append(prompt)
+                for name, args in calls:
+                    record["results"].append(by_name[name].invoke(args) if name in by_name else None)
+                return {"messages": [AIMessage(content=reply)]}
+
+        return Agent()
+
+    def fake_genie(ws, question, conversation_id="", timeout=None, response_id=""):
+        record["genie"].append((question, timeout))
+        return ANSWER
+
+    settings = {"widget_model": "databricks-claude-sonnet-4-6"}
+    numbers = {"widget_timeout": 300, "widget_max_tokens": 8000}
+    patches = [
+        (widget_studio, "create_react_agent", fake_agent),
+        (widget_studio, "get_setting", lambda key: settings.get(key, "")),
+        (widget_studio, "get_int_setting", lambda key: numbers.get(key, 0)),
+        (research_tools, "enabled_tools", lambda: {"run_sql": True, "ask_genie": genie_on}),
+        (research_tools, "ask_genie", fake_genie),
+        (llm_params, "configured", lambda model: {}),
+    ]
+    saved = [(owner, name, getattr(owner, name)) for owner, name, _ in patches]
+    for owner, name, value in patches:
+        setattr(owner, name, value)
+    try:
+        widget_studio.generation_jobs["g"] = {"status": "pending", "result": None, "error": None}
+        widget_studio.run_generation_task("g", request, "token", "", research_ws=object())
+        return widget_studio.generation_jobs["g"], record
+    finally:
+        for owner, name, value in saved:
+            setattr(owner, name, value)
+        llm_params.reset()
+
+
+def test_the_gate_comes_from_the_setting_and_the_card():
+    gate = widget_studio._genie_gate(req())
+    assert (gate.mode, gate.approved, gate.explicit, gate.declined) == ("ask", "", False, False)
+    assert widget_studio._genie_gate(req(prompt="Ask Genie what late means")).explicit
+    # An auto-fix carries the studio's words, not the author's.
+    assert not widget_studio._genie_gate(req(prompt="Ask Genie what late means", error_log="x")).explicit
+    resent = widget_studio._genie_gate(req(genie_permission="always", approved_genie=f"  {LATE} "))
+    assert (resent.mode, resent.approved) == ("always", LATE)
+    assert widget_studio._genie_gate(req(genie_declined=True)).declined
+
+
+def test_a_turn_resent_from_a_genie_card_asks_no_clarifying_questions():
+    def helper(_messages):
+        raise AssertionError("the turn after a Genie card must not stop again for questions")
+
+    big = "Build me a dashboard. " * 12
+    assert widget_studio._clarify(helper, req(prompt=big, approved_genie=LATE)) == []
+    assert widget_studio._clarify(helper, req(prompt=big, genie_declined=True)) == []
+
+
+def test_a_held_question_settles_the_turn_like_a_clarify_turn():
+    gate = research_tools.GenieGate("ask")
+    gate.hold(LATE, "decides which rows turn red")
+    widget_studio.generation_jobs["p"] = {"status": "running", "trace": ["planned it"]}
+    widget_studio._genie_pause("p", gate)
+    job = widget_studio.generation_jobs["p"]
+    assert job["status"] == "completed" and job["trace"][0] == "planned it"
+    assert job["result"] == {
+        "code": None, "explanation": widget_studio.GENIE_PAUSE_TEXT, "raw": "", "settings": {},
+        "genie_request": {"question": LATE, "reason": "decides which rows turn red"},
+    }
+
+
+def test_in_ask_mode_the_turn_pauses_and_genie_hears_nothing():
+    job, record = turn(req(prompt="show late shipments in red"), calls=[ASK_LATE])
+    assert "ask_genie" in record["tools"][0] and record["genie"] == []
+    assert record["results"] == [research_tools.GENIE_HELD]
+    assert job["status"] == "completed" and job["result"]["code"] is None
+    assert job["result"]["genie_request"]["question"] == LATE
+    assert "approves each question" in record["prompts"][0]
+
+
+def test_an_allowed_question_is_asked_first_on_its_own_clock():
+    job, record = turn(req(prompt="show late shipments in red", approved_genie=LATE), calls=[ASK_LATE])
+    # Asked once, by the server, with its own slice of the clock.
+    assert record["genie"] == [(LATE, widget_studio.GENIE_APPROVED_SECONDS)]
+    assert ANSWER in record["prompts"][0] and "paused once" in record["prompts"][0]
+    # The agent asking it again gets the same answer without a second wait.
+    assert record["results"] == [ANSWER]
+    assert "genie_request" not in job["result"] and job["result"]["code"]
+
+
+def test_always_allow_asks_without_a_card():
+    job, record = turn(req(prompt="show late shipments in red", genie_permission="always"), calls=[ASK_LATE])
+    assert [q for q, _ in record["genie"]] == [LATE] and record["results"] == [ANSWER]
+    assert "genie_request" not in job["result"]
+
+
+def test_continuing_without_genie_takes_the_tool_away():
+    job, record = turn(req(prompt="show late shipments in red", genie_declined=True), calls=[ASK_LATE])
+    assert "ask_genie" not in record["tools"][0] and record["genie"] == []
+    assert "continue without Genie" in record["prompts"][0]
+    assert "genie_request" not in job["result"] and job["result"]["code"]
+
+
+def test_with_genie_switched_off_for_the_app_there_is_no_card_and_no_question():
+    explicit = req(prompt="Ask Genie what late means, then show late shipments in red",
+                   genie_permission="always")
+    job, record = turn(explicit, calls=[ASK_LATE], genie_on=False)
+    assert "ask_genie" not in record["tools"][0] and record["genie"] == []
+    assert "Genie isn't available" in record["prompts"][0]
+    assert "genie_request" not in job["result"]
+
+    job, record = turn(req(prompt="show late shipments in red", approved_genie=LATE), genie_on=False)
+    assert record["genie"] == [] and "switched off for this app" in record["prompts"][0]
+    assert "genie_request" not in job["result"]
+
+
+def test_an_allowed_question_waits_for_time_it_does_not_have():
+    def never(*_args, **_kwargs):
+        raise AssertionError("asked Genie without the time to wait for it")
+
+    gate = research_tools.GenieGate("ask", approved=LATE)
+    original = research_tools.enabled_tools, research_tools.ask_genie
+    research_tools.enabled_tools = lambda: {"ask_genie": True}
+    research_tools.ask_genie = never
+    try:
+        note = widget_studio._approved_genie(object(), gate, widget_studio._Budget(40), None)
+    finally:
+        research_tools.enabled_tools, research_tools.ask_genie = original
+    assert "no time left" in note
+
+
+def test_a_question_held_while_researching_a_plan_pauses_before_planning():
+    big = ("Show every late shipment from main.supply.shipments with a filter bar, a totals row and a "
+           "CSV export, grouped by carrier and colour-coded by how late each one is. " * 3)
+    job, record = turn(req(prompt=big, allow_clarify=False), calls=[ASK_LATE], reply="NONE")
+    # One agent round, the research one; the planner would have needed a real model.
+    assert len(record["prompts"]) == 1 and "researching the data" in record["prompts"][0]
+    assert record["genie"] == [] and job["result"]["genie_request"]["question"] == LATE
+    assert "stages" not in job
+
+
+def test_a_question_held_mid_plan_keeps_the_steps_that_landed():
+    gate = research_tools.GenieGate("ask")
+    first = WIDGET.replace('className="p-4"', 'className="p-4 text-sm"')
+    replies = [
+        "Made the text smaller.\n<<<<<<< SEARCH\n" + 'className="p-4"' + "\n=======\n"
+        + 'className="p-4 text-sm"' + "\n>>>>>>> REPLACE",
+        "Genie's answer decides which rows count as late.",
+    ]
+
+    def ask_step(messages, limit=None):
+        if len(replies) == 1:
+            gate.hold(LATE, "decides which rows turn red")
+        return replies.pop(0)
+
+    stages = [{"title": "Size", "detail": "smaller text"}, {"title": "Late", "detail": "late rows red"},
+              {"title": "Export", "detail": "a CSV button"}]
+    widget_studio.generation_jobs["s"] = {"status": "pending", "result": None, "error": None}
+    widget_studio._run_stages("s", req(current_code=WIDGET), stages, ask_step, lambda: None,
+                              widget_studio._Budget(600), genie=gate)
+    job = widget_studio.generation_jobs["s"]
+    assert [s["status"] for s in job["stages"]] == ["done", "skipped", "skipped"]
+    assert job["stage_index"] == 1 and job["result"]["code"] == first
+    assert job["result"]["genie_request"]["question"] == LATE
+    explanation = job["result"]["explanation"]
+    assert explanation.startswith("Worked through 1 of 3 steps")
+    assert explanation.endswith(widget_studio.GENIE_PAUSE_TEXT)
+
+
 if __name__ == "__main__":
     tests = [
         test_sample_rows_reach_the_prompt_clipped,
@@ -310,6 +503,17 @@ if __name__ == "__main__":
         test_a_page_is_told_it_owns_the_tab_and_a_card_is_not,
         test_the_review_of_a_page_holds_it_to_the_page_rules,
         test_a_page_review_gets_longer_but_never_past_the_admin_timeout,
+        test_the_gate_comes_from_the_setting_and_the_card,
+        test_a_turn_resent_from_a_genie_card_asks_no_clarifying_questions,
+        test_a_held_question_settles_the_turn_like_a_clarify_turn,
+        test_in_ask_mode_the_turn_pauses_and_genie_hears_nothing,
+        test_an_allowed_question_is_asked_first_on_its_own_clock,
+        test_always_allow_asks_without_a_card,
+        test_continuing_without_genie_takes_the_tool_away,
+        test_with_genie_switched_off_for_the_app_there_is_no_card_and_no_question,
+        test_an_allowed_question_waits_for_time_it_does_not_have,
+        test_a_question_held_while_researching_a_plan_pauses_before_planning,
+        test_a_question_held_mid_plan_keeps_the_steps_that_landed,
     ]
     for test in tests:
         test()

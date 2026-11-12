@@ -384,6 +384,21 @@ from views keeps each link on the copied tab. A widget can't open another view,
 and its code still can't contain an address: an address is only ever a card's
 setting.
 
+**Sending by email.** A widget can offer an email button; ask Widget Studio for
+"a button that emails this table". Pressing it opens a **Send** dialog with the
+**To** line (addresses separated by commas, filled in if the widget suggests
+someone), the **Subject**, and a preview of the email exactly as it will arrive,
+including any table and the name of the attached CSV. Nothing is sent until
+**Send** is pressed, and the send is recorded in **Action Logs** like any other
+action. The email comes from the app's own address, replies go to the sender, and
+its footer names the sender and the view with a link back to it. Recipients are
+limited: by default only addresses in the sender's own email domain, at most 10
+per email and 50 emails per person in 24 hours, unless an administrator changed
+those. The dialog says which limit stopped a send. A greyed-out email button or a
+Send dialog saying "Email isn't set up in this app yet" means the administrators
+haven't finished setting email up (see Admin Settings). Run on a developer's own
+machine, Send writes the email to the server log instead of sending it.
+
 ## Widget Library
 
 Opens from the **Widget Library** button in the sidebar, or by pressing `w`.
@@ -405,7 +420,9 @@ outside closes it. It lists the widgets in the domain selected, most used first.
   list to every widget, widgets you built, or widgets other people built and
   shared with you.
 - **Grid View** shows cards with previews; **List View** a table of name,
-  creator, status, popularity and size.
+  creator, status, popularity and size. A row's **Status** shows the same
+  **CERTIFIED**, **PAGE** and draft badges as a card, and hovering a row shows
+  the same icons as hovering a card.
 - **Certified** shows certified widgets plus the person's own, remembered in
   that browser. **Top creators** lists who builds the widgets people use;
   clicking a name shows only theirs.
@@ -528,13 +545,24 @@ open each card's gear there when those values must differ.
   rather than being pasted in as fixed numbers. Each step of a multi-step build
   can do this too, and it runs any SQL it writes once before handing the code
   back. Admins can switch either tool off in Admin Panel → Settings.
+  **Before it asks Genie anything** it stops and shows the exact question and a
+  one-line reason on a card in the chat. **Allow once** asks that question and
+  carries on with the answer; **Always allow** does the same and switches the
+  *Genie* agent setting to Always allow; **Continue without Genie** carries on
+  without it, and the agent says which business definitions it assumed. Any
+  other question needs a new card. A message that itself tells the agent to ask
+  Genie ("ask Genie how late is defined") is the OK for that turn. It asks
+  Genie at most one question a turn and only about what business terms mean —
+  never for table names, values or row counts, which it checks with SQL. In a
+  multi-step build, steps finished before the card stay in the editor. With
+  Genie switched off by an admin there is no Genie and no card.
 - **Attachments and screenshots** — the paperclip attaches spreadsheets,
   documents and images for the agent to read, a screenshot or copied image can
   be pasted straight into the message box, and **Send screenshot to agent**
   under the preview attaches a picture of the widget as it currently looks.
   Neither sends on its own: the file waits on the next message, so "this column
   is too narrow" arrives with the thing it describes.
-- **Agent settings** (the sliders icon above the chat) — two options, remembered
+- **Agent settings** (the sliders icon above the chat) — three options, remembered
   in that browser rather than set for everyone. *Conduct review after change*
   (off by default) has the agent re-read its own code once it has compiled and
   run in the preview, as a QA pass over behaviour, states, layout and
@@ -548,7 +576,10 @@ open each card's gear there when those values must differ.
   edit or send, so acting on a suggestion is one click rather than retyping it.
   It costs an extra turn. *Ask before large builds* (on by default) is the
   clarifying-question behaviour above, and can be switched off by anyone who
-  would rather it always guessed.
+  would rather it always guessed. *Genie* — **Ask each time** (the default),
+  **Always allow** or **Off** — decides whether the agent shows each Genie
+  question first, asks without stopping, or never uses Genie. An admin
+  switching Genie off in Admin Panel → Settings overrides it for everyone.
 
 ## Widget Studio: preview and pages
 
@@ -698,14 +729,42 @@ replace it with your admin group.
 
 **Admin Panel** is under Resources at the bottom of the sidebar. It appears only
 for Administrators (see *Sharing and permissions*). Its tabs are **Content**,
-**Categories & Domains**, **Administrators**, **Settings**, **Data Migration**
-and **Action Logs**, and all of them apply to the whole app.
+**Activity**, **Categories & Domains**, **Administrators**, **Settings**,
+**Data Migration** and **Action Logs**, and all of them apply to the whole app.
 
 - **Content** lists every view, widget and agent in the app, whoever owns it,
   with its owner, whether it is published or has unpublished changes, and how
   widely it is shared. It is where an Administrator finds something nobody else
   can reach any more — for example after its owner left — and shares it with
   someone who should manage it.
+  Each row's **Open** (views) or **Edit** (widgets and agents) goes straight to
+  it: a view opens in the canvas, a widget in Widget Studio and an agent in
+  Agent Studio. Archived views have **Restore** instead.
+- **Activity** shows who did what in the app, newest first. It records
+  creating, publishing, reverting, discarding the draft of, archiving,
+  restoring, deleting and sharing views, widgets and agents; certifying a
+  widget; finished Widget Studio and Agent Studio generations (completed,
+  failed or cancelled); assistant chat turns; Settings changes; adding or
+  removing Administrators; and, merged in from Action Logs, each executable
+  widget action. Only metadata is kept: who, what kind, which object, when,
+  and small facts such as a version number or how many entries an access list
+  has. Prompts, chat text, widget code, query results, setting values and the
+  names on an access list are never recorded. Recording started with this
+  release, so earlier events aren't there.
+  - Filter by kind (Publishing, New drafts, Sharing & administrators, Archive &
+    delete, Studio generations, Chat, Widget actions, Settings), object type,
+    time range or an exact username. **Only this** on a row narrows to that
+    object; clicking a kind narrows to it; **Show older** loads the next page.
+  - The strip at the top lists people active in the last 15 minutes. Someone
+    counts as seen when they use the app, noted at most every ten minutes, so
+    it is approximate.
+  - Clicking a person shows their last 30 days: counts by kind, the views,
+    widgets and agents they worked on most, and when they were last seen.
+  - **Open** / **Edit** on a row works as in Content, for objects that still
+    exist and aren't archived.
+  - Events older than **Delete activity events after (days)** (Settings, the
+    Retention and context card; starts at 365, 0 keeps them) are deleted by an
+    hourly job. Widget action rows in Action Logs are kept regardless.
 - **Categories & Domains**: *categories* group widgets by function (Monitoring,
   Analytics…) in Widget Studio and the Widget Library; *domains* label widgets,
   views and agents with a business area so people can filter by it. Neither
@@ -722,7 +781,7 @@ and **Action Logs**, and all of them apply to the whole app.
   whole app. Two kinds of event write a row: a button press in an
   **Executable** widget (the widget, the action name, who pressed it, when, and
   the view it was on) and a data migration export or import. Views, publishing
-  and sharing changes are not logged. The columns are Timestamp, Widget, Action,
+  and sharing changes are not logged here; they are on **Activity**. The columns are Timestamp, Widget, Action,
   User, Domain, User Explanation and Action ID; opening a row also shows a
   **Request ID** and **Dashboard Context**, a snapshot of the view's name, tab
   and every widget on the tab with its settings. **Search logs…** searches only
@@ -730,7 +789,8 @@ and **Action Logs**, and all of them apply to the whole app.
   ID is added as a comment (`cc-action: <id>`) at the front of the SQL an
   executable widget runs, so searching Databricks query history for it finds the
   exact statement. The row is written first; if it can't be, the action doesn't
-  run.
+  run. Only Administrators can read the log: the app refuses it to anyone else,
+  though everyone's actions are still recorded.
 
 ## Drafts and publishing
 
@@ -1019,6 +1079,22 @@ to a minute. The same card shows when each background job (work the app does on
 a timer, such as refreshing a search index) last ran, and whether it failed. If
 someone asks why a feature is missing or greyed out, send their administrator to
 that card.
+
+**Setting up email.** Email goes through the organisation's own Amazon SES
+account and stays off until three things are in place. First, AWS keys for an IAM
+user allowed only `ses:SendEmail` on a verified SES sender identity, added to the
+app as secret resources named `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`,
+with `AWS_REGION` set to the identity's region; the user guide's **Set up email**
+section has the bundle snippet. Second, production access for the SES account,
+without which SES delivers only to verified addresses. Third, the verified address
+entered as **From address** under Admin Panel → Settings → **Email**. AWS keys are
+never entered in Settings. The same card holds **Allow email** (off stops all
+email at once), **Domains email may go to** (one per line, `*.example.com` for
+subdomains; empty means each person's own domain only, so once it is set, list
+your own domain too), **Most recipients per email** (10, at most 50) and **Most
+emails per person per day** (50, counted over 24 hours). The Setup card's
+**Email** row says what is still missing. Each email is recorded with its sender,
+recipients, subject and outcome, never its body.
 
 ### Setting up scheduling
 

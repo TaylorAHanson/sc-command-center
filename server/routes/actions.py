@@ -6,6 +6,7 @@ from databricks.sdk import WorkspaceClient
 from database import log_user_action, get_action_logs
 from middleware.auth import get_db_client
 from routes.roles import _get_current_username
+from services import access
 
 router = APIRouter(
     prefix="/api/actions",
@@ -49,7 +50,16 @@ def log_action(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/")
-def get_actions(limit: int = 100, offset: int = 0, env: str = "dev"):
+def get_actions(
+    limit: int = 100,
+    offset: int = 0,
+    env: str = "dev",
+    w: WorkspaceClient = Depends(get_db_client),
+):
+    # Every user's actions, each with the dashboard it was taken on, so only
+    # Administrators may read them; writing your own row (`/log`) stays open to
+    # everyone. Checked outside the try, which would turn the 403 into a 500.
+    access.require_app_admin(w)
     try:
         return get_action_logs(limit, offset, env)
     except Exception as e:
