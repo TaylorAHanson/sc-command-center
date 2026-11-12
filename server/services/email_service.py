@@ -1033,8 +1033,8 @@ def send_email(sender_username: str, sender_email: str, to: Any, subject: Any, m
         refusal = log_refusal(entry, "daily_limit")
         _record_activity(entry.sender, "refused", refusal, {**detail, "reason": "daily_limit"})
         return _outcome("refused", transport=transport, recipients=entry.recipients,
-                        error=(f"You've sent {cfg.daily_limit} emails in the last 24 hours, the most "
-                               "this app allows. Try again later."),
+                        error=(f"You've sent {cfg.daily_limit} email{'' if cfg.daily_limit == 1 else 's'} "
+                               "in the last 24 hours, the most this app allows. Try again later."),
                         reason="daily_limit", log_id=refusal)
 
     status, message_id, error = "failed", None, None
