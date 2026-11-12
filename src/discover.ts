@@ -110,35 +110,38 @@ export const fetchDiscoverStatus = () => requestJson<DiscoverStatus>(`${BASE}/st
 export const fetchFavorites = async () => (await requestJson<{ favorites: ViewRow[] }>(`${BASE}/favorites`)).favorites;
 
 /**
- * Fired on `window` once a star, the favorites' order or a hide is saved, so
- * the sidebar (which reads `GET /api/apps/`, not these endpoints) shows a change
- * made anywhere else, on the Discover page say, without waiting to read its
- * list again. `detail` says what changed.
+ * Fired on `window` once the server has accepted a star, a new favorites order,
+ * a hide or a curation, so every list showing that view (the sidebar, the
+ * Discover page) updates it without reading its list again. Only the four
+ * functions below dispatch it: a change saved any other way leaves those lists stale.
  */
-export const WORKING_SET_CHANGED = 'cc:working-set-changed';
+export const DISCOVER_CHANGED = 'cc:discover-changed';
 
-export interface WorkingSetChange {
+/** Only what changed is set. */
+export interface DiscoverChange {
     id?: string;
     favorite?: boolean;
     hidden?: boolean;
     /** The favorites' new order, first to last. */
     order?: string[];
+    featured_position?: number | null;
+    certified?: boolean;
 }
 
-const announce = (detail: WorkingSetChange) => {
-    window.dispatchEvent(new CustomEvent<WorkingSetChange>(WORKING_SET_CHANGED, { detail }));
+const announce = (detail: DiscoverChange) => {
+    window.dispatchEvent(new CustomEvent<DiscoverChange>(DISCOVER_CHANGED, { detail }));
 };
 
 /** Calls `listener` with each change; returns what stops it. */
-export const onWorkingSetChanged = (listener: (change: WorkingSetChange) => void): (() => void) => {
-    const handle = (e: Event) => listener((e as CustomEvent<WorkingSetChange>).detail ?? {});
-    window.addEventListener(WORKING_SET_CHANGED, handle);
-    return () => window.removeEventListener(WORKING_SET_CHANGED, handle);
+export const onDiscoverChanged = (listener: (change: DiscoverChange) => void): (() => void) => {
+    const handle = (e: Event) => listener((e as CustomEvent<DiscoverChange>).detail ?? {});
+    window.addEventListener(DISCOVER_CHANGED, handle);
+    return () => window.removeEventListener(DISCOVER_CHANGED, handle);
 };
 
 export const setFavorite = async (id: string, favorite: boolean) => {
     const saved = await requestJson<{ id: string; favorite: boolean }>(item('favorites', id), { method: favorite ? 'PUT' : 'DELETE' });
-    announce({ id, favorite });
+    announce({ id, favorite: saved.favorite });
     return saved;
 };
 
@@ -152,13 +155,16 @@ export const orderFavorites = async (ids: string[]) => {
 /** Hidden views leave the rails; search still finds them. */
 export const setHidden = async (id: string, hidden: boolean) => {
     const saved = await requestJson<{ id: string; hidden: boolean }>(item('hidden', id), { method: hidden ? 'PUT' : 'DELETE' });
-    announce({ id, hidden });
+    announce({ id, hidden: saved.hidden });
     return saved;
 };
 
 /** Administrators only. Omit a field to leave it alone; `featured_position: null` unfeatures. */
-export const curateView = (id: string, changes: { featured_position?: number | null; certified?: boolean }) =>
-    requestJson<Curation>(item('curation', id), { method: 'PUT', body: JSON.stringify(changes) });
+export const curateView = async (id: string, changes: { featured_position?: number | null; certified?: boolean }) => {
+    const saved = await requestJson<Curation>(item('curation', id), { method: 'PUT', body: JSON.stringify(changes) });
+    announce({ id, featured_position: saved.featured_position, certified: saved.certified });
+    return saved;
+};
 
 const counted = new Map<string, number>();
 

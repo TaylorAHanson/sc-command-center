@@ -953,7 +953,7 @@ own tests, run with Node 22.6 or later and nothing to install:
 node --experimental-strip-types tests/link_state.test.ts      # 17 passed
 node --experimental-strip-types tests/schedules.test.ts       # 26 passed
 node --experimental-strip-types tests/discover_route.test.ts  # 5 passed
-node --experimental-strip-types tests/working_set.test.ts     # 25 passed
+node --experimental-strip-types tests/working_set.test.ts     # 26 passed
 ```
 
 Each imports its module directly, so keep them free of React, of runtime
@@ -965,7 +965,11 @@ per view per tab). Its search parameters and the page's own address,
 `#/discover?q=…&scope=…&sort=…&rail=…`, are in `discoverRoute.ts`
 (`discoverHref`, `parseDiscoverHref`), so the sidebar and the page agree on it.
 `pageOf` in `Layout.tsx` accepts `#/<page>?…` as well as `#/<page>/…`.
-`setFavorite`, `orderFavorites` and `setHidden` announce what they changed
-(`onWorkingSetChanged`), and the store applies it to the sidebar at once and
-rereads the list shortly after; star, reorder or hide through them, not with a
-`fetch` of your own, or the sidebar shows the old state until it next reads.
+Star, reorder, hide and curate only through `setFavorite`, `orderFavorites`,
+`setHidden` and `curateView`: each fires `cc:discover-changed` once the server
+accepts, and the sidebar and the Discover page both follow it through
+`onDiscoverChanged`, so a change in one shows in the other. A `fetch` of your
+own leaves both stale. The store lays a star or a new order over the sidebar at
+once, then reads `GET /api/apps/` again shortly after. A hide only causes that
+read (New for you leaves hidden views out), and a curation is ignored, since the
+sidebar draws neither featured nor certified (`changesSidebar` in `workingSet.ts`).

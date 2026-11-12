@@ -184,6 +184,14 @@ export const moved = (ids: string[], from: number, to: number): string[] => {
   return next;
 };
 
+/**
+ * Whether a change saved through `discover.ts` (`cc:discover-changed`) can alter
+ * what `GET /api/apps/` returns: a star, an order, or a hide, since hidden views
+ * leave New for you. A curation can't; the sidebar draws neither featured nor certified.
+ */
+export const changesSidebar = (change: { favorite?: boolean; hidden?: boolean; order?: string[] }): boolean =>
+  change.favorite !== undefined || change.hidden !== undefined || change.order !== undefined;
+
 /** `opened` with `id` the latest. */
 export const openedFirst = (opened: string[], id: string): string[] => [id, ...opened.filter(x => x !== id)];
 

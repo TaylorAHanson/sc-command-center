@@ -10,9 +10,9 @@ import { createLinkStateStore, instanceScope, linkStatePart, readLinkState, writ
 import { LinkStateContext } from '../hooks/useLinkState';
 import { useShell } from '../shell';
 import { requestJson, type Acl, type Preflight, type PublishInclude, accessSummary } from '../sharing';
-import { onWorkingSetChanged, orderFavorites, recordVisit, setFavorite } from '../discover';
+import { onDiscoverChanged, orderFavorites, recordVisit, setFavorite } from '../discover';
 import {
-  EMPTY_WORKING_SET, NO_CHANGES, favoriteOrderAfter, homeRow, isFavorite as isFavoriteIn, moved, openedFirst, settled, sidebarLists,
+  EMPTY_WORKING_SET, NO_CHANGES, changesSidebar, favoriteOrderAfter, homeRow, isFavorite as isFavoriteIn, moved, openedFirst, settled, sidebarLists,
   type Changes, type SidebarLists, type SidebarRow, type WorkingSet,
 } from '../workingSet';
 
@@ -538,8 +538,9 @@ export const DashboardProvider: React.FC<{
   }, [fetchPermissions, readSidebar, openRoute, openHome, initialRoute, standalone]);
 
   // Stars, the favorites' order and hides saved anywhere (the Discover page,
-  // another part of this one) arrive as events; a star shows at once, then the
-  // list is read again. Coming back to the tab after a while reads it too.
+  // another part of this one) arrive as `cc:discover-changed`; a star shows at
+  // once, then the list is read again. Coming back to the tab after a while
+  // reads it too.
   const withStar = useCallback((prev: Changes, id: string, favorite: boolean): Changes => {
     const { workingSet: listed, loadedRows: loaded } = listRef.current;
     const order = prev.favoriteOrder ?? sidebarLists(listed, loaded, prev).favorites.map(r => r.id);
@@ -548,7 +549,8 @@ export const DashboardProvider: React.FC<{
   useEffect(() => {
     if (standalone) return;
     let timer: number | undefined;
-    const stop = onWorkingSetChanged(change => {
+    const stop = onDiscoverChanged(change => {
+      if (!changesSidebar(change)) return;
       const { id, favorite, order } = change;
       if (id && favorite !== undefined) setChanges(prev => (prev.favored[id] === favorite ? prev : withStar(prev, id, favorite)));
       if (order) setChanges(prev => ({ ...prev, favoriteOrder: order }));

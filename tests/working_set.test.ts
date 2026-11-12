@@ -5,8 +5,8 @@
 // The module imports nothing, which is what lets Node load it straight from src/.
 import assert from 'node:assert/strict';
 import {
-  EMPTY_WORKING_SET, NO_CHANGES, SHOWN, favoriteOrderAfter, homeRow, hrefOf, isFavorite, moved, openedFirst,
-  settled, sidebarLists, timeOf, type Changes, type SidebarRow, type WorkingSet,
+  EMPTY_WORKING_SET, NO_CHANGES, SHOWN, changesSidebar, favoriteOrderAfter, homeRow, hrefOf, isFavorite, moved,
+  openedFirst, settled, sidebarLists, timeOf, type Changes, type SidebarRow, type WorkingSet,
 } from '../src/workingSet.ts';
 
 let passed = 0;
@@ -182,6 +182,16 @@ test('moving a row, and moves that go nowhere', () => {
   assert.equal(moved(same, 1, 1), same);
   assert.equal(moved(same, -1, 0), same);
   assert.equal(moved(same, 0, 2), same);
+});
+
+test('stars, orders and hides from Discover reach the sidebar; curation does not', () => {
+  assert.equal(changesSidebar({ id: 'a', favorite: false }), true);
+  assert.equal(changesSidebar({ order: [] }), true);
+  assert.equal(changesSidebar({ id: 'a', hidden: true }), true);
+  // What curateView announces: nothing the sidebar draws.
+  const curation = { id: 'a', featured_position: null, certified: true };
+  assert.equal(changesSidebar(curation), false);
+  assert.equal(changesSidebar({}), false);
 });
 
 test('opened puts the view first, once', () => {
