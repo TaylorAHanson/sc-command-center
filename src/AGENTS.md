@@ -944,3 +944,8 @@ per view per tab). Its search parameters and the page's own address,
 `#/discover?q=…&scope=…&sort=…&rail=…`, are in `discoverRoute.ts`
 (`discoverHref`, `parseDiscoverHref`), so the sidebar and the page agree on it.
 `pageOf` in `Layout.tsx` accepts `#/<page>?…` as well as `#/<page>/…`.
+Star, reorder, hide and curate only through `setFavorite`, `orderFavorites`,
+`setHidden` and `curateView`: each fires `cc:discover-changed` once the server
+accepts, and the sidebar and the Discover page both follow it through
+`onDiscoverChanged`, so a change in one shows in the other. A `fetch` of your
+own leaves both stale.
