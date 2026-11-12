@@ -47,7 +47,8 @@ Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
 `/{object_type}/{object_id}` would otherwise claim it), `/api/sharing`,
 `/api/taxonomy`, `/api/settings`, `/api/databricks`, `/api/agent` (proxy),
 `/api/agent/widget`, `/api/agent/studio`, `/api/agent/uploads`,
-`/api/conversations`, `/api/migration`, plus `/api` for n8n and Tableau.
+`/api/conversations`, `/api/migration`, `/api/capabilities`, plus `/api` for n8n
+and Tableau.
 Interactive docs are at `/api/docs`.
 
 `/api/health` is the one unauthenticated route, so it doubles as the SPA's source
@@ -826,6 +827,56 @@ reported to the client — `/api/agent/widget/generate` returns `timeout_seconds
 the studio sizes its own polling from it, because a client giving up on its own
 schedule made raising the setting do nothing.
 
+## Timers, optional features and the activity log (`services/background.py`, `services/capabilities.py`, `services/activity.py`)
+
+Three small services that several features share. Each one's module docstring
+explains its design; this is what you need to use them.
+
+**Work on a timer goes through `background.register(name, every_seconds, fn)`**,
+called in `main.py`'s startup between the `from services import background,
+capabilities` line and `background.start()`, so everything that runs on a timer
+is listed in one place. Don't start a thread or an `asyncio` task of your own:
+the App runs two workers, and either may restart at any moment. Every worker runs
+the same loop, and a job runs only when its advisory lock is free *and* a
+conditional upsert on its `background_jobs` row says it is due. That gives one run
+per interval across the deployment, never overlapping. `fn` takes no arguments
+and runs on the loop's thread with no request behind it, so there is no user
+token: work that must act as a user needs that user's stored credential, which is
+what the token vault is for, never the service principal. A job that raises is logged and recorded on its
+row as `failed`, and the loop moves on. The minimum interval is the 5-second tick.
+`BACKGROUND_JOBS=0` turns the loop off for tools and probes that import the app.
+
+**A feature that needs customer setup registers a check with
+`capabilities.register(name, label, fn)`**, in the same place. `fn` returns
+`capabilities.result(available, mode=None, missing=[...], next_step="...")`;
+write `missing` and `next_step` for the customer's admins, because the Setup card
+in Admin Panel → Settings shows them verbatim. Results are cached for 60 seconds,
+and saving a setting clears the cache on that worker. A check that raises reads as
+unavailable rather than breaking the page. Gate server-side work with
+`capabilities.available(name)` (or `get(name)` for the mode), and the browser with
+`useCapabilities()` from `src/capabilities.ts`. Off until set up turns a feature
+off; it never skips a safeguard, so a check reports what is missing and never
+stands in for it. `GET /api/capabilities` gives everyone `name`, `label`,
+`available` and `mode`, and Administrators also `missing`, `next_step` and the
+background jobs' last runs; `?refresh=true` from an Administrator skips the cache.
+
+**Record what happened with `activity.record(who, verb, object_type, object_id,
+detail)`** after the action has committed. The verb is dotted lowercase, object
+first (`view.publish`, `email.send`, `schedule.run`). `detail` is metadata only:
+`clean_detail` keeps at most 20 short scalars and drops any key that names user
+content (`prompt`, `body`, `sql`, `results` and the rest of `_CONTENT_KEYS`),
+because an audit trail that copied people's work would be an ungoverned second
+copy every administrator could read. It never raises, and it writes synchronously,
+so call it from a sync handler (see *Blocking work belongs in a sync handler*).
+
+`activity_events` and `background_jobs` live in the content schema, created by
+`_create_operations_tables` in `database.py`. Each feature's own tables get a
+`_create_<feature>_tables` function there too, called from the same block of
+`init_db`, rather than DDL in the feature's module: `test_data_migration.py` reads
+`database.py` to check that every table is either copied by Data Migration or
+listed in `NOT_COPIED`. `activity_events` travels with the activity group;
+`background_jobs` is never copied, since it describes this deployment's own runs.
+
 ## What each model will accept (`services/llm_params.py`)
 
 Endpoints disagree about the optional parameters, so nothing optional is sent unless
@@ -1430,6 +1481,9 @@ PYTHONPATH=server .venv/bin/python tests/test_access_migration.py     # 34 passe
 PYTHONPATH=server .venv/bin/python tests/test_consolidation.py        # 29 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_publish.py       # 31 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 31 passed
+PYTHONPATH=server .venv/bin/python tests/test_background.py           # 9 passed
+PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
+PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed
 ```
 
 `test_file_extract.py` and `test_upload_tools.py` need the venv interpreter, not

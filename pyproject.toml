@@ -39,6 +39,10 @@ dependencies = [
     # Capped because `requests` validates the chardet version it finds and warns
     # on every import when it is newer than it knows about.
     "chardet<6",
+    # Email through Amazon SES (services/email_service.py).
+    "boto3",
+    # Encrypting the refresh tokens scheduled runs use (services/token_vault.py).
+    "cryptography",
 ]
 
 [tool.uv]

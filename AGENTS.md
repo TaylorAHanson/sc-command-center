@@ -84,8 +84,11 @@ server/                 FastAPI gateway — see server/AGENTS.md
                         app_links.py (the names in view links),
                         access.py (sharing: who may use or manage what),
                         drafts.py (drafts and published versions),
-                        consolidation.py + access_migration.py (the
-                        one-time move to drafts and sharing)
+                       consolidation.py + access_migration.py (the
+                       one-time move to drafts and sharing),
+                       background.py (work on a timer, once across
+                       workers), capabilities.py (optional features:
+                       off until set up), activity.py (who did what)
   middleware/auth.py    OBO token extraction and WorkspaceClient factories
   config/               Static config + settings.py (env var reads)
 src/                    React SPA — see src/AGENTS.md
@@ -242,8 +245,10 @@ use in colour classes, from `var.brand`; `brand` here, a customer's own name in
 their copy — see `src/AGENTS.md`), and `DISABLE_PERMISSION_CHECKS`.
 
 `DISABLE_PERMISSION_CHECKS=true` is a **temporary demo kill-switch that makes
-every signed-in user an app Administrator** (MANAGE on everything). It is currently enabled. Don't build
-logic that assumes it's off, and don't quietly leave it on when hardening.
+every signed-in user an app Administrator** (MANAGE on everything). It defaults
+to `false` (`var.disable_permission_checks` in `databricks.yml`) and no target
+turns it on, but a demo deploy can. Don't build logic that assumes it's off, and
+don't quietly leave it on when hardening.
 
 ## Known documentation drift
 

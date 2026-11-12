@@ -98,6 +98,7 @@ TABLES: List[TableSpec] = [
     TableSpec("action_logs", "activity",
               ("widget_id", "action_name", "username", "request_id", "user_explanation", "timestamp"),
               serial=True),
+    TableSpec("activity_events", "activity", ("username", "verb", "object_type", "object_id", "at"), serial=True),
     TableSpec("chat_conversations", "conversations", ("id",)),
     TableSpec("chat_messages", "conversations", ("conversation_id", "seq")),
     TableSpec("chat_uploads", "conversations", ("id",)),
@@ -115,8 +116,9 @@ LEGACY_TABLES = frozenset({"role_mappings"})
 #: Tables deliberately left out of snapshots. A stop record only matters while
 #: its turn is still streaming on the app that recorded it, and a generation job
 #: only while the studio that started it is polling. The cutover log records
-#: what startup did on *this* deployment; the target ran its own.
-NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs", "cutover_log"})
+#: what startup did on *this* deployment; the target ran its own, and the same
+#: goes for when each background job last ran.
+NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs", "cutover_log", "background_jobs"})
 
 GROUPS: List[Dict[str, Any]] = [
     {"key": "content", "label": "Widgets, views and agents",
@@ -131,7 +133,8 @@ GROUPS: List[Dict[str, Any]] = [
      "help": "Admin Panel → Settings: models, limits and switches. Merge keeps any the target has already set.",
      "default": True},
     {"key": "activity", "label": "Activity history",
-     "help": "Action logs (the audit trail of approved actions) and widget usage behind the creator leaderboard.",
+     "help": "Action logs (the audit trail of approved actions), the admin activity log, and widget usage behind "
+             "the creator leaderboard.",
      "default": True},
     # Off by default: everyone's chats and the files they attached, readable by
     # whoever holds the file. Worth moving sometimes; never by accident.

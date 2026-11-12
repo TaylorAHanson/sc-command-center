@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, Loader2, RefreshCw, RotateCcw, Save, Sliders } from 'lucide-react';
 import clsx from 'clsx';
 import { ModelSelect } from '../../components/ModelSelect';
+import { SetupCard } from './SetupCard';
 
 /**
  * Deployment settings that used to live only in `databricks.yml` — which model each
@@ -269,6 +270,7 @@ export const SettingsManager: React.FC = () => {
 
     return (
         <div className="max-w-3xl space-y-6">
+            <SetupCard refreshKey={savedAt} />
             {cards.map((card, index) => {
                 // Model names need the routing note; limits are numbers and read
                 // better two to a row.

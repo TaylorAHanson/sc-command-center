@@ -1009,6 +1009,17 @@ the deployment default for that agent only; left blank, it follows the default.
 Changes apply to new conversations. Non-admins cannot see or change these
 settings, and there is nothing to configure for a normal user.
 
+Some features need setup only the organisation's own administrators can do, such
+as an email account or a search feature switched on for the database. Each stays
+off until its setup is in place, and the rest of the app works without it. The
+**Setup** card at the top of Admin Panel → Settings lists them, says whether each
+is ready, and for one that isn't, what is missing and the next step. **Check
+again** re-checks after something has changed; otherwise the card can lag by up
+to a minute. The same card shows when each background job (work the app does on
+a timer, such as refreshing a search index) last ran, and whether it failed. If
+someone asks why a feature is missing or greyed out, send their administrator to
+that card.
+
 ## The assistant panel
 
 This chat. It is the panel on the right of the screen; collapsed, it is the
