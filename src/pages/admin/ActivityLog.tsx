@@ -97,6 +97,14 @@ const VERB_LABELS: Record<string, string> = {
     'settings.update': 'Changed settings',
     'admin.add': 'Added an administrator',
     'admin.remove': 'Removed an administrator',
+    'schedule.create': 'Created a schedule',
+    'schedule.update': 'Changed a schedule',
+    'schedule.delete': 'Deleted a schedule',
+    'schedule.pause': 'Paused a schedule',
+    'schedule.resume': 'Resumed a schedule',
+    'schedule.run': 'Ran a schedule now',
+    'schedule.auto_pause': 'A schedule paused after failing',
+    'schedule.needs_reconnect': 'A schedule is waiting for a reconnect',
 };
 
 const RANGES = [

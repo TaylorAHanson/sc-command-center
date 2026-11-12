@@ -131,6 +131,13 @@ NOT_COPIED = NOT_COPIED | {"user_oauth_tokens", "oauth_pending"}
 #: emails it never sent. Each send's activity event travels with the activity log.
 NOT_COPIED = NOT_COPIED | frozenset({"email_log"})
 
+#: Schedules run as their owner's connection to *this* app, which isn't copied
+#: either, so on the target they could only wait for a reconnect, and copied ones
+#: that did run would make two apps send the same reports. Owners set them up
+#: again on the target after connecting there. Their runs and reminders describe
+#: this deployment's history and go with them.
+NOT_COPIED = NOT_COPIED | frozenset({"schedules", "schedule_runs", "schedule_reminders"})
+
 GROUPS: List[Dict[str, Any]] = [
     {"key": "content", "label": "Widgets, views and agents",
      "help": "Every published version and unpublished draft of every widget, view and agent, plus whose sidebar "

@@ -49,7 +49,8 @@ Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
 `/api/agent/widget`, `/api/agent/studio`, `/api/agent/uploads`,
 `/api/conversations`, `/api/migration`, `/api/capabilities`, plus `/api` for n8n
 and Tableau.
-`/api/oauth` is the token vault's connect flow (see *Token vault*).
+`/api/oauth` is the token vault's connect flow (see *Token vault*), and
+`/api/schedules` is scheduled reports and actions (see *Scheduler*).
 Interactive docs are at `/api/docs`.
 
 `/api/health` is the one unauthenticated route, so it doubles as the SPA's source
@@ -908,6 +909,13 @@ to showing the raw verb:
 | `agent.generate` | `routes/agent_studio_profiles.py` `_record_authoring` | `status`, `edit` |
 | `chat.turn` | `routes/agent_proxy.py` `_turn_recorder` | `saved`, `tools`, `failed`; object is the agent if one was picked |
 | `settings.update` | `routes/app_settings.py` `update_settings` | `keys`, `count`, never values |
+| `schedule.create` | `routes/schedules.py` `create_schedule` | `kind`, `status`, `freq`, `recipient_count` |
+| `schedule.update` | `update_schedule` | `kind`, `fields` (names changed, comma-separated, never values), `count` |
+| `schedule.delete` / `schedule.pause` | `delete_schedule` / `pause_schedule` (only if it wasn't already paused by its owner) | `kind` |
+| `schedule.resume` | `resume_schedule` (only if it wasn't active) | `kind`, `status` (`active` or `needs_reconnect`) |
+| `schedule.run` | `run_schedule`: **Run now** only, never a timed run | `kind`, `via: manual` |
+| `schedule.auto_pause` | `services/scheduler.py` `after`, under the owner's name | `kind`, `failure_count`, `run_id` |
+| `schedule.needs_reconnect` | `after` (a run found no usable token) and `lapse` (the connection ended), under the owner's name | `kind` and `run_id`, or `reason: expired` |
 | `widget.action` | *never recorded*: each `action_logs` row, merged in when read | `widget_name`, `action_name` |
 
 The verb says *view*, which is what people call it; `object_type` says `app`, as
@@ -1022,8 +1030,8 @@ a reminder, anything with no request behind it that must touch data, asks
 its client from that. It is still OBO: the token is the person's own, issued by
 the workspace to this app's OAuth integration, so Unity Catalog governs the run
 exactly as it would on the page. Never the service principal, never a PAT. The
-vault has no fallback and no DEV_MODE path; the scheduler wraps a DEV_MODE-only
-token source around it for local runs.
+vault has no fallback and no DEV_MODE path; the scheduler wraps a local-only
+token source around it (see *Scheduler*).
 
 It exists because Apps forward an access token of about an hour and no refresh
 token. So the app runs its own authorization-code sign-in with PKCE against the
@@ -1082,11 +1090,109 @@ All of it works with no request in scope. What to know before changing it:
 - **Routes.** `GET /api/oauth/connect?return_to=`, `GET /api/oauth/callback`,
   `GET /api/oauth/status`, `POST /api/oauth/disconnect`. The workspace documents no
   revocation endpoint, so disconnecting deletes the row and the token lapses.
-- **Registered in `main.py`.** Capability `scheduling` (a client id, a key and
-  `DATABRICKS_HOST`), and the hourly `oauth_pending_purge` job.
+- **Registered in `main.py`.** The hourly `oauth_pending_purge` job. The
+  `scheduling` capability is `scheduler.capability`, which is this module's
+  `capability()` (a client id, a key and `DATABRICKS_HOST`) reported as mode
+  `oauth`, except locally (see *Scheduler*).
 - The authorization code appears in uvicorn's access log, as the callback's query
   string. It is single-use, short-lived and useless without the PKCE verifier,
   which only the vault holds, encrypted.
+
+## Scheduler (`services/scheduler.py`, `services/schedule_store.py`, `services/recurrence.py`, `routes/schedules.py`)
+
+Reports (`email_report`: a read-only query, emailed as a table) and actions
+(`run_statement`: an executable widget's statement) that run on a timetable as
+the person who set them up. `/api/schedules` is a fixed contract the browser
+builds against; the module docstrings of the route and the scheduler say what it
+returns and why. What to know before changing it:
+
+- **Who a run is.** `scheduler.client_for(owner)`:
+  `WorkspaceClient(host=token_vault.workspace_url(), token=token_vault.access_token_for(owner), auth_type="pat")`.
+  `auth_type="pat"` is only how the SDK sends a bearer token; the token is the
+  owner's OAuth access token, never a personal access token. **The one dev
+  fallback:** with `DEV_MODE=true` *and* `APP_ENVIRONMENT=local`
+  (`config.settings.get_app_environment()`), runs use `get_db_client(None)`, the
+  service principal a local server already signs in as, and the vault isn't asked.
+  Either setting alone isn't enough (`test_scheduler.py` checks both), so a
+  deployed app with DEV_MODE left on runs every schedule as its owner or not at
+  all. Don't add another fallback.
+- **Capability.** `scheduling` is `scheduler.capability`: mode `dev` on that
+  local fallback (the vault's `missing` shown, but available), else the vault's
+  own check, reported as mode `oauth` when available. Creating, resuming and
+  running are 503 `"Scheduling isn't set up in this app yet."` without it, and a
+  report also needs `email` (503 `email_service.UNAVAILABLE`). The tick does
+  nothing while it is off, so schedules wait and each runs once after setup.
+- **Tables** (content schema, `_create_schedule_tables`): `schedules`,
+  `schedule_runs` (cascade-deleted with their schedule; pruned after 180 days),
+  `schedule_reminders`. All three are in `NOT_COPIED`: a copied schedule would
+  make two apps send the same report, and owners must connect on the target
+  anyway. `owner` is stored as `token_vault.normalize_username`; `owner_email`
+  and `owner_groups` are refreshed whenever the owner creates, edits, resumes or
+  runs it, because a run has no request to ask SCIM with and an action checks its
+  widget with those groups (`access.acting_as`).
+- **Three jobs**, registered in `main.py` inside the vault's try/except:
+  `scheduler` (30 s), `schedule_reconnect` (60 s: `needs_reconnect` schedules
+  whose owner's connection works again go active, next run counted from now) and
+  `schedule_reminders` (hourly; see below). Listing your schedules also resumes
+  your own, so someone back from connecting sees them running.
+- **Claiming.** One transaction selects due rows (`status = 'active' AND
+  (next_run_at <= now() OR run_requested) AND (claimed_until IS NULL OR
+  claimed_until < now())`) `FOR UPDATE SKIP LOCKED LIMIT n`, sets
+  `claimed_by`/`claimed_until` (a 15-minute lease), moves `next_run_at` to the
+  next time after now and clears `run_requested`, and commits before anything
+  runs. `plan_claim` is the pure part: a run more than 5 minutes late is
+  `recovery`, a requested one `manual` (a requested run that isn't due keeps its
+  timetable). Runs execute on daemon threads, at most `MAX_PARALLEL` (4) per
+  worker, and a tick keeps claiming as they finish for up to 20 s. Recording a
+  run releases the claim only where `claimed_by` is still this worker. Delivery is
+  at most once: a worker that dies mid-run leaves a lease that expires, and that
+  run is lost, never repeated. A real-Postgres check with four concurrent
+  claimers found no schedule claimed twice.
+- **A report** re-checks that its SQL is read-only (`schedule_store.read_only_problem`),
+  runs it through `routes/sql_query.execute_rows` (the same path as
+  `/execute-raw`, reading at most 10,000 rows), applies `send_when` (a skipped
+  run is `skipped`, which counts as a success), and sends with
+  `send_email(owner, owner_email, ..., source="schedule", request_id=<run id>)`.
+- **An action** re-checks its widget with `widget_check` (the latest
+  non-deprecated published row must have `is_executable = 1`, and the owner must
+  hold a level on it, be an admin, or have it lent by a view; no access reads as
+  404), writes an `action_logs` row for the owner with `request_id` = the run id
+  (no row, no run), then runs `tag_statement(sql, run_id)` (`/* cc-action: <id> */`)
+  through the same path as `/execute-write`, never retried. With recipients and
+  email available it sends a short note; a note that fails leaves the run `ok`
+  with the reason in `error`.
+- **Outcomes** (`next_state`, pure). `NeedsReconnect` makes the run and the
+  schedule `needs_reconnect` and isn't a failure. `VaultError`, email being
+  `unavailable`, no warehouse configured and an action log that can't be written
+  fail the run without counting. Anything else counts; `schedule_max_failures`
+  (Settings → Scheduling, default 3) in a row pauses it (`paused_reason =
+  'failures'`), records `schedule.auto_pause` and emails the owner when email is
+  available. A success or a skip resets the count. Only an *active* schedule
+  changes status, so one the owner paused mid-run stays paused.
+- **Reminders.** Hourly, `token_vault.expiring(7)`, for owners with an active
+  schedule only: one email at 7 days and one at 1 day per connection expiry,
+  recorded in `schedule_reminders` before sending (`source="reminder"`), and none
+  at all while email is unavailable, so they go out once it's back. A connection
+  already past its expiry moves the owner's active schedules to
+  `needs_reconnect`. Skipped entirely on the local fallback.
+- **Routes.** Item routes are for the owner or an app Administrator; anyone else
+  gets 404. An Administrator who isn't the owner may PATCH only `name` and
+  `recurrence` (403 otherwise; unchanged values are ignored, so the whole object
+  can be sent back), because anything else would change what runs under someone
+  else's identity, or who receives it. Creating validates recipients with
+  `email_service.check_recipients` against the owner's address, keeps `view_link`
+  only on the request's own origin, checks the cap (`schedule_max_per_person`,
+  default 25, counted under a per-owner advisory lock) and always creates, as
+  `needs_reconnect` without a usable connection. `POST /{id}/run` only sets
+  `run_requested`; the next tick runs it.
+- **Recurrence** (`services/recurrence.py`, pure, no cron). Wall-clock times in an
+  IANA zone through `zoneinfo`; a missing local time (spring forward) runs at the
+  end of the jump, a repeated one (fall back) at its first occurrence, and hourly
+  keeps to real hours. On Linux `zoneinfo` needs the system tz database or the
+  `tzdata` package; without either only UTC validates.
+- **Logs** carry schedule ids, run ids, statuses and counts, never a token, a
+  row, the SQL or a recipient; an unexpected exception logs its type and line,
+  not its message, which can quote data.
 
 ## What each model will accept (`services/llm_params.py`)
 
@@ -1729,6 +1835,9 @@ PYTHONPATH=server .venv/bin/python tests/test_activity_feed.py        # 24 passe
 PYTHONPATH=server .venv/bin/python tests/test_email_service.py        # 44 passed
 PYTHONPATH=server .venv/bin/python tests/test_email_routes.py         # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_token_vault.py          # 48 passed
+PYTHONPATH=server .venv/bin/python tests/test_recurrence.py           # 26 passed
+PYTHONPATH=server .venv/bin/python tests/test_scheduler.py            # 56 passed
+PYTHONPATH=server .venv/bin/python tests/test_schedule_routes.py      # 31 passed
 ```
 
 `test_file_extract.py` and `test_upload_tools.py` need the venv interpreter, not

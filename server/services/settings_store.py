@@ -327,6 +327,28 @@ SETTING_SPECS: Dict[str, Spec] = {
         maximum=90,
         group="scheduling",
     ),
+    # services/scheduler.py. A schedule that keeps failing mails the same people
+    # the same error every time it runs, so it stops itself and tells its owner.
+    "schedule_max_failures": Spec(
+        env="SCHEDULE_MAX_FAILURES",
+        default="3",
+        kind="int",
+        label="Failures in a row before a schedule pauses",
+        help="A schedule that fails this many runs in a row is paused and its owner emailed. Runs that wait for the owner to reconnect, or that the app itself couldn't start, don't count.",
+        minimum=1,
+        maximum=20,
+        group="scheduling",
+    ),
+    "schedule_max_per_person": Spec(
+        env="SCHEDULE_MAX_PER_PERSON",
+        default="25",
+        kind="int",
+        label="Most schedules per person",
+        help="Creating one more than this is refused. Schedules already over the limit keep running.",
+        minimum=1,
+        maximum=500,
+        group="scheduling",
+    ),
     # Email (services/email_service.py), adding kinds "email" (one address) and
     # "domains" (one entry per line). The AWS keys and region are deliberately
     # not here: they arrive as secret resources in the app's environment, and a

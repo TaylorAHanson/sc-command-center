@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import DatabricksError, STATUS_CODE_MAPPING
 from databricks.sdk.service.sql import StatementExecutionAPI, Disposition, Format, StatementState
-from typing import Optional, List, Dict, Any, Iterable, Iterator
+from typing import Optional, List, Dict, Any, Iterable, Iterator, NamedTuple
 
 from config.sql_queries import get_sql_query_config, get_all_sql_query_configs, SqlQueryConfig
 from middleware.auth import get_user_token
@@ -550,16 +550,95 @@ def execute_write_sql(
     if not sql_statement:
         raise HTTPException(status_code=400, detail="Request body must include a 'sql' field with the SQL query to execute.")
 
-    correlation = (req.request_id or "").strip()
-    if correlation:
-        # Comment rather than a parameter: it survives into the statement text
-        # that query history stores, which is the only field the two records share.
-        safe = re.sub(r"[^A-Za-z0-9_.:-]", "", correlation)[:80]
-        if safe:
-            sql_statement = f"/* cc-action: {safe} */\n{sql_statement}"
-
     # Never retried: re-running a write to fetch its result differently would apply it twice.
-    return _run_statement(sql_statement, req, w, request, retryable=False)
+    return _run_statement(tag_statement(sql_statement, req.request_id), req, w, request, retryable=False)
+
+
+def tag_statement(sql_statement: str, request_id: Optional[str]) -> str:
+    """`sql_statement` with `/* cc-action: <id> */` in front, when there is an id to stamp.
+
+    Comment rather than a parameter: it survives into the statement text that query
+    history stores, which is the only field `action_logs` and `system.query.history`
+    share. The scheduler stamps its runs the same way.
+    """
+    correlation = (request_id or "").strip()
+    safe = re.sub(r"[^A-Za-z0-9_.:-]", "", correlation)[:80] if correlation else ""
+    return f"/* cc-action: {safe} */\n{sql_statement}" if safe else sql_statement
+
+
+class StatementRows(NamedTuple):
+    columns: List[str]
+    #: Read lazily: a large result streams from the warehouse as it is consumed.
+    rows: Iterator[list]
+    total: Optional[int]
+    warehouse_truncated: bool
+    statement_id: Optional[str]
+    external: bool
+
+
+def execute_rows(sql_statement: str, w: WorkspaceClient, cap: int, all_rows: bool,
+                 retryable: bool) -> StatementRows:
+    """Run one statement on the configured warehouse as `w`, and its rows as they arrive.
+
+    What both raw endpoints and scheduled runs (services/scheduler.py) execute
+    through, so a scheduled report reads its query the way its widget does. Raises
+    HTTPException when no warehouse is configured, SqlStatementError for a statement
+    that didn't succeed or a result that can't be downloaded, and DatabricksError for
+    one the warehouse refused outright (`_refusal` describes that).
+    """
+    warehouse_id = os.environ.get("SQL_WAREHOUSE_ID", "")
+    if not warehouse_id:
+        raise HTTPException(
+            status_code=500,
+            detail="No SQL Warehouse ID configured. Set SQL_WAREHOUSE_ID in environment."
+        )
+    plans = fetch_plans(cap, all_rows)
+    if not retryable:
+        plans = plans[:1]
+
+    sql_api = StatementExecutionAPI(w.api_client)
+    for plan in plans:
+        statement = sql_api.execute_statement(
+            warehouse_id=warehouse_id,
+            statement=sql_statement,
+            wait_timeout="50s",
+            **plan,
+        )
+        if not too_big_for_inline(statement):
+            break
+    _raise_if_unsuccessful(statement, sql_statement)
+
+    columns = []
+    if statement.manifest and statement.manifest.schema and statement.manifest.schema.columns:
+        columns = [col.name for col in statement.manifest.schema.columns]
+
+    manifest = statement.manifest
+    rows = iter_rows(
+        statement.result,
+        lambda index: sql_api.get_statement_result_chunk_n(statement.statement_id, index),
+        _download,
+        getattr(manifest, "total_chunk_count", None) or MAX_CHUNK_HOPS,
+    )
+    try:
+        # Read before anything is sent, so a result that can't be downloaded
+        # at all is an error status rather than a 200 with no rows.
+        first = list(itertools.islice(rows, 1))
+    except httpx.HTTPError as e:
+        raise SqlStatementError(
+            status_code=502,
+            detail="This result is over 25 MB, so the warehouse hands it over as files in "
+                   f"cloud storage, and the app couldn't download them ({type(e).__name__}). "
+                   "Aggregate or filter in the query, or ask an admin whether this app may "
+                   "reach the workspace's storage.",
+        ) from e
+    return StatementRows(
+        columns=columns,
+        rows=itertools.chain(first, rows),
+        total=getattr(manifest, "total_row_count", None),
+        warehouse_truncated=bool(getattr(manifest, "truncated", False)),
+        statement_id=statement.statement_id,
+        external=plan["disposition"] == Disposition.EXTERNAL_LINKS,
+    )
 
 
 def _run_statement(
@@ -572,67 +651,22 @@ def _run_statement(
     """Shared execution for both raw endpoints, so they cannot drift apart."""
     import traceback
 
-    warehouse_id = os.environ.get("SQL_WAREHOUSE_ID", "")
-    if not warehouse_id:
-        raise HTTPException(
-            status_code=500,
-            detail="No SQL Warehouse ID configured. Set SQL_WAREHOUSE_ID in environment."
-        )
-
     ceiling = _row_ceiling()
     cap = ceiling if req.all_rows else max(1, min(req.max_rows or DEFAULT_MAX_ROWS, ceiling))
-    plans = fetch_plans(cap, req.all_rows)
-    if not retryable:
-        plans = plans[:1]
 
     try:
-        sql_api = StatementExecutionAPI(w.api_client)
         started = time.monotonic()
-
-        for plan in plans:
-            statement = sql_api.execute_statement(
-                warehouse_id=warehouse_id,
-                statement=sql_statement,
-                wait_timeout="50s",
-                **plan,
-            )
-            if not too_big_for_inline(statement):
-                break
-        _raise_if_unsuccessful(statement, sql_statement)
-
-        columns = []
-        if statement.manifest and statement.manifest.schema and statement.manifest.schema.columns:
-            columns = [col.name for col in statement.manifest.schema.columns]
-
-        manifest = statement.manifest
-        rows = iter_rows(
-            statement.result,
-            lambda index: sql_api.get_statement_result_chunk_n(statement.statement_id, index),
-            _download,
-            getattr(manifest, "total_chunk_count", None) or MAX_CHUNK_HOPS,
-        )
-        external = plan["disposition"] == Disposition.EXTERNAL_LINKS
-        try:
-            # Read before anything is sent, so a result that can't be downloaded
-            # at all is an error status rather than a 200 with no rows.
-            first = list(itertools.islice(rows, 1))
-        except httpx.HTTPError as e:
-            raise SqlStatementError(
-                status_code=502,
-                detail="This result is over 25 MB, so the warehouse hands it over as files in "
-                       f"cloud storage, and the app couldn't download them ({type(e).__name__}). "
-                       "Aggregate or filter in the query, or ask an admin whether this app may "
-                       "reach the workspace's storage.",
-            ) from e
+        result = execute_rows(sql_statement, w, cap, req.all_rows, retryable)
+        external = result.external
 
         summary: Dict[str, Any] = {}
         body = result_body(
-            columns,
-            itertools.chain(first, rows),
+            result.columns,
+            result.rows,
             cap,
-            getattr(manifest, "total_row_count", None),
-            bool(getattr(manifest, "truncated", False)),
-            statement.statement_id,
+            result.total,
+            result.warehouse_truncated,
+            result.statement_id,
             summary,
         )
 

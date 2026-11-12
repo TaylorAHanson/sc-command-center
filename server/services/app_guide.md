@@ -1145,6 +1145,46 @@ access is revoked, they are asked to connect again. One integration can serve
 several copies of the app if each copy's redirect URL is added to it. Moving data
 to another app never copies connections, so people connect again there.
 
+### How schedules run
+
+A schedule is one of two things. A **report** runs a read-only query and emails
+the result as a table, optionally with a CSV attached, to its recipients; a query
+that changes data is refused when the report is created and again before every
+run. An **action** runs the statement of an executable widget its owner can use,
+recorded in the action log like any confirmed action, and can email its
+recipients a short note saying how it went. Either way the run is its owner, with
+their own access to data, and recipients follow the same rules as the Send dialog.
+
+Timing is **hourly** (at a minute past each hour), **daily**, **weekly** on chosen
+weekdays, or **monthly** on chosen days, in the owner's time zone. A day past the
+end of a month means its last day, so the 31st runs on the 30th in April. On the
+night clocks go forward, a time that doesn't exist runs when the clock jumps; on
+the night they go back, a time that happens twice runs once, the first time. A
+schedule runs within about 30 seconds of being due, and **Run now** queues one run
+within the same 30 seconds. If the app was down when a run was due, it runs once
+when the app is back, not once per missed time. A report can be set to send only
+when the query returns rows, or only when it returns none; otherwise that run is
+recorded as skipped.
+
+A schedule is **active**, **paused**, or **waiting for its owner to reconnect**.
+After 3 failed runs in a row (the **Failures in a row before a schedule pauses**
+setting under Admin Panel → Settings → Scheduling) it pauses itself and emails its
+owner; resuming starts the count again. Runs that wait for a reconnect, or that
+fail because of the app's own setup (email or scheduling switched off, no SQL
+warehouse), don't count. A week before someone's connection runs out, and again a
+day before, they get an email asking them to connect again, if email is set up and
+they have a schedule running. If it runs out, their schedules wait and start again
+by themselves within a minute of reconnecting.
+
+People see and manage their own schedules, up to 25 each (**Most schedules per
+person**). App Administrators can see everyone's, and can rename, retime, pause,
+resume, run or delete any of them, but only the owner can change what a schedule
+runs or who it goes to. Creating, changing, pausing, resuming, running, deleting,
+and pausing after failures all appear in the Admin Panel's Activity tab. Moving
+data to another app never copies schedules. On a developer's own machine with
+`DEV_MODE` on, schedules run as the app's service principal instead of the owner;
+a deployed app never does.
+
 ## The assistant panel
 
 This chat. It is the panel on the right of the screen; collapsed, it is the

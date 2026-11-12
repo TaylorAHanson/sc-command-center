@@ -43,6 +43,10 @@ dependencies = [
     "boto3",
     # Encrypting the refresh tokens scheduled runs use (services/token_vault.py).
     "cryptography",
+    # Schedule time zones (services/recurrence.py). zoneinfo reads the system's
+    # tz database first and falls back to this; without either, every zone but
+    # UTC is refused. pandas pulls it in only on Windows.
+    "tzdata",
 ]
 
 [tool.uv]
