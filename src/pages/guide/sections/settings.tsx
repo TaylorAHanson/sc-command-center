@@ -81,8 +81,30 @@ databricks secrets put-secret command-center token-vault-key --string-value <the
       <P>
         Click <UI>Check again</UI> on the <UI>Setup</UI> card. <UI>Scheduling</UI> reads ready once the client id is saved. A connection lasts as long
         as the TTL allows; after that, or if someone&rsquo;s access is revoked, they are asked to connect again. Moving data to another app never
-        copies connections. Once it is ready, people schedule from widgets: see <GuideLink to="schedules">Scheduled reports</GuideLink>.
+        copies connections or schedules. Once it is ready, people schedule from widgets: see <GuideLink to="schedules">Scheduled reports</GuideLink>.
       </P>
+      <P>
+        When a connection is a week from running out, and again a day before, its owner gets an email asking them to connect again, as long as
+        email is set up and they have a schedule running. If it runs out anyway, their schedules wait and start again by themselves once they
+        reconnect. Two more settings under <UI>Scheduling</UI> keep schedules in check:
+      </P>
+      <Table
+        head={['Setting', 'Starts at', 'Allowed', 'What it does']}
+        rows={[
+          [
+            <UI key="a">Failures in a row before a schedule pauses</UI>,
+            '3',
+            '1 to 20',
+            'A schedule that fails this many runs in a row pauses and emails its owner. Runs waiting for a reconnect, and problems with the app’s own setup, don’t count.',
+          ],
+          [
+            <UI key="b">Most schedules per person</UI>,
+            '25',
+            '1 to 500',
+            'Creating one more is refused. Lowering it doesn’t stop schedules that already exist.',
+          ],
+        ]}
+      />
       <Details summary="Creating the connection from the command line">
         <P>An account admin can run this instead of using the account console:</P>
         <Snippet>{`databricks account custom-app-integration create --json '${cliJson}'`}</Snippet>
@@ -94,6 +116,13 @@ databricks secrets put-secret command-center token-vault-key --string-value <the
           <Code>OAUTH_REDIRECT_URI</Code> in the app&rsquo;s environment to the registered one. One connection can serve several copies of the app,
           such as development and production, if each copy&rsquo;s redirect URL is added to it. Locally, through the development server, set{' '}
           <Code>OAUTH_REDIRECT_URI</Code> to <Code>http://localhost:5174/api/oauth/callback</Code> and add that URL to the connection.
+        </P>
+      </Details>
+      <Details summary="Schedules on a developer's machine">
+        <P>
+          A local run with <Code>DEV_MODE=true</Code> and <Code>APP_ENVIRONMENT=local</Code> runs every schedule as the service principal the local
+          server already uses, so schedules can be tried without an OAuth connection, and the <UI>Setup</UI> card shows scheduling in dev mode.
+          Both settings are needed. A deployed app never does this: it runs each schedule as its owner, or not at all.
         </P>
       </Details>
     </>

@@ -1879,6 +1879,7 @@ dependencies = [
     { name = "pypdf" },
     { name = "python-docx" },
     { name = "python-multipart" },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -1905,6 +1906,7 @@ requires-dist = [
     { name = "pypdf" },
     { name = "python-docx" },
     { name = "python-multipart" },
+    { name = "tzdata" },
     { name = "uvicorn", extras = ["standard"] },
 ]
 

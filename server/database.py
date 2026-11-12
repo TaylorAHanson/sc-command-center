@@ -659,6 +659,85 @@ def _create_email_tables(conn) -> None:
             logging.warning(f"Could not create the email log: {e}")
 
 
+def _create_schedule_tables(conn) -> None:
+    """Scheduled reports and actions (services/scheduler.py, services/schedule_store.py).
+
+    `schedules` holds what each one runs, for whom and when, plus the claim the
+    background tick takes on it (`claimed_by`, `claimed_until`, `run_requested`), so
+    two workers never run one schedule at once. The due index serves the tick's
+    scan; the partial one serves "Run now", which is rare. `schedule_runs` is one row
+    per run, read newest first per schedule. `schedule_reminders` records which
+    connection-expiry emails have gone out, so each is sent once."""
+    c = conn.cursor()
+    statements = (
+        '''
+        CREATE TABLE IF NOT EXISTS schedules (
+            id TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            owner_email TEXT,
+            owner_groups TEXT[] NOT NULL DEFAULT '{}',
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            sql TEXT NOT NULL,
+            source_app_id TEXT,
+            source_widget_instance TEXT,
+            source_widget_id TEXT,
+            view_name TEXT,
+            view_link TEXT,
+            recipients TEXT[] NOT NULL DEFAULT '{}',
+            subject TEXT,
+            message TEXT,
+            send_when TEXT NOT NULL DEFAULT 'always',
+            attach_csv BOOLEAN NOT NULL DEFAULT FALSE,
+            recurrence JSONB NOT NULL,
+            next_run_at TIMESTAMPTZ,
+            status TEXT NOT NULL DEFAULT 'active',
+            paused_reason TEXT,
+            failure_count INTEGER NOT NULL DEFAULT 0,
+            run_requested BOOLEAN NOT NULL DEFAULT FALSE,
+            claimed_by TEXT,
+            claimed_until TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        ''',
+        "CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules (status, next_run_at)",
+        "CREATE INDEX IF NOT EXISTS idx_schedules_requested ON schedules (id) WHERE run_requested",
+        "CREATE INDEX IF NOT EXISTS idx_schedules_owner ON schedules (owner, created_at DESC)",
+        '''
+        CREATE TABLE IF NOT EXISTS schedule_runs (
+            id TEXT PRIMARY KEY,
+            schedule_id TEXT NOT NULL REFERENCES schedules (id) ON DELETE CASCADE,
+            trigger TEXT NOT NULL,
+            started_at TIMESTAMPTZ NOT NULL,
+            finished_at TIMESTAMPTZ,
+            status TEXT NOT NULL,
+            row_count INTEGER,
+            emailed BOOLEAN NOT NULL DEFAULT FALSE,
+            error TEXT
+        )
+        ''',
+        "CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs (schedule_id, started_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_schedule_runs_started ON schedule_runs (started_at)",
+        '''
+        CREATE TABLE IF NOT EXISTS schedule_reminders (
+            username TEXT NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            kind TEXT NOT NULL,
+            sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (username, expires_at, kind)
+        )
+        ''',
+    )
+    for sql in statements:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            logging.warning(f"Could not create a schedule table: {e}")
+
+
 def _advisory_lock_key(env: str) -> int:
     """Stable per-env key for the schema-init advisory lock (see init_db)."""
     base = 918273645  # arbitrary constant, just needs to be app-unique
@@ -1153,6 +1232,7 @@ def init_db(env: str = "dev"):
         _create_operations_tables(conn)
         _create_activity_feed_indexes(conn)
         _create_email_tables(conn)
+        _create_schedule_tables(conn)
 
     # Link names for global views saved before they existed, or that arrived by
     # snapshot. Under the lock, so two workers don't hand one view two names.
