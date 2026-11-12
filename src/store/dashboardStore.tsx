@@ -458,7 +458,10 @@ export const DashboardProvider: React.FC<{
   const openSeq = useRef(0);
 
   // A view this tab hasn't loaded is read from the server first, then kept.
-  const openRoute = useCallback(async (route: AppRoute) => {
+  // `home`: opened because nothing named a view, so even a standalone one stays
+  // inside the workspace; taking over the page would leave no way to the sidebar.
+  const openRoute = useCallback(async (asked: AppRoute, home = false) => {
+    let route = asked;
     const canonicalize = (app?: App) => {
       const canonical = app
         ? appHash(app, routeTab(app, route.tabId), null, route.workspace)
@@ -499,6 +502,7 @@ export const DashboardProvider: React.FC<{
     }
     setOpening(false);
     if (app) {
+      if (home && isStandalone(app)) route = { ...route, workspace: true };
       canonicalize(app);
       const id = app.id;
       recordVisit(id);
@@ -520,12 +524,14 @@ export const DashboardProvider: React.FC<{
   const openHome = useCallback(async (set?: WorkingSet | null) => {
     const { workingSet: listed, loadedRows: loaded, changes: done } = listRef.current;
     const row = homeRow(set ?? listed, loaded, done);
-    if (row) await openRoute(routeOf(row));
+    if (row) await openRoute(routeOf(row), true);
   }, [openRoute]);
 
   // The link the page opened with is acted on once, though StrictMode runs this
   // effect twice in development, and read beside the list rather than after it.
-  // With no link, the view opened last opens, which needs the list first.
+  // With no address at all, the view opened last opens, which needs the list
+  // first. Any other address that names no view is a page (`#/discover`,
+  // `#/schedules`): opening a view then would replace the page's address.
   // A standalone app was read before this mounted.
   const initialRouteRead = useRef(false);
   useEffect(() => {
@@ -533,7 +539,8 @@ export const DashboardProvider: React.FC<{
     if (standalone || initialRouteRead.current) return;
     initialRouteRead.current = true;
     const listed = readSidebar();
-    const opened = initialRoute ? openRoute(initialRoute) : listed.then(set => openHome(set));
+    const bare = /^#?\/?$/.test(window.location.hash);
+    const opened = initialRoute ? openRoute(initialRoute) : bare ? listed.then(set => openHome(set)) : listed;
     opened.finally(() => setIsLoading(false));
   }, [fetchPermissions, readSidebar, openRoute, openHome, initialRoute, standalone]);
 
