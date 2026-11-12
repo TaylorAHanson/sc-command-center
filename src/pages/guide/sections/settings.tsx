@@ -5,6 +5,101 @@ import {
   Callout, Card, Cards, Code, Details, GuideLink, H2, Lead, List, Needs, OpenLink, P, Shot, Step, Steps, Table, UI,
 } from '../kit';
 
+const Snippet = ({ children }: { children: string }) => (
+  <pre className="my-3 overflow-x-auto rounded-lg bg-gray-100 p-3 font-mono text-[13px] leading-relaxed text-gray-800">{children}</pre>
+);
+
+const VAULT_KEY_YAML = `# databricks.yml: two additions to the app's existing lists
+resources:
+  apps:
+    sc-command-center:
+      resources:
+        # ...the postgres resource stays as it is
+        - name: token-vault-key
+          secret:
+            scope: command-center
+            key: token-vault-key
+            permission: READ
+      config:
+        env:
+          # ...the other variables stay as they are
+          - name: TOKEN_VAULT_KEY
+            valueFrom: token-vault-key`;
+
+const SchedulingSetup = () => {
+  // The redirect URL has to match this app's address exactly, so the guide shows
+  // the one this browser is using rather than a placeholder.
+  const callbackUrl = `${window.location.origin}/api/oauth/callback`;
+  const cliJson = JSON.stringify({
+    name: 'command-center-scheduling',
+    redirect_urls: [callbackUrl],
+    confidential: false,
+    scopes: ['openid', 'email', 'offline_access', 'sql'],
+    token_access_policy: { refresh_token_ttl_in_minutes: 43200 },
+  });
+  return (
+    <>
+      <H2 id="scheduling">Set up scheduling</H2>
+      <P>
+        <Needs role="Administrator" /> Scheduled work runs as the person who scheduled it, with their own access to data, never as the app. Each person
+        connects their account once, and the app keeps that connection, encrypted, so it can act for them while they are away. Until the steps below
+        are done, scheduling stays off and the <UI>Setup</UI> card lists it as not set up.
+      </P>
+      <Steps>
+        <Step title="Create an OAuth app connection">
+          A Databricks <strong>account</strong> admin opens the account console and goes to <UI>Settings</UI> → <UI>App connections</UI> →{' '}
+          <UI>Add connection</UI>. It needs:
+          <List>
+            <li>
+              Redirect URL <Code>{callbackUrl}</Code>, exactly. The <UI>Setup</UI> card shows the address it expects.
+            </li>
+            <li>Access scope <UI>SQL</UI>. Signing in and staying signed in come with it.</li>
+            <li>
+              <UI>Generate a client secret</UI> left off. The app is a public client and proves each sign-in with PKCE instead.
+            </li>
+            <li>
+              Refresh token TTL <Code>43200</Code> minutes, which is 30 days.
+            </li>
+          </List>
+        </Step>
+        <Step title="Paste the client id">
+          Copy the <UI>Client ID</UI> the new connection shows. In Settings, paste it into <UI>Scheduling</UI> → <UI>OAuth client id</UI> and click{' '}
+          <UI>Save</UI>. If the TTL is not 30 days, set <UI>Connection lifetime (days)</UI> to match, so reminders to reconnect arrive before a
+          connection runs out.
+        </Step>
+        <Step title="Give the app a vault key of its own (recommended)">
+          Without one, the app derives the key that encrypts connections from its own credentials, and rotating those makes everyone connect again.
+          Whoever deploys the app generates a key and stores it in a secret scope:
+          <Snippet>{`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+databricks secrets create-scope command-center
+databricks secrets put-secret command-center token-vault-key --string-value <the key>`}</Snippet>
+          Then they give it to the app as <Code>TOKEN_VAULT_KEY</Code> through a secret resource, and deploy:
+          <Snippet>{VAULT_KEY_YAML}</Snippet>
+          Connections made before the key was set keep working.
+        </Step>
+      </Steps>
+      <P>
+        Click <UI>Check again</UI> on the <UI>Setup</UI> card. <UI>Scheduling</UI> reads ready once the client id is saved. A connection lasts as long
+        as the TTL allows; after that, or if someone&rsquo;s access is revoked, they are asked to connect again. Moving data to another app never
+        copies connections.
+      </P>
+      <Details summary="Creating the connection from the command line">
+        <P>An account admin can run this instead of using the account console:</P>
+        <Snippet>{`databricks account custom-app-integration create --json '${cliJson}'`}</Snippet>
+        <P>The <Code>client_id</Code> it prints is the one to paste into Settings.</P>
+      </Details>
+      <Details summary="A custom domain, or running the app locally">
+        <P>
+          The redirect URL follows the address the browser used. If people reach the app at an address other than the one registered, set{' '}
+          <Code>OAUTH_REDIRECT_URI</Code> in the app&rsquo;s environment to the registered one. One connection can serve several copies of the app,
+          such as development and production, if each copy&rsquo;s redirect URL is added to it. Locally, through the development server, set{' '}
+          <Code>OAUTH_REDIRECT_URI</Code> to <Code>http://localhost:5174/api/oauth/callback</Code> and add that URL to the connection.
+        </P>
+      </Details>
+    </>
+  );
+};
+
 const Body = () => (
   <>
     <Lead>
@@ -61,6 +156,94 @@ const Body = () => (
       <UI>Background jobs</UI> it shows how often each timed job runs, when it last ran, and whether it failed. The card is hidden when there is
       nothing to show.
     </P>
+
+    <SchedulingSetup />
+
+    <H2 id="email">Set up email</H2>
+    <P>
+      <Needs role="Administrator" /> People can email a widget&rsquo;s numbers from its <UI>Send</UI> dialog. Email goes through your organisation&rsquo;s own
+      Amazon SES account, always from one address you verify, and stays off until the steps below are done. The Setup card&rsquo;s <UI>Email</UI> row
+      says which one is next.
+    </P>
+    <Steps>
+      <Step title="Verify a sender identity in Amazon SES">
+        In the AWS region you will send from, verify the address emails will come from, such as <Code>command-center@example.com</Code>, or its whole
+        domain. Every email comes from that address; replies go to the person who sent it.
+      </Step>
+      <Step title="Request production access">
+        A new SES account is in the sandbox and delivers only to addresses you have verified. Request production access for the same region.
+      </Step>
+      <Step title="Create an IAM user that can only send">
+        Give it one permission, <Code>ses:SendEmail</Code>, on that identity alone (the address, or the domain if you verified the domain), then create an
+        access key for it.
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs leading-relaxed text-slate-100">{`{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "ses:SendEmail",
+    "Resource": "arn:aws:ses:us-east-1:123456789012:identity/command-center@example.com"
+  }]
+}`}</pre>
+      </Step>
+      <Step title="Give the app the keys as secrets">
+        Put the access key ID and secret access key in a Databricks secret scope. In your own target in <Code>databricks.yml</Code>, add them to the
+        app as secret resources and name the region, then run <Code>databricks bundle deploy</Code> and <Code>databricks bundle run</Code>:
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs leading-relaxed text-slate-100">{`targets:
+  prod:
+    resources:
+      apps:
+        sc-command-center:
+          resources:
+            - name: ses-access-key-id
+              secret:
+                scope: command-center
+                key: aws-ses-access-key-id
+                permission: READ
+            - name: ses-secret-access-key
+              secret:
+                scope: command-center
+                key: aws-ses-secret-access-key
+                permission: READ
+          config:
+            env:
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom: ses-access-key-id
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom: ses-secret-access-key
+              - name: AWS_REGION
+                value: us-east-1`}</pre>
+      </Step>
+      <Step title="Enter the From address">
+        In <UI>Settings</UI>, under <UI>Email</UI>, type the verified address into <UI>From address</UI> and click <UI>Save</UI>. The Setup
+        card&rsquo;s <UI>Email</UI> row turns green.
+      </Step>
+    </Steps>
+    <Callout kind="warn" title="AWS keys only ever go in secrets">
+      Never type them into Settings, a widget or the code. The app reads them only from its environment, which is where the secret resources put them.
+    </Callout>
+    <Table
+      head={['Setting', 'Starts at', 'What it does']}
+      rows={[
+        [<UI key="a">Allow email</UI>, 'On', 'Off stops all email at once and disables every Send button.'],
+        [<UI key="b">From address</UI>, 'Empty', 'The verified address every email comes from. Email stays off until it is set.'],
+        [
+          <UI key="c">Domains email may go to</UI>,
+          'Empty',
+          <>Empty, each person may email only addresses in their own domain. Once you list domains, only those are allowed, so include your own. One per line; <Code>*.example.com</Code> covers subdomains.</>,
+        ],
+        [<UI key="d">Most recipients per email</UI>, '10', 'From 1 to 50, the most SES accepts.'],
+        [<UI key="e">Most emails per person per day</UI>, '50', 'From 1 to 1,000, counted over the last 24 hours.'],
+      ]}
+    />
+    <P>
+      Each email is recorded with its sender, recipients, subject and outcome, never its body, and the send also appears in <UI>Action Logs</UI>.
+    </P>
+    <Details summary="Trying email on your own machine">
+      <P>
+        A local run (<Code>APP_ENVIRONMENT=local</Code>) without the AWS keys writes each email to <Code>backend.log</Code> instead of sending it, and the
+        Setup card shows email as ready in log mode. A deployed app never does this: without the keys it says email isn&rsquo;t set up.
+      </P>
+    </Details>
 
     <H2 id="models">Choose the models</H2>
     <P>
@@ -171,6 +354,11 @@ const Body = () => (
         indefinitely. People can always delete their own from the chat drawer.
       </li>
       <li>
+        <strong><UI>Delete activity events after (days)</UI></strong> deletes events on the{' '}
+        <GuideLink to="access" anchor="activity">Activity</GuideLink> tab once they are that old. It starts at <Code>365</Code>;{' '}
+        <Code>0</Code> keeps them indefinitely. Widget actions in Action logs are kept either way.
+      </li>
+      <li>
         <strong><UI>Tell the assistant what is on screen</UI></strong> controls whether each question carries a summary of the current dashboard: widget names, titles and
         configuration. Off, the assistant sees only the question. Choose that where widget configuration is itself sensitive.
       </li>
@@ -240,6 +428,6 @@ export const section: GuideSection = {
   title: 'Settings & models',
   summary: 'Choose models, limits and what the assistant may reach.',
   icon: Settings,
-  keywords: 'setup background jobs not set up model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence',
+  keywords: 'setup background jobs not set up model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence email ses amazon aws secret from address recipients domains scheduling schedule oauth client id app connection redirect url refresh token connect reconnect token vault key',
   Body,
 };

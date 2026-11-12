@@ -1,8 +1,9 @@
 import { createContext, useContext } from 'react';
 
 /**
- * What Command Center's own chrome offers the canvas: its widget library and
- * Widget Studio. A view opened on its own has neither, so it provides nothing.
+ * What Command Center's own chrome offers the canvas and the Admin Panel: its
+ * widget library and Widget Studio. A view opened on its own has neither, so it
+ * provides nothing.
  */
 export interface WorkspaceTools {
   openLibrary: () => void;

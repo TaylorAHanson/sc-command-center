@@ -514,6 +514,53 @@ def _create_access_tables(conn) -> None:
             logging.warning(f"Could not create an access table: {e}")
 
 
+def _create_vault_tables(conn) -> None:
+    """The token vault (services/token_vault.py), in the settings schema.
+
+    Per person, not per content store: a refresh token belongs to this deployment's
+    OAuth integration, whatever content the scheduler runs. The `_enc` columns hold
+    Fernet ciphertext only, and Data Migration never copies either table
+    (`NOT_COPIED`), because a token is for the app it was issued to. `oauth_pending`
+    is a sign-in in flight, here rather than in memory because the callback can reach
+    a different worker from the one that started it."""
+    c = conn.cursor()
+    statements = (
+        '''
+        CREATE TABLE IF NOT EXISTS user_oauth_tokens (
+            username TEXT PRIMARY KEY,
+            refresh_token_enc TEXT NOT NULL,
+            access_token_enc TEXT,
+            access_expires_at TIMESTAMPTZ,
+            scopes TEXT NOT NULL DEFAULT '',
+            connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            refresh_issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            refresh_expires_at TIMESTAMPTZ,
+            status TEXT NOT NULL DEFAULT 'connected',
+            last_error TEXT,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS oauth_pending (
+            state TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            verifier_enc TEXT NOT NULL,
+            nonce TEXT NOT NULL,
+            redirect_uri TEXT NOT NULL,
+            return_to TEXT NOT NULL DEFAULT '/',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        ''',
+    )
+    for sql in statements:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            logging.warning(f"Could not create a token vault table: {e}")
+
+
 def _create_operations_tables(conn) -> None:
     """The app's own running records, in the content schema: the activity log
     (services/activity.py) and when each background job last ran
@@ -553,6 +600,63 @@ def _create_operations_tables(conn) -> None:
         except Exception as e:  # noqa: BLE001
             conn.rollback()
             logging.warning(f"Could not create an operations table: {e}")
+
+
+def _create_activity_feed_indexes(conn) -> None:
+    """What the Admin Panel's Activity tab (services/activity_feed.py) filters and
+    sorts on. The person filter matches usernames case-insensitively, which the
+    plain `username` index can't serve; `action_logs` had no index on time."""
+    c = conn.cursor()
+    for sql in (
+        "CREATE INDEX IF NOT EXISTS idx_activity_events_lower_user_at ON activity_events (LOWER(username), at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp ON action_logs (timestamp DESC, id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_action_logs_lower_user_ts ON action_logs (LOWER(username), timestamp DESC)",
+    ):
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            logging.warning(f"Could not create an activity index: {e}")
+
+
+def _create_email_tables(conn) -> None:
+    """`email_log`: one row per email asked for (services/email_service.py).
+
+    Metadata only, never the body. A row is written as `sending` before SES is
+    called, and the per-person daily cap counts these rows, so the index leads
+    with the lowercased sender the count filters on."""
+    c = conn.cursor()
+    statements = (
+        '''
+        CREATE TABLE IF NOT EXISTS email_log (
+            id BIGSERIAL PRIMARY KEY,
+            at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            sender TEXT NOT NULL,
+            sender_email TEXT,
+            recipients TEXT[] NOT NULL DEFAULT '{}',
+            subject TEXT,
+            status TEXT NOT NULL,
+            transport TEXT,
+            message_id TEXT,
+            error TEXT,
+            source TEXT,
+            view_name TEXT,
+            request_id TEXT,
+            has_table BOOLEAN NOT NULL DEFAULT FALSE,
+            has_attachment BOOLEAN NOT NULL DEFAULT FALSE
+        )
+        ''',
+        "CREATE INDEX IF NOT EXISTS idx_email_log_sender_at ON email_log (lower(sender), at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_email_log_at ON email_log (at DESC)",
+    )
+    for sql in statements:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            logging.warning(f"Could not create the email log: {e}")
 
 
 def _advisory_lock_key(env: str) -> int:
@@ -1041,11 +1145,14 @@ def init_db(env: str = "dev"):
     from services.settings_store import settings_env
     if env == settings_env():
         _create_access_tables(conn)
+        _create_vault_tables(conn)
 
     # Content-store tables that belong to one feature: one `_create_*_tables`
     # function per feature, called here.
     if env == content_env():
         _create_operations_tables(conn)
+        _create_activity_feed_indexes(conn)
+        _create_email_tables(conn)
 
     # Link names for global views saved before they existed, or that arrived by
     # snapshot. Under the lock, so two workers don't hand one view two names.

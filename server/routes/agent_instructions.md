@@ -254,6 +254,58 @@ write any code for this — placing a widget on a view is enough for the Assista
 to "see" it. Giving your widget a clear `name` and `description` directly
 improves how well the Assistant can reason about it.
 
+### Sending by email (`props.app.sendEmail`)
+
+Use this when the user asks for a widget that emails what it shows ("Email this
+table to my team", "Send me these numbers"). It opens the app's own Send dialog
+with the email filled in; the person edits the recipients, sees the email as it
+will arrive, and presses Send. The widget never sends anything itself.
+
+```ts
+props.app?.sendEmail({
+  subject: 'Q3 revenue by region',                  // the person can edit it
+  message: '**Revenue is up 4%** on last quarter.', // Markdown: paragraphs, lists, **bold**, *italic*, `code`, [links](https://…)
+  to: ['finance-team@example.com'],                 // optional starting recipients, string or array
+  table: { columns: ['Region', 'Revenue'], rows: rows.map(r => [r.region, r.revenue]) }, // optional
+  attachCsv: true,                                  // optional: also attach the table as a CSV
+})  // → Promise<{ sent: boolean, status: 'sent' | 'logged' | 'cancelled' | 'unavailable', recipients: string[] }>
+props.app?.emailAvailable  // false until email is set up in this app
+```
+
+- **Disable the button when `props.app?.emailAvailable` is false**, with the
+  title `Email isn't set up in this app yet`. Keep the button visible: the person
+  should see the feature exists and can ask an administrator for it.
+- **Send data, not markup.** `message` is Markdown and the server escapes it, so
+  HTML shows up as text, and images are never drawn. Put rows in `table` rather
+  than formatting them into the message: the email shows the first 50, and
+  `attachCsv: true` carries up to 10,000 in the attachment. Rows may be arrays
+  in column order or objects keyed by column name.
+- **Don't promise delivery.** The promise resolves when the dialog closes, and
+  `sent` is false if the person cancelled. The app limits recipients (by
+  default to the sender's own email domain, at most 10 people), so never
+  hardcode addresses outside the user's organization.
+- **Never call `/api/email/...` yourself, and don't wrap `sendEmail` in
+  `executeAction`.** The dialog's Send is what records the email in the audit
+  trail and lets the person check who it goes to.
+- Where the widget has no view around it (Widget Studio's preview), the call
+  describes the dialog it would open instead.
+
+```tsx
+const canEmail = !!props.app?.emailAvailable;
+<button
+  disabled={!canEmail}
+  title={canEmail ? 'Email this table' : "Email isn't set up in this app yet"}
+  onClick={() => props.app?.sendEmail({
+    subject: `Open orders – ${region}`,
+    message: `Open orders for **${region}** as of ${new Date().toLocaleDateString()}.`,
+    table: { columns: ['Order', 'Customer', 'Value'], rows: orders.map(o => [o.id, o.customer, o.value]) },
+    attachCsv: true,
+  })}
+  className="px-3 py-1.5 rounded-md bg-brand-blue text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+  Email this
+</button>
+```
+
 ## Output Format
 
 There are two ways to return code, and picking the right one matters: re-emitting

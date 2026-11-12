@@ -20,6 +20,7 @@ from fastapi import HTTPException  # noqa: E402
 import agent_studio_store as store  # noqa: E402
 import database  # noqa: E402
 from services import access, drafts  # noqa: E402
+from services import activity  # noqa: E402
 
 ANN = access.Caller("ann@x.com", (), False)
 BOB = access.Caller("bob@x.com", ("analysts",), False)
@@ -231,6 +232,7 @@ class World:
         self.levels = {}      # (username, id) -> level
         self.acl = {}         # id -> entries
         self.events = []
+        self.activity = []    # what activity.record was given
 
     def newest(self, object_id):
         live = [r for r in self.published.get(object_id, []) if not r.get("is_deprecated")]
@@ -281,6 +283,7 @@ def _install(world):
     patch(access, "get_acl", lambda t, i: list(world.acl.get(i, [])))
     patch(access, "grant_owner", lambda t, i, u: world.events.append(("grant_owner", i, u)))
     patch(access, "delete_acl", lambda t, i: world.events.append(("delete_acl", i)))
+    patch(activity, "record", lambda *args, **kwargs: world.activity.append(args))
 
     def undo():
         for module, name, value in reversed(saved):

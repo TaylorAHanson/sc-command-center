@@ -15,6 +15,7 @@ import { ModelSelect } from '../components/ModelSelect';
 import { SendStopButton } from '../components/SendStopButton';
 import { DraftBar, ShareDialog, type DraftMode } from '../components/sharing';
 import { LEVEL_LABELS, STATE_LABELS, type Level, type PublishState } from '../sharing';
+import { agentIdFromHash } from './admin/openObject';
 
 const DARK_CHAT_MARKDOWN: Components = { img: DarkChatImage };
 
@@ -293,6 +294,17 @@ export const AgentStudio: React.FC = () => {
             run?.abort();
             if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
         };
+    }, []);
+
+    // The Admin Panel opens an agent as #/agent-studio/<id>. Read once, then taken
+    // out of the address, which nothing keeps in step with the agent on screen, so
+    // a reload after opening another agent doesn't bring this one back.
+    useEffect(() => {
+        const id = agentIdFromHash(window.location.hash);
+        if (!id) return;
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/agent-studio`);
+        void loadProfile(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {

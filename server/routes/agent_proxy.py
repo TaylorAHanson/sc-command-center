@@ -41,6 +41,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
 from services import conversation_store
+from services import activity
 
 logger = logging.getLogger(__name__)
 
@@ -173,14 +174,23 @@ def _turn_id(raw: Any) -> str:
     return value if 0 < len(value) <= 64 and re.fullmatch(r"[A-Za-z0-9_-]+", value) else ""
 
 
-def _turn_recorder(env: str, conversation_id: str):
-    """Callback the runtime invokes once the answer settles."""
+def _turn_recorder(env: str, conversation_id: Optional[str], username: str = "", profile_id: str = ""):
+    """Callback the runtime invokes once the answer settles.
+
+    Saves the answer when the conversation is remembered, and logs the turn for
+    the Activity tab either way: that it happened, never what was said.
+    """
 
     def record(text: str, tool_calls: List[Dict[str, str]], error: Optional[str]) -> None:
-        conversation_store.append_message(
-            env, conversation_id, "assistant", text or "",
-            tool_calls=tool_calls, is_error=bool(error),
-        )
+        try:
+            if conversation_id:
+                conversation_store.append_message(
+                    env, conversation_id, "assistant", text or "",
+                    tool_calls=tool_calls, is_error=bool(error),
+                )
+        finally:
+            activity.record(username, "chat.turn", "agent" if profile_id else None, profile_id or None,
+                            {"saved": bool(conversation_id), "tools": len(tool_calls or []), "failed": bool(error)})
 
     return record
 
@@ -461,7 +471,7 @@ async def proxy_chat(request: Request):
                 history=norm_history,
                 attachments=attachments,
                 env=env,
-                on_finish=_turn_recorder(env, persisted) if persisted else None,
+                on_finish=_turn_recorder(env, persisted, username, incoming.get("profile_ref") or ""),
                 # A persisted turn with no id (an older client) can't be stopped by
                 # request, and must not read a disconnect as a stop either.
                 stop_requested=(

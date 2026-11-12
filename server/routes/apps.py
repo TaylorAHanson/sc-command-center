@@ -26,6 +26,7 @@ from routes import custom_widgets as widget_routes
 from routes.roles import _get_current_username
 from routes.widget_studio import quick_helper_reply
 from services import access, app_links, app_spec, app_store, drafts, look_helper
+from services import activity
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -396,6 +397,7 @@ def compose_app(body: AppCompose, w: WorkspaceClient = Depends(get_db_client)):
     finally:
         conn.close()
     _grant_owner(app_id, who.username)
+    activity.record(who.username, "view.create", APP, app_id, {"tabs": len(spec["tabs"]), "composed": True})
     return {"status": "success", "id": app_id, "state": drafts.DRAFT_ONLY, "tabs": len(spec["tabs"])}
 
 
@@ -426,6 +428,7 @@ def create_app(body: AppCreate, w: WorkspaceClient = Depends(get_db_client)):
     finally:
         conn.close()
     _grant_owner(app_id, who.username)
+    activity.record(who.username, "view.create", APP, app_id)
     return {"status": "success", "id": app_id, "state": drafts.DRAFT_ONLY}
 
 
@@ -637,6 +640,7 @@ def publish_app(app_id: str, body: PublishRequest, w: WorkspaceClient = Depends(
         raise HTTPException(status_code=500, detail=f"Error publishing view: {str(e)}")
     finally:
         conn.close()
+    activity.record(who.username, "view.publish", APP, app_id, {"version": version, "with": len(include)})
     return {"status": "success", "version": version}
 
 
@@ -662,6 +666,8 @@ def discard_draft(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
         raise HTTPException(status_code=500, detail=f"Error discarding the draft: {str(e)}")
     finally:
         conn.close()
+    if discarded:
+        activity.record(who.username, "view.discard", APP, app_id)
     return {"status": "success", "discarded": discarded, "state": drafts.PUBLISHED}
 
 
@@ -683,6 +689,7 @@ def revert_app(app_id: str, body: RevertRequest, w: WorkspaceClient = Depends(ge
         raise HTTPException(status_code=500, detail=f"Error reverting view: {str(e)}")
     finally:
         conn.close()
+    activity.record(who.username, "view.revert", APP, app_id, {"version": body.version})
     return {"status": "success", "state": drafts.PUBLISHED_WITH_DRAFT}
 
 
@@ -760,6 +767,7 @@ def archive_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
             (app_id, who.username),
         )
         conn.commit()
+        activity.record(who.username, "view.archive", APP, app_id)
         return {"status": "success", "id": app_id, "archived": True}
     except HTTPException:
         conn.rollback()
@@ -781,6 +789,7 @@ def restore_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
         c = conn.cursor()
         c.execute("DELETE FROM archived_views WHERE id = %s", (app_id,))
         conn.commit()
+        activity.record(who.username, "view.restore", APP, app_id)
         return {"status": "success", "id": app_id, "archived": False}
     except Exception as e:
         conn.rollback()
@@ -826,4 +835,5 @@ def delete_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
         access.delete_acl(APP, app_id)
     except Exception as e:  # noqa: BLE001 - grants on an id that no longer exists open nothing
         logger.warning("View %s was deleted but its access list wasn't: %s", app_id, e)
+    activity.record(who.username, "view.delete", APP, app_id)
     return {"status": "success", "message": f"View {app_id} deleted"}

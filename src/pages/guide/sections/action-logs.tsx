@@ -44,6 +44,7 @@ const Body = () => (
     <H2 id="what-is-recorded">What is recorded</H2>
     <P>
       Two kinds of event write a row. Nothing else does: views, publishing and sharing changes are not in this log.
+      They are on the <GuideLink to="access" anchor="activity">Activity</GuideLink> tab.
     </P>
     <Table
       head={['Event', 'What the row says']}

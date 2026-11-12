@@ -181,6 +181,31 @@ const Body = () => (
       full-page tab, which is already full size.
     </P>
 
+    <H2 id="email">Send a widget&rsquo;s numbers by email</H2>
+    <P>
+      Some widgets have an email button. It opens the <UI>Send</UI> dialog, and nothing is sent until you press <UI>Send</UI> there.
+    </P>
+    <Steps>
+      <Step title="Choose who it goes to">
+        Type addresses in <UI>To</UI>, separated by commas. The widget may have filled some in; change them as you like. The line under the box says
+        how many people and which domains this app allows.
+      </Step>
+      <Step title="Check the subject and the preview">
+        The preview is the email exactly as it will arrive, with the widget&rsquo;s table and the name of any attached CSV.
+      </Step>
+      <Step title="Send">
+        Press <UI>Send</UI>. The email comes from the app&rsquo;s own address, replies come to you, and its footer names you and the view, with a link back
+        to it. The send is recorded in <UI>Action Logs</UI>.
+      </Step>
+    </Steps>
+    <Callout kind="note" title="Why Send might be unavailable">
+      <List>
+        <li><UI>Email isn&rsquo;t set up in this app yet</UI>: your administrators haven&rsquo;t finished setting up email. Ask them.</li>
+        <li>An address is outside the domains this app allows, or the email has too many recipients. The dialog names the problem.</li>
+        <li>You have reached the number of emails one person may send in 24 hours (50 unless an administrator changed it).</li>
+      </List>
+    </Callout>
+
     <H2 id="remove-a-widget">Remove a widget</H2>
     <P>
       Click the X in the widget's header. It leaves the tab at once, with no confirmation, and its settings go with
@@ -203,6 +228,6 @@ export const section: GuideSection = {
   title: 'Using widgets',
   summary: 'Find a widget, drop it on a view, arrange it and set it up.',
   icon: MousePointerClick,
-  keywords: 'widget library drag drop resize move remove gear settings version fullscreen link certified search clone',
+  keywords: 'widget library drag drop resize move remove gear settings version fullscreen link certified search clone email send recipients csv',
   Body,
 };
