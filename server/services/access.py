@@ -34,6 +34,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from fastapi import HTTPException
 
 from services import caller_identity
+from services import view_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -374,6 +375,7 @@ def grant_owner(object_type: str, object_id: str, username: str) -> None:
             (object_type, object_id, username, username),
         )
         conn.commit()
+        view_catalog.mark_dirty(object_type, object_id)
     finally:
         conn.close()
 
@@ -442,6 +444,7 @@ def replace_acl(who: Caller, object_type: str, object_id: str, entries: Iterable
                  kept["granted_by"] if kept else who.username, kept["granted_at"] if kept else None),
             )
         conn.commit()
+        view_catalog.mark_dirty(object_type, object_id)
     except Exception:
         conn.rollback()
         raise
@@ -456,6 +459,7 @@ def delete_acl(object_type: str, object_id: str) -> None:
         c = conn.cursor()
         c.execute("DELETE FROM object_permissions WHERE object_type = %s AND object_id = %s", (object_type, object_id))
         conn.commit()
+        view_catalog.mark_dirty(object_type, object_id)
     finally:
         conn.close()
 

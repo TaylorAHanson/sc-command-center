@@ -265,6 +265,20 @@ def test_explicit_base_path_env_var_wins():
         assert base_path_for_model("system.ai.claude-opus-5", "AGENT_RUNTIME_LLM_BASE_PATH") == "/custom/gateway"
 
 
+def test_a_choice_setting_takes_only_its_choices():
+    assert validate_value("search_mode", " Hybrid ") == ("hybrid", None)
+    assert validate_value("search_mode", "fuzzy")[1]
+    assert validate_value("search_mode", "") == ("", None)
+
+
+def test_choices_reach_the_admin_ui():
+    with stored({}, {SETTING_SPECS["search_mode"].env: None}):
+        described = {s["key"]: s for s in settings_store.describe_settings()}
+    assert described["search_mode"]["choices"] == ["auto", "basic", "keyword", "hybrid"]
+    assert described["search_mode"]["value"] == "auto"
+    assert described["chat_model"]["choices"] == []
+
+
 if __name__ == "__main__":
     tests = [
         test_falls_back_to_the_built_in_default,
@@ -294,6 +308,8 @@ if __name__ == "__main__":
         test_a_stored_mcp_list_is_rechecked_and_an_unusable_one_falls_back,
         test_the_deployments_mcp_list_may_still_name_an_app,
         test_explicit_base_path_env_var_wins,
+        test_a_choice_setting_takes_only_its_choices,
+        test_choices_reach_the_admin_ui,
     ]
     for test in tests:
         test()

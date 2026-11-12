@@ -27,6 +27,8 @@ from typing import Any, Dict, Iterable, List, Optional
 from fastapi import HTTPException
 from psycopg2.extras import Json
 
+from services import view_catalog
+
 APP, WIDGET, AGENT = "app", "widget", "agent"
 TABLES = {APP: "dashboard_views", WIDGET: "widgets", AGENT: "agent_profiles"}
 #: Tables that retire rows by flag rather than deleting them.
@@ -222,6 +224,7 @@ def publish(c, object_type: str, object_id: str, username: str) -> int:
         [object_id, version, *values.values(), username],
     )
     discard(c, object_type, object_id)
+    view_catalog.touch(c, object_type, object_id)
     return version
 
 

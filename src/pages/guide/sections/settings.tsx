@@ -274,6 +274,53 @@ const Body = () => (
       </P>
     </Details>
 
+    <H2 id="hybrid-search">Turn on hybrid search</H2>
+    <P>
+      Searching for views runs in the best of three modes your database supports. The <UI>View search</UI> row of the Setup card says which one is
+      running. A search that can&rsquo;t run in that mode is answered in the one below it, so search never fails for want of a feature.
+    </P>
+    <Table
+      head={['Mode', 'What it matches', 'Needs']}
+      rows={[
+        ['basic', 'The words typed, and the start of a word, so "invent" finds Inventory. Names count most, then descriptions and tab names, then owner and domain, then widget names.', 'Nothing.'],
+        ['keyword', 'Whole words anywhere and the start of a word in names, ranked the way a search engine ranks, so a rare word counts for more than a common one.', 'Lakebase Search.'],
+        ['hybrid', 'Keyword plus meaning, so "late shipments" also finds "Delayed deliveries".', 'Lakebase Search and an embedding model.'],
+      ]}
+    />
+    <Steps>
+      <Step title="Enable Lakebase Search">
+        A workspace admin turns on <UI>Lakebase Search</UI> in the Lakebase project&rsquo;s settings. It needs PostgreSQL 16 or later.
+      </Step>
+      <Step title="Wait for the app">
+        Within about ten minutes the app installs the search extensions and builds the keyword index. It then embeds every view in the background
+        and builds the vector index. The <UI>View search</UI> row counts the views embedded so far.
+      </Step>
+      <Step title="Check the Setup card">
+        Click <UI>Check again</UI>. The row reads <Code>hybrid</Code> when everything is in place. If the app may not install the extensions itself, the
+        row shows the SQL for a database owner to run.
+      </Step>
+    </Steps>
+    <Callout kind="warn" title="Enabling Lakebase Search is one-way">
+      It is in Beta, can&rsquo;t be turned off again, and restarts the project&rsquo;s computes, so pick a quiet moment.
+    </Callout>
+    <P>
+      Two settings in the <UI>Search</UI> card change this:
+    </P>
+    <List>
+      <li>
+        <strong><UI>Search mode</UI></strong>: <Code>auto</Code>, the starting value, uses the best mode available. <Code>basic</Code>,{' '}
+        <Code>keyword</Code> or <Code>hybrid</Code> pins one. A pinned mode the database can&rsquo;t do yet falls back, and the Setup card says so.
+      </li>
+      <li>
+        <strong><UI>Search embedding model</UI></strong>: the serving endpoint that embeds views, <Code>databricks-gte-large-en</Code> to start
+        with. Changing it re-embeds every view. Enter <Code>off</Code> to turn meaning-based search off and keep keyword search.
+      </li>
+    </List>
+    <P>
+      Only a view&rsquo;s own name, description, tab names, domain and widget names go to the embedding model, never its data. The app&rsquo;s
+      service principal makes those calls, so it needs permission to query the model.
+    </P>
+
     <H2 id="models">Choose the models</H2>
     <P>
       Each model field suggests the chat models your Databricks workspace offers. You can also type a name that is not listed.
@@ -457,6 +504,6 @@ export const section: GuideSection = {
   title: 'Settings & models',
   summary: 'Choose models, limits and what the assistant may reach.',
   icon: Settings,
-  keywords: 'setup background jobs not set up model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence email ses amazon aws secret from address recipients domains scheduling schedule oauth client id app connection redirect url refresh token connect reconnect token vault key',
+  keywords: 'setup background jobs not set up model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence email ses amazon aws secret from address recipients domains scheduling schedule oauth client id app connection redirect url refresh token connect reconnect token vault key search hybrid keyword basic bm25 embedding vector lakebase search mode',
   Body,
 };

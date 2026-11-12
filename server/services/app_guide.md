@@ -1253,6 +1253,41 @@ data to another app never copies schedules. On a developer's own machine with
 `DEV_MODE` on, schedules run as the app's service principal instead of the owner;
 a deployed app never does.
 
+### Turn on hybrid search
+
+Searching for views works in one of three modes, and the **View search** row of
+the Setup card says which one is running:
+
+| Mode | What it matches |
+| --- | --- |
+| basic | The words typed, and the start of a word ("invent" finds Inventory), in a view's name first, then its description, tab names, owner, domain and widget names. Works on any database. |
+| keyword | Whole words anywhere and the start of a word in names, ranked the way a search engine ranks (BM25), so a rare word counts for more than a common one. Needs Lakebase Search. |
+| hybrid | Keyword plus meaning, so "late shipments" also finds "Delayed deliveries". Needs Lakebase Search and an embedding model. |
+
+Search picks the best mode the database can do, and falls back to the one below
+for any search that can't run in it, so it never fails for want of a feature.
+
+To go from basic to hybrid, a workspace admin enables **Lakebase Search** in the
+Lakebase project's settings. It is in Beta, needs PostgreSQL 16 or later, can't
+be turned off again, and restarts the project's computes, so pick a quiet moment.
+Nothing else is needed: within about ten minutes the app installs the search
+extensions, builds the keyword index, then embeds every view in the background
+and builds the vector index, and the Setup card counts the views embedded so far.
+Only a view's own name, description, tab names, domain and widget names are
+sent to the embedding model, never its data, and the app's service principal
+makes those calls, so it needs permission to query the model. If the app may not
+install the extensions itself, the Setup card shows the SQL for a database owner
+to run.
+
+Two settings, in the **Search** card of Admin Panel → Settings, change this:
+
+- **Search mode**: `auto` (the default) uses the best mode available. `basic`,
+  `keyword` or `hybrid` pins one; a pinned mode the database can't do yet falls
+  back, and the Setup card says so.
+- **Search embedding model**: the serving endpoint that embeds views, by default
+  `databricks-gte-large-en`. Changing it re-embeds every view. Enter `off` to
+  turn meaning-based search off and keep keyword search.
+
 ## The assistant panel
 
 This chat. It is the panel on the right of the screen; collapsed, it is the

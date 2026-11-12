@@ -44,6 +44,7 @@
 - **My schedules.** Resources → **My schedules** lists your schedules with their last and next runs: **Run now**, pause, edit, delete or see each one's history.
 - **Reminder to reconnect.** A banner across the top warns when your schedules' connection ends within a week or needs reconnecting, and links to My schedules.
 - **Widgets can offer a Schedule button.** Ask Widget Studio for "a button that emails this every Monday" and it adds one that opens the Schedule dialog.
+- **Choose how views are searched.** A **Search** card in Admin Panel → Settings sets the search mode and embedding model; Setup's **View search** row shows the mode running.
 
 ### Changed
 

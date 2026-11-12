@@ -152,6 +152,15 @@ async def startup_event():
     except Exception as e:  # noqa: BLE001
         logging.error(f"Could not register scheduling: {e}", exc_info=True)
 
+    # Discover's view catalog and usage signals (services/view_catalog.py,
+    # services/view_signals.py).
+    from services import view_catalog, view_signals
+    background.register("discover.catalog", 10, view_catalog.sync_job)
+    background.register("discover.embeddings", 30, view_catalog.embed_job)
+    background.register("discover.stats", 15 * 60, view_signals.rollup_job)
+    background.register("discover.prune", 6 * 60 * 60, view_signals.prune_job)
+    capabilities.register("search", "View search", view_catalog.capability_check)
+
     background.start()
 
 
@@ -329,6 +338,7 @@ from routes import chat_uploads
 from routes import data_migration
 from routes import capabilities as capabilities_routes
 from routes import activity as activity_routes
+from routes import discover
 from routes import email as email_routes
 from routes import oauth
 from routes import schedules
@@ -353,6 +363,7 @@ app.include_router(activity_routes.router, prefix="/api/activity", tags=["activi
 app.include_router(email_routes.router, prefix="/api/email", tags=["email"])
 app.include_router(oauth.router, prefix="/api/oauth", tags=["oauth"])
 app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
+app.include_router(discover.router, prefix="/api/discover", tags=["discover"])
 
 
 # Serve Frontend

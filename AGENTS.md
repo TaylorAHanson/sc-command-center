@@ -95,7 +95,9 @@ server/                 FastAPI gateway — see server/AGENTS.md
                        reports and actions; routes/schedules.py),
                        background.py (work on a timer, once across
                        workers), capabilities.py (optional features:
-                       off until set up), activity.py (who did what)
+                       off until set up), activity.py (who did what),
+                       view_catalog.py + view_signals.py (Discover: the
+                       view catalog, its search, opens and favorites)
   middleware/auth.py    OBO token extraction and WorkspaceClient factories
   config/               Static config + settings.py (env var reads)
 src/                    React SPA — see src/AGENTS.md
@@ -103,7 +105,8 @@ src/                    React SPA — see src/AGENTS.md
   widgetRegistry.ts     Loads DB-stored widgets at runtime; type contracts
   pages/ components/ hooks/ contexts/ store/
 tests/                  Standalone Python tests (no pytest)
-tools/                  Latency probes and a pool soak test, run against a server
+tools/                  Latency probes and a pool soak test, run against a server;
+                        discover_scale_probe.py (Discover at 50,000 views)
 dist/                   Build output; FastAPI serves it in production
 ```
 
@@ -115,8 +118,12 @@ per user. There is exactly one deliberate exception, documented in
 `server/services/agent_runtime.py`: LLM *inference* is signed by the app's
 service principal (`AGENT_RUNTIME_LLM_AUTH=sp`) because per-user
 foundation-model entitlements produced 403 "Unauthorized access to Org" for some
-users. Inference touches no user data; every tool call still uses OBO. Don't
-extend SP auth beyond that without a comparable justification.
+users. Inference touches no user data; every tool call still uses OBO. Discover's
+embeddings are inference of the same kind and signed the same way
+(`server/services/view_catalog.py`): the view catalog is embedded in the
+background with nobody signed in, and only a view's own name, description, tab
+names, domain and widget names are sent, never its data. Don't extend SP auth
+beyond that without a comparable justification.
 
 Scheduled and other unattended work is OBO too. It runs with the user's own
 access token, which `server/services/token_vault.py` refreshes from the refresh

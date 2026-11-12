@@ -602,6 +602,164 @@ def _create_operations_tables(conn) -> None:
             logging.warning(f"Could not create an operations table: {e}")
 
 
+def _create_discover_tables(conn) -> None:
+    """View discovery (services/view_catalog.py, services/view_signals.py), in
+    the content schema.
+
+    `view_catalog` is derived: one row per published view, rebuilt from
+    `dashboard_views`, the access list and `view_curation`, so it is never
+    copied between deployments. The readers are copied into it because the
+    access list lives in the settings schema, which locally is another database
+    and can't be joined. The search indexes (BM25, vector) are not created
+    here: they need the Lakebase extensions and a filled table, so the catalog
+    job builds them (`view_catalog.ensure_search`).
+    """
+    c = conn.cursor()
+    statements = (
+        # autovacuum_vacuum_insert_scale_factor = 0: BM25 statistics are only
+        # refreshed by VACUUM, so inserts alone must be enough to trigger one.
+        '''
+        CREATE TABLE IF NOT EXISTS view_catalog (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL DEFAULT '',
+            sort_name TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            owner TEXT,
+            owner_key TEXT,
+            domain TEXT,
+            presentation TEXT NOT NULL DEFAULT 'workspace',
+            ref TEXT NOT NULL DEFAULT '',
+            tab_names TEXT[] NOT NULL DEFAULT '{}',
+            widget_ids TEXT[] NOT NULL DEFAULT '{}',
+            widget_names TEXT[] NOT NULL DEFAULT '{}',
+            readers TEXT[] NOT NULL DEFAULT '{}',
+            managers TEXT[] NOT NULL DEFAULT '{}',
+            published_version INTEGER,
+            published_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            tsv TSVECTOR NOT NULL DEFAULT ''::tsvector,
+            embed_hash TEXT,
+            embedded_hash TEXT,
+            viewers_30d INTEGER NOT NULL DEFAULT 0,
+            viewers_7d INTEGER NOT NULL DEFAULT 0,
+            trend REAL NOT NULL DEFAULT 0,
+            favorites INTEGER NOT NULL DEFAULT 0,
+            last_opened_at TIMESTAMPTZ,
+            featured_position INTEGER,
+            certified BOOLEAN NOT NULL DEFAULT FALSE,
+            indexed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        ) WITH (fillfactor = 90, autovacuum_vacuum_insert_scale_factor = 0)
+        ''',
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_tsv ON view_catalog USING GIN (tsv)",
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_readers ON view_catalog USING GIN (readers)",
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_managers ON view_catalog USING GIN (managers)",
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_popular ON view_catalog (viewers_30d DESC, id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_trending ON view_catalog (trend DESC, id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_updated ON view_catalog (updated_at DESC, id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_favorites ON view_catalog (favorites DESC, id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_name ON view_catalog (sort_name, id)",
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_owner ON view_catalog (owner_key)",
+        "CREATE INDEX IF NOT EXISTS idx_view_catalog_featured ON view_catalog (featured_position) WHERE featured_position IS NOT NULL",
+        # Views whose catalog row is stale. Written in the publishing transaction
+        # or just after an access or archive change; drained by the catalog job.
+        '''
+        CREATE TABLE IF NOT EXISTS view_catalog_queue (
+            app_id TEXT PRIMARY KEY,
+            queued_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS view_catalog_state (
+            key TEXT PRIMARY KEY,
+            value JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        ''',
+        # One row per person, view and day: the first open of a day inserts,
+        # and only then does view_daily count another viewer.
+        '''
+        CREATE TABLE IF NOT EXISTS view_visits (
+            username TEXT NOT NULL,
+            app_id TEXT NOT NULL,
+            day DATE NOT NULL DEFAULT CURRENT_DATE,
+            last_opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            opens INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (username, app_id, day)
+        )
+        ''',
+        "CREATE INDEX IF NOT EXISTS idx_view_visits_recent ON view_visits (username, last_opened_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_view_visits_day ON view_visits (day)",
+        "CREATE INDEX IF NOT EXISTS idx_view_visits_opened ON view_visits (last_opened_at)",
+        '''
+        CREATE TABLE IF NOT EXISTS view_daily (
+            app_id TEXT NOT NULL,
+            day DATE NOT NULL,
+            viewers INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (app_id, day)
+        )
+        ''',
+        "CREATE INDEX IF NOT EXISTS idx_view_daily_day ON view_daily (day)",
+        '''
+        CREATE TABLE IF NOT EXISTS view_curation (
+            app_id TEXT PRIMARY KEY,
+            featured_position INTEGER,
+            featured_by TEXT,
+            featured_at TIMESTAMPTZ,
+            certified BOOLEAN NOT NULL DEFAULT FALSE,
+            certified_by TEXT,
+            certified_at TIMESTAMPTZ
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS user_favorites (
+            username TEXT NOT NULL,
+            app_id TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (username, app_id)
+        )
+        ''',
+        "CREATE INDEX IF NOT EXISTS idx_user_favorites_order ON user_favorites (username, position)",
+        "CREATE INDEX IF NOT EXISTS idx_user_favorites_app ON user_favorites (app_id)",
+        # Kept out of Discover's rails only; search still finds it, flagged.
+        '''
+        CREATE TABLE IF NOT EXISTS view_hidden (
+            username TEXT NOT NULL,
+            app_id TEXT NOT NULL,
+            hidden_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (username, app_id)
+        )
+        ''',
+        # Home's "mine" lists never-published views by who created them.
+        "CREATE INDEX IF NOT EXISTS idx_object_drafts_app_creator ON object_drafts "
+        "(LOWER(payload->>'username')) WHERE object_type = 'app'",
+    )
+    ok = True
+    for sql in statements:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            ok = False
+            logging.warning(f"Could not create a discover table: {e}")
+    if ok:
+        from services import view_catalog
+        view_catalog.tables_ready()
+
+
+def _create_discover_access_indexes(conn) -> None:
+    """Discover's "New for you" reads the last fortnight of grants; without this
+    it scans every access-list entry on each sidebar load."""
+    c = conn.cursor()
+    try:
+        c.execute("CREATE INDEX IF NOT EXISTS idx_object_permissions_recent ON object_permissions (object_type, granted_at)")
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        logging.warning(f"Could not create a discover access index: {e}")
+
+
 def _create_activity_feed_indexes(conn) -> None:
     """What the Admin Panel's Activity tab (services/activity_feed.py) filters and
     sorts on. The person filter matches usernames case-insensitively, which the
@@ -1225,6 +1383,7 @@ def init_db(env: str = "dev"):
     if env == settings_env():
         _create_access_tables(conn)
         _create_vault_tables(conn)
+        _create_discover_access_indexes(conn)
 
     # Content-store tables that belong to one feature: one `_create_*_tables`
     # function per feature, called here.
@@ -1233,6 +1392,7 @@ def init_db(env: str = "dev"):
         _create_activity_feed_indexes(conn)
         _create_email_tables(conn)
         _create_schedule_tables(conn)
+        _create_discover_tables(conn)
 
     # Link names for global views saved before they existed, or that arrived by
     # snapshot. Under the lock, so two workers don't hand one view two names.
