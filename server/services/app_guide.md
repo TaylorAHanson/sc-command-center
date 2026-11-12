@@ -405,7 +405,9 @@ outside closes it. It lists the widgets in the domain selected, most used first.
   list to every widget, widgets you built, or widgets other people built and
   shared with you.
 - **Grid View** shows cards with previews; **List View** a table of name,
-  creator, status, popularity and size.
+  creator, status, popularity and size. A row's **Status** shows the same
+  **CERTIFIED**, **PAGE** and draft badges as a card, and hovering a row shows
+  the same icons as hovering a card.
 - **Certified** shows certified widgets plus the person's own, remembered in
   that browser. **Top creators** lists who builds the widgets people use;
   clicking a name shows only theirs.
@@ -730,7 +732,8 @@ and **Action Logs**, and all of them apply to the whole app.
   ID is added as a comment (`cc-action: <id>`) at the front of the SQL an
   executable widget runs, so searching Databricks query history for it finds the
   exact statement. The row is written first; if it can't be, the action doesn't
-  run.
+  run. Only Administrators can read the log: the app refuses it to anyone else,
+  though everyone's actions are still recorded.
 
 ## Drafts and publishing
 
