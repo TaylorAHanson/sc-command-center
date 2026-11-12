@@ -1029,6 +1029,32 @@ result (`ping_result`: the row, then `PING_NOTE`), not a refusal: told "Not run"
 the agent read a failed check and sent the same `SELECT 1` again. A second ping
 in one run gets `PING_REPEATED`, which tells it to return the code.
 
+**Widget Studio asks the author before Genie is sent anything.** It passes a
+`GenieGate` to `langchain_tools(genie=…)`, built by `_genie_gate` from the
+request's `genie_permission` (`ask` | `always` | `off`; missing or unknown reads
+as `ask`, so an old client can't send an unapproved question). With a gate,
+`ask_genie` is a different tool: it takes a `reason` and its docstring limits it
+to business meaning, never names, values, row counts or styling, at most one
+question a turn. In `ask` mode a question isn't sent: `hold` records
+`{question, reason}`, tells the agent to end its turn (`GENIE_HELD`), and every
+later `run_sql` or second question in that turn gets a refusal. The job then
+settles as a pause through `_genie_pause` (next to `_clarify`):
+`code: None` (or, after a planned run, the steps that landed), `genie_request`,
+and `GENIE_PAUSE_TEXT`. The check runs after `_research`, after each step in
+`_run_stages(genie=…)` (that step and the rest are marked `skipped`), and after
+the one-pass agent, whose reply is discarded. The card re-sends the turn with
+`approved_genie`, which `_approved_genie` asks *before* the agent starts, on its
+own `GENIE_APPROVED_SECONDS` slice that leaves `MIN_ONE_PASS_SECONDS`. The
+answer goes into the system prompt as findings and is remembered in the gate,
+so the agent asking it again gets it without a second wait; any other question
+is held again. `genie_declined` ("Continue without Genie") and `off` bind no
+Genie tool. A prompt that itself tells the agent to ask Genie
+(`asks_for_genie`, deliberately conservative: the verb must open a clause, so an
+"Ask Genie" button or "a box where users ask Genie" don't count) approves that
+turn, though never on an auto-fix (`error_log`). The admin switch still wins:
+with `enable_genie_tool` off there is no tool, so nothing is held and no card
+appears. Agent Studio passes no gate, so its tool and docstring are unchanged.
+
 ## Moving data between apps (`services/data_migration.py`, `routes/data_migration.py`)
 
 Each bundle target has its own Lakebase instance, so moving users from the dev
@@ -1352,7 +1378,10 @@ judgement that decides a request is worth planning decides it is worth a questio
 because that is exactly where a wrong guess costs minutes. A question set settles
 the job with `code: None` and a `questions` list; nothing is generated. Two guards
 stop a loop: the client sends `allow_clarify: false` on the answering turn, and
-`CLARIFY_MARKER` in the history means one has already been asked.
+`CLARIFY_MARKER` in the history means one has already been asked. A Genie pause
+(`_genie_pause`, see *Studio research tools*) settles the same way with a
+`genie_request` instead, and a turn re-sent from its card (`approved_genie` or
+`genie_declined`) never asks clarifying questions, having stopped once already.
 
 **The data-source test runs as the user (`get_db_client`).** It ran as the SP,
 with no statement check, which let anyone with studio access run any SQL with the
@@ -1451,7 +1480,7 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_helper.py  # 25 passed
-PYTHONPATH=server .venv/bin/python tests/test_widget_agent_context.py # 23 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_context.py # 34 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
 PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_creator_stats.py        # 16 passed
@@ -1471,7 +1500,7 @@ PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 26 passe
 .venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server .venv/bin/python tests/test_conversation_store.py   # 5 passed
 PYTHONPATH=server .venv/bin/python tests/test_db_pool.py              # 14 passed
-PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 30 passed
+PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 44 passed
 PYTHONPATH=server .venv/bin/python tests/test_data_migration.py       # 25 passed
 PYTHONPATH=server .venv/bin/python tests/test_app_help.py            # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_role_mappings_home.py   # 2 passed
