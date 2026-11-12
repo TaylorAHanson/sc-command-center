@@ -1020,6 +1020,32 @@ a timer, such as refreshing a search index) last ran, and whether it failed. If
 someone asks why a feature is missing or greyed out, send their administrator to
 that card.
 
+### Setting up scheduling
+
+Scheduled work runs as the person who scheduled it, with their own data access,
+never as the app. For that, each person connects their account to the app once,
+and the app keeps the connection, encrypted, so it can act for them while they are
+away. Setting it up is a one-time job for administrators:
+
+1. An **account admin** creates a custom OAuth app connection for this app in the
+   Databricks account console (**Settings → App connections → Add connection**):
+   no client secret (a public client), the **SQL** access scope, the redirect URL
+   the Setup card shows (this app's address followed by `/api/oauth/callback`),
+   and a refresh token lifetime of 30 days (43,200 minutes).
+2. An app Administrator pastes the client id it shows into **Admin Panel →
+   Settings → Scheduling → OAuth client id**. If the lifetime chosen wasn't 30
+   days, set **Connection lifetime (days)** to match, so reminders to reconnect
+   arrive on time.
+3. Recommended: whoever deploys the app gives it a `TOKEN_VAULT_KEY` from a secret
+   scope. Without one the app derives its key from its own credentials, and
+   rotating those makes everyone connect again.
+
+The **Scheduling** line on the Setup card turns ready once the client id is saved.
+A connection lasts as long as the integration allows; after that, or if someone's
+access is revoked, they are asked to connect again. One integration can serve
+several copies of the app if each copy's redirect URL is added to it. Moving data
+to another app never copies connections, so people connect again there.
+
 ## The assistant panel
 
 This chat. It is the panel on the right of the screen; collapsed, it is the

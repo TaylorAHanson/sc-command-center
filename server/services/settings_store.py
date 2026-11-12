@@ -294,6 +294,26 @@ SETTING_SPECS: Dict[str, Spec] = {
         help="Off means attachments are only ever read through extraction tools, so no raw image or PDF is uploaded to the model. Scanned documents and screenshots stop working.",
         group="tools",
     ),
+    # Scheduling (services/token_vault.py). The client id isn't a secret: a public
+    # client has none, and it appears in every sign-in URL.
+    "oauth_client_id": Spec(
+        env="OAUTH_CLIENT_ID",
+        default="",
+        kind="text",
+        label="OAuth client id",
+        help="The client id of the custom OAuth app integration an account admin created for this app. Scheduled work runs as each person through it, and scheduling stays off until it is set. See User Guide → Settings & models → Set up scheduling.",
+        group="scheduling",
+    ),
+    "oauth_refresh_ttl_days": Spec(
+        env="OAUTH_REFRESH_TTL_DAYS",
+        default="30",
+        kind="int",
+        label="Connection lifetime (days)",
+        help="The refresh token lifetime set on that integration. Reminders to reconnect count from when each person connected, so keep the two the same.",
+        minimum=1,
+        maximum=90,
+        group="scheduling",
+    ),
 }
 
 # Cards on the Settings page, in order. A group with no settings isn't rendered.
@@ -303,6 +323,7 @@ SETTING_GROUPS: List[Dict[str, str]] = [
     {"key": "privacy", "label": "Retention and context"},
     {"key": "chat", "label": "Chat agent limits"},
     {"key": "widget", "label": "Studio limits"},
+    {"key": "scheduling", "label": "Scheduling"},
     {"key": "limits", "label": "Other limits"},
 ]
 
@@ -683,6 +704,16 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
             return "", (f"Not a model parameter: {', '.join(stray)}. "
                         f"Allowed: {', '.join(sorted(CONFIGURABLE))}")
         return json.dumps(parsed, separators=(", ", ": ")), None
+
+    if spec.kind == "text":
+        # One line of plain text. Without this branch it would fall through to the
+        # integer parse below. Whatever reads the value re-checks its own format,
+        # because a row can arrive by data migration without passing here.
+        if len(text) > 500:
+            return "", f"{spec.label} is too long (500 characters maximum)"
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in text):
+            return "", f"{spec.label} must be a single line of text"
+        return text, None
 
     try:
         value = int(float(text))

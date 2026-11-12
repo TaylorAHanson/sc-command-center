@@ -132,6 +132,16 @@ async def startup_event():
     # services/capabilities.py). Neither register() nor start() raises.
     from services import background, capabilities  # noqa: F401
 
+    # Scheduling's token vault (services/token_vault.py). Guarded because anything
+    # raised here stops the whole app, and a broken vault should cost scheduling only.
+    try:
+        from services import token_vault
+
+        capabilities.register("scheduling", "Scheduling", token_vault.capability)
+        background.register("oauth_pending_purge", 3600, token_vault.purge_pending)
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Could not register the token vault: {e}", exc_info=True)
+
     background.start()
 
 
@@ -308,6 +318,7 @@ from routes import conversations
 from routes import chat_uploads
 from routes import data_migration
 from routes import capabilities as capabilities_routes
+from routes import oauth
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widget_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
@@ -325,6 +336,7 @@ app.include_router(chat_uploads.router, prefix="/api/agent/uploads", tags=["chat
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(data_migration.router, prefix="/api/migration", tags=["data_migration"])
 app.include_router(capabilities_routes.router, prefix="/api/capabilities", tags=["capabilities"])
+app.include_router(oauth.router, prefix="/api/oauth", tags=["oauth"])
 
 
 # Serve Frontend

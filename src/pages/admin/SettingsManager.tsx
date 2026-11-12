@@ -14,7 +14,7 @@ interface Setting {
     key: string;
     label: string;
     help: string;
-    kind: 'endpoint' | 'int' | 'json' | 'bool' | 'hosts' | 'mcp_servers';
+    kind: 'endpoint' | 'int' | 'json' | 'bool' | 'hosts' | 'mcp_servers' | 'text';
     /** Which card this belongs under; the backend decides the grouping. */
     group: string;
     /** Value in force right now, whatever its source. */
@@ -238,6 +238,16 @@ export const SettingsManager: React.FC = () => {
                     />
                     {(draft[setting.key] ?? '').trim().toLowerCase() !== 'false' ? 'Allowed' : 'Blocked'}
                 </label>
+            ) : setting.kind === 'text' ? (
+                <input
+                    type="text"
+                    spellCheck={false}
+                    autoComplete="off"
+                    value={draft[setting.key] ?? ''}
+                    onChange={e => edit(setting.key, e.target.value)}
+                    aria-label={setting.label}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 focus:border-brand-blue focus:outline-none"
+                />
             ) : (
                 <input
                     type="number"

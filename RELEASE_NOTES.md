@@ -27,6 +27,7 @@
 ### Added
 
 - **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
+- **Set up scheduling.** Paste your OAuth app connection's client id under **Scheduling** in Admin Panel → Settings; the User Guide's **Set up scheduling** shows how to create one.
 
 ## 2.0.1 — 2026-11-11
 
