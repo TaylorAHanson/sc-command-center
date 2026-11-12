@@ -31,6 +31,7 @@ from database import get_db_connection
 from middleware.auth import get_db_client
 from routes.roles import _get_current_username
 from services import access, drafts
+from services import activity
 from services.creator_stats import is_person, unowned_sql
 
 router = APIRouter()
@@ -598,6 +599,7 @@ def create_custom_widget(widget: dict, w: WorkspaceClient = Depends(get_db_clien
             access.grant_owner(WIDGET, widget_id, created_by)
         except Exception:  # noqa: BLE001
             logging.exception("Could not give %s Can manage on new widget %s", created_by, widget_id)
+        activity.record(who.username, "widget.create", WIDGET, widget_id)
     return {"status": "success", "id": widget_id, "created_by": payload["created_by"], "state": state}
 
 
@@ -657,13 +659,14 @@ def publish_widget(widget_id: str, w: WorkspaceClient = Depends(get_db_client)):
         raise
     finally:
         conn.close()
+    activity.record(who.username, "widget.publish", WIDGET, widget_id, {"version": version})
     return {"status": "success", "id": widget_id, "version": version, "state": drafts.PUBLISHED}
 
 
 @router.post("/custom/{widget_id}/discard")
 def discard_widget_draft(widget_id: str, w: WorkspaceClient = Depends(get_db_client)):
     """Throw the draft away and go back to the published version."""
-    _managed(w, widget_id)
+    who = _managed(w, widget_id)
     conn = get_db_connection()
     c = conn.cursor()
     try:
@@ -681,6 +684,8 @@ def discard_widget_draft(widget_id: str, w: WorkspaceClient = Depends(get_db_cli
         raise
     finally:
         conn.close()
+    if discarded:
+        activity.record(who.username, "widget.discard", WIDGET, widget_id)
     return {"status": "success", "id": widget_id, "discarded": discarded, "state": drafts.PUBLISHED}
 
 
@@ -699,6 +704,7 @@ def revert_widget(widget_id: str, body: VersionBody, w: WorkspaceClient = Depend
         raise
     finally:
         conn.close()
+    activity.record(who.username, "widget.revert", WIDGET, widget_id, {"version": body.version})
     return {"status": "success", "id": widget_id, "state": drafts.state_of(True, version)}
 
 
@@ -709,7 +715,7 @@ def certify_widget(widget_id: str, body: CertifyBody, w: WorkspaceClient = Depen
     A manager's call, like publishing. Certification belongs to one version's
     code, which is why publishing never carries it over (`drafts.RESET_ON_PUBLISH`).
     """
-    _managed(w, widget_id)
+    who = _managed(w, widget_id)
     conn = get_db_connection()
     c = conn.cursor()
     try:
@@ -728,6 +734,7 @@ def certify_widget(widget_id: str, body: CertifyBody, w: WorkspaceClient = Depen
         raise
     finally:
         conn.close()
+    activity.record(who.username, "widget.certify", WIDGET, widget_id, {"version": version, "certified": body.certified})
     return {"status": "success", "id": widget_id, "version": version, "certified": body.certified}
 
 
@@ -840,7 +847,7 @@ def delete_custom_widget(widget_id: str, w: WorkspaceClient = Depends(get_db_cli
     A widget that was never published is only its draft, so deleting it is
     permanent and its access list goes with it.
     """
-    _managed(w, widget_id)
+    who = _managed(w, widget_id)
     conn = get_db_connection()
     c = conn.cursor()
     try:
@@ -861,4 +868,5 @@ def delete_custom_widget(widget_id: str, w: WorkspaceClient = Depends(get_db_cli
             access.delete_acl(WIDGET, widget_id)
         except Exception:  # noqa: BLE001
             logging.exception("Could not remove the access list of deleted widget %s", widget_id)
+    activity.record(who.username, "widget.delete", WIDGET, widget_id)
     return {"status": "deleted", "id": widget_id}

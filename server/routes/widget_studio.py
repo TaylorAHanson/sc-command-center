@@ -35,6 +35,7 @@ from services.code_patch import (
     strip_edit_blocks,
 )
 from services import llm_params, native_files, research_tools, sql_safety
+from services import activity, caller_identity
 from services.generation_jobs import JobStore
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
 from services.llm_client import DatabricksChatOpenAI, chat_client, reply_text
@@ -2257,6 +2258,18 @@ def _llm_credentials(db_client: WorkspaceClient) -> tuple[str, str]:
         raise HTTPException(status_code=500, detail=f"OpenAI client init failed: {e}")
 
 
+def _record_generation(job_id: str, req: GenerateRequest, user_client: WorkspaceClient) -> None:
+    """Log a finished Widget Studio turn for the Activity tab: how it ended, never the prompt or code.
+
+    Queued behind `run_generation_task`, and FastAPI runs a request's background
+    tasks one after another, so the job has settled by the time this reads it.
+    """
+    job = generation_jobs.snapshot(job_id) or {}
+    status = "cancelled" if job.get("cancelled") else (job.get("status") or "unknown")
+    activity.record(caller_identity.username(user_client), "widget.generate", None, None,
+                    {"status": status, "edit": bool(req.current_code), "layout": req.layout_kind})
+
+
 # The handlers below are plain `def` because each one blocks — on the job table,
 # and on the SDK's token fetch — and FastAPI runs those on a thread pool. As
 # `async def` they would stall every other request on the worker while they wait.
@@ -2276,6 +2289,7 @@ def start_generate_widget(req: GenerateRequest, background_tasks: BackgroundTask
     # The host, not a URL: this job may call two models on two different routes,
     # so each one derives its own base path. See `_base_url`.
     background_tasks.add_task(run_generation_task, job_id, req, api_key, host, user_client)
+    background_tasks.add_task(_record_generation, job_id, req, user_client)
 
     # The studio sizes its own polling from this rather than from a hardcoded
     # number, so raising the limit in Settings is enough — the client used to give

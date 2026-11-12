@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from database import get_db_connection
 from middleware.auth import get_db_client
 from services import access, drafts
+from services import activity
 
 router = APIRouter()
 
@@ -37,6 +38,19 @@ class AdminAdd(BaseModel):
 #: Where each kind of object records who made it.
 _OWNER_COLUMN = {"app": "username", "widget": "created_by", "agent": "username"}
 _NOT_AN_OWNER = {"", "system", "unknown", "dev"}
+
+
+#: Activity verbs name views as people do; the access list calls them apps.
+_VERB_NOUN = {"app": "view", "widget": "widget", "agent": "agent"}
+
+
+def _share_detail(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """How widely it is now shared, for the activity log; not who, which the access list keeps."""
+    return {
+        "entries": len(entries),
+        "everyone": any(e.get("principal") == access.EVERYONE for e in entries),
+        "managers": sum(1 for e in entries if e.get("level") == access.MANAGE),
+    }
 
 
 def owner_from(object_type: str, row: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -69,13 +83,17 @@ def list_admins(w: WorkspaceClient = Depends(get_db_client)):
 @router.post("/admins")
 def add_admin(body: AdminAdd, w: WorkspaceClient = Depends(get_db_client)):
     who = access.require_app_admin(w)
-    return {"admins": access.add_admin(who, body.principal, body.principal_type)}
+    admins = access.add_admin(who, body.principal, body.principal_type)
+    activity.record(who.username, "admin.add", "principal", body.principal.strip())
+    return {"admins": admins}
 
 
 @router.delete("/admins")
 def remove_admin(principal: str, w: WorkspaceClient = Depends(get_db_client)):
-    access.require_app_admin(w)
-    return {"admins": access.remove_admin(principal)}
+    who = access.require_app_admin(w)
+    admins = access.remove_admin(principal)
+    activity.record(who.username, "admin.remove", "principal", principal.strip())
+    return {"admins": admins}
 
 
 def _timestamp(value: Any) -> Optional[str]:
@@ -147,5 +165,6 @@ def get_acl(object_type: ObjectType, object_id: str, w: WorkspaceClient = Depend
 @router.put("/{object_type}/{object_id}")
 def put_acl(object_type: ObjectType, object_id: str, body: AclUpdate, w: WorkspaceClient = Depends(get_db_client)):
     who = access.caller(w)
-    access.replace_acl(who, object_type, object_id, [e.model_dump() for e in body.entries])
+    saved = access.replace_acl(who, object_type, object_id, [e.model_dump() for e in body.entries])
+    activity.record(who.username, f"{_VERB_NOUN[object_type]}.share", object_type, object_id, _share_detail(saved))
     return _acl_response(object_type, object_id, access.MANAGE)

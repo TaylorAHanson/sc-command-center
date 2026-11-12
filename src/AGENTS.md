@@ -520,6 +520,25 @@ or state again.
   and calls `onClose` itself once that resolves, so a caller must not close it
   too. Publish stays disabled while the preflight reports anything `blocking`.
 
+## Opening an object from the Admin Panel (`pages/admin/openObject.ts`, `pages/admin/ActivityLog.tsx`)
+
+`openObject(type, id, tools)` is the one place that knows where a view, widget
+or agent opens, and both Content and Activity use it. A view goes to
+`#/app/<id>`, which the workspace's `hashchange` handler opens. A widget goes
+through `WorkspaceTools.editWidget`, which Layout also provides around the Admin
+Panel, because Widget Studio takes its widget from the store rather than the
+hash. An agent goes to `#/agent-studio/<id>`; Agent Studio reads the id once on
+mount, loads that agent and puts the hash back to `#/agent-studio`, so a reload
+doesn't reopen it over later work. It returns false when it can't navigate, and
+callers show that rather than doing nothing.
+
+`ActivityLog` never sets state synchronously inside an effect, which the
+`react-hooks` compiler rules reject. Loading is derived (the shown page carries
+the filter key it was fetched for), and relative times ("last hour") are worked
+out when the request is sent, not during render. Verb labels live in
+`VERB_LABELS`; an unknown verb shows as its raw code, so a new server verb never
+breaks the tab. The verb list is in `server/AGENTS.md` → *The Activity tab*.
+
 ## Data Migration (`pages/admin/DataMigration.tsx`)
 
 Import is offered only for the file and options that were just previewed
@@ -822,7 +841,8 @@ App.tsx                 The workspace: Layout around DashboardGrid
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
                         Help/About/UserGuide, AdminPage
 pages/admin/            AdminContent, Administrators, MigrationBanner,
-                        TaxonomyManager, SettingsManager, DataMigration
+                        TaxonomyManager, SettingsManager, DataMigration,
+                        ActivityLog, openObject (where Open/Edit goes)
 sharing.ts              Sharing labels and ACL helpers (see *The sharing kit*)
 capabilities.ts         useCapabilities: which optional features are set up
 contentEnv.ts           Legacy shims; only stripLegacyEnvParam is used

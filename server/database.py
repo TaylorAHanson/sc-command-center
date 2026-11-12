@@ -555,6 +555,24 @@ def _create_operations_tables(conn) -> None:
             logging.warning(f"Could not create an operations table: {e}")
 
 
+def _create_activity_feed_indexes(conn) -> None:
+    """What the Admin Panel's Activity tab (services/activity_feed.py) filters and
+    sorts on. The person filter matches usernames case-insensitively, which the
+    plain `username` index can't serve; `action_logs` had no index on time."""
+    c = conn.cursor()
+    for sql in (
+        "CREATE INDEX IF NOT EXISTS idx_activity_events_lower_user_at ON activity_events (LOWER(username), at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp ON action_logs (timestamp DESC, id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_action_logs_lower_user_ts ON action_logs (LOWER(username), timestamp DESC)",
+    ):
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            logging.warning(f"Could not create an activity index: {e}")
+
+
 def _advisory_lock_key(env: str) -> int:
     """Stable per-env key for the schema-init advisory lock (see init_db)."""
     base = 918273645  # arbitrary constant, just needs to be app-unique
@@ -1046,6 +1064,7 @@ def init_db(env: str = "dev"):
     # function per feature, called here.
     if env == content_env():
         _create_operations_tables(conn)
+        _create_activity_feed_indexes(conn)
 
     # Link names for global views saved before they existed, or that arrived by
     # snapshot. Under the lock, so two workers don't hand one view two names.

@@ -6,18 +6,20 @@ import { TaxonomyManager } from './admin/TaxonomyManager';
 import { SettingsManager } from './admin/SettingsManager';
 import { DataMigration } from './admin/DataMigration';
 import { MigrationBanner } from './admin/MigrationBanner';
+import { ActivityLog } from './admin/ActivityLog';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowRightLeft, LayoutGrid, List, Loader2, ShieldCheck, Sliders, Tag } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowRightLeft, LayoutGrid, List, Loader2, ShieldCheck, Sliders, Tag } from 'lucide-react';
 import { fetchMe } from '../sharing';
 
 interface AdminPageProps {
     onNavigate: (page: string | null) => void;
 }
 
-type AdminTab = 'content' | 'taxonomy' | 'admins' | 'settings' | 'migration' | 'logs';
+type AdminTab = 'content' | 'activity' | 'taxonomy' | 'admins' | 'settings' | 'migration' | 'logs';
 
 const TABS: { id: AdminTab; label: string; Icon: typeof List }[] = [
     { id: 'content', label: 'Content', Icon: LayoutGrid },
+    { id: 'activity', label: 'Activity', Icon: Activity },
     { id: 'taxonomy', label: 'Categories & Domains', Icon: Tag },
     { id: 'admins', label: 'Administrators', Icon: ShieldCheck },
     { id: 'settings', label: 'Settings', Icon: Sliders },
@@ -106,6 +108,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
             <div className="flex-1 overflow-auto p-6 lg:p-8">
                 {activeTab === 'content' && <AdminContent />}
+                {activeTab === 'activity' && <ActivityLog />}
                 {activeTab === 'taxonomy' && <TaxonomyManager />}
                 {activeTab === 'admins' && <Administrators />}
                 {activeTab === 'settings' && <SettingsManager />}

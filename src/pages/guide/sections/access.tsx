@@ -40,9 +40,9 @@ const Body = () => (
     <P>
       <Needs role="Administrator" /> Administrators can manage every view, widget and agent in the app, and are the only people
       who see the <UI>Admin Panel</UI>. Open it from <UI>Resources</UI> at the bottom of the sidebar, or use{' '}
-      <OpenLink page="admin">this link</OpenLink>. Its tabs are <UI>Content</UI>, <UI>Categories &amp; Domains</UI>,{' '}
-      <UI>Administrators</UI>, <UI>Settings</UI>, <UI>Data Migration</UI> and <UI>Action Logs</UI>, and all of them cover the
-      whole app.
+      <OpenLink page="admin">this link</OpenLink>. Its tabs are <UI>Content</UI>, <UI>Activity</UI>,{' '}
+      <UI>Categories &amp; Domains</UI>, <UI>Administrators</UI>, <UI>Settings</UI>, <UI>Data Migration</UI> and{' '}
+      <UI>Action Logs</UI>, and all of them cover the whole app.
     </P>
     <Steps>
       <Step title="Open Administrators">
@@ -76,6 +76,41 @@ const Body = () => (
       something nobody else can reach any more, for example after its owner has left, and share it with someone who should
       manage it.
     </P>
+    <P>
+      <UI>Open</UI> on a view opens it in the canvas; <UI>Edit</UI> on a widget or agent opens it in Widget Studio or Agent
+      Studio. An archived view has <UI>Restore</UI> instead.
+    </P>
+
+    <H2 id="activity">See who did what</H2>
+    <P>
+      <Needs role="Administrator" /> The <UI>Activity</UI> tab lists what people did in the app, newest first: creating,
+      publishing, reverting, archiving, deleting and sharing views, widgets and agents; Widget Studio and Agent Studio
+      generations; assistant chats; Settings changes; changes to the Administrators list; and the executable widget actions
+      also shown in <GuideLink to="action-logs">Action logs</GuideLink>.
+    </P>
+    <List>
+      <li>
+        <strong>Filter</strong> by kind, object type, time range, or a person&rsquo;s exact username. <UI>Only this</UI> on a
+        row narrows the list to that view, widget or agent, and <UI>Show older</UI> loads more.
+      </li>
+      <li>
+        <strong>Who is active now.</strong> The strip at the top lists people seen in the last 15 minutes. It is noted at most
+        every ten minutes, so treat it as approximate.
+      </li>
+      <li>
+        <strong>One person&rsquo;s activity.</strong> Click a name for their last 30 days: what they did, by kind, and what they
+        worked on most.
+      </li>
+      <li>
+        <strong>Open or edit</strong> from a row works as it does on <UI>Content</UI>, for anything that still exists.
+      </li>
+    </List>
+    <Callout kind="note" title="What it keeps, and for how long">
+      Activity records that something happened, never what anyone wrote: no prompts, chat text, widget code, query results,
+      setting values or names on an access list. It starts empty on the release that added it. Events are deleted after{' '}
+      <UI>Delete activity events after (days)</UI> under <GuideLink to="settings" anchor="privacy">Settings</GuideLink>, 365 to
+      start with; <Code>0</Code> keeps them. Widget actions in Action logs are kept either way.
+    </Callout>
 
     <H2 id="domains">Categories and domains</H2>
     <P>
@@ -118,8 +153,8 @@ export const section: GuideSection = {
   id: 'access',
   group: 'admin',
   title: 'Administrators & access',
-  summary: 'Ask for access, manage Administrators, and find content.',
+  summary: 'Ask for access, manage Administrators, find content, and see activity.',
   icon: Users,
-  keywords: 'access request administrator admin panel content owner group sign in permission domain category migration',
+  keywords: 'access request administrator admin panel content owner group sign in permission domain category migration activity audit who did what active',
   Body,
 };

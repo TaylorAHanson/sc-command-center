@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from middleware.auth import get_db_client
 from routes.roles import _get_current_username, require_global_admin
 from services import capabilities
+from services import activity
 from services.settings_store import SETTING_GROUPS, describe_settings, save_settings, settings_env
 
 router = APIRouter()
@@ -53,8 +54,9 @@ def get_settings(w: WorkspaceClient = Depends(get_db_client)):
 @router.put("/")
 def update_settings(body: SettingsUpdate, w: WorkspaceClient = Depends(get_db_client)):
     require_global_admin(w)
+    username = _get_current_username(w)
     try:
-        result = save_settings(body.settings or {}, _get_current_username(w))
+        result = save_settings(body.settings or {}, username)
     except Exception as e:  # noqa: BLE001
         logger.exception("Failed to save app settings")
         raise HTTPException(status_code=500, detail=f"Could not save settings: {e}")
@@ -65,6 +67,11 @@ def update_settings(body: SettingsUpdate, w: WorkspaceClient = Depends(get_db_cl
     # A setting is often the missing piece a Setup check reports, so the card
     # should reflect the save straight away rather than within the minute.
     capabilities.invalidate()
+    # Which settings, never their values: some name hosts or servers an admin
+    # would not want copied into a log every other admin can read.
+    changed = sorted(result["saved"] + result["cleared"])
+    if changed:
+        activity.record(username, "settings.update", "settings", None, {"keys": ",".join(changed), "count": len(changed)})
     return {**result, "settings": describe_settings(), "groups": SETTING_GROUPS}
 
 

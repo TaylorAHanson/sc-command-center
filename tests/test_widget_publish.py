@@ -16,6 +16,7 @@ try:
     from fastapi import HTTPException
     from routes import custom_widgets as cw
     from services import access
+    from services import activity
 except Exception as e:  # pragma: no cover - needs the backend venv
     print(f"SKIP test_widget_publish: {e}")
     sys.exit(0)
@@ -140,6 +141,7 @@ class World:
         self.acl = {}  # widget id -> {username: level}
         self.me, self.admin = me, admin
         self.lent = (set(), set())
+        self.activity = []  # what activity.record was given
         self._saved = {}
 
     def publish(self, widget_id, version, **cols):
@@ -180,6 +182,7 @@ class World:
             (access, "level_for"): lambda who, t, i: access.MANAGE if self.admin else self.levels().get(i),
             (access, "grant_owner"): lambda t, i, u: self.acl.setdefault(i, {}).update({u: access.MANAGE}),
             (access, "delete_acl"): lambda t, i: self.acl.pop(i, None),
+            (activity, "record"): lambda *args, **kwargs: self.activity.append(args),
             (access, "acl_summaries"): lambda t=None: {
                 (t, i): {"entries": len(by), "everyone": "*" in by} for i, by in self.acl.items()},
         }

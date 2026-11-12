@@ -132,6 +132,9 @@ async def startup_event():
     # services/capabilities.py). Neither register() nor start() raises.
     from services import background, capabilities  # noqa: F401
 
+    from services import activity_feed
+    background.register("activity_retention", activity_feed.PURGE_EVERY_SECONDS, activity_feed.retention_job)
+
     background.start()
 
 
@@ -308,6 +311,7 @@ from routes import conversations
 from routes import chat_uploads
 from routes import data_migration
 from routes import capabilities as capabilities_routes
+from routes import activity as activity_routes
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widget_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
@@ -325,6 +329,7 @@ app.include_router(chat_uploads.router, prefix="/api/agent/uploads", tags=["chat
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(data_migration.router, prefix="/api/migration", tags=["data_migration"])
 app.include_router(capabilities_routes.router, prefix="/api/capabilities", tags=["capabilities"])
+app.include_router(activity_routes.router, prefix="/api/activity", tags=["activity"])
 
 
 # Serve Frontend
