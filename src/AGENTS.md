@@ -45,8 +45,8 @@ Read that file before touching anything widget-related. `build()` does a
 deliberately ordered two-pass `@babel/standalone` transform — pass 1
 (`react` + `typescript` presets) compiles JSX and elides *type-only* imports,
 pass 2 (`transform-modules-commonjs`) rewrites any remaining runtime `import`
-— then evaluates the result in `new Function('React', 'useScript', ...)` with a
-minimal CommonJS shim. So `useScript` is a genuine injected parameter, and
+— then evaluates the result in `new Function('React', 'useScript', 'useLinkState', ...)` with a
+minimal CommonJS shim. So `useScript` and `useLinkState` are genuine injected parameters, and
 `require` resolves only to React, ReactDOM, or a matching `window` global,
 throwing a clear per-widget error otherwise (which keeps one bad widget from
 failing the whole registry load).
@@ -108,10 +108,11 @@ Practical consequences for widget code:
 - **Brand colours are `brand-navy` / `brand-blue` / `brand-light`, and older
   widgets don't say so.** Before the palette was renamed, widgets were generated
   with the customer's name in those classes, and that code is still in the
-  database. Every compile path (`widgetRegistry.ts`, Widget Studio's preview, the
-  admin preview) passes the source through `withBrandColors` from `brand.ts`,
+  database. Both compile paths (`widgetRegistry.ts` and Widget Studio's preview;
+  the admin preview went in 2.0.0) pass the source through `withBrandColors` from `brand.ts`,
   which maps `<APP_BRAND>-*` to `brand-*`. A new compile path must do the same, or
-  those widgets lose their colours there. The name comes from `/api/health`, which
+  those widgets lose their colours there, and must inject `useLinkState` beside
+  `useScript`, or any widget that keeps a setting in the link fails to render. The name comes from `/api/health`, which
   reads `var.brand` in `databricks.yml`. It is `brand` (no alias) in this repo, and
   a customer's copy sets its own, so no customer name belongs here.
 - **Brand colours are CSS variables, so a view can recolour them.** Tailwind maps
@@ -280,7 +281,8 @@ Two behaviors there are easy to break by accident:
 - **Pattern checks (`src/widgetLint.ts`) mirror the contract.** Errors are code
   that won't work or breaks a platform rule (no default export, an import the
   sandbox can't satisfy, a `useScript` host `isAllowedScriptUrl` refuses, a write
-  without `executeAction`); warnings are usually-wrong patterns (unchecked SQL
+  without `executeAction`, a redefined `useScript` or `useLinkState`, a
+  `useLinkState` key that isn't a literal string of letters, digits, `_` or `-`); warnings are usually-wrong patterns (unchecked SQL
   response, light text, arbitrary Tailwind, a class the stylesheet lacks, a font
   that isn't bundled). Light text is judged against the nearest enclosing element
   that sets a background (`backgroundBehind`: an inline `style` or a `bg-*` class,
@@ -660,7 +662,36 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
   the active app, shared by its tabs, and are empty again in another app; the
   store keys them by app id (rather than clearing them in an effect) because
   child effects run before the provider's, so an emitter on the new app would
-  seed into the old app's values and then be wiped.
+  seed into the old app's values and then be wiped. A link can set a variable
+  before any widget mounts, which is one more reason to seed only when unset.
+- **What a view is set to rides in its link (`linkState.ts`).** Dashboard
+  variables are `v.<key>` and a widget's `useLinkState` settings are
+  `w.<first 8 characters of its instance id>.<key>`, in the query string beside
+  the route, which hash sync never touches: `?v.region=West&w.3f2a91c0.sort=revenue#/app/sales`.
+  Strings go as written, anything else (and a string that would read as JSON) as
+  JSON, a filter's value always as text; a value equal to its default is left
+  out; past `MAX_LINK_STATE` (1,500 characters) the largest entries go first, ties
+  by name. Other params are kept byte for byte, and `withoutRouteParams` keeps these.
+  - The store's part is three functions: `takeLinkState` reads it on open,
+    `mirrorLinkState` follows changes with a 300 ms debounced `replaceState`
+    (Safari refuses a page that rewrites its address too often), and
+    `holdLinkState` clears it on an app switch and keeps it on a tab switch.
+    An app opened by a link that carries settings shows exactly those:
+    remembered filter choices are skipped (`linked`), and a filter takes only a
+    value it offers.
+  - `addressLink`, whose state the address holds, is per page, not per
+    provider. The workspace and a standalone shell hand the address to each
+    other and a hash link keeps the query string, so without it the state one
+    app leaves behind would open the next.
+  - `useLinkState` (`hooks/useLinkState.ts`) is scoped by
+    `WidgetInstanceContext`, which `DashboardGrid` and `PageTab` provide
+    *outside* `ExecuteActionPropInjector` (it clones its only child). Without an
+    instance it is plain component state that never reaches a link; Widget
+    Studio's preview gives it an in-memory store, and `ThumbnailCapture` gives it
+    nothing. It reads through `useSyncExternalStore`, so a widget's setting
+    re-renders that widget, not the view.
+  - Copy link and a widget's share link build their query string from memory
+    (`linkSearch`), so they carry what is on screen even inside the 300 ms.
 
 ## Assistant panel
 
@@ -806,6 +837,7 @@ widgetRegistry.ts       Runtime widget loading + shared type contracts
 widgetRuntime.ts        Widget Studio: records what the preview does when it runs
 widgetLint.ts           Widget Studio: pattern checks on widget code
 widgetDataSource.ts     Widget Studio: schema and sample rows from a JSON response
+linkState.ts            What a view is set to, as v.* / w.* query params (codec + store)
 main.tsx Root.tsx       Entry point; Root picks the shell (workspace or one app)
 shell.ts                ShellContext: present an app on its own / edit it
 App.tsx                 The workspace: Layout around DashboardGrid
@@ -824,7 +856,7 @@ components/             BaseWidget, DashboardGrid, WidgetPreview, WidgetTray,
                         ThinkingDisclosure, AttachmentChip, ThumbnailCapture,
                         WidgetDiagnostics
 hooks/                  useAgentChat, useChatUploads, useActionLogger,
-                        useDashboardContext, useScript
+                        useDashboardContext, useScript, useLinkState
 contexts/ store/        ActionContext, dashboardStore
 ```
 
@@ -838,3 +870,7 @@ missing hides itself.
 
 Run `npm run lint` before finishing; `npm run build` type-checks via `tsc -b`
 and is the real gate, since dev mode won't surface every type error.
+
+`linkState.ts` has its own test, run with Node 22.6 or later and nothing to
+install: `node --experimental-strip-types tests/link_state.test.ts` (17 passed).
+It imports the module directly, so keep `linkState.ts` free of React and `window`.

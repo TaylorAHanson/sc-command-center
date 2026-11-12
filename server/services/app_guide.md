@@ -106,8 +106,10 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
   It shows who the view is shared with; people who can manage the view also give
   a person, a group or everyone in this app **Can use** or **Can manage** there
   (see *Sharing something and getting access*), and for anyone else the list is
-  read-only. **Copy link** in that dialog copies a link to the current view. The chain-link icon on an
-  individual widget copies a link that opens that widget full-screen. The address
+  read-only. **Copy link** in that dialog copies a link to the current view, set
+  the way it is now (see *View links*). The chain-link icon on an
+  individual widget copies a link that opens that widget full-screen, with the
+  view's filters and that widget's own settings. The address
   in the browser is the same link, so copying it from there works too.
 - **Every change a manager makes** — moving a widget, renaming a tab, View
   settings, the agent pin — goes into the view's draft and reaches other people
@@ -164,6 +166,26 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
 - The address names the tab being shown, so a link opens on that tab and Back
   steps between tabs. A link to the first tab doesn't name it, so it opens
   whichever tab is first.
+- **A link keeps what the view is set to.** A moment after each change, the
+  address picks up the view's filters, the values widgets pass to each other,
+  and the settings a widget keeps in the link (typically a sort, a search, a
+  date range, a selected segment or tab, a page size). So a reload, Back, and a
+  copied or pasted link open the view set the same way. They sit before the
+  `#`, like `?v.region=West&w.3f2a91c0.sort=revenue#/app/sales`. A setting
+  still at its default is left out, and if a view's settings would make the link
+  longer than about 1,500 characters, the largest are left out of it. Switching
+  tabs keeps them; opening a different view starts that view without them.
+- **A link that carries settings opens with exactly those**, not with the
+  filter choices that person last left the view on. A filter option the view no
+  longer offers falls back to the filter's default. Settings in a link never
+  change who may see what: the view still opens only for people it is shared
+  with, and its data still comes back as each person may see it.
+- **Which widget settings go in the link is up to the widget.** Widgets that
+  Widget Studio builds keep their filters, search, sort, date range, selected
+  segment or tab and page size there by default, and the agent says which; ask
+  it to keep any out and it does. Hover states, open menus and other passing
+  details are never saved. In the studio's preview these settings are only
+  kept in memory, since the studio has no view link.
 - Links use names, not codes. A published view's link is its name, like
   `#/app/supply-hub/inventory`; a second view with the same name gets
   `supply-hub-2`. Renaming a view gives it a new link when it is next
@@ -235,7 +257,8 @@ view's draft: other people see the new settings once the view is published.
   clears it. Each person comes back to the choices they last made on that view,
   remembered in their browser (a different browser or computer starts from the
   defaults); a remembered option the filter no longer offers falls back to its
-  default.
+  default. A link that carries filter choices opens on those instead, and the
+  address follows each choice, so a copied link shares them (see *View links*).
   A view built from several views keeps their filters.
 - A view opened on its own is read-only for everyone, including its owner, and
   always shows the latest published version, never the draft; its tabs can be

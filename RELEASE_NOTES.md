@@ -28,6 +28,9 @@
 
 - **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
 - **Clone, Edit and Delete in the Widget Library's list view.** Hover a row for the same icons as a card; **Status** now shows the **PAGE** badge too.
+- **The address keeps your filters.** A view's filters and widget settings are saved in its address, so a reload or Back opens it set the same way.
+- **Copy link shares what you see.** **Copy link** and a widget's share link include the current filters and settings, and open exactly as sent.
+- **Widgets can keep their settings in the link.** Widget Studio now builds sorts, searches and date ranges to be saved in the view's link; ask the agent to leave any out.
 
 ### Fixed
 

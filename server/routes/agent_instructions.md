@@ -145,6 +145,22 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
   ```
 - Since we only know about the current widget, be clear with the user about names for both Emitters and Receivers being used.
 
+### Settings saved in the link (`useLinkState`)
+
+- **`useLinkState(key, default)` is provided by the runtime, like `useScript`: never define or import it.** It works like `React.useState`, except that on a view the value is saved in the view's link, so a reload, Back, or a link someone copies opens the widget set the same way. In the studio preview it is kept in memory instead.
+
+      const [sort, setSort] = useLinkState('sort', 'revenue');
+      const [range, setRange] = useLinkState('range', { from: null, to: null });
+      setSort('units');
+      setRange(r => ({ ...r, to: '2026-09-30' }));
+
+- **Use it by default for what someone sets to choose what the widget shows:** a filter, a search box, a sort, a date range, a selected segment or tab, a page size. **Keep transient UI in `React.useState`:** hover, an open menu or tooltip, a modal, text being typed before it is applied, loading and error state.
+- **Never put data, secrets or large lists in the link.** No rows or query results, no tokens, no list of every selected id. The link is shown in the address bar, pasted into chats and kept in browser history, and the whole view's settings share about 1,500 characters of it; past that the largest are left out. Keep each setting to a short string, number, boolean or small object.
+- **The key is a literal string of letters, digits, `_` or `-`**, such as `'sort'` or `'page_size'`, unique within the widget. Each placed copy of the widget keeps its own settings, so keys never clash with another widget's. Values must survive `JSON.stringify` (dates as ISO strings, no functions). A value equal to the default is left out of the link, and the first default is the one that stands, so pass a constant.
+- **A value from the link came from whoever sent it.** Treat it as user input: before it reaches SQL, check it against what the widget offers (a sort column against the widget's own list of columns, a page size against its choices) or escape it as a literal, and fall back to the default when it doesn't fit. Dashboard variables can arrive from a link too, so the same goes for a value read from `props.data.variables`.
+- **Dashboard variables are already in the link.** A view's filter bar and emitter variables are saved without any code. An emitter shows the variable's current value and seeds it only when it is unset, as above, so the choice a link carries isn't overwritten on load.
+- **Tell the author.** When the widget uses `useLinkState`, say in your reply which settings are saved in the link, for example "The sort and date range are saved in the link, so a copied link opens the widget the same way." If they don't want that, switch those settings to `React.useState` and stop mentioning it.
+
 ### The app around the widget (`props.app`)
 
 Every widget on a view also receives `props.app`. Use it when the user asks for

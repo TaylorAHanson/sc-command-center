@@ -1,5 +1,6 @@
 import React from 'react';
 import { useScript } from './hooks/useScript';
+import { useLinkState } from './hooks/useLinkState';
 import { brandReady, withBrandColors } from './brand';
 import { loadFontsNamedIn } from './fonts';
 import type { AppApi } from './appApi';
@@ -179,8 +180,8 @@ const build = (key: string, tsx: string, Babel: any): React.ComponentType<Widget
     return (module.exports && module.exports.default) ? module.exports.default : module.exports;
   `;
   // eslint-disable-next-line no-new-func
-  const createComponent = new (Function as any)('React', 'useScript', executableCode);
-  return createComponent(React, useScript);
+  const createComponent = new (Function as any)('React', 'useScript', 'useLinkState', executableCode);
+  return createComponent(React, useScript, useLinkState);
 };
 
 const notice = (text: string, tone: string) =>
