@@ -132,6 +132,15 @@ async def startup_event():
     # services/capabilities.py). Neither register() nor start() raises.
     from services import background, capabilities  # noqa: F401
 
+    # Discover's view catalog and usage signals (services/view_catalog.py,
+    # services/view_signals.py).
+    from services import view_catalog, view_signals
+    background.register("discover.catalog", 10, view_catalog.sync_job)
+    background.register("discover.embeddings", 30, view_catalog.embed_job)
+    background.register("discover.stats", 15 * 60, view_signals.rollup_job)
+    background.register("discover.prune", 6 * 60 * 60, view_signals.prune_job)
+    capabilities.register("search", "View search", view_catalog.capability_check)
+
     background.start()
 
 
@@ -308,6 +317,7 @@ from routes import conversations
 from routes import chat_uploads
 from routes import data_migration
 from routes import capabilities as capabilities_routes
+from routes import discover
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widget_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
@@ -325,6 +335,7 @@ app.include_router(chat_uploads.router, prefix="/api/agent/uploads", tags=["chat
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(data_migration.router, prefix="/api/migration", tags=["data_migration"])
 app.include_router(capabilities_routes.router, prefix="/api/capabilities", tags=["capabilities"])
+app.include_router(discover.router, prefix="/api/discover", tags=["discover"])
 
 
 # Serve Frontend

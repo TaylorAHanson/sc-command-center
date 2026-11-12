@@ -47,8 +47,8 @@ Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
 `/{object_type}/{object_id}` would otherwise claim it), `/api/sharing`,
 `/api/taxonomy`, `/api/settings`, `/api/databricks`, `/api/agent` (proxy),
 `/api/agent/widget`, `/api/agent/studio`, `/api/agent/uploads`,
-`/api/conversations`, `/api/migration`, `/api/capabilities`, plus `/api` for n8n
-and Tableau.
+`/api/conversations`, `/api/migration`, `/api/capabilities`, `/api/discover`,
+plus `/api` for n8n and Tableau.
 Interactive docs are at `/api/docs`.
 
 `/api/health` is the one unauthenticated route, so it doubles as the SPA's source
@@ -807,7 +807,8 @@ frontend change. `kind` is `endpoint` (model picker), `int` (bounded number),
 `bool`, `json` (validated on save, so a typo surfaces in the form and not later as
 an agent failing), or `hosts` (one Databricks App host, or one workspace as
 `*-<workspace-id>.<region>.databricksapps.com`, per line), or `mcp_servers` (the
-MCP servers every agent gets, one per line). A new kind
+MCP servers every agent gets, one per line), or `choice` (one of the spec's
+`choices`, rendered as a select; `search_mode` is one). A new kind
 needs a branch in `SettingsManager.tsx`, which otherwise renders it as a number.
 `hosts` values are written into the CSP header, so `get_host_list_setting`
 re-validates them on read: a row can arrive by data migration without passing
@@ -876,6 +877,95 @@ so call it from a sync handler (see *Blocking work belongs in a sync handler*).
 `database.py` to check that every table is either copied by Data Migration or
 listed in `NOT_COPIED`. `activity_events` travels with the activity group;
 `background_jobs` is never copied, since it describes this deployment's own runs.
+
+## View catalog and search (`services/view_catalog.py`, `services/view_signals.py`, `routes/discover.py`)
+
+Discover lists and searches views at tens of thousands, so nothing it reads is
+computed per request from `dashboard_views` and the ACL. `view_catalog` holds one
+row per published, unarchived view: its newest published version's name, tabs and
+widget names, the link name, curation, a weighted tsvector, the usage numbers,
+and the ACL flattened into `readers` / `managers` keys (`*`, `u:<lowercased
+user>`, `g:<group>`). The row is derived, never content: rebuilding it writes no
+version, and Data Migration leaves it and the usage tables behind (`NOT_COPIED`)
+because the target rebuilds them. Favorites, hidden views and curation travel.
+
+**Hooks only queue the id.** `touch(c, …)` runs inside the caller's transaction,
+in a savepoint, one round trip (`drafts.publish`; `apps` archive, restore and
+delete, just before their commit), so the mark commits with the change.
+`mark_dirty(…)` runs after a commit elsewhere, autocommitted on a pooled
+connection (`access.grant_owner`, `replace_acl`, `delete_acl`). Both never raise,
+do nothing until `init_db` has created the tables (`tables_ready`), so tests and
+a worker that couldn't reach the database pay nothing, and `mark_dirty` stands
+down for 30 s after a failure. The `discover.catalog` job drains the queue every
+10 s and diffs everything against its sources every 30 minutes (`reconcile`,
+`stale_ids`) for whatever a hook missed. Bump `FORMAT_VERSION` when a row's shape
+or its tsvector changes: the job then rebuilds every row and reindexes.
+
+**Access is filtered in SQL and re-checked per page.** Every list filters
+`readers && caller_keys(who)`, then `recheck` runs `access.levels_for` over the
+page before it is sent, so a stale row never shows a view to someone who has
+just lost it. A row whose readers let the caller through but whose ACL doesn't
+is queued; a row fetched by id (favorites, recent opens) that the caller lost is
+only dropped, since its catalog row is right (`listed`). `scope=everything` is
+the one search without the readers filter, and only administrators get it;
+an admin's `scope=all` is filtered like anyone's, as their sidebar is.
+`DISABLE_PERMISSION_CHECKS` makes everyone an administrator, so everyone may ask
+for `everything` while it is on.
+
+**Three modes, each failing open to the one below** (`choose_mode`, per request):
+basic (the weighted tsvector with a GIN index; every word as a prefix), keyword
+(Lakebase BM25 fused by RRF, k=60, with a name-prefix list) and hybrid (those
+plus vector distance). The `search_mode` setting pins one; a pinned mode the
+database can't do falls back and the Setup card's `search` row says so. The
+platform details that shaped the SQL:
+
+- **The app installs the extensions** (`ensure_search`): `CREATE SCHEMA
+  search_ext`, then `lakebase_text` and `lakebase_vector` (`CASCADE` brings
+  pgvector) into it, at most every ten minutes, only when missing; an existing
+  install in any schema is used. A failure is classified for the Setup card:
+  Lakebase Search not enabled, or a permission problem with the SQL a database
+  owner should run.
+- **The extension schema goes on the path per transaction.** `to_bm25query`
+  resolves `bm25query_tsvector` unqualified, `<@>` and `<=>` live in the
+  extension schemas, and `vector_cosine_ops` isn't the default opclass for
+  `lakebase_ann`, so `_search_path_sql` appends them with `set_config(…, true)`
+  in the same round trip as the query; the content schema stays first.
+  `to_bm25query` takes the index as a regclass, so it is schema-qualified.
+- **BM25 scores are negative: lower is better.** Candidates filter `score < 0`.
+- **BM25 statistics come from index builds and VACUUM.** `full_build` ends with
+  `VACUUM (ANALYZE)`, and the table sets `autovacuum_vacuum_insert_scale_factor
+  = 0` so inserts trigger one.
+- **The vector index chooses its lists from the rows it was built on.** It is
+  built once 90% of rows are embedded and `REINDEX`ed concurrently when the
+  table has doubled since.
+- **Prefilter is on** (`BM25_PREFILTER`, `ANN_PREFILTER`, set per transaction;
+  Lakebase defaults both off). The comment on them says why.
+
+**Embeddings are SP-signed inference** (root AGENTS.md): `embedding_text` is
+only the view's own words, a row is re-embedded only when its `embed_hash`
+changes, 100 per call. A query is embedded with a 400 ms cap and a per-process
+cache; past the cap the search answers in keyword mode and the late answer is
+still cached, so the same search a moment later is hybrid. Changing
+`search_embedding_model` re-embeds everything; `off` turns hybrid off.
+
+**Usage signals never count distinct at read time.** `view_visits` has one row
+per person, view and day, and `view_daily` gains a viewer only when that row is
+inserted (`xmax = 0`), all in the one statement `POST /visit` sends. The
+`discover.stats` job (15 min) folds 30-day viewers, the 7-day trend
+`(v7 − p7) / (p7 + 5)`, favorite counts and last opens into the catalog,
+writing only rows whose numbers changed; `discover.prune` drops visits after 35
+days. A favorite's count is the rollup's alone, never incremented in the
+request, so a popular view isn't a hot row. `/visit` checks no access: the most
+it can do is add one viewer per person per day.
+
+`tools/discover_scale_probe.py` seeds 50,000 views, their ACLs and a million
+visits into a scratch schema on a real Lakebase database, builds everything with
+this code, times each endpoint per mode with prefilter on and off, and drops what
+it created. From a laptop each round trip is ~65 ms, so it reports database time
+from `EXPLAIN ANALYZE` and an in-region estimate (database + Python + 2 ms per
+round trip): basic and keyword search p95 under 60 ms, hybrid ~105 ms with the
+query embedding cached, home under 75 ms and 44 KB for someone who owns 1,000
+views. Rerun it after changing the catalog's queries.
 
 ## What each model will accept (`services/llm_params.py`)
 
@@ -1456,7 +1546,7 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_generation_jobs.py # 8 pass
 PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_caller_identity.py      # 11 passed
-PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 27 passed
+PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 29 passed
 PYTHONPATH=server .venv/bin/python tests/test_llm_params.py           # 17 passed
 PYTHONPATH=server .venv/bin/python tests/test_llm_client.py           # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_sql_errors.py           # 10 passed
@@ -1484,6 +1574,9 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 31 passe
 PYTHONPATH=server .venv/bin/python tests/test_background.py           # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed
+PYTHONPATH=server .venv/bin/python tests/test_view_catalog.py         # 38 passed
+PYTHONPATH=server .venv/bin/python tests/test_view_signals.py         # 14 passed
+PYTHONPATH=server .venv/bin/python tests/test_discover_routes.py      # 9 passed
 ```
 
 `test_file_extract.py` and `test_upload_tools.py` need the venv interpreter, not

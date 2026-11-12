@@ -14,7 +14,7 @@ interface Setting {
     key: string;
     label: string;
     help: string;
-    kind: 'endpoint' | 'int' | 'json' | 'bool' | 'hosts' | 'mcp_servers';
+    kind: 'endpoint' | 'int' | 'json' | 'bool' | 'hosts' | 'mcp_servers' | 'choice';
     /** Which card this belongs under; the backend decides the grouping. */
     group: string;
     /** Value in force right now, whatever its source. */
@@ -26,6 +26,8 @@ interface Setting {
     fallback: string;
     minimum: number | null;
     maximum: number | null;
+    /** What a `choice` setting accepts. */
+    choices?: string[];
 }
 
 interface Group {
@@ -238,6 +240,15 @@ export const SettingsManager: React.FC = () => {
                     />
                     {(draft[setting.key] ?? '').trim().toLowerCase() !== 'false' ? 'Allowed' : 'Blocked'}
                 </label>
+            ) : setting.kind === 'choice' ? (
+                <select
+                    value={draft[setting.key] ?? ''}
+                    onChange={e => edit(setting.key, e.target.value)}
+                    aria-label={setting.label}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-brand-blue focus:outline-none"
+                >
+                    {(setting.choices ?? []).map(choice => <option key={choice} value={choice}>{choice}</option>)}
+                </select>
             ) : (
                 <input
                     type="number"

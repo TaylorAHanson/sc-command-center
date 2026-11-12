@@ -26,6 +26,7 @@ from routes import custom_widgets as widget_routes
 from routes.roles import _get_current_username
 from routes.widget_studio import quick_helper_reply
 from services import access, app_links, app_spec, app_store, drafts, look_helper
+from services import view_catalog
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -759,6 +760,7 @@ def archive_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
             "INSERT INTO archived_views (id, archived_by) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
             (app_id, who.username),
         )
+        view_catalog.touch(c, APP, app_id)
         conn.commit()
         return {"status": "success", "id": app_id, "archived": True}
     except HTTPException:
@@ -780,6 +782,7 @@ def restore_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
     try:
         c = conn.cursor()
         c.execute("DELETE FROM archived_views WHERE id = %s", (app_id,))
+        view_catalog.touch(c, APP, app_id)
         conn.commit()
         return {"status": "success", "id": app_id, "archived": False}
     except Exception as e:
@@ -813,6 +816,7 @@ def delete_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
         c.execute("DELETE FROM archived_views WHERE id = %s", (app_id,))
         c.execute("DELETE FROM sidebar_hidden WHERE app_id = %s", (app_id,))
         app_links.forget(c, app_id)
+        view_catalog.touch(c, APP, app_id)
         conn.commit()
     except HTTPException:
         conn.rollback()

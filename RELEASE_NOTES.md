@@ -27,6 +27,7 @@
 ### Added
 
 - **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
+- **Choose how views are searched.** A **Search** card in Admin Panel → Settings sets the search mode and embedding model; Setup's **View search** row shows the mode running.
 
 ## 2.0.1 — 2026-11-11
 

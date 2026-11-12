@@ -88,6 +88,9 @@ TABLES: List[TableSpec] = [
     TableSpec("sidebar_hidden", "content", ("username", "app_id")),
     TableSpec("archived_views", "content", ("id",)),
     TableSpec("app_links", "content", ("slug",)),
+    TableSpec("user_favorites", "content", ("username", "app_id")),
+    TableSpec("view_hidden", "content", ("username", "app_id")),
+    TableSpec("view_curation", "content", ("app_id",)),
     TableSpec("object_permissions", "access", ("object_type", "object_id", "principal")),
     TableSpec("app_admins", "access", ("principal",)),
     TableSpec("known_principals", "access", ("principal",)),
@@ -118,12 +121,17 @@ LEGACY_TABLES = frozenset({"role_mappings"})
 #: only while the studio that started it is polling. The cutover log records
 #: what startup did on *this* deployment; the target ran its own, and the same
 #: goes for when each background job last ran.
-NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs", "cutover_log", "background_jobs"})
+#: The view catalog, its queue and state are rebuilt from the views and access
+#: lists the snapshot does carry. Visits and daily viewer counts measure use of
+#: one deployment, and would make the target's "popular" describe the source's.
+NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs", "cutover_log", "background_jobs",
+                        "view_catalog", "view_catalog_queue", "view_catalog_state", "view_visits",
+                        "view_daily"})
 
 GROUPS: List[Dict[str, Any]] = [
     {"key": "content", "label": "Widgets, views and agents",
      "help": "Every published version and unpublished draft of every widget, view and agent, plus whose sidebar "
-             "holds which view.",
+             "holds which view, everyone's favorites, and which views are featured or certified.",
      "default": True},
     {"key": "access", "label": "Sharing, administrators, categories and domains",
      "help": "Who can use and manage each item, who administers the app, and the taxonomy. Replacing these "

@@ -45,7 +45,7 @@ class Spec(NamedTuple):
     """One setting: where it falls back to, and what a valid value looks like."""
     env: str
     default: str
-    kind: str  # "endpoint" | "int" | "json" | "bool" | "hosts" | "mcp_servers"
+    kind: str  # "endpoint" | "int" | "json" | "bool" | "hosts" | "mcp_servers" | "choice"
     label: str
     help: str
     minimum: Optional[int] = None
@@ -54,6 +54,8 @@ class Spec(NamedTuple):
     # picks it up; it renders whatever the backend describes rather than holding its
     # own list of settings.
     group: str = "limits"
+    # The values a "choice" setting accepts, first one the default.
+    choices: Tuple[str, ...] = ()
 
 
 # Model settings are separate on purpose: the chat agent, the widget generator and
@@ -294,6 +296,26 @@ SETTING_SPECS: Dict[str, Spec] = {
         help="Off means attachments are only ever read through extraction tools, so no raw image or PDF is uploaded to the model. Scanned documents and screenshots stop working.",
         group="tools",
     ),
+    # Discover's search (services/view_catalog.py). Auto uses the best mode the
+    # database supports; pinning one it can't do falls back and the Setup card
+    # says so, so a wrong value here never breaks search.
+    "search_mode": Spec(
+        env="SEARCH_MODE",
+        default="auto",
+        kind="choice",
+        label="Search mode",
+        help="auto uses the best the database supports. basic is word and prefix matching; keyword ranks with BM25; hybrid adds meaning-based matches. Needs Lakebase Search for keyword and hybrid.",
+        group="search",
+        choices=("auto", "basic", "keyword", "hybrid"),
+    ),
+    "search_embedding_model": Spec(
+        env="SEARCH_EMBEDDING_MODEL",
+        default="databricks-gte-large-en",
+        kind="endpoint",
+        label="Search embedding model",
+        help="Embeds view names and descriptions for hybrid search, signed by the app. Enter off to turn meaning-based search off. Changing it re-embeds every view.",
+        group="search",
+    ),
 }
 
 # Cards on the Settings page, in order. A group with no settings isn't rendered.
@@ -303,6 +325,7 @@ SETTING_GROUPS: List[Dict[str, str]] = [
     {"key": "privacy", "label": "Retention and context"},
     {"key": "chat", "label": "Chat agent limits"},
     {"key": "widget", "label": "Studio limits"},
+    {"key": "search", "label": "Search"},
     {"key": "limits", "label": "Other limits"},
 ]
 
@@ -596,6 +619,7 @@ def describe_settings() -> List[Dict[str, Any]]:
             "fallback": fallback,
             "minimum": spec.minimum,
             "maximum": spec.maximum,
+            "choices": list(spec.choices),
         })
     return out
 
@@ -616,6 +640,11 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
         if any(ch.isspace() for ch in text):
             return "", "Endpoint names cannot contain spaces"
         return text, None
+
+    if spec.kind == "choice":
+        if text.lower() not in spec.choices:
+            return "", f"{spec.label} must be one of: {', '.join(spec.choices)}"
+        return text.lower(), None
 
     if spec.kind == "bool":
         # Stored as an explicit word rather than as presence/absence, because an
