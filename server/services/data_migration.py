@@ -119,6 +119,12 @@ LEGACY_TABLES = frozenset({"role_mappings"})
 #: what startup did on *this* deployment; the target ran its own, and the same
 #: goes for when each background job last ran.
 NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs", "cutover_log", "background_jobs"})
+#: The token vault (services/token_vault.py) is never copied, whatever is chosen: a
+#: refresh token is a credential this app was issued for one person, a copy is one
+#: more place it can leak from, and the target couldn't decrypt it under its own key
+#: anyway. People connect again on the target. A sign-in in flight is only good for
+#: ten minutes on the app that started it.
+NOT_COPIED = NOT_COPIED | {"user_oauth_tokens", "oauth_pending"}
 
 #: The email log is what this deployment sent, and its rows are what each
 #: person's daily cap counts; copied, they would spend the target's allowance on

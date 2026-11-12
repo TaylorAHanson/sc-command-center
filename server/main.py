@@ -138,6 +138,16 @@ async def startup_event():
     from services import email_service
     capabilities.register("email", "Email", email_service.capability)
 
+    # Scheduling's token vault (services/token_vault.py). Guarded because anything
+    # raised here stops the whole app, and a broken vault should cost scheduling only.
+    try:
+        from services import token_vault
+
+        capabilities.register("scheduling", "Scheduling", token_vault.capability)
+        background.register("oauth_pending_purge", 3600, token_vault.purge_pending)
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Could not register the token vault: {e}", exc_info=True)
+
     background.start()
 
 
@@ -316,6 +326,7 @@ from routes import data_migration
 from routes import capabilities as capabilities_routes
 from routes import activity as activity_routes
 from routes import email as email_routes
+from routes import oauth
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widget_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
@@ -335,6 +346,7 @@ app.include_router(data_migration.router, prefix="/api/migration", tags=["data_m
 app.include_router(capabilities_routes.router, prefix="/api/capabilities", tags=["capabilities"])
 app.include_router(activity_routes.router, prefix="/api/activity", tags=["activity"])
 app.include_router(email_routes.router, prefix="/api/email", tags=["email"])
+app.include_router(oauth.router, prefix="/api/oauth", tags=["oauth"])
 
 
 # Serve Frontend

@@ -5,6 +5,101 @@ import {
   Callout, Card, Cards, Code, Details, GuideLink, H2, Lead, List, Needs, OpenLink, P, Shot, Step, Steps, Table, UI,
 } from '../kit';
 
+const Snippet = ({ children }: { children: string }) => (
+  <pre className="my-3 overflow-x-auto rounded-lg bg-gray-100 p-3 font-mono text-[13px] leading-relaxed text-gray-800">{children}</pre>
+);
+
+const VAULT_KEY_YAML = `# databricks.yml: two additions to the app's existing lists
+resources:
+  apps:
+    sc-command-center:
+      resources:
+        # ...the postgres resource stays as it is
+        - name: token-vault-key
+          secret:
+            scope: command-center
+            key: token-vault-key
+            permission: READ
+      config:
+        env:
+          # ...the other variables stay as they are
+          - name: TOKEN_VAULT_KEY
+            valueFrom: token-vault-key`;
+
+const SchedulingSetup = () => {
+  // The redirect URL has to match this app's address exactly, so the guide shows
+  // the one this browser is using rather than a placeholder.
+  const callbackUrl = `${window.location.origin}/api/oauth/callback`;
+  const cliJson = JSON.stringify({
+    name: 'command-center-scheduling',
+    redirect_urls: [callbackUrl],
+    confidential: false,
+    scopes: ['openid', 'email', 'offline_access', 'sql'],
+    token_access_policy: { refresh_token_ttl_in_minutes: 43200 },
+  });
+  return (
+    <>
+      <H2 id="scheduling">Set up scheduling</H2>
+      <P>
+        <Needs role="Administrator" /> Scheduled work runs as the person who scheduled it, with their own access to data, never as the app. Each person
+        connects their account once, and the app keeps that connection, encrypted, so it can act for them while they are away. Until the steps below
+        are done, scheduling stays off and the <UI>Setup</UI> card lists it as not set up.
+      </P>
+      <Steps>
+        <Step title="Create an OAuth app connection">
+          A Databricks <strong>account</strong> admin opens the account console and goes to <UI>Settings</UI> → <UI>App connections</UI> →{' '}
+          <UI>Add connection</UI>. It needs:
+          <List>
+            <li>
+              Redirect URL <Code>{callbackUrl}</Code>, exactly. The <UI>Setup</UI> card shows the address it expects.
+            </li>
+            <li>Access scope <UI>SQL</UI>. Signing in and staying signed in come with it.</li>
+            <li>
+              <UI>Generate a client secret</UI> left off. The app is a public client and proves each sign-in with PKCE instead.
+            </li>
+            <li>
+              Refresh token TTL <Code>43200</Code> minutes, which is 30 days.
+            </li>
+          </List>
+        </Step>
+        <Step title="Paste the client id">
+          Copy the <UI>Client ID</UI> the new connection shows. In Settings, paste it into <UI>Scheduling</UI> → <UI>OAuth client id</UI> and click{' '}
+          <UI>Save</UI>. If the TTL is not 30 days, set <UI>Connection lifetime (days)</UI> to match, so reminders to reconnect arrive before a
+          connection runs out.
+        </Step>
+        <Step title="Give the app a vault key of its own (recommended)">
+          Without one, the app derives the key that encrypts connections from its own credentials, and rotating those makes everyone connect again.
+          Whoever deploys the app generates a key and stores it in a secret scope:
+          <Snippet>{`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+databricks secrets create-scope command-center
+databricks secrets put-secret command-center token-vault-key --string-value <the key>`}</Snippet>
+          Then they give it to the app as <Code>TOKEN_VAULT_KEY</Code> through a secret resource, and deploy:
+          <Snippet>{VAULT_KEY_YAML}</Snippet>
+          Connections made before the key was set keep working.
+        </Step>
+      </Steps>
+      <P>
+        Click <UI>Check again</UI> on the <UI>Setup</UI> card. <UI>Scheduling</UI> reads ready once the client id is saved. A connection lasts as long
+        as the TTL allows; after that, or if someone&rsquo;s access is revoked, they are asked to connect again. Moving data to another app never
+        copies connections.
+      </P>
+      <Details summary="Creating the connection from the command line">
+        <P>An account admin can run this instead of using the account console:</P>
+        <Snippet>{`databricks account custom-app-integration create --json '${cliJson}'`}</Snippet>
+        <P>The <Code>client_id</Code> it prints is the one to paste into Settings.</P>
+      </Details>
+      <Details summary="A custom domain, or running the app locally">
+        <P>
+          The redirect URL follows the address the browser used. If people reach the app at an address other than the one registered, set{' '}
+          <Code>OAUTH_REDIRECT_URI</Code> in the app&rsquo;s environment to the registered one. One connection can serve several copies of the app,
+          such as development and production, if each copy&rsquo;s redirect URL is added to it. Locally, through the development server, set{' '}
+          <Code>OAUTH_REDIRECT_URI</Code> to <Code>http://localhost:5174/api/oauth/callback</Code> and add that URL to the connection.
+        </P>
+      </Details>
+    </>
+  );
+};
+
 const Body = () => (
   <>
     <Lead>
@@ -61,6 +156,8 @@ const Body = () => (
       <UI>Background jobs</UI> it shows how often each timed job runs, when it last ran, and whether it failed. The card is hidden when there is
       nothing to show.
     </P>
+
+    <SchedulingSetup />
 
     <H2 id="email">Set up email</H2>
     <P>
@@ -331,6 +428,6 @@ export const section: GuideSection = {
   title: 'Settings & models',
   summary: 'Choose models, limits and what the assistant may reach.',
   icon: Settings,
-  keywords: 'setup background jobs not set up model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence email ses amazon aws secret from address recipients domains',
+  keywords: 'setup background jobs not set up model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence email ses amazon aws secret from address recipients domains scheduling schedule oauth client id app connection redirect url refresh token connect reconnect token vault key',
   Body,
 };

@@ -86,6 +86,9 @@ server/                 FastAPI gateway — see server/AGENTS.md
                         drafts.py (drafts and published versions),
                        consolidation.py + access_migration.py (the
                        one-time move to drafts and sharing),
+                       token_vault.py (OAuth refresh tokens, so
+                       scheduled work runs as the user; its routes
+                       are routes/oauth.py),
                        background.py (work on a timer, once across
                        workers), capabilities.py (optional features:
                        off until set up), activity.py (who did what)
@@ -110,6 +113,12 @@ service principal (`AGENT_RUNTIME_LLM_AUTH=sp`) because per-user
 foundation-model entitlements produced 403 "Unauthorized access to Org" for some
 users. Inference touches no user data; every tool call still uses OBO. Don't
 extend SP auth beyond that without a comparable justification.
+
+Scheduled and other unattended work is OBO too. It runs with the user's own
+access token, which `server/services/token_vault.py` refreshes from the refresh
+token that person granted this app when they connected: never the service
+principal, never a PAT, and the vault has no fallback. See `server/AGENTS.md` →
+*Token vault*.
 
 **The frontend never holds a secret.** No API keys, M2M credentials, or database
 connection strings in `src/`. If an integration needs a secret, static

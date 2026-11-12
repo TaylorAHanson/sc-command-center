@@ -514,6 +514,53 @@ def _create_access_tables(conn) -> None:
             logging.warning(f"Could not create an access table: {e}")
 
 
+def _create_vault_tables(conn) -> None:
+    """The token vault (services/token_vault.py), in the settings schema.
+
+    Per person, not per content store: a refresh token belongs to this deployment's
+    OAuth integration, whatever content the scheduler runs. The `_enc` columns hold
+    Fernet ciphertext only, and Data Migration never copies either table
+    (`NOT_COPIED`), because a token is for the app it was issued to. `oauth_pending`
+    is a sign-in in flight, here rather than in memory because the callback can reach
+    a different worker from the one that started it."""
+    c = conn.cursor()
+    statements = (
+        '''
+        CREATE TABLE IF NOT EXISTS user_oauth_tokens (
+            username TEXT PRIMARY KEY,
+            refresh_token_enc TEXT NOT NULL,
+            access_token_enc TEXT,
+            access_expires_at TIMESTAMPTZ,
+            scopes TEXT NOT NULL DEFAULT '',
+            connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            refresh_issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            refresh_expires_at TIMESTAMPTZ,
+            status TEXT NOT NULL DEFAULT 'connected',
+            last_error TEXT,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS oauth_pending (
+            state TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            verifier_enc TEXT NOT NULL,
+            nonce TEXT NOT NULL,
+            redirect_uri TEXT NOT NULL,
+            return_to TEXT NOT NULL DEFAULT '/',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        ''',
+    )
+    for sql in statements:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            logging.warning(f"Could not create a token vault table: {e}")
+
+
 def _create_operations_tables(conn) -> None:
     """The app's own running records, in the content schema: the activity log
     (services/activity.py) and when each background job last ran
@@ -1098,6 +1145,7 @@ def init_db(env: str = "dev"):
     from services.settings_store import settings_env
     if env == settings_env():
         _create_access_tables(conn)
+        _create_vault_tables(conn)
 
     # Content-store tables that belong to one feature: one `_create_*_tables`
     # function per feature, called here.

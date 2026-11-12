@@ -49,6 +49,7 @@ Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
 `/api/agent/widget`, `/api/agent/studio`, `/api/agent/uploads`,
 `/api/conversations`, `/api/migration`, `/api/capabilities`, plus `/api` for n8n
 and Tableau.
+`/api/oauth` is the token vault's connect flow (see *Token vault*).
 Interactive docs are at `/api/docs`.
 
 `/api/health` is the one unauthenticated route, so it doubles as the SPA's source
@@ -197,6 +198,8 @@ Table shapes worth knowing before you write a query:
 - **Settings schema only**: `app_settings`, `object_permissions`, `app_admins`,
   `known_principals` (everyone who has signed in, and their groups, for the share
   dialog's typeahead), and `cutover_log` (see *The one-time move to sharing*).
+  The token vault's `user_oauth_tokens` and `oauth_pending` are here too (see
+  *Token vault*).
 
 New columns go in as `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in the migration
 block *after* table creation, each in its own try/except with a rollback, so one
@@ -809,6 +812,8 @@ an agent failing), or `hosts` (one Databricks App host, or one workspace as
 `*-<workspace-id>.<region>.databricksapps.com`, per line), or `mcp_servers` (the
 MCP servers every agent gets, one per line). A new kind
 needs a branch in `SettingsManager.tsx`, which otherwise renders it as a number.
+`text` is one line of plain text (the OAuth client id); whatever reads it checks
+its own format, since `validate_value` only rules out control characters.
 `hosts` values are written into the CSP header, so `get_host_list_setting`
 re-validates them on read: a row can arrive by data migration without passing
 `validate_value`. `get_mcp_server_list` re-validates for a different reason:
@@ -1008,6 +1013,80 @@ whose Send goes through that widget's `executeAction`, so the action log row is
 written first and its `request_id` is stored on the `email_log` row. Widget code
 could still call `/api/email/send` itself; the contract forbids it, and the
 recipient policy, caps and log apply either way.
+
+## Token vault (`services/token_vault.py`, `routes/oauth.py`)
+
+**This is the way unattended work keeps running as the user.** A scheduled run,
+a reminder, anything with no request behind it that must touch data, asks
+`token_vault.access_token_for(username)` for that person's access token and builds
+its client from that. It is still OBO: the token is the person's own, issued by
+the workspace to this app's OAuth integration, so Unity Catalog governs the run
+exactly as it would on the page. Never the service principal, never a PAT. The
+vault has no fallback and no DEV_MODE path; the scheduler wraps a DEV_MODE-only
+token source around it for local runs.
+
+It exists because Apps forward an access token of about an hour and no refresh
+token. So the app runs its own authorization-code sign-in with PKCE against the
+workspace (`/oidc/v1/authorize`, `/oidc/v1/token`), through a custom OAuth app
+integration that an account admin creates as a public client with the scopes
+`openid email offline_access sql`, and keeps the refresh token that comes back.
+
+```python
+token_vault.access_token_for(username) -> str   # refreshes, saves a rotated token
+token_vault.NeedsReconnect   # .reason: not_connected | expired | revoked | undecryptable
+token_vault.VaultError       # .reason: not_set_up | unavailable (not the person's to fix)
+token_vault.status(username) # {connected, connected_at, expires_at, needs_reconnect, reason}
+token_vault.expiring(within_days) -> [(username, expires_at)]  # soonest first, lapsed included
+```
+
+All of it works with no request in scope. What to know before changing it:
+
+- **Storage.** `user_oauth_tokens` (one row per lowercased username) and
+  `oauth_pending` (sign-ins in flight, 10 minutes) are in the settings schema,
+  created by `_create_vault_tables`. Every `_enc` column is Fernet ciphertext.
+  Tokens are never logged, never returned by a route, and never copied by Data
+  Migration (`NOT_COPIED`); `test_token_vault.py` checks each of those.
+- **The key.** `TOKEN_VAULT_KEY` (a Fernet key) if set, else HKDF-SHA256 of
+  `DATABRICKS_CLIENT_SECRET` with salt `command-center/token-vault` and info
+  `cc-token-vault-v1`; change either and every derived-key row is unreadable.
+  With both, writes use `TOKEN_VAULT_KEY` and the derived key still reads older
+  rows. A malformed `TOKEN_VAULT_KEY` turns the vault off rather than quietly
+  using the derived key. A row no key opens becomes `undecryptable`.
+- **Refreshing.** Under `SELECT ... FOR UPDATE` with a 20-second `lock_timeout`,
+  in the same transaction as the save, because a single-use refresh token spent by
+  two workers at once leaves the person disconnected. `invalid_grant` marks the row
+  `expired` (within an hour of the counted expiry) or `revoked`, records
+  `oauth.needs_reconnect`, and later asks fail without calling the workspace. Any
+  other token-endpoint failure is `VaultError('unavailable')` and leaves the row
+  alone. The access token is cached, encrypted, until 5 minutes before it expires.
+- **Expiry.** What the token response gave as the refresh token's lifetime, if
+  anything; otherwise its issue time plus `oauth_refresh_ttl_days` (Settings,
+  default 30, which should match the integration's TTL). A rotated token restarts
+  the count.
+- **Binding a sign-in to its caller.** `state` belongs to the caller who started
+  it, is deleted as it is read, and lasts 10 minutes. The id_token's `iss`, `aud`,
+  `azp`, `exp`, `nbf` and `nonce` are checked, and its `email`,
+  `preferred_username` or `sub` must be the OBO caller. Its signature isn't checked:
+  it comes straight from our own token request over TLS (OIDC Core 3.1.3.7).
+- **The redirect URI** must match the integration exactly. It is
+  `OAUTH_REDIRECT_URI` if set; else `https://<X-Forwarded-Host>/api/oauth/callback`
+  in a request; else, with no request (the Setup card),
+  `https://<DATABRICKS_APP_NAME>-<DATABRICKS_WORKSPACE_ID>.aws.databricksapps.com/api/oauth/callback`,
+  on AWS only. The URI used at connect is stored with the state and replayed at
+  the exchange. Running locally through Vite needs `OAUTH_REDIRECT_URI`, because
+  its proxy forwards no host.
+- **Coming back.** `return_to` must pass `safe_return_to` (one leading `/`,
+  printable ASCII, no backslash, no scheme or host). The outcome is added before
+  the hash as `oauth=connected` or `oauth_error=<reason>`; the reasons are listed in
+  the module docstring.
+- **Routes.** `GET /api/oauth/connect?return_to=`, `GET /api/oauth/callback`,
+  `GET /api/oauth/status`, `POST /api/oauth/disconnect`. The workspace documents no
+  revocation endpoint, so disconnecting deletes the row and the token lapses.
+- **Registered in `main.py`.** Capability `scheduling` (a client id, a key and
+  `DATABRICKS_HOST`), and the hourly `oauth_pending_purge` job.
+- The authorization code appears in uvicorn's access log, as the callback's query
+  string. It is single-use, short-lived and useless without the PKCE verifier,
+  which only the vault holds, encrypted.
 
 ## What each model will accept (`services/llm_params.py`)
 
@@ -1649,6 +1728,7 @@ PYTHONPATH=server .venv/bin/python tests/test_actions_routes.py       # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity_feed.py        # 24 passed
 PYTHONPATH=server .venv/bin/python tests/test_email_service.py        # 44 passed
 PYTHONPATH=server .venv/bin/python tests/test_email_routes.py         # 9 passed
+PYTHONPATH=server .venv/bin/python tests/test_token_vault.py          # 48 passed
 ```
 
 `test_file_extract.py` and `test_upload_tools.py` need the venv interpreter, not
