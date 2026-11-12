@@ -294,6 +294,58 @@ SETTING_SPECS: Dict[str, Spec] = {
         help="Off means attachments are only ever read through extraction tools, so no raw image or PDF is uploaded to the model. Scanned documents and screenshots stop working.",
         group="tools",
     ),
+    # Email (services/email_service.py), adding kinds "email" (one address) and
+    # "domains" (one entry per line). The AWS keys and region are deliberately
+    # not here: they arrive as secret resources in the app's environment, and a
+    # row in app_settings is readable by anyone with the database.
+    "email_enabled": Spec(
+        env="EMAIL_ENABLED",
+        # On, because the From address and the AWS keys are what gate email and
+        # both take an admin to supply; this is the switch to stop it again.
+        default="true",
+        kind="bool",
+        label="Allow email",
+        help="Off, nobody can send email from this app and Send buttons are disabled. On, people can send once a From address is set and the AWS keys are in place; the Setup card says what's missing.",
+        group="email",
+    ),
+    "email_from_address": Spec(
+        env="EMAIL_FROM_ADDRESS",
+        default="",
+        kind="email",
+        label="From address",
+        help="An address verified as a sender identity in Amazon SES (or on a verified domain), e.g. command-center@example.com. Every email comes from it, and replies go to the person who sent it.",
+        group="email",
+    ),
+    "email_allowed_domains": Spec(
+        env="EMAIL_ALLOWED_DOMAINS",
+        # Empty means each sender's own domain: until an admin says otherwise, a
+        # widget can't mail a view's numbers outside the organization.
+        default="",
+        kind="domains",
+        label="Domains email may go to",
+        help="One per line, e.g. example.com, or *.example.com for its subdomains. Empty means each person may only email addresses in their own domain.",
+        group="email",
+    ),
+    "email_max_recipients": Spec(
+        env="EMAIL_MAX_RECIPIENTS",
+        default="10",
+        kind="int",
+        label="Most recipients per email",
+        help="An email to more people than this is refused. Amazon SES allows at most 50.",
+        minimum=1,
+        maximum=50,
+        group="email",
+    ),
+    "email_daily_limit": Spec(
+        env="EMAIL_DAILY_LIMIT",
+        default="50",
+        kind="int",
+        label="Most emails per person per day",
+        help="Counted over the last 24 hours, whether sent from a widget or by a schedule the person owns.",
+        minimum=1,
+        maximum=1000,
+        group="email",
+    ),
 }
 
 # Cards on the Settings page, in order. A group with no settings isn't rendered.
@@ -304,6 +356,7 @@ SETTING_GROUPS: List[Dict[str, str]] = [
     {"key": "chat", "label": "Chat agent limits"},
     {"key": "widget", "label": "Studio limits"},
     {"key": "limits", "label": "Other limits"},
+    {"key": "email", "label": "Email"},
 ]
 
 # The two OpenAI-compatible routes a Databricks workspace offers, and the naming
@@ -658,6 +711,33 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
         if len(servers) > MAX_MCP_SERVERS:
             return "", f"At most {MAX_MCP_SERVERS} servers"
         return "\n".join(servers), None
+
+    if spec.kind == "email":
+        from services.email_service import normalize_address
+
+        address = normalize_address(text)
+        if not address:
+            return "", f"{spec.label} must be one email address, e.g. command-center@example.com"
+        return address, None
+
+    if spec.kind == "domains":
+        from services.email_service import parse_domain_entry
+
+        domains: List[str] = []
+        problems = []
+        for part in re.split(r"[\s,;]+", text):
+            if not part:
+                continue
+            entry, error = parse_domain_entry(part)
+            if error:
+                problems.append(error)
+            elif entry not in domains:
+                domains.append(entry)
+        if problems:
+            return "", "; ".join(problems[:3]) + ("; …" if len(problems) > 3 else "")
+        if len(domains) > 100:
+            return "", "At most 100 domains"
+        return "\n".join(domains), None
 
     if spec.kind == "json":
         # Rejected here rather than at request time: a typo in this field would

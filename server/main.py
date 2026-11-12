@@ -132,6 +132,9 @@ async def startup_event():
     # services/capabilities.py). Neither register() nor start() raises.
     from services import background, capabilities  # noqa: F401
 
+    from services import email_service
+    capabilities.register("email", "Email", email_service.capability)
+
     background.start()
 
 
@@ -325,6 +328,8 @@ app.include_router(chat_uploads.router, prefix="/api/agent/uploads", tags=["chat
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(data_migration.router, prefix="/api/migration", tags=["data_migration"])
 app.include_router(capabilities_routes.router, prefix="/api/capabilities", tags=["capabilities"])
+from routes import email as email_routes
+app.include_router(email_routes.router, prefix="/api/email", tags=["email"])
 
 
 # Serve Frontend

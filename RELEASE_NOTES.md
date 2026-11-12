@@ -27,6 +27,8 @@
 ### Added
 
 - **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
+- **Email from widgets.** A widget's email button opens a **Send** dialog where you choose recipients, preview the email, and send it with its table attached as a CSV.
+- **Email settings.** Admin Panel → Settings → **Email** sets the From address, which domains email may go to, and per-person limits. Email stays off until Amazon SES is set up.
 
 ## 2.0.1 — 2026-11-11
 

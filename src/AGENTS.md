@@ -653,6 +653,14 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
   explanation). Every "Submit / Run / Sync" control must still go through
   `executeAction`: that log row *is* the audit trail, and the audit trail is the
   product. A failed log write means the action does not run.
+- The injector also binds `props.app.sendEmail` per widget (`useWidgetEmail`
+  in `email.ts`): a call opens `components/SendEmailDialog.tsx` for that widget,
+  and the dialog's Send goes through the same widget's `executeAction`, so email
+  is logged like any action and `appApi.ts`'s own `sendEmail` is only a
+  fallback that reports email unavailable. Only the injector can bind it,
+  because the dialog needs the widget's `executeAction`. The dialog's preview is
+  the server's rendering, shown in an `<iframe sandbox="">`; don't render email
+  HTML into the page.
 - `hooks/useActionLogger.ts` — the `logAction` telemetry path.
 - Emitter/receiver pattern: emitters call `props.data.setVariable(key, value)`,
   receivers read `props.data.variables?.key`. Emitters must seed their variable
@@ -815,6 +823,8 @@ pages/admin/            AdminContent, Administrators, MigrationBanner,
                         TaxonomyManager, SettingsManager, DataMigration
 sharing.ts              Sharing labels and ACL helpers (see *The sharing kit*)
 capabilities.ts         useCapabilities: which optional features are set up
+email.ts                Send dialog helpers and useWidgetEmail; the dialog is
+                        components/SendEmailDialog.tsx
 contentEnv.ts           Legacy shims; only stripLegacyEnvParam is used
 components/sharing/     ShareDialog, PrincipalPicker, DraftBar, PublishDialog,
                         AccessIcon, useDialog

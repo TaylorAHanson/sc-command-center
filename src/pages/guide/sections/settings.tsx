@@ -62,6 +62,92 @@ const Body = () => (
       nothing to show.
     </P>
 
+    <H2 id="email">Set up email</H2>
+    <P>
+      <Needs role="Administrator" /> People can email a widget&rsquo;s numbers from its <UI>Send</UI> dialog. Email goes through your organisation&rsquo;s own
+      Amazon SES account, always from one address you verify, and stays off until the steps below are done. The Setup card&rsquo;s <UI>Email</UI> row
+      says which one is next.
+    </P>
+    <Steps>
+      <Step title="Verify a sender identity in Amazon SES">
+        In the AWS region you will send from, verify the address emails will come from, such as <Code>command-center@example.com</Code>, or its whole
+        domain. Every email comes from that address; replies go to the person who sent it.
+      </Step>
+      <Step title="Request production access">
+        A new SES account is in the sandbox and delivers only to addresses you have verified. Request production access for the same region.
+      </Step>
+      <Step title="Create an IAM user that can only send">
+        Give it one permission, <Code>ses:SendEmail</Code>, on that identity alone (the address, or the domain if you verified the domain), then create an
+        access key for it.
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs leading-relaxed text-slate-100">{`{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "ses:SendEmail",
+    "Resource": "arn:aws:ses:us-east-1:123456789012:identity/command-center@example.com"
+  }]
+}`}</pre>
+      </Step>
+      <Step title="Give the app the keys as secrets">
+        Put the access key ID and secret access key in a Databricks secret scope. In your own target in <Code>databricks.yml</Code>, add them to the
+        app as secret resources and name the region, then run <Code>databricks bundle deploy</Code> and <Code>databricks bundle run</Code>:
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs leading-relaxed text-slate-100">{`targets:
+  prod:
+    resources:
+      apps:
+        sc-command-center:
+          resources:
+            - name: ses-access-key-id
+              secret:
+                scope: command-center
+                key: aws-ses-access-key-id
+                permission: READ
+            - name: ses-secret-access-key
+              secret:
+                scope: command-center
+                key: aws-ses-secret-access-key
+                permission: READ
+          config:
+            env:
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom: ses-access-key-id
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom: ses-secret-access-key
+              - name: AWS_REGION
+                value: us-east-1`}</pre>
+      </Step>
+      <Step title="Enter the From address">
+        In <UI>Settings</UI>, under <UI>Email</UI>, type the verified address into <UI>From address</UI> and click <UI>Save</UI>. The Setup
+        card&rsquo;s <UI>Email</UI> row turns green.
+      </Step>
+    </Steps>
+    <Callout kind="warn" title="AWS keys only ever go in secrets">
+      Never type them into Settings, a widget or the code. The app reads them only from its environment, which is where the secret resources put them.
+    </Callout>
+    <Table
+      head={['Setting', 'Starts at', 'What it does']}
+      rows={[
+        [<UI key="a">Allow email</UI>, 'On', 'Off stops all email at once and disables every Send button.'],
+        [<UI key="b">From address</UI>, 'Empty', 'The verified address every email comes from. Email stays off until it is set.'],
+        [
+          <UI key="c">Domains email may go to</UI>,
+          'Empty',
+          <>Empty, each person may email only addresses in their own domain. Once you list domains, only those are allowed, so include your own. One per line; <Code>*.example.com</Code> covers subdomains.</>,
+        ],
+        [<UI key="d">Most recipients per email</UI>, '10', 'From 1 to 50, the most SES accepts.'],
+        [<UI key="e">Most emails per person per day</UI>, '50', 'From 1 to 1,000, counted over the last 24 hours.'],
+      ]}
+    />
+    <P>
+      Each email is recorded with its sender, recipients, subject and outcome, never its body, and the send also appears in <UI>Action Logs</UI>.
+    </P>
+    <Details summary="Trying email on your own machine">
+      <P>
+        A local run (<Code>APP_ENVIRONMENT=local</Code>) without the AWS keys writes each email to <Code>backend.log</Code> instead of sending it, and the
+        Setup card shows email as ready in log mode. A deployed app never does this: without the keys it says email isn&rsquo;t set up.
+      </P>
+    </Details>
+
     <H2 id="models">Choose the models</H2>
     <P>
       Each model field suggests the chat models your Databricks workspace offers. You can also type a name that is not listed.
@@ -240,6 +326,6 @@ export const section: GuideSection = {
   title: 'Settings & models',
   summary: 'Choose models, limits and what the assistant may reach.',
   icon: Settings,
-  keywords: 'setup background jobs not set up model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence',
+  keywords: 'setup background jobs not set up model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence email ses amazon aws secret from address recipients domains',
   Body,
 };

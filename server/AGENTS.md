@@ -877,6 +877,66 @@ so call it from a sync handler (see *Blocking work belongs in a sync handler*).
 listed in `NOT_COPIED`. `activity_events` travels with the activity group;
 `background_jobs` is never copied, since it describes this deployment's own runs.
 
+## Email (`services/email_service.py`, `routes/email.py`)
+
+Everything that sends email calls **`email_service.send_email(sender_username,
+sender_email, to, subject, message_md, table=None, attach_csv=False,
+view_name=None, view_link=None, source="widget", request_id=None)`**. It needs no
+request, so a background job can call it, and it never raises: it returns
+`{ok, status, reason, transport, message_id, recipients, error, log_id}`, where
+`status` is `sent` / `logged` (ok) or `refused` / `unavailable` / `failed` and
+`error` is a sentence for the person. The caller decides who the sender is (the
+route takes the caller's OBO identity and ignores any sender in the body; a
+schedule passes its owner); everything else is enforced inside, so no caller can
+skip it:
+
+- **Recipients.** Addresses are normalized and anything malformed is refused.
+  Without `email_allowed_domains`, only the sender's own domain; with it, only
+  those entries (`*.example.com` is subdomains, not the apex). At most
+  `email_max_recipients` (default 10, never above SES's 50).
+- **Daily cap.** `email_daily_limit` (default 50) per sender over a rolling 24
+  hours. `reserve` takes a transaction-scoped advisory lock on the sender, counts
+  their `sending` / `sent` / `logged` rows and inserts this one as `sending` in
+  the same transaction, which is what makes the cap hold across both workers. A
+  row that can't be written means nothing is sent.
+- **Content.** Markdown goes through a small renderer here that escapes every
+  character it doesn't recognize, links only to http/https/mailto, and turns
+  images into links (an `<img>` would report who opened the email). A table is
+  data (`{columns, rows}`), drawn up to 50 rows, with an optional CSV (formula
+  cells prefixed with `'`, capped at 10,000 rows and 5 MB). The subject loses
+  control characters, so it can't add a header. There is no way to pass HTML.
+- **The record.** `email_log` (content schema, `_create_email_tables`) holds
+  sender, recipients, subject, status, transport, message id and error, never the
+  body; `activity.record(..., "email.send", "email", log_id, ...)` follows each
+  send and each refusal. The activity detail says `via`, not `source`, because
+  `source` is one of activity's content keys and would be dropped. `email_log`
+  is in `NOT_COPIED`: copied, it would spend the target's daily allowance.
+
+**Transport** (`choose_transport`, pure and tested): `ses` when `email_enabled`,
+a From address, both AWS key env vars and a region (`AWS_REGION` or
+`AWS_DEFAULT_REGION`) are present; else `log` when `APP_ENVIRONMENT=local`, which
+writes the rendered email to the server log and records it as `logged`; else
+`off`. A deployed app never pretends to send. Only the env vars count as
+credentials: boto3's own chain would also try instance metadata, where a
+platform role must not read as "set up". The keys arrive as app secret resources;
+they never go in `app_settings`, the database, the browser or a log line, which
+is why there is no setting for them or for the region. The `email` capability
+(registered in `main.py`'s startup) reports the same three states, with `missing`
+and `next_step` in fix-it order.
+
+**Routes.** `POST /api/email/preview` renders what Send would send and the
+problem that would stop it, writing nothing; `POST /api/email/send` sends.
+Refusals are 400, the daily cap 429, not set up 503 and an SES failure 502, each
+with the sentence as `detail`. The view link is the browser's to send, so it is
+kept only when it is on the request's own origin (`own_view_link`).
+
+**The browser side.** `props.app.sendEmail` never sends: `ExecuteActionPropInjector`
+binds it per widget to the Send dialog (`src/components/SendEmailDialog.tsx`),
+whose Send goes through that widget's `executeAction`, so the action log row is
+written first and its `request_id` is stored on the `email_log` row. Widget code
+could still call `/api/email/send` itself; the contract forbids it, and the
+recipient policy, caps and log apply either way.
+
 ## What each model will accept (`services/llm_params.py`)
 
 Endpoints disagree about the optional parameters, so nothing optional is sent unless
@@ -1484,6 +1544,8 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 31 passe
 PYTHONPATH=server .venv/bin/python tests/test_background.py           # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_service.py        # 44 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_routes.py         # 9 passed
 ```
 
 `test_file_extract.py` and `test_upload_tools.py` need the venv interpreter, not

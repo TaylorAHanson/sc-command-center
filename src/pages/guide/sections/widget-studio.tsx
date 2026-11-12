@@ -378,6 +378,14 @@ const Body = () => (
       <li>A web address opens in a new browser tab.</li>
       <li>A tile whose link isn't set yet looks muted and does nothing.</li>
     </List>
+    <H3 id="email-buttons">Email buttons</H3>
+    <P>
+      Ask for "a button that emails this table" and the widget gets one that opens the app&rsquo;s <UI>Send</UI> dialog with a subject, a message and
+      the table filled in, optionally with the table attached as a CSV. The person sending chooses the recipients, sees a preview and presses{' '}
+      <UI>Send</UI>; the widget can&rsquo;t send by itself. Until email is set up the button is greyed out with &ldquo;Email isn&rsquo;t set up in this app
+      yet&rdquo;. In the studio&rsquo;s preview, pressing it describes the dialog instead. See{' '}
+      <GuideLink to="widgets" anchor="email">Send a widget&rsquo;s numbers by email</GuideLink>.
+    </P>
 
     <H2 id="may-contain">What a widget may contain</H2>
     <P>
@@ -525,6 +533,6 @@ export const section: GuideSection = {
   title: 'Widget Studio',
   summary: 'Build a widget by describing it, then save, share and publish it.',
   icon: Code,
-  keywords: 'create widget build generate code tsx data source sql legacy query api preview agent page card configuration executable action',
+  keywords: 'create widget build generate code tsx data source sql legacy query api preview agent page card configuration executable action email send',
   Body,
 };
