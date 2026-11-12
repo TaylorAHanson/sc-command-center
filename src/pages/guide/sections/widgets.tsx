@@ -205,6 +205,10 @@ const Body = () => (
         <li>You have reached the number of emails one person may send in 24 hours (50 unless an administrator changed it).</li>
       </List>
     </Callout>
+    <P>
+      To have the same numbers emailed on a timetable instead, use the widget&rsquo;s <UI>Schedule</UI> button if it has one; see{' '}
+      <GuideLink to="schedules">Scheduled reports</GuideLink>.
+    </P>
 
     <H2 id="remove-a-widget">Remove a widget</H2>
     <P>

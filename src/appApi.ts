@@ -3,6 +3,9 @@ import { useDashboardStore } from './store/dashboardStore';
 import { colourProblem, DEFAULT_THEME, effectiveTheme, isTabLink, tabLabel, webAddress, type TabLayout } from './store/appSpec';
 import { fontById } from './fonts';
 import { isAvailable, useCapabilities } from './capabilities';
+import type { ScheduleOutcome, ScheduleRequest } from './schedules';
+
+export type { ScheduleOutcome, ScheduleRequest } from './schedules';
 
 export interface AssistantRequest {
   agentId?: string;
@@ -39,7 +42,8 @@ export interface EmailOutcome {
  * `props.app`. It reads nothing beyond the app's own tab names and colours, moves
  * only between this app's tabs, and fills in the assistant without sending:
  * pressing Send stays the user's act, since that is what runs tools as them.
- * Email follows the same rule: `sendEmail` opens a Send dialog, never sends.
+ * Email follows the same rule: `sendEmail` opens a Send dialog, never sends,
+ * and `schedule` opens the Schedule dialog, never creates.
  */
 export interface AppApi {
   tabs: { id: string; name: string; layout: TabLayout }[];
@@ -62,6 +66,14 @@ export interface AppApi {
   sendEmail: (request: EmailRequest) => Promise<EmailOutcome>;
   /** False until email is set up in this app; a widget disables its email button then. */
   emailAvailable: boolean;
+  /**
+   * Opens the platform's Schedule dialog with this schedule filled in: the
+   * person chooses when it runs and who gets it, and saves, which is logged
+   * like `executeAction`. Resolves when the dialog closes.
+   */
+  schedule: (request: ScheduleRequest) => Promise<ScheduleOutcome>;
+  /** False until scheduling is set up in this app. A scheduled report is emailed, so it needs `emailAvailable` too. */
+  scheduleAvailable: boolean;
 }
 
 export interface ResolvedLink {
@@ -128,6 +140,7 @@ export const useAppApi = (): AppApi | undefined => {
   const font = fontById(theme.font)?.stack || null;
   const capabilities = useCapabilities();
   const emailAvailable = isAvailable(capabilities, 'email');
+  const scheduleAvailable = isAvailable(capabilities, 'scheduling');
 
   const hasApp = !!activeApp;
 
@@ -148,10 +161,13 @@ export const useAppApi = (): AppApi | undefined => {
         door?.open({ agentId: request?.agentId, prompt: request?.prompt });
       },
       theme: { primary, dark, font },
-      // ExecuteActionPropInjector replaces this for each widget whose actions
-      // are logged; anywhere else a Send would leave no audit row, so none opens.
+      // ExecuteActionPropInjector replaces these for each widget whose actions
+      // are logged; anywhere else a Send or a Save would leave no audit row, so
+      // no dialog opens.
       sendEmail: () => Promise.resolve<EmailOutcome>({ sent: false, status: 'unavailable', recipients: [] }),
       emailAvailable,
+      schedule: () => Promise.resolve<ScheduleOutcome>({ scheduled: false, status: 'unavailable' }),
+      scheduleAvailable,
     };
-  }, [hasApp, tabsKey, activeTabId, primary, dark, font, door, selectTab, emailAvailable]);
+  }, [hasApp, tabsKey, activeTabId, primary, dark, font, door, selectTab, emailAvailable, scheduleAvailable]);
 };

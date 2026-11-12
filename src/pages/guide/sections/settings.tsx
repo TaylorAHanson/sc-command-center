@@ -81,7 +81,7 @@ databricks secrets put-secret command-center token-vault-key --string-value <the
       <P>
         Click <UI>Check again</UI> on the <UI>Setup</UI> card. <UI>Scheduling</UI> reads ready once the client id is saved. A connection lasts as long
         as the TTL allows; after that, or if someone&rsquo;s access is revoked, they are asked to connect again. Moving data to another app never
-        copies connections.
+        copies connections. Once it is ready, people schedule from widgets: see <GuideLink to="schedules">Scheduled reports</GuideLink>.
       </P>
       <Details summary="Creating the connection from the command line">
         <P>An account admin can run this instead of using the account console:</P>

@@ -374,7 +374,8 @@ listed by its own host. Scripts still load only from the CDNs. The browser
 enforces the same rule independently, so a widget that got round the save check
 still could not load a script or send data off-list. Widget code is generated
 from a prompt, and these two rules are what keep "generated" from meaning "can
-reach anywhere".
+reach anywhere". Code calling `/api/email/send` or `/api/schedules` itself is
+refused too: email and schedules go through their dialogs.
 
 A widget that **changes** data (INSERT, UPDATE, DELETE, MERGE and so on) does it
 through its action controls and should be marked **Executable**; Widget Studio's
@@ -421,6 +422,73 @@ those. The dialog says which limit stopped a send. A greyed-out email button or 
 Send dialog saying "Email isn't set up in this app yet" means the administrators
 haven't finished setting email up (see Admin Settings). Run on a developer's own
 machine, Send writes the email to the server log instead of sending it.
+
+## Scheduled reports
+
+A widget can offer a **Schedule** button that emails its results on a timetable;
+ask Widget Studio for "a button that emails this every Monday". Scheduled work
+runs as the person who scheduled it, with their own access to data, while they
+are away.
+
+**Scheduling.** Pressing **Schedule** opens a dialog the widget has filled in.
+Nothing is saved until **Save schedule** is pressed, and saving is recorded in
+**Action Logs**. The dialog has:
+
+- **Name**.
+- **How often**: Hourly, Daily, Weekly or Monthly. Weekly picks days of the week
+  (**Weekdays** picks Monday to Friday); Monthly picks days of the month, and a
+  day past a short month's end runs on its last day. **At** is the time of day;
+  Hourly picks the minutes past the hour instead. **Time zone** starts as the
+  browser's. A line underneath reads it back, e.g. "Every weekday at 08:00
+  (America/Los_Angeles)".
+- **Recipients**: press Enter or type a comma after each address. It starts with
+  your own address unless the widget suggests others, and the Send dialog's
+  recipient limits apply.
+- **Subject**, **Message** (Markdown), **Send** (Every time, Only when the query
+  returns rows, Only when the query returns no rows) and **Attach the results as
+  a CSV file**.
+- **The query it runs**, shown but not editable: the schedule keeps the statement
+  the widget ran when it was saved. To change it, change the widget and schedule
+  again.
+
+On an Executable widget the dialog also offers **Run the statement** instead of
+**Email the results**: the statement runs on the timetable, nobody is emailed,
+and each run is recorded in Action Logs.
+
+**Connecting your account.** Because scheduled work runs as you, you connect your
+Databricks account to the app once. The dialog shows whether you are connected.
+If you aren't, save anyway: the schedule is created and waits, and the dialog
+then offers **Connect your account**, which signs you in to Databricks and brings
+you back where you were, with a message saying whether it worked. A connection
+lasts as long as the administrators' setup allows (30 days by default), and
+reconnecting renews it. If it fails because you signed in to Databricks as a
+different user, sign in as yourself and connect again.
+
+**My schedules.** **Resources → My schedules** in the sidebar (there once
+scheduling is set up) lists your schedules with what each does, how often, how
+many recipients, its status, and its last and next run. Each has **Run now**
+(one run outside the timetable, starting within about 30 seconds), **Pause** or
+**Resume**, **Edit** (the same dialog; the query and what it does can't change)
+and **Delete**. The arrow beside one shows its last 20 runs: when, how it started
+(On schedule, Run now, Missed run), the result (Succeeded, Skipped, Failed, Needs
+reconnect), rows, recipients emailed, and any error. The statuses are **Active**,
+**Paused**, **Paused after failures** (several runs in a row failed: fix the
+cause, then Resume) and **Needs reconnect** (waiting for you to connect again).
+The card at the top shows your connection: **Connected · expires in N days** with
+**Reconnect** and **Disconnect**, or **Connect your account**. Disconnecting stops
+your schedules until you connect again; it doesn't delete them. Administrators
+can tick **Everyone's schedules** to see everybody's, with each one's owner.
+
+**The reminder banner.** When you have active schedules and your connection ends
+within a week, or needs reconnecting, a yellow banner across the top of the app
+says so and links to My schedules. Closing it hides it for the rest of the
+browser session.
+
+**When it isn't available.** A greyed-out Schedule button, or a dialog saying
+"Scheduling isn't set up in this app yet", means administrators haven't set
+scheduling up (see Admin Settings). An emailed report needs email set up too. Run
+on a developer's own machine, schedules run as the app itself and there is no
+account to connect.
 
 ## Widget Library
 

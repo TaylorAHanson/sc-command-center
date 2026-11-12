@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useDashboardStore, type App, type AppVersion, type ArchivedApp } from '../store/dashboardStore';
-import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow, Compass, Archive, ChevronRight, RotateCcw, Trash2, X, Loader2, EyeOff, FileText, History, Undo2 } from 'lucide-react';
+import { Plus, Menu, LayoutGrid, Layers, Copy, Pencil, GripVertical, Share2, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow, Compass, Archive, ChevronRight, RotateCcw, Trash2, X, Loader2, EyeOff, FileText, History, Undo2, CalendarClock } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from './ConfirmModal';
 import { AccessIcon, DraftBar, PublishDialog, ShareDialog } from './sharing';
@@ -23,6 +23,8 @@ import { AssistantDoorContext, useAssistantDoorFor } from '../appApi';
 import { useCanvasLook } from '../hooks/useCanvasLook';
 import { appHash, appRef, isStandalone, linkTab, parseAppRoute, tabIdOf } from '../store/appRoute';
 import { useShell } from '../shell';
+import { isAvailable, useCapabilities } from '../capabilities';
+import { OAuthOutcomeToast, ScheduleBanner } from './ScheduleNotices';
 
 // The full-page screens load when they are opened. Together they are most of the
 // app's code — the editor, the markdown renderer, the admin tables — and a session
@@ -37,6 +39,7 @@ const pageImports = {
   'agent-studio': () => import('../pages/AgentStudio'),
   'user-guide': () => import('../pages/UserGuidePage'),
   'release-notes': () => import('../pages/ReleaseNotesPage'),
+  schedules: () => import('../pages/SchedulesPage'),
 };
 
 const AdminPage = React.lazy(() => pageImports.admin().then(m => ({ default: m.AdminPage })));
@@ -47,6 +50,7 @@ const WidgetStudio = React.lazy(() => pageImports.studio().then(m => ({ default:
 const AgentStudio = React.lazy(() => pageImports['agent-studio']().then(m => ({ default: m.AgentStudio })));
 const UserGuidePage = React.lazy(() => pageImports['user-guide']().then(m => ({ default: m.UserGuidePage })));
 const ReleaseNotesPage = React.lazy(() => pageImports['release-notes']().then(m => ({ default: m.ReleaseNotesPage })));
+const SchedulesPage = React.lazy(() => pageImports.schedules().then(m => ({ default: m.SchedulesPage })));
 
 const PageLoading: React.FC = () => (
   <div className="flex items-center justify-center h-full w-full text-gray-400">
@@ -56,7 +60,7 @@ const PageLoading: React.FC = () => (
 
 // Every full-page screen `currentPage` can name. Reload and Back/Forward both
 // read this list, so a page missing from it is one the browser can't return to.
-const PAGES = ['admin', 'studio', 'agent-studio', 'settings', 'help', 'about', 'user-guide', 'release-notes'];
+const PAGES = ['admin', 'studio', 'agent-studio', 'settings', 'help', 'about', 'user-guide', 'release-notes', 'schedules'];
 // `#/user-guide/<section>` is still the guide: a page may carry a path of its own
 // after its name, which that page reads itself (the guide's sections, for one).
 const pageOf = (hash: string): string | null => PAGES.find(p => hash === `#/${p}` || hash.startsWith(`#/${p}/`)) ?? null;
@@ -162,6 +166,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [currentPage, setCurrentPage] = useState<string | null>(() => pageOf(window.location.hash));
   // Pages that take over the full screen (no header, no agent drawer).
   const isFullScreenStudio = currentPage === 'studio' || currentPage === 'agent-studio';
+  const schedulingOn = isAvailable(useCapabilities(), 'scheduling');
   const {
     apps, activeAppId, activeApp, activeAppTab, openRoute, setActiveAppId, addApp, deleteApp, archiveApp, restoreApp, fetchArchived, hideApp,
     renameApp, reorderApps, duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, activeDomain, isAdmin,
@@ -716,6 +721,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     <ScrollText className="w-4 h-4" />
                     <span>Release Notes</span>
                   </button>
+                  {schedulingOn && (
+                    <button onClick={() => setCurrentPage('schedules')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'schedules' ? "bg-brand-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
+                      <CalendarClock className="w-4 h-4" />
+                      <span>My schedules</span>
+                    </button>
+                  )}
                   {canAccessAdmin && (
                     <button onClick={() => setCurrentPage('admin')} className={clsx("flex items-center gap-2 px-3 py-2 text-sm w-full text-left rounded-md transition-colors", currentPage === 'admin' ? "bg-brand-blue text-white" : "text-gray-400 hover:text-white hover:bg-gray-800")}>
                       <Shield className="w-4 h-4" />
@@ -731,11 +742,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 relative">
+        <ScheduleBanner hidden={isFullScreenStudio || currentPage === 'schedules'} />
         {/* Top Header */}
         {!isFullScreenStudio && (() => {
           const name = branded?.title || activeApp?.name;
           // These pages are not views, so the header must not keep showing the last view's name.
-          const pageTitle = currentPage ? ({ admin: 'Admin Panel', 'user-guide': 'User Guide', 'release-notes': 'Release Notes', help: 'Getting Started' } as Record<string, string>)[currentPage] : undefined;
+          const pageTitle = currentPage ? ({ admin: 'Admin Panel', 'user-guide': 'User Guide', 'release-notes': 'Release Notes', help: 'Getting Started', schedules: 'My schedules' } as Record<string, string>)[currentPage] : undefined;
           const title = pageTitle ? pageTitle : name || 'Command Center';
           const manages = !currentPage && activeRow?.access === 'MANAGE';
           const tab = !currentPage && activeApp && activeAppTab && canEditLayout(activeApp) ? activeAppTab : null;
@@ -884,6 +896,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <React.Suspense fallback={<PageLoading />}>
             {currentPage === 'user-guide' && <UserGuidePage />}
             {currentPage === 'release-notes' && <ReleaseNotesPage />}
+            {currentPage === 'schedules' && <SchedulesPage />}
             {currentPage === 'settings' && <SettingsPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}
@@ -963,6 +976,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           />
         </div>
       )}
+
+      <OAuthOutcomeToast />
 
       {/* Widget Tray */}
       <WidgetTray

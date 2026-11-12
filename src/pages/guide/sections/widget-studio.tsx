@@ -421,11 +421,22 @@ const Body = () => (
       <GuideLink to="widgets" anchor="email">Send a widget&rsquo;s numbers by email</GuideLink>.
     </P>
 
+    <H3 id="schedule-buttons">Schedule buttons</H3>
+    <P>
+      Ask for &ldquo;a button that emails this every Monday&rdquo; and the widget gets one that opens the app&rsquo;s <UI>Schedule</UI> dialog with
+      its query, a subject and a timetable filled in. The person scheduling chooses when it runs and who gets it, and presses{' '}
+      <UI>Save schedule</UI>; the widget can&rsquo;t create a schedule by itself. On an executable widget it can offer to run the statement on a
+      timetable instead. Until scheduling and email are set up the button is greyed out with the reason. In the studio&rsquo;s preview, pressing
+      it describes the dialog instead. See <GuideLink to="schedules">Scheduled reports</GuideLink>.
+    </P>
+
     <H2 id="may-contain">What a widget may contain</H2>
     <P>
       Saving is refused if the code uses <C>eval</C>, <C>new Function</C>, <C>document.write</C>,{' '}
       <C>innerHTML</C> or <C>dangerouslySetInnerHTML</C>, or if it references any address other than this app's
-      own <C>/api/...</C> paths, the approved CDNs, and any Databricks App an admin has approved.
+      own <C>/api/...</C> paths, the approved CDNs, and any Databricks App an admin has approved. It is also refused
+      if the code calls <C>/api/email/send</C> or <C>/api/schedules</C> itself: a widget sends email and schedules
+      reports only through their dialogs, so the person checks them first.
     </P>
     <Table
       head={['Approved CDNs']}
