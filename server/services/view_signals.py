@@ -385,12 +385,15 @@ def home(who: access.Caller) -> Dict[str, Any]:
     finally:
         conn.close()
     mine = sorted(mine + draft_only, key=lambda r: (_sortable(r.get("updated_at")), r["id"]), reverse=True)[:HOME_MINE]
-    unique = {r["id"]: r for r in listed + mine}
+    unique = {r["id"]: r for r in listed + mine + draft_only}
     allowed = {r["id"]: r for r in view_catalog.recheck(who, list(unique.values()))}
+    # `drafts` is capped on its own: in `mine` they compete with published views
+    # for the 50, and Discover's Mine lists them because search can't find them.
     return {
         "favorites": [allowed[i] for i in fav_ids if i in allowed],
         "recent": [allowed[i] for i in recent if i in allowed][:HOME_RECENT],
         "mine": [allowed[r["id"]] for r in mine if r["id"] in allowed],
+        "drafts": [allowed[r["id"]] for r in draft_only if r["id"] in allowed],
         "mine_total": mine_total,
         "new_for_you_count": len(fresh),
     }

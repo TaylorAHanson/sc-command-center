@@ -13,7 +13,7 @@ import {
 import {
     applyToRails, applyToRows, clearFilters, countText, effectiveScope, effectiveSort, emptyMessage, GOVERNANCE_ROUTE, isGovernance,
     mergePages, modeNote, nextFeaturedPosition, normalizeRoute, pageMode, RAIL_LABELS, RAIL_LIMIT, RAIL_ORDER, resultsTitle, SCOPE_LABELS,
-    scopesFor, searchParamsOf, seeAllRoute, showsUnpublished, SORT_LABELS, sortsFor, unpublishedOf, withChanges, withQuery,
+    scopesFor, searchParamsOf, seeAllRoute, showsUnpublished, SORT_LABELS, sortsFor, withChanges, withQuery,
 } from '../discoverPage';
 import { ShareDialog } from '../components/sharing';
 import { ComposeDialog } from '../components/discover/ComposeDialog';
@@ -186,7 +186,7 @@ export const DiscoverPage: React.FC = () => {
         fetchHome()
             .then(home => {
                 if (!live) return;
-                const rows = unpublishedOf(home.mine);
+                const rows = home.drafts;
                 setUnpublished({ rows, error: null });
                 noteManaged(rows);
             })

@@ -8,7 +8,7 @@ import {
   addPick, applyToRails, applyToRows, clearFilters, countText, effectiveScope, effectiveSort, emptyMessage, facetOptions,
   GOVERNANCE_ROUTE, isGovernance, MAX_COMBINED, mergePages, modeNote, movePick, nextFeaturedPosition, normalizeRoute,
   pageMode, RAIL_ORDER, resultsTitle, searchParamsOf, seeAllRoute, showsUnpublished, sortsFor, scopesFor, toggled,
-  unpublishedOf, withChanges, withQuery,
+  withChanges, withQuery,
 } from '../src/discoverPage.ts';
 import { discoverHref, parseDiscoverHref } from '../src/discoverRoute.ts';
 import type { Rails, ViewRow } from '../src/discover.ts';
@@ -263,10 +263,6 @@ test('Mine lists never-published views above its results, unless a search or fil
   assert.equal(showsUnpublished({ scope: 'mine', status: 'draft', certified: true }), false);
   assert.equal(showsUnpublished({ scope: 'shared' }), false);
   assert.equal(showsUnpublished({}), false);
-
-  const mine = [row('p', { state: 'published' }), row('d', { state: 'draft_only' }), row('w', { state: 'published_with_draft' }), row('n')];
-  assert.deepEqual(unpublishedOf(mine).map(r => r.id), ['d']);
-
   assert.equal(emptyMessage({ scope: 'mine' }, 2).title, 'None of your views is published yet');
   assert.match(emptyMessage({ scope: 'mine', status: 'draft' }, 2).title, /unpublished changes/);
   assert.equal(emptyMessage({ scope: 'mine' }, 0).title, 'You haven’t published a view yet');

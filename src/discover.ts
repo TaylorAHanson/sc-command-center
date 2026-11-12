@@ -72,6 +72,8 @@ export interface Home {
     favorites: ViewRow[];
     recent: ViewRow[];
     mine: ViewRow[];
+    /** Never-published views only, newest first, up to 50 of their own. */
+    drafts: ViewRow[];
     mine_total: number;
     new_for_you_count: number;
 }

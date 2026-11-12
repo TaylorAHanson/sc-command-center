@@ -180,9 +180,6 @@ export const showsUnpublished = (route: DiscoverRoute): boolean =>
     && (route.status === undefined || route.status === 'draft')
     && !hasFilters({ ...route, status: undefined });
 
-/** The never-published views among the sidebar's My views (`fetchHome().mine`). */
-export const unpublishedOf = (mine: ViewRow[]): ViewRow[] => mine.filter(r => r.state === 'draft_only');
-
 /** What to say when a list comes back empty; `unpublished` views of the caller's may be listed above it. */
 export const emptyMessage = (route: DiscoverRoute, unpublished = 0): { title: string; hint: string } => {
     if (unpublished > 0 && showsUnpublished(route)) {

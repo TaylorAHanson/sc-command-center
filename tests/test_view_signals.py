@@ -277,6 +277,7 @@ def test_home_is_rechecked_and_merges_never_published_drafts():
     assert [r["id"] for r in out["recent"]] == ["rec", "fav"]
     assert [r["id"] for r in out["mine"]] == ["draft1", "mine"]
     assert out["mine"][0]["state"] == "draft_only" and out["mine"][1]["state"] == "published"
+    assert [r["id"] for r in out["drafts"]] == ["draft1"]
     assert out["mine_total"] == 2 and out["new_for_you_count"] == 2
 
 

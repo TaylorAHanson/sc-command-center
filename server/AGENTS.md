@@ -1311,7 +1311,9 @@ can't be read, `mine` comes from the source tables instead (`own_views`): only
 grants that name the caller with `MANAGE`, filtered to views they own, newest
 heads by `MAX(version)` with light columns. That keeps the first start after an
 upgrade from showing everyone an empty sidebar. `GET /api/discover/home` stays
-Discover's; the store reads only this endpoint.
+Discover's; the store reads only this endpoint. Its `drafts` (never-published
+views, ≤ 50, capped apart from `mine` where published views would crowd them
+out) is what Discover's Mine lists above its search results.
 
 `sidebar_hidden` now means **taken out of Recent**, not "closed from Shared with
 me". `POST /{id}/hide` upserts the time, and the row stops counting once the
