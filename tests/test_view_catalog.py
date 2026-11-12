@@ -275,6 +275,9 @@ def test_the_setup_row_while_building_and_when_fully_on():
     done = {"model": MODEL, "done": 40, "total": 40}
     res = vc.capability_result(dict(HYBRID, state=dict(BUILT, embeddings=done)), "auto", MODEL)
     assert res == {"available": True, "mode": "hybrid", "missing": [], "next_step": ""}
+    empty = {"model": MODEL, "done": 0, "total": 0}
+    res = vc.capability_result(dict(KEYWORD, state=dict(BUILT, embeddings=empty)), "auto", MODEL)
+    assert res["mode"] == "keyword" and res["missing"] == ["Meaning-based search starts once a view is published."]
 
 
 def test_the_setup_row_says_when_meaning_search_is_off_or_failing():

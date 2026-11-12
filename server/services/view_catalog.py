@@ -494,6 +494,8 @@ def capability_result(detected: Optional[Dict[str, Any]], setting: Optional[str]
                          "service principal may query.")
         elif emb.get("model") != model or (emb.get("total") and emb.get("done", 0) < emb["total"]):
             missing.append(f"Embedding views: {emb.get('done', 0)} of {emb.get('total', '?')} done.")
+        elif emb.get("total") == 0:
+            missing.append("Meaning-based search starts once a view is published.")
         elif not detected.get("ann"):
             missing.append("The vector index is being built.")
     missing.extend(notes)
@@ -1120,11 +1122,22 @@ def embed_query(text: str, model: str, timeout: float = QUERY_EMBED_TIMEOUT) -> 
         if key in _query_cache:
             _query_cache.move_to_end(key)
             return _query_cache[key]
+    started = time.monotonic()
     future = _executor.submit(lambda: embed_texts([key[1]], model, timeout=max(2.0, timeout * 5))[0])
     try:
         vector = future.result(timeout=timeout)
     except FutureTimeout:
-        future.add_done_callback(lambda f: f.exception() is None and _remember(key, f.result()))
+        # Logged because the search itself just answers as keyword: without this
+        # nobody can tell a budget that is too tight from an endpoint that is down.
+        def late(f) -> None:
+            took = time.monotonic() - started
+            if f.exception() is None:
+                _remember(key, f.result())
+                logger.info("Search query embedding took %.2fs, past the %.2fs budget", took, timeout)
+            else:
+                logger.info("Search query embedding failed after %.2fs: %s", took, f.exception())
+
+        future.add_done_callback(late)
         return None
     except Exception as e:  # noqa: BLE001
         logger.info("Embedding the search query failed: %s", e)
