@@ -384,6 +384,21 @@ from views keeps each link on the copied tab. A widget can't open another view,
 and its code still can't contain an address: an address is only ever a card's
 setting.
 
+**Sending by email.** A widget can offer an email button; ask Widget Studio for
+"a button that emails this table". Pressing it opens a **Send** dialog with the
+**To** line (addresses separated by commas, filled in if the widget suggests
+someone), the **Subject**, and a preview of the email exactly as it will arrive,
+including any table and the name of the attached CSV. Nothing is sent until
+**Send** is pressed, and the send is recorded in **Action Logs** like any other
+action. The email comes from the app's own address, replies go to the sender, and
+its footer names the sender and the view with a link back to it. Recipients are
+limited: by default only addresses in the sender's own email domain, at most 10
+per email and 50 emails per person in 24 hours, unless an administrator changed
+those. The dialog says which limit stopped a send. A greyed-out email button or a
+Send dialog saying "Email isn't set up in this app yet" means the administrators
+haven't finished setting email up (see Admin Settings). Run on a developer's own
+machine, Send writes the email to the server log instead of sending it.
+
 ## Widget Library
 
 Opens from the **Widget Library** button in the sidebar, or by pressing `w`.
@@ -1064,6 +1079,22 @@ to a minute. The same card shows when each background job (work the app does on
 a timer, such as refreshing a search index) last ran, and whether it failed. If
 someone asks why a feature is missing or greyed out, send their administrator to
 that card.
+
+**Setting up email.** Email goes through the organisation's own Amazon SES
+account and stays off until three things are in place. First, AWS keys for an IAM
+user allowed only `ses:SendEmail` on a verified SES sender identity, added to the
+app as secret resources named `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`,
+with `AWS_REGION` set to the identity's region; the user guide's **Set up email**
+section has the bundle snippet. Second, production access for the SES account,
+without which SES delivers only to verified addresses. Third, the verified address
+entered as **From address** under Admin Panel → Settings → **Email**. AWS keys are
+never entered in Settings. The same card holds **Allow email** (off stops all
+email at once), **Domains email may go to** (one per line, `*.example.com` for
+subdomains; empty means each person's own domain only, so once it is set, list
+your own domain too), **Most recipients per email** (10, at most 50) and **Most
+emails per person per day** (50, counted over 24 hours). The Setup card's
+**Email** row says what is still missing. Each email is recorded with its sender,
+recipients, subject and outcome, never its body.
 
 ## The assistant panel
 

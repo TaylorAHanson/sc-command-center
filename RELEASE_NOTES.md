@@ -31,6 +31,8 @@
 - **See who did what.** Admin Panel → **Activity** lists publishing, sharing, deletes, studio generations, chats and setting changes, who is active now, and a summary per person.
 - **Open anything from Content.** Admin Panel → Content has **Open** on views and **Edit** on widgets and agents, going straight to the view or its studio.
 - **Choose how long activity is kept.** *Delete activity events after (days)* in Admin Panel → Settings starts at 365; 0 keeps everything.
+- **Email from widgets.** A widget's email button opens a **Send** dialog where you choose recipients, preview the email, and send it with its table attached as a CSV.
+- **Email settings.** Admin Panel → Settings → **Email** sets the From address, which domains email may go to, and per-person limits. Email stays off until Amazon SES is set up.
 
 ### Changed
 
