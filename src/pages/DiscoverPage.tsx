@@ -6,14 +6,14 @@ import clsx from 'clsx';
 import { findCapability, useCapabilities } from '../capabilities';
 import { fetchMe } from '../sharing';
 import {
-    curateView, discoverHref, fetchDiscoverStatus, fetchRails, onDiscoverChanged, parseDiscoverHref,
+    curateView, discoverHref, fetchDiscoverStatus, fetchHome, fetchRails, onDiscoverChanged, parseDiscoverHref,
     searchQuery, searchViews, setFavorite, setHidden,
     type DiscoverChange, type DiscoverRoute, type DiscoverStatus, type RailName, type Rails, type SearchMode, type SearchResponse, type ViewRow,
 } from '../discover';
 import {
     applyToRails, applyToRows, clearFilters, countText, effectiveScope, effectiveSort, emptyMessage, GOVERNANCE_ROUTE, isGovernance,
     mergePages, modeNote, nextFeaturedPosition, normalizeRoute, pageMode, RAIL_LABELS, RAIL_LIMIT, RAIL_ORDER, resultsTitle, SCOPE_LABELS,
-    scopesFor, searchParamsOf, seeAllRoute, SORT_LABELS, sortsFor, withChanges, withQuery,
+    scopesFor, searchParamsOf, seeAllRoute, showsUnpublished, SORT_LABELS, sortsFor, unpublishedOf, withChanges, withQuery,
 } from '../discoverPage';
 import { ShareDialog } from '../components/sharing';
 import { ComposeDialog } from '../components/discover/ComposeDialog';
@@ -83,6 +83,7 @@ export const DiscoverPage: React.FC = () => {
     const [notice, setNotice] = useState<string | null>(null);
     const [sharing, setSharing] = useState<ViewRow | null>(null);
     const [composing, setComposing] = useState<ViewRow[] | null>(null);
+    const [unpublished, setUnpublished] = useState<{ rows: ViewRow[]; error: string | null } | null>(null);
     const [managesSome, setManagesSome] = useState(false);
     const [filtersOpen, setFiltersOpen] = useState(false);
     const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
@@ -178,6 +179,22 @@ export const DiscoverPage: React.FC = () => {
         return () => { live = false; };
     }, [wantsRails, refresh, noteManaged]);
 
+    const wantsUnpublished = mode === 'results' && showsUnpublished(route);
+    useEffect(() => {
+        if (!wantsUnpublished) return;
+        let live = true;
+        fetchHome()
+            .then(home => {
+                if (!live) return;
+                const rows = unpublishedOf(home.mine);
+                setUnpublished({ rows, error: null });
+                noteManaged(rows);
+            })
+            .catch(e => { if (live) setUnpublished({ rows: [], error: message(e) }); });
+        return () => { live = false; };
+    }, [wantsUnpublished, refresh, noteManaged]);
+    const unpublishedRows = wantsUnpublished ? unpublished?.rows ?? [] : [];
+
     // Only `everything` depends on being an administrator, so knowing it late
     // doesn't repeat any other search; that one waits until it's known.
     const adminScope = route.scope === 'everything' ? admin : false;
@@ -260,6 +277,11 @@ export const DiscoverPage: React.FC = () => {
             if (!r?.data) return r;
             const data = applyToRails(r.data, c, row);
             return data === r.data ? r : { ...r, data };
+        });
+        setUnpublished(u => {
+            if (!u) return u;
+            const rows = applyToRows(u.rows, c);
+            return rows === u.rows ? u : { ...u, rows };
         });
     }, []);
 
@@ -525,16 +547,22 @@ export const DiscoverPage: React.FC = () => {
                                 </div>
                             )}
 
-                            <ResultNotes route={route} page={current} configured={configured} isAdmin={admin} />
+                            <ResultNotes route={route} page={current} configured={configured} isAdmin={admin} listsUnpublished={wantsUnpublished} />
+
+                            {unpublishedRows.length > 0 && <Unpublished rows={unpublishedRows} layout={layout} actions={actions} />}
+                            {wantsUnpublished && unpublished?.error && (
+                                <p className="text-xs text-red-700">Couldn’t list the views you haven’t published: {unpublished.error}</p>
+                            )}
 
                             {current?.error ? (
                                 <ErrorState text={current.error} onRetry={() => setRefresh(n => n + 1)} />
                             ) : loading ? (
                                 <Skeleton layout={layout} />
                             ) : current && current.rows.length === 0 ? (
-                                <Empty route={route} onClear={() => go(clearFilters(route))} onHome={() => go({})} />
+                                <Empty route={route} unpublished={unpublishedRows.length} onClear={() => go(clearFilters(route))} onHome={() => go({})} />
                             ) : current && (
                                 <>
+                                    {unpublishedRows.length > 0 && <h2 className="text-sm font-semibold text-gray-800">Published</h2>}
                                     <Rows rows={current.rows} layout={layout} actions={actions} />
                                     {current.next_cursor && !current.moreError && <div ref={setSentinel} aria-hidden="true" className="h-px" />}
                                     {moreFor === key && (
@@ -565,7 +593,7 @@ export const DiscoverPage: React.FC = () => {
                     objectType="app"
                     objectId={sharing.id}
                     name={sharing.name}
-                    published
+                    published={sharing.state !== 'draft_only'}
                     link={`${window.location.origin}${window.location.pathname}${sharing.link}`}
                     onClose={() => setSharing(null)}
                 />
@@ -607,6 +635,21 @@ const Rows: React.FC<{ rows: ViewRow[]; layout: Layout; actions: ViewActions }> 
         </div>
     );
 
+/** The caller's never-published views, kept apart so nobody takes them for search results. */
+const Unpublished: React.FC<{ rows: ViewRow[]; layout: Layout; actions: ViewActions }> = ({ rows, layout, actions }) => (
+    <section aria-labelledby="discover-unpublished-title" className="space-y-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+        <div>
+            <h2 id="discover-unpublished-title" className="text-sm font-semibold text-gray-800">
+                Not published yet <span className="font-normal text-gray-500">· {rows.length}</span>
+            </h2>
+            <p className="mt-0.5 text-xs text-gray-500">
+                Only people who manage these can open them, and search finds a view once it’s published.
+            </p>
+        </div>
+        <Rows rows={rows} layout={layout} actions={actions} />
+    </section>
+);
+
 const Skeleton: React.FC<{ layout: Layout }> = ({ layout }) => (
     <div className={layout === 'grid' ? GRID : 'space-y-2'} aria-hidden="true">
         {Array.from({ length: layout === 'grid' ? 8 : 6 }, (_, i) => (
@@ -637,8 +680,8 @@ const EmptyBox: React.FC<{ title: string; hint: string; children?: React.ReactNo
     </div>
 );
 
-const Empty: React.FC<{ route: DiscoverRoute; onClear: () => void; onHome: () => void }> = ({ route, onClear, onHome }) => {
-    const { title, hint } = emptyMessage(route);
+const Empty: React.FC<{ route: DiscoverRoute; unpublished: number; onClear: () => void; onHome: () => void }> = ({ route, unpublished, onClear, onHome }) => {
+    const { title, hint } = emptyMessage(route, unpublished);
     const filtered = clearFilters(route);
     const canClear = discoverHref(filtered) !== discoverHref(route);
     return (
@@ -650,9 +693,11 @@ const Empty: React.FC<{ route: DiscoverRoute; onClear: () => void; onHome: () =>
 };
 
 /** How the search was answered, when that changes what someone should expect. */
-const ResultNotes: React.FC<{ route: DiscoverRoute; page: ResultsPage | null; configured: SearchMode | null; isAdmin: boolean }> = ({ route, page, configured, isAdmin }) => {
+const ResultNotes: React.FC<{
+    route: DiscoverRoute; page: ResultsPage | null; configured: SearchMode | null; isAdmin: boolean; listsUnpublished: boolean;
+}> = ({ route, page, configured, isAdmin, listsUnpublished }) => {
     const note = page && !page.error ? modeNote(route.q, page.mode, configured, effectiveSort(route)) : null;
-    const mine = route.scope === 'mine';
+    const mine = route.scope === 'mine' && !listsUnpublished;
     if (!note && !mine) return null;
     return (
         <div className="space-y-2">

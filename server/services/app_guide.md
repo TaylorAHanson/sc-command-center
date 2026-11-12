@@ -140,8 +140,9 @@ Back, a reload or a copied link opens it the same way.
   description, tab names, owner, domain and widget names; names count most.
 - **Scope chips** under the box: **All I can open** (every published view
   shared with you, your groups or everyone, plus your own), **Mine** (views you
-  own; only published ones, so a view never published is found under My views
-  in the sidebar), **Shared with me** (views someone else owns), **Favorites**
+  own; search finds only published ones, so with nothing typed or filtered,
+  views you have never published are listed first, in a box marked **Not
+  published yet**), **Shared with me** (views someone else owns), **Favorites**
   (views you starred) and, for Administrators only, **Everything in this
   deployment** (every view, whoever it is shared with).
 - **Rails**, shown when nothing is typed, each with **See all**: **Featured**
@@ -967,7 +968,9 @@ Each has a **draft** — the working copy that people who can manage it edit —
   says where things stand: **Not published yet**, **Published** (people see
   exactly what you see) or **Unpublished changes**; hover it for what it means.
   **Publish** shows only when there is something to publish, so on something
-  already published with no changes it is hidden, not greyed out.
+  already published with no changes it is hidden, not greyed out. Search in
+  Discover finds a view only once it is published; until then it is in My
+  views in the sidebar, and listed first under Discover's **Mine**.
 - **The Draft / Published switch** lets a manager look at the published version
   everyone else sees, then switch back to the draft. It appears only when there
   are unpublished changes (the two differ), or while you are on Published, so

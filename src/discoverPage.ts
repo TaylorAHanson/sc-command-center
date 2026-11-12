@@ -168,8 +168,28 @@ export const resultsTitle = (route: DiscoverRoute): string => {
     }
 };
 
-/** What to say when a list comes back empty. */
-export const emptyMessage = (route: DiscoverRoute): { title: string; hint: string } => {
+/**
+ * Whether Mine lists the caller's never-published views above its results.
+ * Search can't find them, since a view joins the catalog when first published,
+ * yet the sidebar counts them in My views, whose See all opens Mine. Not with
+ * words typed or a filter set, which the catalog answers and they'd ignore;
+ * Status "Unpublished changes" is the exception, as it describes them too.
+ */
+export const showsUnpublished = (route: DiscoverRoute): boolean =>
+    route.scope === 'mine' && !route.q?.trim()
+    && (route.status === undefined || route.status === 'draft')
+    && !hasFilters({ ...route, status: undefined });
+
+/** The never-published views among the sidebar's My views (`fetchHome().mine`). */
+export const unpublishedOf = (mine: ViewRow[]): ViewRow[] => mine.filter(r => r.state === 'draft_only');
+
+/** What to say when a list comes back empty; `unpublished` views of the caller's may be listed above it. */
+export const emptyMessage = (route: DiscoverRoute, unpublished = 0): { title: string; hint: string } => {
+    if (unpublished > 0 && showsUnpublished(route)) {
+        return route.status === 'draft'
+            ? { title: 'None of your published views has unpublished changes', hint: 'The views above have never been published.' }
+            : { title: 'None of your views is published yet', hint: 'Publish one of the views above to share it. Search finds a view once it’s published.' };
+    }
     const q = route.q?.trim();
     if (q) {
         return {

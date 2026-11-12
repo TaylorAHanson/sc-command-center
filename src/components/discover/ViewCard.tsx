@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-    AppWindow, Eye, EyeOff, Layers, PencilLine, Share2, ShieldCheck, ShieldOff, Sparkles, Star, Users, type LucideIcon,
+    AppWindow, CircleDashed, Eye, EyeOff, Layers, PencilLine, Share2, ShieldCheck, ShieldOff, Sparkles, Star, Users, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { ViewRow } from '../../discover';
@@ -31,14 +31,17 @@ const openView = (row: ViewRow, e: React.MouseEvent) => {
     window.location.hash = row.link;
 };
 
+const unpublished = (row: ViewRow) => row.state === 'draft_only';
+
 const menuSections = (row: ViewRow, a: ViewActions): HeaderMenuSection[] => {
-    const general: HeaderMenuSection = {
-        items: [
-            row.hidden
-                ? { key: 'unhide', label: 'Unhide', icon: Eye, title: 'Show it in the rails again', onSelect: () => a.onHide(row) }
-                : { key: 'hide', label: 'Hide from rails', icon: EyeOff, title: 'Only for you. Search still finds it.', onSelect: () => a.onHide(row) },
-        ],
-    };
+    // A view never published is on no rail and in no catalog, so hiding,
+    // featuring and certifying it would mean nothing.
+    const general: HeaderMenuSection = { items: [] };
+    if (!unpublished(row)) {
+        general.items.push(row.hidden
+            ? { key: 'unhide', label: 'Unhide', icon: Eye, title: 'Show it in the rails again', onSelect: () => a.onHide(row) }
+            : { key: 'hide', label: 'Hide from rails', icon: EyeOff, title: 'Only for you. Search still finds it.', onSelect: () => a.onHide(row) });
+    }
     if (a.onCombine) {
         const combine = a.onCombine;
         general.items.push({ key: 'combine', label: 'Combine with other views…', icon: Layers, onSelect: () => combine(row) });
@@ -46,7 +49,7 @@ const menuSections = (row: ViewRow, a: ViewActions): HeaderMenuSection[] => {
     if (a.isAdmin || row.access === 'MANAGE') {
         general.items.push({ key: 'share', label: 'Share…', icon: Share2, onSelect: () => a.onShare(row) });
     }
-    if (!a.isAdmin) return [general];
+    if (!a.isAdmin || unpublished(row)) return [general];
     return [general, {
         label: 'Administrator',
         items: [
@@ -80,6 +83,7 @@ const TONES = {
     featured: 'bg-amber-50 text-amber-800 border-amber-200',
     certified: 'bg-green-100 text-green-700 border-green-200',
     hidden: 'bg-gray-100 text-gray-600 border-gray-200',
+    unpublished: 'bg-slate-100 text-slate-700 border-slate-300',
 } as const;
 
 const Badge: React.FC<{ tone: keyof typeof TONES; icon: LucideIcon; title: string; children: React.ReactNode }> = ({ tone, icon: Icon, title, children }) => (
@@ -89,18 +93,19 @@ const Badge: React.FC<{ tone: keyof typeof TONES; icon: LucideIcon; title: strin
     </span>
 );
 
-const BADGES = [
-    { key: 'featured', icon: Sparkles, title: 'Featured', color: 'text-amber-600' },
-    { key: 'certified', icon: ShieldCheck, title: 'Certified', color: 'text-green-600' },
-    { key: 'hidden', icon: EyeOff, title: 'Hidden from your rails', color: 'text-gray-400' },
-] as const;
+const BADGES: { key: string; on: (row: ViewRow) => boolean; icon: LucideIcon; title: string; color: string }[] = [
+    { key: 'unpublished', on: unpublished, icon: CircleDashed, title: 'Not published yet', color: 'text-slate-500' },
+    { key: 'featured', on: r => r.featured, icon: Sparkles, title: 'Featured', color: 'text-amber-600' },
+    { key: 'certified', on: r => r.certified, icon: ShieldCheck, title: 'Certified', color: 'text-green-600' },
+    { key: 'hidden', on: r => r.hidden, icon: EyeOff, title: 'Hidden from your rails', color: 'text-gray-400' },
+];
 
 const Badges: React.FC<{ row: ViewRow; className?: string; compact?: boolean }> = ({ row, className, compact }) => {
-    if (!row.featured && !row.certified && !row.hidden) return null;
+    if (!BADGES.some(b => b.on(row))) return null;
     if (compact) {
         return (
             <span className={clsx('inline-flex shrink-0 items-center gap-1', className)}>
-                {BADGES.filter(b => row[b.key]).map(({ key, icon: Icon, title, color }) => (
+                {BADGES.filter(b => b.on(row)).map(({ key, icon: Icon, title, color }) => (
                     <span key={key} role="img" aria-label={title} title={title} className="inline-flex">
                         <Icon className={clsx('h-3.5 w-3.5', color)} aria-hidden="true" />
                     </span>
@@ -110,6 +115,7 @@ const Badges: React.FC<{ row: ViewRow; className?: string; compact?: boolean }> 
     }
     return (
         <div className={clsx('flex flex-wrap items-center gap-1.5', className)}>
+            {unpublished(row) && <Badge tone="unpublished" icon={CircleDashed} title="Search finds it once you publish it">Not published</Badge>}
             {row.featured && <Badge tone="featured" icon={Sparkles} title="Picked by your administrators">Featured</Badge>}
             {row.certified && <Badge tone="certified" icon={ShieldCheck} title="Checked and vouched for by your administrators">Certified</Badge>}
             {row.hidden && <Badge tone="hidden" icon={EyeOff} title="You hid this from the rails. Unhide it from its ⋯ menu.">Hidden</Badge>}
@@ -168,7 +174,7 @@ export const ViewCard: React.FC<{ row: ViewRow; actions: ViewActions }> = ({ row
             onClick={e => openView(row, e)}
             className={clsx(
                 'group flex h-full cursor-pointer flex-col rounded-xl border bg-white p-4 shadow-sm transition hover:shadow-md',
-                row.hidden ? 'border-dashed border-gray-300' : 'border-gray-200 hover:border-brand-blue/50',
+                row.hidden || unpublished(row) ? 'border-dashed border-gray-300' : 'border-gray-200 hover:border-brand-blue/50',
             )}
         >
             <div className="flex items-start gap-1">

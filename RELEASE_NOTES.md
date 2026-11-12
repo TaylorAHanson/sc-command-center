@@ -50,6 +50,7 @@
 - **Feature and certify views.** Administrators can **Feature** or **Certify** a view from its **⋯** menu in Discover, and list views nobody opened in 90 days.
 - **Hide a view from the rails.** **Hide from rails** in a view's **⋯** menu in Discover stops recommending it to you; search still finds it.
 - **Combine views.** **Combine views…** in Discover makes one new view with a tab for each view you pick, leaving those views as they are.
+- **Unpublished views in Mine.** Discover's **Mine** lists the views you've never published first, marked **Not published yet**, beside the ones search finds.
 
 ### Changed
 

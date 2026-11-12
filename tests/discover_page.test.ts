@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import {
   addPick, applyToRails, applyToRows, clearFilters, countText, effectiveScope, effectiveSort, emptyMessage, facetOptions,
   GOVERNANCE_ROUTE, isGovernance, MAX_COMBINED, mergePages, modeNote, movePick, nextFeaturedPosition, normalizeRoute,
-  pageMode, RAIL_ORDER, resultsTitle, searchParamsOf, seeAllRoute, sortsFor, scopesFor, toggled, withChanges, withQuery,
+  pageMode, RAIL_ORDER, resultsTitle, searchParamsOf, seeAllRoute, showsUnpublished, sortsFor, scopesFor, toggled,
+  unpublishedOf, withChanges, withQuery,
 } from '../src/discoverPage.ts';
 import { discoverHref, parseDiscoverHref } from '../src/discoverRoute.ts';
 import type { Rails, ViewRow } from '../src/discover.ts';
@@ -250,6 +251,26 @@ test('counts and empty states read naturally', () => {
   assert.match(emptyMessage({ q: 'zz', scope: 'mine' }).hint, /clear the filters/);
   assert.equal(emptyMessage({ scope: 'favorites' }).title, 'No favorites yet');
   assert.equal(emptyMessage({ domain: ['Ops'] }).title, 'No views match these filters');
+});
+
+test('Mine lists never-published views above its results, unless a search or filter is set', () => {
+  // The sidebar's My views See all link.
+  assert.equal(showsUnpublished(opened(discoverHref({ scope: 'mine', sort: 'updated' }))), true);
+  assert.equal(showsUnpublished({ scope: 'mine', status: 'draft' }), true);
+  assert.equal(showsUnpublished({ scope: 'mine', status: 'published' }), false);
+  assert.equal(showsUnpublished({ scope: 'mine', q: 'revenue' }), false);
+  assert.equal(showsUnpublished({ scope: 'mine', domain: ['Ops'] }), false);
+  assert.equal(showsUnpublished({ scope: 'mine', status: 'draft', certified: true }), false);
+  assert.equal(showsUnpublished({ scope: 'shared' }), false);
+  assert.equal(showsUnpublished({}), false);
+
+  const mine = [row('p', { state: 'published' }), row('d', { state: 'draft_only' }), row('w', { state: 'published_with_draft' }), row('n')];
+  assert.deepEqual(unpublishedOf(mine).map(r => r.id), ['d']);
+
+  assert.equal(emptyMessage({ scope: 'mine' }, 2).title, 'None of your views is published yet');
+  assert.match(emptyMessage({ scope: 'mine', status: 'draft' }, 2).title, /unpublished changes/);
+  assert.equal(emptyMessage({ scope: 'mine' }, 0).title, 'You haven’t published a view yet');
+  assert.equal(emptyMessage({ scope: 'mine', q: 'zz' }, 2).title, 'No views match “zz”');
 });
 
 test('combine views takes each view once, up to the tab limit, in the order arranged', () => {

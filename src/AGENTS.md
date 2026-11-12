@@ -938,7 +938,7 @@ their own tests, run with Node 22.6 or later and nothing to install:
 node --experimental-strip-types tests/link_state.test.ts      # 17 passed
 node --experimental-strip-types tests/schedules.test.ts       # 26 passed
 node --experimental-strip-types tests/discover_route.test.ts  # 6 passed
-node --experimental-strip-types tests/discover_page.test.ts   # 16 passed
+node --experimental-strip-types tests/discover_page.test.ts   # 18 passed
 ```
 
 Each imports its module directly, so keep them free of React, of runtime

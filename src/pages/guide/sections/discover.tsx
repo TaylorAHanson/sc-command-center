@@ -24,7 +24,7 @@ const Body = () => (
       head={['Chip', 'Searches']}
       rows={[
         [<UI key="a">All I can open</UI>, 'Every published view shared with you, your groups or everyone, plus your own.'],
-        [<UI key="m">Mine</UI>, 'Views you own. Only published ones: a view you haven’t published yet is under My views in the sidebar.'],
+        [<UI key="m">Mine</UI>, 'Views you own. Search finds only published ones, so with nothing typed or filtered, views you’ve never published are listed first under Not published yet.'],
         [<UI key="s">Shared with me</UI>, 'Views someone else owns that you can open.'],
         [<UI key="f">Favorites</UI>, 'Views you starred.'],
         [<UI key="e">Everything in this deployment</UI>, 'Administrators only: every view, whoever it is shared with.'],
