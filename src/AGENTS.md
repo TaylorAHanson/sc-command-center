@@ -533,6 +533,15 @@ worth keeping:
   explicitly: wiring it as `onClick={load}` hands React's event object to the first
   parameter, which is truthy.
 
+The **Setup** card on top (`SetupCard.tsx`) is not a settings group: it draws
+`GET /api/capabilities`, the checks optional features register on the server
+(see `server/AGENTS.md` → *Timers, optional features and the activity log*), plus
+the background jobs' last runs. It refetches after each save, since a setting can
+complete a feature's setup. Elsewhere, a feature that may not be set up reads
+`useCapabilities()` and disables itself with a short explanation rather than
+offering a button that would fail; the fetch happens on first use, is shared, and
+a failure reads as "nothing set up".
+
 ## Release notes
 
 `RELEASE_NOTES.md` at the repo root is imported with `?raw` by
@@ -805,6 +814,7 @@ pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings
 pages/admin/            AdminContent, Administrators, MigrationBanner,
                         TaxonomyManager, SettingsManager, DataMigration
 sharing.ts              Sharing labels and ACL helpers (see *The sharing kit*)
+capabilities.ts         useCapabilities: which optional features are set up
 contentEnv.ts           Legacy shims; only stripLegacyEnvParam is used
 components/sharing/     ShareDialog, PrincipalPicker, DraftBar, PublishDialog,
                         AccessIcon, useDialog

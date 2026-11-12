@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from middleware.auth import get_db_client
 from routes.roles import _get_current_username, require_global_admin
+from services import capabilities
 from services.settings_store import SETTING_GROUPS, describe_settings, save_settings, settings_env
 
 router = APIRouter()
@@ -61,6 +62,9 @@ def update_settings(body: SettingsUpdate, w: WorkspaceClient = Depends(get_db_cl
         # Nothing was written — surface every problem at once so the admin fixes
         # the form in one pass.
         raise HTTPException(status_code=400, detail=result["errors"])
+    # A setting is often the missing piece a Setup check reports, so the card
+    # should reflect the save straight away rather than within the minute.
+    capabilities.invalidate()
     return {**result, "settings": describe_settings(), "groups": SETTING_GROUPS}
 
 

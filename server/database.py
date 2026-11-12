@@ -514,6 +514,47 @@ def _create_access_tables(conn) -> None:
             logging.warning(f"Could not create an access table: {e}")
 
 
+def _create_operations_tables(conn) -> None:
+    """The app's own running records, in the content schema: the activity log
+    (services/activity.py) and when each background job last ran
+    (services/background.py). Neither is content, and neither is versioned."""
+    c = conn.cursor()
+    statements = (
+        '''
+        CREATE TABLE IF NOT EXISTS activity_events (
+            id BIGSERIAL PRIMARY KEY,
+            at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            username TEXT NOT NULL,
+            verb TEXT NOT NULL,
+            object_type TEXT,
+            object_id TEXT,
+            detail JSONB NOT NULL DEFAULT '{}'::jsonb
+        )
+        ''',
+        "CREATE INDEX IF NOT EXISTS idx_activity_events_at ON activity_events (at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_activity_events_user_at ON activity_events (username, at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_activity_events_object ON activity_events (object_type, object_id)",
+        '''
+        CREATE TABLE IF NOT EXISTS background_jobs (
+            name TEXT PRIMARY KEY,
+            last_started_at TIMESTAMPTZ,
+            last_finished_at TIMESTAMPTZ,
+            last_status TEXT,
+            last_error TEXT,
+            last_duration_ms INTEGER,
+            runs BIGINT NOT NULL DEFAULT 0
+        )
+        ''',
+    )
+    for sql in statements:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            logging.warning(f"Could not create an operations table: {e}")
+
+
 def _advisory_lock_key(env: str) -> int:
     """Stable per-env key for the schema-init advisory lock (see init_db)."""
     base = 918273645  # arbitrary constant, just needs to be app-unique
@@ -1000,6 +1041,11 @@ def init_db(env: str = "dev"):
     from services.settings_store import settings_env
     if env == settings_env():
         _create_access_tables(conn)
+
+    # Content-store tables that belong to one feature: one `_create_*_tables`
+    # function per feature, called here.
+    if env == content_env():
+        _create_operations_tables(conn)
 
     # Link names for global views saved before they existed, or that arrived by
     # snapshot. Under the lock, so two workers don't hand one view two names.

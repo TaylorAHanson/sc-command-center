@@ -22,6 +22,12 @@
 
 # Release Notes
 
+## 2.1.0 — unreleased
+
+### Added
+
+- **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
+
 ## 2.0.1 — 2026-11-11
 
 ### Fixed

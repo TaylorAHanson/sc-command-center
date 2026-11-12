@@ -50,6 +50,18 @@ const Body = () => (
       </P>
     </Details>
 
+    <H2 id="setup">See what is set up</H2>
+    <P>
+      Some features depend on setup that only your organisation&rsquo;s administrators can provide, such as an email account or a search feature
+      switched on for the database. Each stays off until its setup is in place, and the rest of the app works without it.
+    </P>
+    <P>
+      The <UI>Setup</UI> card at the top of Settings lists those features. A green tick means ready; an amber mark means not set up yet, with what
+      is missing and the next step. <UI>Check again</UI> re-checks straight away, otherwise the card can lag by up to a minute. Under{' '}
+      <UI>Background jobs</UI> it shows how often each timed job runs, when it last ran, and whether it failed. The card is hidden when there is
+      nothing to show.
+    </P>
+
     <H2 id="models">Choose the models</H2>
     <P>
       Each model field suggests the chat models your Databricks workspace offers. You can also type a name that is not listed.
@@ -228,6 +240,6 @@ export const section: GuideSection = {
   title: 'Settings & models',
   summary: 'Choose models, limits and what the assistant may reach.',
   icon: Settings,
-  keywords: 'model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence',
+  keywords: 'setup background jobs not set up model genie sql retention csp content security policy certified limit timeout tokens row limit ai gateway endpoint mcp servers jira atlassian confluence',
   Body,
 };
