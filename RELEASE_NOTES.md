@@ -45,10 +45,18 @@
 - **Reminder to reconnect.** A banner across the top warns when your schedules' connection ends within a week or needs reconnecting, and links to My schedules.
 - **Widgets can offer a Schedule button.** Ask Widget Studio for "a button that emails this every Monday" and it adds one that opens the Schedule dialog.
 - **Choose how views are searched.** A **Search** card in Admin Panel → Settings sets the search mode and embedding model; Setup's **View search** row shows the mode running.
+- **Favorites.** Star a view beside its title or on its sidebar row to keep it at the top of the sidebar; drag favorites, or press Alt+↑/↓, to reorder them.
+- **Recent views.** The sidebar's **Recent** lists the last five views you opened; **×** takes one off until you open it again.
+- **Search from the sidebar.** Matching views appear as you type in the sidebar's search box; press Enter to see every match in **Browse views**.
+- **New for you.** The sidebar shows how many views were shared with you lately and links straight to them.
 
 ### Changed
 
 - **Widget Studio asks before using Genie.** It shows each question and why: **Allow once**, **Always allow** or **Continue without Genie**. Change it under Agent settings → **Genie**.
+- **A shorter sidebar.** **My views** shows your eight latest, with **All my views** for the rest; **Browse views** replaces the **Shared with me** list.
+- **Opens where you left off.** Opening the app without a link shows the view you opened last.
+- **Faster start with many views.** The app loads only the views you open, not every view shared with you.
+- **Make a copy moved to the ⋯ menu.** It's in the view's ⋯ menu for any view you can open.
 
 ### Fixed
 

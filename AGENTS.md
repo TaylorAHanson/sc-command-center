@@ -56,8 +56,9 @@ under plain `python3` (they insert `server/` on `sys.path` themselves), and they
 deliberately cover only pure helpers so they need no Databricks credentials. Use
 the venv interpreter to run them all: the file-parsing tests need pandas, openpyxl,
 pypdf and python-docx. `server/AGENTS.md` lists each file with its expected count.
-The TypeScript tests, `tests/link_state.test.ts`, `tests/schedules.test.ts` and
-`tests/discover_route.test.ts`, run under Node instead; see the end of `src/AGENTS.md`.
+The TypeScript tests, `tests/link_state.test.ts`, `tests/schedules.test.ts`,
+`tests/discover_route.test.ts` and `tests/working_set.test.ts`, run under Node
+instead; see the end of `src/AGENTS.md`.
 
 ## Layout
 
@@ -97,7 +98,9 @@ server/                 FastAPI gateway — see server/AGENTS.md
                        workers), capabilities.py (optional features:
                        off until set up), activity.py (who did what),
                        view_catalog.py + view_signals.py (Discover: the
-                       view catalog, its search, opens and favorites)
+                       view catalog, its search, opens and favorites),
+                       working_set.py (the sidebar's light list,
+                       GET /api/apps/)
   middleware/auth.py    OBO token extraction and WorkspaceClient factories
   config/               Static config + settings.py (env var reads)
 src/                    React SPA — see src/AGENTS.md

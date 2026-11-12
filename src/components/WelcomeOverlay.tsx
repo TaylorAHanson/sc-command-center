@@ -3,7 +3,7 @@ import { ArrowRight, Bot, Code, LayoutGrid, Plus, Search, Sparkles, X } from 'lu
 
 /**
  * The part of the workspace a welcome card is about, so Layout can light it up.
- * `global-views` is the sidebar's views shared with you; the name predates sharing.
+ * `global-views` is the sidebar's Browse views; the name predates sharing.
  */
 export type WelcomeSpot = 'assistant' | 'global-views' | 'library' | 'studio' | 'agent-studio';
 
@@ -63,11 +63,13 @@ export const WelcomeOverlay: React.FC<{
   agentName: string | null;
   /** Opens the assistant; a prompt is typed in for the user to send, never sent. */
   onAsk: (prompt?: string) => void;
-  /** Published views shared with this person, to open as they are. */
+  /** A few views others shared that this person opened lately, to open again as they are. */
   sharedViews?: { id: string; name: string }[];
   /** @deprecated Use `sharedViews`. */
   globalViews?: { id: string; name: string }[];
   onOpenView: (id: string) => void;
+  /** Opens the Discover page, where every view shared with this person can be found. */
+  onBrowse?: () => void;
   onOpenLibrary: () => void;
   /** @deprecated Everyone may build; ignored. */
   canBuild?: boolean;
@@ -76,7 +78,7 @@ export const WelcomeOverlay: React.FC<{
   onSpot: (spot: WelcomeSpot | null) => void;
   /** Absent when there is nothing behind the panel to go back to. */
   onDismiss?: () => void;
-}> = ({ agentName, onAsk, sharedViews, globalViews, onOpenView, onOpenLibrary, onOpenStudio, onBlankView, onSpot, onDismiss }) => {
+}> = ({ agentName, onAsk, sharedViews, globalViews, onOpenView, onBrowse, onOpenLibrary, onOpenStudio, onBlankView, onSpot, onDismiss }) => {
   useEffect(() => {
     if (!onDismiss) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); };
@@ -86,7 +88,6 @@ export const WelcomeOverlay: React.FC<{
 
   const views = sharedViews ?? globalViews ?? [];
   const shownViews = views.slice(0, VIEWS_SHOWN);
-  const moreViews = views.length - shownViews.length;
 
   return (
     <div className="absolute inset-0 z-30 flex justify-center overflow-y-auto bg-brand-navy/30 backdrop-blur-sm p-6">
@@ -161,11 +162,11 @@ export const WelcomeOverlay: React.FC<{
               spot="global-views"
               onSpot={onSpot}
               icon={<LayoutGrid className="w-4 h-4" />}
-              title="Browse shared views"
-              body="Views people have shared with you. Open one as it is, or copy it to make your own version."
+              title="Browse views"
+              body="Find the views people have shared with you: search them, or see what’s popular and new. Open one as it is, or copy it to make your own version."
             >
-              {shownViews.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-1.5">
+              {shownViews.length > 0 && (
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
                   {shownViews.map(v => (
                     <button
                       key={v.id}
@@ -177,11 +178,9 @@ export const WelcomeOverlay: React.FC<{
                       {v.name}
                     </button>
                   ))}
-                  {moreViews > 0 && <span className="text-xs text-gray-500">+{moreViews} more in the sidebar</span>}
                 </div>
-              ) : (
-                <p className="text-xs text-gray-500">Nothing has been shared with you yet.</p>
               )}
+              {onBrowse && <TileAction onClick={onBrowse}>Browse views</TileAction>}
             </Tile>
 
             <Tile

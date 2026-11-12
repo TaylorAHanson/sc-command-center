@@ -229,12 +229,14 @@ export interface App {
   owner?: string | null;
   published_version?: number | null;
   has_draft?: boolean;
-  /** Somebody else's: the sidebar lists it under Shared with me. */
+  /** Somebody else's, so not one of the sidebar's My views. */
   shared_with_me?: boolean;
   /** How widely it is shared, for the access icon. */
   sharing?: AccessSummary | null;
   /** This copy is the draft, merged over the published version. */
   is_draft?: boolean;
+  /** The signed-in user starred it, as of when it was read. */
+  favorite?: boolean;
 }
 
 export const newAppSpec = (tabId: string): AppSpec => ({

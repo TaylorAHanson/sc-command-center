@@ -4,12 +4,17 @@ import { widgetRegistry } from '../widgetRegistry';
 import { rememberedFilters, rememberFilters } from './rememberedFilters';
 import { filterDefaults, isPage, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, PAGE_WIDGET_PLACE, retargetLinks, shownTab, withTab, type App, type AppFilter, type AppSpec, type AppTab, type TabLayout, type WidgetLayout } from './appSpec';
 import {
-  appHash, appLink, isStandalone, linkTab, parseAppRoute, refersTo, routeHash, routeTab, tabIdOf, withoutRouteParams, type AppRoute,
+  appHash, appLink, appRef, isStandalone, linkTab, parseAppRoute, refersTo, routeHash, routeTab, tabIdOf, withoutRouteParams, type AppRoute,
 } from './appRoute';
 import { createLinkStateStore, instanceScope, linkStatePart, readLinkState, writeLinkState, type LinkState, type WidgetLinkState } from '../linkState';
 import { LinkStateContext } from '../hooks/useLinkState';
 import { useShell } from '../shell';
 import { requestJson, type Acl, type Preflight, type PublishInclude, accessSummary } from '../sharing';
+import { onWorkingSetChanged, orderFavorites, recordVisit, setFavorite } from '../discover';
+import {
+  EMPTY_WORKING_SET, NO_CHANGES, favoriteOrderAfter, homeRow, isFavorite as isFavoriteIn, moved, openedFirst, settled, sidebarLists,
+  type Changes, type SidebarLists, type SidebarRow, type WorkingSet,
+} from '../workingSet';
 
 // An app can pin the built-in agent just as deliberately as an authored one, so
 // "no pin" and "pinned to the default" have to be different values. Authored
@@ -22,6 +27,33 @@ const NO_VARIABLES = Object.freeze({}) as DashboardContextType['variables'];
 const fromServer = (a: any): App => ({ ...a, locked: Boolean(a.is_locked) });
 
 const reasonOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** A view this tab has loaded, as the sidebar draws it: what it knows now outranks the list. */
+const rowOf = (a: App): SidebarRow => ({
+  id: a.id,
+  ref: appRef(a),
+  name: a.name,
+  owner: a.owner ?? undefined,
+  domain: a.domain,
+  presentation: isStandalone(a) ? 'standalone' : 'workspace',
+  updated_at: a.timestamp ?? undefined,
+  access: a.access,
+  state: a.access === 'MANAGE' ? a.state : undefined,
+  favorite: a.favorite,
+  sharing: a.sharing ?? undefined,
+  own: a.access === 'MANAGE' && !a.shared_with_me,
+});
+
+/** How a sidebar row is opened when nothing else names a view: by what its link says. */
+const routeOf = (row: SidebarRow): AppRoute => ({
+  appId: row.ref, tabId: null, widgetId: null, workspace: row.presentation === 'standalone',
+});
+
+// The list is light, so it is read again when the tab comes back after this
+// long, which keeps New for you and other tabs' changes current.
+const STALE_LIST_MS = 60 * 1000;
+// Changes saved on the Discover page are followed by one read of the list.
+const FOLLOW_CHANGES_MS = 800;
 
 // How long the address waits for what a view is set to to settle before it
 // follows. Browsers refuse a page that rewrites its address a hundred-odd times
@@ -95,6 +127,8 @@ export interface AppVersion {
   timestamp?: string | null;
 }
 
+export type SidebarStatus = 'loading' | 'ready' | 'failed';
+
 export interface ArchivedApp {
   id: string;
   name: string;
@@ -105,21 +139,41 @@ export interface ArchivedApp {
 }
 
 interface DashboardContextType {
-  /** The caller's sidebar: views they own and views shared with them. */
+  /**
+   * The views this tab has loaded, whole: the one on screen and those opened
+   * (or renamed, copied, restored) before it. Never the caller's every view;
+   * the sidebar draws `sidebar`, light rows.
+   */
   apps: App[];
+  /** The sidebar's lists: the working set from `GET /api/apps/` with this tab's changes over it. */
+  sidebar: SidebarLists;
+  /** 'failed' only until a read succeeds: a later failure keeps what was read. */
+  sidebarStatus: SidebarStatus;
+  refreshSidebar: () => Promise<void>;
+  isFavorite: (id: string) => boolean;
+  /** Stars or unstars a view; resolves to the server's refusal, if any. */
+  toggleFavorite: (id: string) => Promise<string | null>;
+  /** Moves the favorite at `from` (in `sidebar.favorites`) to `to`. */
+  moveFavorite: (from: number, to: number) => void;
+  /** Takes a view out of Recent until it is next opened. */
+  removeFromRecent: (id: string) => Promise<string | null>;
+  /** A view is being read to be opened: what is on screen is about to change. */
+  opening: boolean;
+  /** Opens what the address would if it named nothing: the view opened last, else the newest own. */
+  openHome: () => void;
   activeAppId: string;
   /** What the canvas shows: for a manager in Published mode, the published copy. */
   activeApp: App | null;
   activeAppTab: AppTab | null;
   activeDomain: string | null;
   setActiveDomain: (domainId: string | null) => void;
+  /** Until the first view (or none) has been opened. */
   isLoading: boolean;
   isAdmin: boolean;
   username: string;
-  fetchApps: () => Promise<App[] | null>;
   /**
-   * Show the app (and tab, and widget) a link names, adding it to the sidebar if
-   * need be. A standalone app named by its own link is handed to the shell.
+   * Show the app (and tab, and widget) a link names, reading it if this tab
+   * hasn't. A standalone app named by its own link is handed to the shell.
    */
   openRoute: (route: AppRoute) => Promise<void>;
   /** This provider serves one app shown on its own, not the workspace. */
@@ -138,10 +192,8 @@ interface DashboardContextType {
   archiveApp: (id: string) => Promise<string | null>;
   restoreApp: (id: string) => Promise<string | null>;
   fetchArchived: () => Promise<ArchivedApp[]>;
-  /** Closes a view shared with you: out of your sidebar, still shared with you. */
-  hideApp: (id: string) => Promise<string | null>;
-  renameApp: (id: string, newName: string) => void;
-  reorderApps: (fromIndex: number, toIndex: number) => void;
+  /** Reads the view first if this tab hasn't: a save sends the whole spec. */
+  renameApp: (id: string, newName: string) => Promise<void>;
   setActiveAppId: (id: string) => void;
   /** Show another tab of the app on screen. */
   selectTab: (tabId: string) => void;
@@ -153,7 +205,7 @@ interface DashboardContextType {
   renameTab: (appId: string, tabId: string, name: string) => void;
   moveTab: (appId: string, fromIndex: number, toIndex: number) => void;
   removeTab: (appId: string, tabId: string) => void;
-  duplicateApp: (appId: string) => void;
+  duplicateApp: (appId: string) => Promise<void>;
   toggleLock: (appId: string) => void;
   setPinnedAgent: (appId: string, tabId: string | null, agentId: string | null) => void;
   /** Save a change to an app's spec; resolves to the server's refusal, if any. */
@@ -212,6 +264,10 @@ export const DashboardProvider: React.FC<{
   const [isLoading, setIsLoading] = useState(!standalone);
   const [isAdmin, setIsAdmin] = useState(false);
   const [username, setUsername] = useState('unknown');
+  const [workingSet, setWorkingSet] = useState<WorkingSet>(EMPTY_WORKING_SET);
+  const [sidebarStatus, setSidebarStatus] = useState<SidebarStatus>('loading');
+  const [changes, setChanges] = useState<Changes>(NO_CHANGES);
+  const [opening, setOpening] = useState(false);
   // Per view, for its managers; a view nobody chose a mode for opens on its draft.
   const [modes, setModes] = useState<Record<string, ViewMode>>({});
   // The published version of views whose managers switched to Published: the
@@ -239,11 +295,11 @@ export const DashboardProvider: React.FC<{
     if (app?.access !== 'MANAGE') return 'published';
     return app.state === 'draft_only' ? 'draft' : (modes[app.id] ?? 'draft');
   }, [modes]);
-  const listedApp = apps.find(a => a.id === activeAppId) || null;
+  const openedApp = apps.find(a => a.id === activeAppId) || null;
   // Until the published copy arrives the draft stays on screen, read-only like the copy will be.
-  const activeApp = listedApp && listedApp.access === 'MANAGE' && modeOf(listedApp) === 'published'
-    ? (publishedCopies[listedApp.id] ?? listedApp)
-    : listedApp;
+  const activeApp = openedApp && openedApp.access === 'MANAGE' && modeOf(openedApp) === 'published'
+    ? (publishedCopies[openedApp.id] ?? openedApp)
+    : openedApp;
   const activeAppTab = shownTab(activeApp, activeTabId);
   // A filter's default is what its variable holds until someone chooses; "All"
   // is a choice too (an empty string), so it is not overridden by the default.
@@ -260,6 +316,13 @@ export const DashboardProvider: React.FC<{
   }, [appVariables, me, apps]);
   const appsRef = useRef(apps);
   useEffect(() => { appsRef.current = apps; }, [apps]);
+
+  const loadedRows = useMemo(() => apps.map(rowOf), [apps]);
+  const sidebar = useMemo(() => sidebarLists(workingSet, loadedRows, changes), [workingSet, loadedRows, changes]);
+  // What the async handlers below read, which a closure would hold stale.
+  const listRef = useRef({ workingSet, loadedRows, changes, sidebar });
+  useEffect(() => { listRef.current = { workingSet, loadedRows, changes, sidebar }; }, [workingSet, loadedRows, changes, sidebar]);
+  const isFavorite = useCallback((id: string) => isFavoriteIn(workingSet, loadedRows, changes, id), [workingSet, loadedRows, changes]);
 
   // Mirror on change: the address follows what the app on screen is set to,
   // once it settles, with replaceState so settings add no Back steps. Only the
@@ -362,37 +425,40 @@ export const DashboardProvider: React.FC<{
     return null;
   }, []);
 
-  const fetchApps = useCallback(async (): Promise<App[] | null> => {
+  // The sidebar's list: light rows, read once on load and again when the tab
+  // comes back to it or a change made elsewhere is saved. What this tab changed
+  // since stays over it until the list agrees (`settled`).
+  const lastListRead = useRef(0);
+  const readSidebar = useCallback(async (): Promise<WorkingSet | null> => {
+    if (standalone) return null;
+    lastListRead.current = Date.now();
     try {
-      const response = await fetch('/api/apps/');
-      if (!response.ok) return null;
-      const data = await response.json();
-      const loadedApps: App[] = (data.apps || []).map(fromServer);
-      setApps(loadedApps);
-
-      // While the address bar names an app, choosing one is `openRoute`'s job:
-      // falling back to the first here would flash it, and its hash would race
-      // the link's. A selection the server no longer returns (a view someone
-      // has since archived or stopped sharing) falls back to the first app
-      // instead of leaving the dashboard pointing at nothing.
-      if (loadedApps.length > 0 && !parseAppRoute(window.location.hash, window.location.search)) {
-        setActiveAppIdState(prev => (prev && loadedApps.some(a => a.id === prev) ? prev : loadedApps[0].id));
-      }
-      return loadedApps;
+      const set = { ...EMPTY_WORKING_SET, ...(await requestJson<WorkingSet>('/api/apps/')) };
+      setWorkingSet(set);
+      setChanges(prev => settled(prev, set));
+      setSidebarStatus('ready');
+      return set;
     } catch (e) {
-      console.error('Failed to load apps:', e);
+      console.error('Failed to load the sidebar:', e);
+      setSidebarStatus(prev => (prev === 'ready' ? prev : 'failed'));
       return null;
-    } finally {
-      setIsLoading(false);
     }
-  }, []); // No activeAppId dependency, so setting it doesn't refetch
+  }, [standalone]);
+  const refreshSidebar = useCallback(async () => { await readSidebar(); }, [readSidebar]);
 
-  // A link opens only for people the view is shared with, and the sidebar
-  // already lists those. A link to one that isn't listed is one this person
-  // closed (it goes back in the sidebar), one named by a name it has since been
-  // renamed from, or, for an admin, a view nobody shared with them; the server
-  // says which view the link means. Anyone else gets nothing new.
-  const openRoute = useCallback(async (route: AppRoute, known?: App[] | null) => {
+  // Any view the caller can use opens by its link; the server says which view
+  // a ref means, including one named by a name it has since been renamed from.
+  const readApp = useCallback(async (ref: string): Promise<App | null> => {
+    const res = await fetch(`/api/apps/${encodeURIComponent(ref)}`);
+    return res.ok ? fromServer((await res.json()).app) : null;
+  }, []);
+
+  // A later open outranks one still being read, so a slow view never replaces
+  // the one clicked after it.
+  const openSeq = useRef(0);
+
+  // A view this tab hasn't loaded is read from the server first, then kept.
+  const openRoute = useCallback(async (route: AppRoute) => {
     const canonicalize = (app?: App) => {
       const canonical = app
         ? appHash(app, routeTab(app, route.tabId), null, route.workspace)
@@ -413,55 +479,147 @@ export const DashboardProvider: React.FC<{
       return;
     }
 
-    const find = (list?: App[] | null) => list?.find(a => refersTo(route.appId, a));
-    canonicalize(find(appsRef.current));
-    let list: App[] | null = known ?? appsRef.current;
-    if (!find(list)) list = await fetchApps();
-    let app = find(list);
-    if (list && !app) {
+    const seq = ++openSeq.current;
+    let app = appsRef.current.find(a => refersTo(route.appId, a));
+    canonicalize(app);
+    if (!app) {
+      // What is on screen stays put while the view is read; see `opening`.
+      setOpening(true);
       try {
-        const res = await fetch(`/api/apps/${encodeURIComponent(route.appId)}`);
-        const read: App | null = res.ok ? fromServer((await res.json()).app) : null;
+        const read = await readApp(route.appId);
+        if (seq !== openSeq.current) return;
         if (read) {
-          app = list.find(a => a.id === read.id);
-          if (!app) {
-            const unhidden = await fetch(`/api/apps/${encodeURIComponent(read.id)}/hide`, { method: 'DELETE' });
-            if (unhidden.ok) list = await fetchApps();
-            app = list?.find(a => a.id === read.id);
-          }
-          if (!app) {
-            app = read;
-            setApps(prev => (prev.some(a => a.id === read.id) ? prev : [...prev, read]));
-          }
+          app = appsRef.current.find(a => a.id === read.id) ?? read;
+          if (app === read) setApps(prev => (prev.some(a => a.id === read.id) ? prev : [...prev, read]));
         }
       } catch (e) {
+        if (seq !== openSeq.current) return;
         console.error('Failed to open the linked view', e);
       }
     }
-    if (app) canonicalize(app);
+    setOpening(false);
+    if (app) {
+      canonicalize(app);
+      const id = app.id;
+      recordVisit(id);
+      // Taken out of Recent earlier in this tab: opening it puts it back. In a
+      // later session the open itself does, being newer than the close.
+      if (listRef.current.changes.closed.includes(id)) {
+        fetch(`/api/apps/${encodeURIComponent(id)}/hide`, { method: 'DELETE' }).catch(() => undefined);
+      }
+      setChanges(prev => ({ ...prev, opened: openedFirst(prev.opened, id), closed: prev.closed.filter(x => x !== id) }));
+    }
     if (app && isStandalone(app) && !route.workspace) {
       shell.present(app, tabIdOf(app, route.tabId), route.widgetId);
       return;
     }
     selectApp(app?.id ?? route.appId, app ? tabIdOf(app, route.tabId) : null, app ? takeLinkState(app) : null);
     if (route.widgetId) setPendingWidgetId(route.widgetId);
-  }, [fetchApps, selectApp, shell, standalone, takeLinkState]);
+  }, [readApp, selectApp, shell, standalone, takeLinkState]);
+
+  const openHome = useCallback(async (set?: WorkingSet | null) => {
+    const { workingSet: listed, loadedRows: loaded, changes: done } = listRef.current;
+    const row = homeRow(set ?? listed, loaded, done);
+    if (row) await openRoute(routeOf(row));
+  }, [openRoute]);
 
   // The link the page opened with is acted on once, though StrictMode runs this
-  // effect twice in development. A standalone app was read before this mounted.
+  // effect twice in development, and read beside the list rather than after it.
+  // With no link, the view opened last opens, which needs the list first.
+  // A standalone app was read before this mounted.
   const initialRouteRead = useRef(false);
   useEffect(() => {
-    if (standalone) {
-      fetchPermissions();
-      return;
-    }
     fetchPermissions();
-    fetchApps().then(list => {
-      if (!initialRoute || !list || initialRouteRead.current) return;
-      initialRouteRead.current = true;
-      openRoute(initialRoute, list);
+    if (standalone || initialRouteRead.current) return;
+    initialRouteRead.current = true;
+    const listed = readSidebar();
+    const opened = initialRoute ? openRoute(initialRoute) : listed.then(set => openHome(set));
+    opened.finally(() => setIsLoading(false));
+  }, [fetchPermissions, readSidebar, openRoute, openHome, initialRoute, standalone]);
+
+  // Stars, the favorites' order and hides saved anywhere (the Discover page,
+  // another part of this one) arrive as events; a star shows at once, then the
+  // list is read again. Coming back to the tab after a while reads it too.
+  const withStar = useCallback((prev: Changes, id: string, favorite: boolean): Changes => {
+    const { workingSet: listed, loadedRows: loaded } = listRef.current;
+    const order = prev.favoriteOrder ?? sidebarLists(listed, loaded, prev).favorites.map(r => r.id);
+    return { ...prev, favored: { ...prev.favored, [id]: favorite }, favoriteOrder: favoriteOrderAfter(order, id, favorite) };
+  }, []);
+  useEffect(() => {
+    if (standalone) return;
+    let timer: number | undefined;
+    const stop = onWorkingSetChanged(change => {
+      const { id, favorite, order } = change;
+      if (id && favorite !== undefined) setChanges(prev => (prev.favored[id] === favorite ? prev : withStar(prev, id, favorite)));
+      if (order) setChanges(prev => ({ ...prev, favoriteOrder: order }));
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { readSidebar(); }, FOLLOW_CHANGES_MS);
     });
-  }, [fetchPermissions, fetchApps, openRoute, initialRoute, standalone]);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastListRead.current > STALE_LIST_MS) readSidebar();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [standalone, readSidebar, withStar]);
+
+  const toggleFavorite = useCallback(async (id: string): Promise<string | null> => {
+    const favorite = !isFavorite(id);
+    const before = listRef.current.changes;
+    setChanges(prev => withStar(prev, id, favorite));
+    try {
+      await setFavorite(id, favorite);
+      return null;
+    } catch (e) {
+      setChanges(prev => {
+        const favored = { ...prev.favored };
+        if (id in before.favored) favored[id] = before.favored[id];
+        else delete favored[id];
+        return { ...prev, favored, favoriteOrder: before.favoriteOrder };
+      });
+      return reasonOf(e);
+    }
+  }, [isFavorite, withStar]);
+
+  const moveFavorite = useCallback((from: number, to: number) => {
+    const ids = listRef.current.sidebar.favorites.map(r => r.id);
+    const next = moved(ids, from, to);
+    if (next === ids) return;
+    const before = listRef.current.changes.favoriteOrder;
+    setChanges(prev => ({ ...prev, favoriteOrder: next }));
+    orderFavorites(next).catch(e => {
+      console.error('Failed to reorder favorites', e);
+      setChanges(prev => ({ ...prev, favoriteOrder: before }));
+    });
+  }, []);
+
+  const removeFromRecent = useCallback(async (id: string): Promise<string | null> => {
+    setChanges(prev => ({ ...prev, closed: [...prev.closed.filter(x => x !== id), id] }));
+    try {
+      await requestJson(`/api/apps/${encodeURIComponent(id)}/hide`, { method: 'POST' });
+      return null;
+    } catch (e) {
+      setChanges(prev => ({ ...prev, closed: prev.closed.filter(x => x !== id) }));
+      return reasonOf(e);
+    }
+  }, []);
+
+  // A view this tab may not have read yet, for a change that saves the whole spec.
+  const loadedApp = async (id: string): Promise<App | null> => {
+    const held = appsRef.current.find(a => a.id === id);
+    if (held) return held;
+    try {
+      const read = await readApp(id);
+      if (read) setApps(prev => (prev.some(a => a.id === read.id) ? prev : [...prev, read]));
+      return read;
+    } catch (e) {
+      console.error(`Failed to read view ${id}`, e);
+      return null;
+    }
+  };
 
   // Saves to one app go one at a time, in order. Each replaces the whole draft,
   // so two in flight at once could land in either order and the older would
@@ -507,7 +665,9 @@ export const DashboardProvider: React.FC<{
         return reason;
       }
       if (data?.state) {
-        setApps(prev => prev.map(a => (a.id === app.id ? { ...a, state: data.state, has_draft: true, is_draft: true } : a)));
+        // Now the latest changed of the caller's views, for My views' order.
+        const timestamp = new Date().toISOString();
+        setApps(prev => prev.map(a => (a.id === app.id ? { ...a, state: data.state, has_draft: true, is_draft: true, timestamp } : a)));
       }
       return null;
     } catch (e) {
@@ -527,7 +687,7 @@ export const DashboardProvider: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apps]);
 
-  // What a view the caller just created is until the list is next read: theirs,
+  // What a view the caller just created is until it is next read: theirs,
   // a draft, shared with nobody.
   const ownNewApp = (app: Omit<App, 'access' | 'state'>): App => ({
     ...app,
@@ -542,56 +702,69 @@ export const DashboardProvider: React.FC<{
     sharing: 'private',
     link: null,
     version: 0,
+    timestamp: new Date().toISOString(),
+    favorite: false,
   });
+
+  // A new view is loaded and opened here, so it joins My views at once.
+  const showNewApp = (newApp: App) => {
+    setApps(prev => [...prev, newApp]);
+    setChanges(prev => ({ ...prev, created: [...prev.created, newApp.id] }));
+    selectApp(newApp.id);
+    apiSyncApp(newApp, 'POST');
+  };
 
   const addApp = (name: string, domain?: string) => {
     const id = uuidv4();
-    const newApp = ownNewApp({
+    showNewApp(ownNewApp({
       id,
       name,
       // The one tab takes the app's id, as every view's tab does, so a link to
       // the app and a link to its tab are the same link.
       spec: newAppSpec(id),
       domain: domain || 'General',
-    });
-    setApps([...apps, newApp]);
-    selectApp(newApp.id);
-    apiSyncApp(newApp, 'POST');
+    }));
   };
 
-  const duplicateApp = (appId: string) => {
-    const template = apps.find(a => a.id === appId);
-    if (template) {
-      const id = uuidv4();
-      const single = template.spec.tabs.length === 1;
-      const tabIds = new Map(template.spec.tabs.map(tab => [tab.id, single ? id : uuidv4()]));
-      const newApp: App = ownNewApp({
-        ...template,
-        id,
-        name: `${template.name} (Copy)`,
-        locked: false,
-        spec: {
-          ...template.spec,
-          tabs: template.spec.tabs.map(tab => ({
-            ...tab,
-            id: tabIds.get(tab.id)!,
-            widgets: tab.widgets.map(w => ({ ...w, i: uuidv4(), props: retargetLinks(w.props, tabIds) })),
-          })),
-        },
-      });
-      setApps([...apps, newApp]);
-      selectApp(newApp.id);
-      apiSyncApp(newApp, 'POST');
-    }
+  const duplicateApp = async (appId: string) => {
+    const template = await loadedApp(appId);
+    if (!template) return;
+    const id = uuidv4();
+    const single = template.spec.tabs.length === 1;
+    const tabIds = new Map(template.spec.tabs.map(tab => [tab.id, single ? id : uuidv4()]));
+    showNewApp(ownNewApp({
+      ...template,
+      id,
+      name: `${template.name} (Copy)`,
+      locked: false,
+      spec: {
+        ...template.spec,
+        tabs: template.spec.tabs.map(tab => ({
+          ...tab,
+          id: tabIds.get(tab.id)!,
+          widgets: tab.widgets.map(w => ({ ...w, i: uuidv4(), props: retargetLinks(w.props, tabIds) })),
+        })),
+      },
+    }));
   };
 
-  // Out of the sidebar at once; back in, with the server's reason, if it refuses.
+  // Out of the sidebar at once; back in, with the server's reason, if it
+  // refuses. The view on screen gives way to the one opened before it, and its
+  // address with it, so Back doesn't return to a view that's gone.
   const dropApp = async (id: string, url: string, method: 'POST' | 'DELETE'): Promise<string | null> => {
     const index = appsRef.current.findIndex(a => a.id === id);
     const dropped = appsRef.current[index];
-    const remaining = appsRef.current.filter(a => a.id !== id);
-    setApps(remaining);
-    if (activeAppId === id && remaining.length > 0) selectApp(remaining[0].id);
+    setApps(prev => prev.filter(a => a.id !== id));
+    setChanges(prev => ({ ...prev, gone: [...prev.gone, id] }));
+    if (activeAppId === id) {
+      const { workingSet: listed, loadedRows: loaded, changes: done } = listRef.current;
+      const next = homeRow(listed, loaded, done, id);
+      if (next) openRoute(routeOf(next));
+      else {
+        selectApp('');
+        window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}#/`);
+      }
+    }
     try {
       await saveQueue.current.get(id);
       await requestJson(url, { method });
@@ -599,22 +772,30 @@ export const DashboardProvider: React.FC<{
     } catch (e) {
       console.error(`Failed to ${method === 'DELETE' ? 'delete' : 'remove'} app ${id}`, e);
       if (dropped) setApps(prev => (prev.some(a => a.id === id) ? prev : [...prev.slice(0, index), dropped, ...prev.slice(index)]));
+      setChanges(prev => ({ ...prev, gone: prev.gone.filter(x => x !== id) }));
       return reasonOf(e);
     }
   };
 
   const deleteApp = (id: string) => dropApp(id, `/api/apps/${encodeURIComponent(id)}`, 'DELETE');
   const archiveApp = (id: string) => dropApp(id, `/api/apps/${encodeURIComponent(id)}/archive`, 'POST');
-  const hideApp = (id: string) => dropApp(id, `/api/apps/${encodeURIComponent(id)}/hide`, 'POST');
 
+  // The catalog lists a restored view again on its next pass; reading it now
+  // puts it back in My views at once.
   const restoreApp = async (id: string): Promise<string | null> => {
     try {
       await requestJson(`/api/apps/${encodeURIComponent(id)}/restore`, { method: 'POST' });
-      await fetchApps();
-      return null;
     } catch (e) {
       return reasonOf(e);
     }
+    setChanges(prev => ({ ...prev, gone: prev.gone.filter(x => x !== id) }));
+    try {
+      const read = await readApp(id);
+      if (read) setApps(prev => (prev.some(a => a.id === id) ? prev.map(a => (a.id === id ? read : a)) : [...prev, read]));
+    } catch (e) {
+      console.error(`Failed to read restored view ${id}`, e);
+    }
+    return null;
   };
 
   const fetchArchived = useCallback(async (): Promise<ArchivedApp[]> => {
@@ -626,23 +807,16 @@ export const DashboardProvider: React.FC<{
     }
   }, []);
 
-  const renameApp = (id: string, newName: string) => {
-    if (!newName.trim()) return;
-    const app = apps.find(a => a.id === id);
-    if (!canEditApp(app)) return;
+  const renameApp = async (id: string, newName: string) => {
+    const name = newName.trim();
+    if (!name) return;
+    const read = await loadedApp(id);
+    const app = appsRef.current.find(a => a.id === id) ?? read;
+    if (!app || !canEditApp(app) || app.name === name) return;
 
-    const newApps = apps.map(a => a.id === id ? { ...a, name: newName.trim() } : a);
-    setApps(newApps);
-    const updatedApp = newApps.find(a => a.id === id);
-    if (updatedApp) apiSyncApp(updatedApp);
-  };
-
-  const reorderApps = (fromIndex: number, toIndex: number) => {
-    // Only affect UI order, DB doesn't care for now
-    const newApps = [...apps];
-    const [removed] = newApps.splice(fromIndex, 1);
-    newApps.splice(toIndex, 0, removed);
-    setApps(newApps);
+    const updatedApp = { ...app, name };
+    setApps(prev => prev.map(a => (a.id === id ? updatedApp : a)));
+    apiSyncApp(updatedApp);
   };
 
   const toggleLock = (appId: string) => {
@@ -687,14 +861,20 @@ export const DashboardProvider: React.FC<{
   }, [refreshPublishedCopy]);
 
   // After publishing, discarding or reverting, the draft and the published
-  // version both moved: read the sidebar again, and the published copy if it's on screen.
+  // version both moved: read the view again, and the published copy if it's on
+  // screen. The sidebar's row follows the loaded view.
   const afterVersionChange = async (appId: string) => {
     setPublishedCopies(prev => {
       const next = { ...prev };
       delete next[appId];
       return next;
     });
-    await fetchApps();
+    try {
+      const read = await readApp(appId);
+      if (read) setApps(prev => prev.map(a => (a.id === appId ? read : a)));
+    } catch (e) {
+      console.error(`Failed to read view ${appId} again`, e);
+    }
     if (modes[appId] === 'published') await refreshPublishedCopy(appId);
   };
 
@@ -953,10 +1133,11 @@ export const DashboardProvider: React.FC<{
 
   return (
     <DashboardContext.Provider value={{
-      apps, activeAppId, activeApp, activeAppTab, activeDomain, setActiveDomain, isLoading, isAdmin, username, fetchApps, openRoute, pendingWidgetId, clearPendingWidget,
+      apps, sidebar, sidebarStatus, refreshSidebar, isFavorite, toggleFavorite, moveFavorite, removeFromRecent, opening, openHome,
+      activeAppId, activeApp, activeAppTab, activeDomain, setActiveDomain, isLoading, isAdmin, username, openRoute, pendingWidgetId, clearPendingWidget,
       standalone: Boolean(standalone),
       variables, setVariable,
-      addApp, deleteApp, archiveApp, restoreApp, fetchArchived, hideApp, renameApp, reorderApps, setActiveAppId: selectApp,
+      addApp, deleteApp, archiveApp, restoreApp, fetchArchived, renameApp, setActiveAppId: selectApp,
       selectTab, addTab, setTabLayout, renameTab, moveTab, removeTab,
       duplicateApp, addWidget, removeWidget, updateWidget, updateLayout,
       toggleLock, setPinnedAgent, updateAppSpec, canEditApp, canEditLayout,

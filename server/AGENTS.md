@@ -109,11 +109,11 @@ a check on one. `role_mappings` is still in the settings schema for the access
 migration and a rollback; nothing writes it, and nothing reads it for decisions.
 `tests/test_role_mappings_home.py` stays until that table is dropped.
 
-Administrators hold `MANAGE` on everything but are not *granted* it, so
-`list_apps` lists only views an admin owns or is granted; listing every view in
-each admin's sidebar would bury their own. Admin Panel → Content
-(`GET /api/sharing/content`) is where they see the rest, and `_open` lets them
-open any view by link.
+Administrators hold `MANAGE` on everything but are not *granted* it, so the
+sidebar (`list_apps`, see *The sidebar's list*) lists only views an admin owns,
+starred or opened; listing every view in each admin's sidebar would bury their
+own. Admin Panel → Content (`GET /api/sharing/content`) is where they see the
+rest, and `_open` lets them open any view by link.
 
 ## The one-time move to sharing (`services/consolidation.py`, `services/access_migration.py`, `routes/cutover.py`)
 
@@ -181,12 +181,13 @@ Table shapes worth knowing before you write a query:
 
 - **Versioned, PK `(id, version)`**: `widgets`, `dashboard_views`,
   `agent_profiles`. Reads must select the newest version per id — see the
-  `MAX(version)` join in `routes/apps.py::list_apps`. Writes insert a new version rather
-  than updating in place.
+  `MAX(version)` join in `services/working_set.py::own_views`. Writes insert a new
+  version rather than updating in place.
 - **PK `(object_type, object_id)`**: `object_drafts` — at most one draft per
   view, widget or agent, as JSONB (see *Apps* → drafts).
 - **PK `(username, view_id)`**: `shared_views` (subscriptions, now unused for
-  access) and `sidebar_hidden` (views someone took off their Shared with me).
+  access) and `sidebar_hidden` (views someone took off their sidebar's Recent,
+  and when: opening the view after that time brings it back).
 - **PK `id`**: `archived_views` — views taken out of circulation.
 - **`SERIAL id`**: `widget_categories`, `widget_domains`, `role_mappings`,
   `widget_runs`, `action_logs`. Categories/domains are `UNIQUE (name)` and are
@@ -225,7 +226,7 @@ them. Get that backwards and every widget drag silently unpins the view.
 ### Removing a view: archive, then delete
 
 Two steps when other people can open the view. `POST /api/apps/{id}/archive`
-inserts into `archived_views`; `list_apps` (and the creator leaderboard) skip
+inserts into `archived_views`; the sidebar's list (and the creator leaderboard) skip
 those ids, and `_open` reads them as missing, so the link stops opening too.
 Every version and the draft stay, so `POST /{id}/restore` is exact. `DELETE /{id}`
 answers 409 while a view shared beyond its owner (`_shared_beyond_owner`, from
@@ -1287,6 +1288,39 @@ round trip): basic and keyword search p95 under 60 ms, hybrid ~105 ms with the
 query embedding cached, home under 75 ms and 44 KB for someone who owns 1,000
 views. Rerun it after changing the catalog's queries.
 
+### The sidebar's list (`services/working_set.py`, `GET /api/apps/`)
+
+`GET /api/apps/` is the caller's **working set**, never every view they can open
+and never a spec: `favorites` (≤ 15, their order), `recent` (≤ 10, by last open,
+favorites included), `mine` (≤ 50 of their own, newest change first),
+`mine_total`, `favorites_total` and `new_for_you_count`. Rows carry only what the
+sidebar draws (`FIELDS`, plus `sharing`), so the payload is about 27 KB at the
+caps whatever the deployment's size; it used to be every granted view with its
+spec, megabytes once views are shared with everyone. A spec comes only from
+`GET /api/apps/{ref}`, which now also says `favorite`. Don't add fields to these
+rows that grow with the view (tabs, widgets, descriptions): the browser loads the
+view it opens.
+
+It is `view_signals.home` corrected for what the catalog can't know yet, since
+the sidebar shows the caller's own actions the moment they happen and the catalog
+holds only published views a drain behind: a manager's row takes the draft's
+name, domain and save time (`_held`, from the JSONB payload, not the spec), an
+archived id leaves at once, and `favorites_total` is counted. Until the first
+build has finished (`view_catalog_state` `build.built_at`), or when the catalog
+can't be read, `mine` comes from the source tables instead (`own_views`): only
+grants that name the caller with `MANAGE`, filtered to views they own, newest
+heads by `MAX(version)` with light columns. That keeps the first start after an
+upgrade from showing everyone an empty sidebar. `GET /api/discover/home` stays
+Discover's; the store reads only this endpoint.
+
+`sidebar_hidden` now means **taken out of Recent**, not "closed from Shared with
+me". `POST /{id}/hide` upserts the time, and the row stops counting once the
+person opens the view after it (`view_visits.last_opened_at > timestamp`), so
+"opening it brings it back" needs no extra write. `DELETE /{id}/hide` still undoes
+it; the store calls it when a view is reopened in the same tab, because the
+browser sends `/visit` at most hourly per view. `tests/test_apps_list.py` covers
+the shape, the size bound, the fallback and each correction.
+
 ## What each model will accept (`services/llm_params.py`)
 
 Endpoints disagree about the optional parameters, so nothing optional is sent unless
@@ -1904,7 +1938,8 @@ PYTHONPATH=server .venv/bin/python tests/test_view_archive.py         # 12 passe
 PYTHONPATH=server .venv/bin/python tests/test_app_spec.py             # 44 passed
 PYTHONPATH=server .venv/bin/python tests/test_app_links.py            # 8 passed
 PYTHONPATH=server .venv/bin/python tests/test_look_helper.py          # 7 passed
-PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 58 passed
+PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 54 passed
+PYTHONPATH=server .venv/bin/python tests/test_apps_list.py            # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 26 passed
 .venv/bin/python tests/test_file_extract.py                           # 22 passed
 .venv/bin/python tests/test_upload_tools.py                           # 28 passed

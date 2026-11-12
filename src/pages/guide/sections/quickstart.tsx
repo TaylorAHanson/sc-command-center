@@ -14,9 +14,8 @@ const Body = () => (
     <Steps>
       <Step title="Create a view">
         <P>
-          In the sidebar, under <UI>My views</UI>, click <UI>New View</UI>. A blank view called "View 1" (or the next
-          number) opens. To rename it, hover its name in the sidebar and click the pencil, type a name and press{' '}
-          <Kbd>Enter</Kbd>.
+          In the sidebar, click <UI>New view</UI>. A blank view called "View 1" (or the next number) opens. To rename
+          it, hover its name under <UI>My views</UI> and click the pencil, type a name and press <Kbd>Enter</Kbd>.
         </P>
         <P>
           The view is a draft that only you can see until you share and publish it.
@@ -92,8 +91,8 @@ const Body = () => (
           ]}
         />
         <P>
-          The view appears under <UI>Shared with me</UI> in their sidebar, read-only, showing the version you
-          published. The link opens only for people you shared the view with. When you change the view later,
+          They find the view under <UI>New for you</UI> and in <UI>Browse views</UI>, read-only, showing the version
+          you published. The link opens only for people you shared the view with. When you change the view later,
           publish again for them to see it. See <GuideLink to="sharing">Sharing &amp; permissions</GuideLink>.
         </P>
       </Step>

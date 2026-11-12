@@ -36,8 +36,9 @@ const Body = () => (
       ]}
     />
     <Callout kind="note" title="Mouse and keyboard">
-      There is no shortcut for Lock, Share, New View or the assistant. Use the buttons. To drag a widget or a tab, hold
-      its header or name; the tab bar's arrow keys cover reaching a tab from the keyboard but not reordering.
+      There is no shortcut for Lock, Share, New view or the assistant. Use the buttons. To drag a widget or a tab, hold
+      its header or name; the tab bar's arrow keys cover reaching a tab from the keyboard but not reordering. Sidebar
+      favorites move with <Kbd>Alt</Kbd>+<Kbd>↑</Kbd> and <Kbd>Alt</Kbd>+<Kbd>↓</Kbd>.
     </Callout>
 
     <H2 id="glossary">Glossary</H2>
@@ -47,7 +48,7 @@ const Body = () => (
     <Table
       head={['Term', 'Meaning', 'Read more']}
       rows={[
-        [<strong>View</strong>, 'A page of widgets that you arrange yourself, on one or more tabs. The sidebar lists them under My views, Shared with me and Archived.', <GuideLink to="views">Views & layouts</GuideLink>],
+        [<strong>View</strong>, 'A page of widgets that you arrange yourself, on one or more tabs. The sidebar lists the ones you use under Favorites, Recent and My views; Browse views finds the rest.', <GuideLink to="views">Views & layouts</GuideLink>],
         [<strong>Tab</strong>, 'One page inside a view. A view can have up to 50.', <GuideLink to="views" anchor="tabs">Tabs</GuideLink>],
         [<strong>Widget</strong>, 'A chart, table, form or tool you place on a view. Widgets are authored in the app, not installed from files.', <GuideLink to="widgets">Using widgets</GuideLink>],
         [<strong>Card</strong>, 'A widget sitting on a tab beside others, in its own frame, movable and resizable. A tab of this kind is Cards on a grid.', <GuideLink to="views" anchor="cards-or-page">Cards or a page</GuideLink>],
@@ -60,7 +61,7 @@ const Body = () => (
         [<strong>Owner</strong>, 'Whoever created a view, widget or agent. The owner can manage it.', <GuideLink to="sharing">Sharing & permissions</GuideLink>],
         [<strong>Everyone in this app</strong>, 'Every person who can sign in to this app, as one entry on an access list.', <GuideLink to="sharing" anchor="who">Who you can share with</GuideLink>],
         [<strong>Administrator</strong>, 'Someone who can manage everything in the app and open the Admin Panel.', <GuideLink to="access" anchor="administrators">Administrators & access</GuideLink>],
-        [<strong>Shared with me</strong>, 'The sidebar group listing views other people have shared with you.', <GuideLink to="views" anchor="sidebar">Your views</GuideLink>],
+        [<strong>Favorites</strong>, 'Views you starred, kept at the top of the sidebar in the order you choose.', <GuideLink to="views" anchor="sidebar">Your views in the sidebar</GuideLink>],
         [<strong>View on its own</strong>, 'A view whose link opens just that view, with no sidebar, under its own title and logo. Also called standalone.', <GuideLink to="views" anchor="settings-opening">Opening</GuideLink>],
         [<strong>Lock layout</strong>, 'In a view\u2019s ⋯ menu: stops widgets being moved, resized, added or removed by accident.', <GuideLink to="views" anchor="lock-and-unlock">Lock and unlock</GuideLink>],
         [<strong>Filter</strong>, 'A dropdown above a view\u2019s widgets that sets a variable the widgets can follow.', <GuideLink to="views" anchor="settings-filters">Filters</GuideLink>],

@@ -63,7 +63,11 @@ export interface SearchResponse {
 
 export type Rails = Record<RailName, ViewRow[]>;
 
-/** The sidebar's working set. `mine` includes never-published drafts (`state: 'draft_only'`). */
+/**
+ * The caller's favorites, recent and own views. `mine` includes never-published
+ * drafts (`state: 'draft_only'`). The sidebar reads the same lists, corrected
+ * for drafts, archiving and closing, from `GET /api/apps/` (see `workingSet.ts`).
+ */
 export interface Home {
     favorites: ViewRow[];
     recent: ViewRow[];
@@ -105,16 +109,52 @@ export const fetchDiscoverStatus = () => requestJson<DiscoverStatus>(`${BASE}/st
 
 export const fetchFavorites = async () => (await requestJson<{ favorites: ViewRow[] }>(`${BASE}/favorites`)).favorites;
 
-export const setFavorite = (id: string, favorite: boolean) =>
-    requestJson<{ id: string; favorite: boolean }>(item('favorites', id), { method: favorite ? 'PUT' : 'DELETE' });
+/**
+ * Fired on `window` once a star, the favorites' order or a hide is saved, so
+ * the sidebar (which reads `GET /api/apps/`, not these endpoints) shows a change
+ * made anywhere else, on the Discover page say, without waiting to read its
+ * list again. `detail` says what changed.
+ */
+export const WORKING_SET_CHANGED = 'cc:working-set-changed';
+
+export interface WorkingSetChange {
+    id?: string;
+    favorite?: boolean;
+    hidden?: boolean;
+    /** The favorites' new order, first to last. */
+    order?: string[];
+}
+
+const announce = (detail: WorkingSetChange) => {
+    window.dispatchEvent(new CustomEvent<WorkingSetChange>(WORKING_SET_CHANGED, { detail }));
+};
+
+/** Calls `listener` with each change; returns what stops it. */
+export const onWorkingSetChanged = (listener: (change: WorkingSetChange) => void): (() => void) => {
+    const handle = (e: Event) => listener((e as CustomEvent<WorkingSetChange>).detail ?? {});
+    window.addEventListener(WORKING_SET_CHANGED, handle);
+    return () => window.removeEventListener(WORKING_SET_CHANGED, handle);
+};
+
+export const setFavorite = async (id: string, favorite: boolean) => {
+    const saved = await requestJson<{ id: string; favorite: boolean }>(item('favorites', id), { method: favorite ? 'PUT' : 'DELETE' });
+    announce({ id, favorite });
+    return saved;
+};
 
 /** `ids` go first in that order; favorites not named keep their order after them. */
-export const orderFavorites = async (ids: string[]) =>
-    (await requestJson<{ ids: string[] }>(`${BASE}/favorites/order`, { method: 'PUT', body: JSON.stringify({ ids }) })).ids;
+export const orderFavorites = async (ids: string[]) => {
+    const order = (await requestJson<{ ids: string[] }>(`${BASE}/favorites/order`, { method: 'PUT', body: JSON.stringify({ ids }) })).ids;
+    announce({ order });
+    return order;
+};
 
 /** Hidden views leave the rails; search still finds them. */
-export const setHidden = (id: string, hidden: boolean) =>
-    requestJson<{ id: string; hidden: boolean }>(item('hidden', id), { method: hidden ? 'PUT' : 'DELETE' });
+export const setHidden = async (id: string, hidden: boolean) => {
+    const saved = await requestJson<{ id: string; hidden: boolean }>(item('hidden', id), { method: hidden ? 'PUT' : 'DELETE' });
+    announce({ id, hidden });
+    return saved;
+};
 
 /** Administrators only. Omit a field to leave it alone; `featured_position: null` unfeatures. */
 export const curateView = (id: string, changes: { featured_position?: number | null; certified?: boolean }) =>

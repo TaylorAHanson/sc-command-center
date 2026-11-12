@@ -60,8 +60,10 @@ const Body = () => (
     <Table
       head={['Part', 'Where', 'What it does']}
       rows={[
-        [<UI>My views</UI>, 'Sidebar', <>The views you own. <UI>New View</UI> adds one. Hover a view to rename or close it, and drag the grip to reorder. See <GuideLink to="views">Views and layouts</GuideLink>.</>],
-        [<UI>Shared with me</UI>, 'Sidebar, when you have any', 'Views other people have shared with you. You see the version they last published. Hover one to copy it or close it.'],
+        [<UI>Search views</UI>, 'Sidebar, top', 'Finds any view you can open as you type. Enter shows every match in Browse views.'],
+        [<><UI>Favorites</UI> and <UI>Recent</UI></>, 'Sidebar', <>The views you starred, in your order, and the last five you opened. See <GuideLink to="views" anchor="sidebar">Your views in the sidebar</GuideLink>.</>],
+        [<UI>My views</UI>, 'Sidebar', <>The eight views you own that changed last; <UI>All my views</UI> shows the rest. Hover a view to rename or close it. See <GuideLink to="views">Views and layouts</GuideLink>.</>],
+        [<><UI>New view</UI> and <UI>Browse views</UI></>, 'Sidebar', 'Start a blank view, or find views other people have shared with you. New for you, above them, counts the ones shared lately.'],
         [<UI>Archived</UI>, 'Sidebar, collapsed', <>Archived views you manage, which you can restore. See <GuideLink to="publishing" anchor="archive">Archive, restore or delete a view</GuideLink>.</>],
         [<UI>Widget Library</UI>, 'Sidebar', <>Opens the tray of widgets you can add. See <GuideLink to="widgets">Using widgets</GuideLink>.</>],
         [<><UI>Widget Studio</UI> and <UI>Agent Studio</UI></>, 'Sidebar', <>Where widgets and agents are built. See <GuideLink to="widget-studio">Widget Studio</GuideLink> and <GuideLink to="agent-studio">Agent Studio</GuideLink>.</>],
