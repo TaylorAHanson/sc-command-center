@@ -41,6 +41,15 @@ export type LintOptions = {
 
 const MAX_FINDINGS = 30;
 
+const LINK_STATE_KEY_RE = /^(['"`])[A-Za-z0-9_-]+\1$/;
+
+// Saving refuses code naming these in a string (DIALOG_ROUTES in
+// `server/services/widget_safety.py`); keep the two lists in step.
+const DIALOG_ROUTES: [RegExp, string, string][] = [
+    [/['"`][^'"`\n]*\/api\/email\/send/, '/api/email/send', 'props.app.sendEmail'],
+    [/['"`][^'"`\n]*\/api\/schedules/, '/api/schedules', 'props.app.schedule'],
+];
+
 // Mirrors the `require` shim in WidgetStudio's compile step and widgetRegistry:
 // React, ReactDOM, or a global of that name (Highcharts preloaded by index.html).
 const sandboxHasModule = (name: string): boolean => {
@@ -210,6 +219,21 @@ export function lintWidget(code: string, options: LintOptions = {}): LintFinding
         }
     }
 
+    const redefinedLinkState = /\b(?:function\s+useLinkState\b|(?:const|let|var)\s+useLinkState\s*=)/.exec(code);
+    if (redefinedLinkState) {
+        add('redefined-useLinkState', 'error', redefinedLinkState.index,
+            '`useLinkState` is provided by the runtime. Defining your own keeps the widget\'s settings out of the view\'s link.');
+    }
+
+    // The key names the setting in the view's link, so it has to be the same on
+    // every render and for everyone who opens the link.
+    for (const match of code.matchAll(/(?<!\bfunction\s+)\buseLinkState\s*\(\s*([^,)]*)/g)) {
+        if (!LINK_STATE_KEY_RE.test(match[1].trim())) {
+            add('link-state-key', 'error', match.index ?? 0,
+                '`useLinkState` needs a literal string key of letters, digits, `_` or `-`, such as `useLinkState(\'sort\', \'revenue\')`: the key names the setting in the view\'s link.');
+        }
+    }
+
     const topLevelRender = /\b(?:ReactDOM\.render|ReactDOM\.hydrate|createRoot|hydrateRoot)\s*\(/.exec(code);
     if (topLevelRender) {
         add('top-level-render', 'error', topLevelRender.index,
@@ -220,6 +244,14 @@ export function lintWidget(code: string, options: LintOptions = {}): LintFinding
     if (write >= 0 && !/\bexecuteAction\b/.test(code)) {
         add('write-without-action', 'error', write,
             'This widget writes data without `props.executeAction`, so the change bypasses the audit trail. Run the write inside an executeAction callback.');
+    }
+
+    for (const [pattern, route, use] of DIALOG_ROUTES) {
+        const call = pattern.exec(code);
+        if (call) {
+            add('direct-send-or-schedule', 'error', call.index,
+                `Saving is refused while the code calls \`${route}\`. Use \`${use}\`, which opens the platform's dialog so the person checks it first.`);
+        }
     }
 
     // --- warnings: usually wrong, sometimes deliberate -------------------------

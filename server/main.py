@@ -132,6 +132,26 @@ async def startup_event():
     # services/capabilities.py). Neither register() nor start() raises.
     from services import background, capabilities  # noqa: F401
 
+    from services import activity_feed
+    background.register("activity_retention", activity_feed.PURGE_EVERY_SECONDS, activity_feed.retention_job)
+
+    from services import email_service
+    capabilities.register("email", "Email", email_service.capability)
+
+    # Scheduling: the token vault (services/token_vault.py) and the scheduler that
+    # runs as each owner through it (services/scheduler.py). Guarded because anything
+    # raised here stops the whole app, and a broken vault should cost scheduling only.
+    try:
+        from services import scheduler, token_vault
+
+        capabilities.register("scheduling", "Scheduling", scheduler.capability)
+        background.register("oauth_pending_purge", 3600, token_vault.purge_pending)
+        background.register("scheduler", scheduler.TICK_SECONDS, scheduler.tick)
+        background.register("schedule_reconnect", scheduler.RECONNECT_SECONDS, scheduler.resume_reconnected)
+        background.register("schedule_reminders", scheduler.REMINDER_SECONDS, scheduler.send_reminders)
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Could not register scheduling: {e}", exc_info=True)
+
     # Discover's view catalog and usage signals (services/view_catalog.py,
     # services/view_signals.py).
     from services import view_catalog, view_signals
@@ -317,7 +337,11 @@ from routes import conversations
 from routes import chat_uploads
 from routes import data_migration
 from routes import capabilities as capabilities_routes
+from routes import activity as activity_routes
 from routes import discover
+from routes import email as email_routes
+from routes import oauth
+from routes import schedules
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widget_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
@@ -335,6 +359,10 @@ app.include_router(chat_uploads.router, prefix="/api/agent/uploads", tags=["chat
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(data_migration.router, prefix="/api/migration", tags=["data_migration"])
 app.include_router(capabilities_routes.router, prefix="/api/capabilities", tags=["capabilities"])
+app.include_router(activity_routes.router, prefix="/api/activity", tags=["activity"])
+app.include_router(email_routes.router, prefix="/api/email", tags=["email"])
+app.include_router(oauth.router, prefix="/api/oauth", tags=["oauth"])
+app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
 app.include_router(discover.router, prefix="/api/discover", tags=["discover"])
 
 

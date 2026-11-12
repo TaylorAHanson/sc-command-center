@@ -121,12 +121,31 @@ LEGACY_TABLES = frozenset({"role_mappings"})
 #: only while the studio that started it is polling. The cutover log records
 #: what startup did on *this* deployment; the target ran its own, and the same
 #: goes for when each background job last ran.
+NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs", "cutover_log", "background_jobs"})
+#: The token vault (services/token_vault.py) is never copied, whatever is chosen: a
+#: refresh token is a credential this app was issued for one person, a copy is one
+#: more place it can leak from, and the target couldn't decrypt it under its own key
+#: anyway. People connect again on the target. A sign-in in flight is only good for
+#: ten minutes on the app that started it.
+NOT_COPIED = NOT_COPIED | {"user_oauth_tokens", "oauth_pending"}
+
+#: The email log is what this deployment sent, and its rows are what each
+#: person's daily cap counts; copied, they would spend the target's allowance on
+#: emails it never sent. Each send's activity event travels with the activity log.
+NOT_COPIED = NOT_COPIED | frozenset({"email_log"})
+
+#: Schedules run as their owner's connection to *this* app, which isn't copied
+#: either, so on the target they could only wait for a reconnect, and copied ones
+#: that did run would make two apps send the same reports. Owners set them up
+#: again on the target after connecting there. Their runs and reminders describe
+#: this deployment's history and go with them.
+NOT_COPIED = NOT_COPIED | frozenset({"schedules", "schedule_runs", "schedule_reminders"})
+
 #: The view catalog, its queue and state are rebuilt from the views and access
 #: lists the snapshot does carry. Visits and daily viewer counts measure use of
 #: one deployment, and would make the target's "popular" describe the source's.
-NOT_COPIED = frozenset({"chat_turn_stops", "widget_generation_jobs", "cutover_log", "background_jobs",
-                        "view_catalog", "view_catalog_queue", "view_catalog_state", "view_visits",
-                        "view_daily"})
+NOT_COPIED = NOT_COPIED | frozenset({"view_catalog", "view_catalog_queue", "view_catalog_state",
+                                    "view_visits", "view_daily"})
 
 GROUPS: List[Dict[str, Any]] = [
     {"key": "content", "label": "Widgets, views and agents",

@@ -140,6 +140,18 @@ def test_clean_widget_passes():
     check("test_clean_widget_passes", review_widget_code(code) == [])
 
 
+def test_link_state_widget_passes():
+    code = """
+    const C = ({ data }) => {
+      const [sort, setSort] = useLinkState('sort', 'revenue');
+      const [range, setRange] = useLinkState("range", { from: '2026-01-01', to: null });
+      return <button onClick={() => setSort(s => (s === 'revenue' ? 'units' : 'revenue'))}>{sort}</button>;
+    };
+    export default C;
+    """
+    check("test_link_state_widget_passes", review_widget_code(code) == [])
+
+
 def test_eval_is_refused():
     check("test_eval_is_refused", len(review_widget_code("const x = eval('1+1');")) == 1)
 
@@ -260,6 +272,59 @@ def test_a_comment_marker_inside_a_url_is_not_a_comment():
         "test_a_comment_marker_inside_a_url_is_not_a_comment",
         len(problems) == 1 and "eval(" in problems[0],
     )
+
+
+def test_creating_a_schedule_directly_is_refused():
+    # A widget that posts here schedules work as whoever opens it, unasked.
+    code = "fetch('/api/schedules', { method: 'POST', body: JSON.stringify({ sql }) });"
+    problems = review_widget_code(code)
+    check(
+        "test_creating_a_schedule_directly_is_refused",
+        len(problems) == 1 and "/api/schedules" in problems[0] and "props.app.schedule" in problems[0],
+    )
+
+
+def test_a_schedule_route_in_a_template_literal_is_refused():
+    code = "fetch(`/api/schedules/${id}/run`, { method: 'POST' });"
+    check("test_a_schedule_route_in_a_template_literal_is_refused", len(review_widget_code(code)) == 1)
+
+
+def test_sending_email_directly_is_refused():
+    code = "fetch('/api/email/send', { method: 'POST', body: JSON.stringify({ to, subject }) });"
+    problems = review_widget_code(code)
+    check(
+        "test_sending_email_directly_is_refused",
+        len(problems) == 1 and "/api/email/send" in problems[0] and "props.app.sendEmail" in problems[0],
+    )
+
+
+def test_an_escaped_slash_does_not_hide_a_dialog_route():
+    check(
+        "test_an_escaped_slash_does_not_hide_a_dialog_route",
+        len(review_widget_code("fetch('\\/api\\/schedules');")) == 1,
+    )
+
+
+def test_a_dialog_route_named_in_a_comment_passes():
+    code = "// Uses props.app.schedule, never /api/schedules or /api/email/send.\nconst a = 1;"
+    check("test_a_dialog_route_named_in_a_comment_passes", review_widget_code(code) == [])
+
+
+def test_a_widget_using_the_dialogs_passes():
+    code = """
+    const C = (props) => {
+      const sql = 'SELECT region, SUM(amount) AS total FROM sales GROUP BY region';
+      const ok = props.app?.scheduleAvailable && props.app?.emailAvailable;
+      return (
+        <button disabled={!ok} title={ok ? '' : "Scheduling isn't set up in this app yet"}
+          onClick={() => props.app.schedule({ sql, subject: 'Sales by region', recurrence: { freq: 'weekly', days: [1], time: '08:00' } })}>
+          Schedule
+        </button>
+      );
+    };
+    export default C;
+    """
+    check("test_a_widget_using_the_dialogs_passes", review_widget_code(code) == [])
 
 
 def test_writing_sql_requires_an_executable_widget():

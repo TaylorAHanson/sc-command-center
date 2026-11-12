@@ -22,9 +22,10 @@ import langgraph.prebuilt  # noqa: E402
 from langchain_core.messages import AIMessageChunk  # noqa: E402
 
 from routes import agent_studio_profiles as ap  # noqa: E402
-from services import llm_params  # noqa: E402
+from services import activity, llm_params  # noqa: E402
 
 MODEL = "fake-authoring-model"
+RECORDED = []  # what activity.record was given
 REFUSED = "Error code: 400 - Unsupported parameter: 'temperature' is not supported with this model."
 
 
@@ -80,6 +81,7 @@ def run(script):
     ap.get_setting = lambda key: MODEL
     ap._agent_studio_max_tokens = lambda: 1000
     ap._build_authoring_llm = lambda key, url, params: dict(params)
+    activity.record = lambda *args, **kwargs: RECORDED.append(args)
 
     job_id, background = start()
     run.job_id = job_id
@@ -221,6 +223,15 @@ def test_a_good_draft_has_no_error():
     final = final_of(lambda p: [reply(DRAFT_START + 'taxi trips."}\n```')])
     assert final["draft"] == {"name": "Taxi", "prompt": "You answer questions about taxi trips."}
     assert not final.get("draft_error")
+
+
+def test_a_finished_run_is_logged_with_how_it_ended_and_nothing_anyone_wrote():
+    RECORDED.clear()
+    run(lambda p: [reply(DRAFT_START + 'taxi trips."}\n```')])
+    (who, verb, object_type, object_id, detail), = RECORDED
+    assert (verb, object_type, object_id) == ("agent.generate", None, None)
+    assert detail == {"status": "completed", "edit": False}
+    assert "taxi" not in repr(RECORDED) and "draft me" not in repr(RECORDED)
 
 
 if __name__ == "__main__":

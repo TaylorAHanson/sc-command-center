@@ -145,6 +145,22 @@ const [mapLoaded] = useScript('https://cdn.jsdelivr.net/npm/highcharts@11.4.8/mo
   ```
 - Since we only know about the current widget, be clear with the user about names for both Emitters and Receivers being used.
 
+### Settings saved in the link (`useLinkState`)
+
+- **`useLinkState(key, default)` is provided by the runtime, like `useScript`: never define or import it.** It works like `React.useState`, except that on a view the value is saved in the view's link, so a reload, Back, or a link someone copies opens the widget set the same way. In the studio preview it is kept in memory instead.
+
+      const [sort, setSort] = useLinkState('sort', 'revenue');
+      const [range, setRange] = useLinkState('range', { from: null, to: null });
+      setSort('units');
+      setRange(r => ({ ...r, to: '2026-09-30' }));
+
+- **Use it by default for what someone sets to choose what the widget shows:** a filter, a search box, a sort, a date range, a selected segment or tab, a page size. **Keep transient UI in `React.useState`:** hover, an open menu or tooltip, a modal, text being typed before it is applied, loading and error state.
+- **Never put data, secrets or large lists in the link.** No rows or query results, no tokens, no list of every selected id. The link is shown in the address bar, pasted into chats and kept in browser history, and the whole view's settings share about 1,500 characters of it; past that the largest are left out. Keep each setting to a short string, number, boolean or small object.
+- **The key is a literal string of letters, digits, `_` or `-`**, such as `'sort'` or `'page_size'`, unique within the widget. Each placed copy of the widget keeps its own settings, so keys never clash with another widget's. Values must survive `JSON.stringify` (dates as ISO strings, no functions). A value equal to the default is left out of the link, and the first default is the one that stands, so pass a constant.
+- **A value from the link came from whoever sent it.** Treat it as user input: before it reaches SQL, check it against what the widget offers (a sort column against the widget's own list of columns, a page size against its choices) or escape it as a literal, and fall back to the default when it doesn't fit. Dashboard variables can arrive from a link too, so the same goes for a value read from `props.data.variables`.
+- **Dashboard variables are already in the link.** A view's filter bar and emitter variables are saved without any code. An emitter shows the variable's current value and seeds it only when it is unset, as above, so the choice a link carries isn't overwritten on load.
+- **Tell the author.** When the widget uses `useLinkState`, say in your reply which settings are saved in the link, for example "The sort and date range are saved in the link, so a copied link opens the widget the same way." If they don't want that, switch those settings to `React.useState` and stop mentioning it.
+
 ### The app around the widget (`props.app`)
 
 Every widget on a view also receives `props.app`. Use it when the user asks for
@@ -237,6 +253,130 @@ every widget's **title, description, and configuration**, plus the current
 write any code for this — placing a widget on a view is enough for the Assistant
 to "see" it. Giving your widget a clear `name` and `description` directly
 improves how well the Assistant can reason about it.
+
+### Sending by email (`props.app.sendEmail`)
+
+Use this when the user asks for a widget that emails what it shows ("Email this
+table to my team", "Send me these numbers"). It opens the app's own Send dialog
+with the email filled in; the person edits the recipients, sees the email as it
+will arrive, and presses Send. The widget never sends anything itself.
+
+```ts
+props.app?.sendEmail({
+  subject: 'Q3 revenue by region',                  // the person can edit it
+  message: '**Revenue is up 4%** on last quarter.', // Markdown: paragraphs, lists, **bold**, *italic*, `code`, [links](https://…)
+  to: ['finance-team@example.com'],                 // optional starting recipients, string or array
+  table: { columns: ['Region', 'Revenue'], rows: rows.map(r => [r.region, r.revenue]) }, // optional
+  attachCsv: true,                                  // optional: also attach the table as a CSV
+})  // → Promise<{ sent: boolean, status: 'sent' | 'logged' | 'cancelled' | 'unavailable', recipients: string[] }>
+props.app?.emailAvailable  // false until email is set up in this app
+```
+
+- **Disable the button when `props.app?.emailAvailable` is false**, with the
+  title `Email isn't set up in this app yet`. Keep the button visible: the person
+  should see the feature exists and can ask an administrator for it.
+- **Send data, not markup.** `message` is Markdown and the server escapes it, so
+  HTML shows up as text, and images are never drawn. Put rows in `table` rather
+  than formatting them into the message: the email shows the first 50, and
+  `attachCsv: true` carries up to 10,000 in the attachment. Rows may be arrays
+  in column order or objects keyed by column name.
+- **Don't promise delivery.** The promise resolves when the dialog closes, and
+  `sent` is false if the person cancelled. The app limits recipients (by
+  default to the sender's own email domain, at most 10 people), so never
+  hardcode addresses outside the user's organization.
+- **Never call `/api/email/...` yourself, and don't wrap `sendEmail` in
+  `executeAction`.** The dialog's Send is what records the email in the audit
+  trail and lets the person check who it goes to. Saving is refused while the
+  code contains `/api/email/send` in a string.
+- Where the widget has no view around it (Widget Studio's preview), the call
+  describes the dialog it would open instead.
+
+```tsx
+const canEmail = !!props.app?.emailAvailable;
+<button
+  disabled={!canEmail}
+  title={canEmail ? 'Email this table' : "Email isn't set up in this app yet"}
+  onClick={() => props.app?.sendEmail({
+    subject: `Open orders – ${region}`,
+    message: `Open orders for **${region}** as of ${new Date().toLocaleDateString()}.`,
+    table: { columns: ['Order', 'Customer', 'Value'], rows: orders.map(o => [o.id, o.customer, o.value]) },
+    attachCsv: true,
+  })}
+  className="px-3 py-1.5 rounded-md bg-brand-blue text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+  Email this
+</button>
+```
+
+### Scheduling a report (`props.app.schedule`)
+
+Use this when the user asks for a widget whose results go out on a timetable
+("email me this every Monday", "send the team this report daily", "a Schedule
+button"). It opens the app's own Schedule dialog filled in; the person chooses
+when it runs and who gets it, and presses Save. The widget never creates a
+schedule itself. Each run executes the query again later, as the person who
+scheduled it and with their access to data, and emails the results.
+
+```ts
+props.app?.schedule({
+  sql,                                      // required: the statement the widget runs for what it shows
+  name: 'Open orders – West',               // optional; the person can edit everything below
+  subject: 'Open orders – West',
+  message: 'Open orders for **West**.',     // Markdown, as in sendEmail
+  sendWhen: 'has_rows',                     // 'always' (default) | 'has_rows' | 'no_rows'
+  attachCsv: true,                          // attach the results as a CSV
+  recipients: ['me@example.com'],           // optional; defaults to the person scheduling
+  recurrence: { freq: 'weekly', days: [1], time: '08:00' }, // optional; defaults to every day at 08:00
+})  // → Promise<{ scheduled: boolean, id?: string, status?: string }>
+props.app?.scheduleAvailable  // false until scheduling is set up in this app
+props.app?.emailAvailable     // a scheduled report is emailed, so it needs this too
+```
+
+- **Offer it only when asked**, or when the user wants something recurring
+  ("every morning", "weekly"), and only on a widget that shows the result of one
+  SQL statement. Don't add a Schedule button to every widget.
+- **Pass the widget's own SQL, exactly as it runs it now**: the same statement,
+  with the filter values the widget has applied. The schedule keeps that text,
+  so a filter changed later doesn't change it. Use a read-only statement.
+- **`recurrence`**: `freq` is `'hourly'`, `'daily'`, `'weekly'` or `'monthly'`;
+  `time` is 24-hour `"HH:MM"` (hourly uses only its minutes); weekly `days` are
+  1 (Monday) to 7 (Sunday); monthly `days` are 1 to 31, and a day past a short
+  month's end runs on its last day. `tz` is an IANA zone; leave it out and the
+  person's own is used.
+- **`kind: 'run_statement'`** schedules the statement itself to run, emailing
+  nobody. The dialog offers it only on an executable widget, so use it only
+  there, and only when the user asked for a write to run on a timetable.
+- **Disable the button** with the title `Scheduling isn't set up in this app
+  yet` when `props.app?.scheduleAvailable` is false, or `Email isn't set up in
+  this app yet` when `props.app?.emailAvailable` is false. Keep it visible.
+- **Never call `/api/schedules` yourself, and don't wrap `schedule` in
+  `executeAction`.** Saving the widget is refused while its code contains
+  `/api/schedules` in a string. The dialog's Save is what records the schedule
+  in the audit trail and lets the person check it.
+- **Don't promise it's scheduled.** The promise resolves when the dialog
+  closes, with `scheduled` false if the person cancelled. A new schedule may wait
+  for the person to connect their account (`status: 'needs_reconnect'`); the
+  dialog walks them through it.
+- Where the widget has no view around it (Widget Studio's preview), the call
+  describes the dialog it would open instead.
+
+```tsx
+const canSchedule = !!props.app?.scheduleAvailable && !!props.app?.emailAvailable;
+<button
+  disabled={!canSchedule}
+  title={!props.app?.scheduleAvailable ? "Scheduling isn't set up in this app yet"
+    : !props.app?.emailAvailable ? "Email isn't set up in this app yet" : 'Email this on a schedule'}
+  onClick={() => props.app?.schedule({
+    sql,
+    name: `Open orders – ${region}`,
+    subject: `Open orders – ${region}`,
+    sendWhen: 'has_rows',
+    attachCsv: true,
+    recurrence: { freq: 'weekly', days: [1, 2, 3, 4, 5], time: '08:00' },
+  })}
+  className="px-3 py-1.5 rounded-md border border-gray-300 text-slate-800 text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+  Schedule
+</button>
+```
 
 ## Output Format
 

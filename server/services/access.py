@@ -263,6 +263,24 @@ def caller(w: Any) -> Caller:
     return Caller(username, groups, admin)
 
 
+def acting_as(username: str, groups: Iterable[str]) -> Caller:
+    """The caller that work done for someone without a request of theirs acts as.
+
+    A scheduled run has no token to ask SCIM with, so it passes the groups the owner
+    had when they last set the schedule up; whether they are an admin is decided
+    now, as `caller` decides it.
+    """
+    groups = tuple(g for g in groups or () if g)
+    if _bypass():
+        return Caller(username, groups, True)
+    try:
+        admin = is_admin(username, groups)
+    except Exception as e:  # noqa: BLE001 - an unreadable admin list grants nothing
+        logger.warning("Could not read app admins: %s", e)
+        admin = False
+    return Caller(username, groups, admin)
+
+
 def level_for(who: Caller, object_type: str, object_id: str) -> Optional[str]:
     if who.is_admin:
         return MANAGE

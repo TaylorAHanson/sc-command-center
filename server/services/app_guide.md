@@ -106,8 +106,10 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
   It shows who the view is shared with; people who can manage the view also give
   a person, a group or everyone in this app **Can use** or **Can manage** there
   (see *Sharing something and getting access*), and for anyone else the list is
-  read-only. **Copy link** in that dialog copies a link to the current view. The chain-link icon on an
-  individual widget copies a link that opens that widget full-screen. The address
+  read-only. **Copy link** in that dialog copies a link to the current view, set
+  the way it is now (see *View links*). The chain-link icon on an
+  individual widget copies a link that opens that widget full-screen, with the
+  view's filters and that widget's own settings. The address
   in the browser is the same link, so copying it from there works too.
 - **Every change a manager makes** — moving a widget, renaming a tab, View
   settings, the agent pin — goes into the view's draft and reaches other people
@@ -164,6 +166,26 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
 - The address names the tab being shown, so a link opens on that tab and Back
   steps between tabs. A link to the first tab doesn't name it, so it opens
   whichever tab is first.
+- **A link keeps what the view is set to.** A moment after each change, the
+  address picks up the view's filters, the values widgets pass to each other,
+  and the settings a widget keeps in the link (typically a sort, a search, a
+  date range, a selected segment or tab, a page size). So a reload, Back, and a
+  copied or pasted link open the view set the same way. They sit before the
+  `#`, like `?v.region=West&w.3f2a91c0.sort=revenue#/app/sales`. A setting
+  still at its default is left out, and if a view's settings would make the link
+  longer than about 1,500 characters, the largest are left out of it. Switching
+  tabs keeps them; opening a different view starts that view without them.
+- **A link that carries settings opens with exactly those**, not with the
+  filter choices that person last left the view on. A filter option the view no
+  longer offers falls back to the filter's default. Settings in a link never
+  change who may see what: the view still opens only for people it is shared
+  with, and its data still comes back as each person may see it.
+- **Which widget settings go in the link is up to the widget.** Widgets that
+  Widget Studio builds keep their filters, search, sort, date range, selected
+  segment or tab and page size there by default, and the agent says which; ask
+  it to keep any out and it does. Hover states, open menus and other passing
+  details are never saved. In the studio's preview these settings are only
+  kept in memory, since the studio has no view link.
 - Links use names, not codes. A published view's link is its name, like
   `#/app/supply-hub/inventory`; a second view with the same name gets
   `supply-hub-2`. Renaming a view gives it a new link when it is next
@@ -235,7 +257,8 @@ view's draft: other people see the new settings once the view is published.
   clears it. Each person comes back to the choices they last made on that view,
   remembered in their browser (a different browser or computer starts from the
   defaults); a remembered option the filter no longer offers falls back to its
-  default.
+  default. A link that carries filter choices opens on those instead, and the
+  address follows each choice, so a copied link shares them (see *View links*).
   A view built from several views keeps their filters.
 - A view opened on its own is read-only for everyone, including its owner, and
   always shows the latest published version, never the draft; its tabs can be
@@ -351,7 +374,8 @@ listed by its own host. Scripts still load only from the CDNs. The browser
 enforces the same rule independently, so a widget that got round the save check
 still could not load a script or send data off-list. Widget code is generated
 from a prompt, and these two rules are what keep "generated" from meaning "can
-reach anywhere".
+reach anywhere". Code calling `/api/email/send` or `/api/schedules` itself is
+refused too: email and schedules go through their dialogs.
 
 A widget that **changes** data (INSERT, UPDATE, DELETE, MERGE and so on) does it
 through its action controls and should be marked **Executable**; Widget Studio's
@@ -384,6 +408,88 @@ from views keeps each link on the copied tab. A widget can't open another view,
 and its code still can't contain an address: an address is only ever a card's
 setting.
 
+**Sending by email.** A widget can offer an email button; ask Widget Studio for
+"a button that emails this table". Pressing it opens a **Send** dialog with the
+**To** line (addresses separated by commas, filled in if the widget suggests
+someone), the **Subject**, and a preview of the email exactly as it will arrive,
+including any table and the name of the attached CSV. Nothing is sent until
+**Send** is pressed, and the send is recorded in **Action Logs** like any other
+action. The email comes from the app's own address, replies go to the sender, and
+its footer names the sender and the view with a link back to it. Recipients are
+limited: by default only addresses in the sender's own email domain, at most 10
+per email and 50 emails per person in 24 hours, unless an administrator changed
+those. The dialog says which limit stopped a send. A greyed-out email button or a
+Send dialog saying "Email isn't set up in this app yet" means the administrators
+haven't finished setting email up (see Admin Settings). Run on a developer's own
+machine, Send writes the email to the server log instead of sending it.
+
+## Scheduled reports
+
+A widget can offer a **Schedule** button that emails its results on a timetable;
+ask Widget Studio for "a button that emails this every Monday". Scheduled work
+runs as the person who scheduled it, with their own access to data, while they
+are away.
+
+**Scheduling.** Pressing **Schedule** opens a dialog the widget has filled in.
+Nothing is saved until **Save schedule** is pressed, and saving is recorded in
+**Action Logs**. The dialog has:
+
+- **Name**.
+- **How often**: Hourly, Daily, Weekly or Monthly. Weekly picks days of the week
+  (**Weekdays** picks Monday to Friday); Monthly picks days of the month, and a
+  day past a short month's end runs on its last day. **At** is the time of day;
+  Hourly picks the minutes past the hour instead. **Time zone** starts as the
+  browser's. A line underneath reads it back, e.g. "Every weekday at 08:00
+  (America/Los_Angeles)".
+- **Recipients**: press Enter or type a comma after each address. It starts with
+  your own address unless the widget suggests others, and the Send dialog's
+  recipient limits apply.
+- **Subject**, **Message** (Markdown), **Send** (Every time, Only when the query
+  returns rows, Only when the query returns no rows) and **Attach the results as
+  a CSV file**.
+- **The query it runs**, shown but not editable: the schedule keeps the statement
+  the widget ran when it was saved. To change it, change the widget and schedule
+  again.
+
+On an Executable widget the dialog also offers **Run the statement** instead of
+**Email the results**: the statement runs on the timetable, nobody is emailed,
+and each run is recorded in Action Logs.
+
+**Connecting your account.** Because scheduled work runs as you, you connect your
+Databricks account to the app once. The dialog shows whether you are connected.
+If you aren't, save anyway: the schedule is created and waits, and the dialog
+then offers **Connect your account**, which signs you in to Databricks and brings
+you back where you were, with a message saying whether it worked. A connection
+lasts as long as the administrators' setup allows (30 days by default), and
+reconnecting renews it. If it fails because you signed in to Databricks as a
+different user, sign in as yourself and connect again.
+
+**My schedules.** **Resources → My schedules** in the sidebar (there once
+scheduling is set up) lists your schedules with what each does, how often, how
+many recipients, its status, and its last and next run. Each has **Run now**
+(one run outside the timetable, starting within about 30 seconds), **Pause** or
+**Resume**, **Edit** (the same dialog; the query and what it does can't change)
+and **Delete**. The arrow beside one shows its last 20 runs: when, how it started
+(On schedule, Run now, Missed run), the result (Succeeded, Skipped, Failed, Needs
+reconnect), rows, recipients emailed, and any error. The statuses are **Active**,
+**Paused**, **Paused after failures** (several runs in a row failed: fix the
+cause, then Resume) and **Needs reconnect** (waiting for you to connect again).
+The card at the top shows your connection: **Connected · expires in N days** with
+**Reconnect** and **Disconnect**, or **Connect your account**. Disconnecting stops
+your schedules until you connect again; it doesn't delete them. Administrators
+can tick **Everyone's schedules** to see everybody's, with each one's owner.
+
+**The reminder banner.** When you have active schedules and your connection ends
+within a week, or needs reconnecting, a yellow banner across the top of the app
+says so and links to My schedules. Closing it hides it for the rest of the
+browser session.
+
+**When it isn't available.** A greyed-out Schedule button, or a dialog saying
+"Scheduling isn't set up in this app yet", means administrators haven't set
+scheduling up (see Admin Settings). An emailed report needs email set up too. Run
+on a developer's own machine, schedules run as the app itself and there is no
+account to connect.
+
 ## Widget Library
 
 Opens from the **Widget Library** button in the sidebar, or by pressing `w`.
@@ -405,7 +511,9 @@ outside closes it. It lists the widgets in the domain selected, most used first.
   list to every widget, widgets you built, or widgets other people built and
   shared with you.
 - **Grid View** shows cards with previews; **List View** a table of name,
-  creator, status, popularity and size.
+  creator, status, popularity and size. A row's **Status** shows the same
+  **CERTIFIED**, **PAGE** and draft badges as a card, and hovering a row shows
+  the same icons as hovering a card.
 - **Certified** shows certified widgets plus the person's own, remembered in
   that browser. **Top creators** lists who builds the widgets people use;
   clicking a name shows only theirs.
@@ -528,13 +636,24 @@ open each card's gear there when those values must differ.
   rather than being pasted in as fixed numbers. Each step of a multi-step build
   can do this too, and it runs any SQL it writes once before handing the code
   back. Admins can switch either tool off in Admin Panel → Settings.
+  **Before it asks Genie anything** it stops and shows the exact question and a
+  one-line reason on a card in the chat. **Allow once** asks that question and
+  carries on with the answer; **Always allow** does the same and switches the
+  *Genie* agent setting to Always allow; **Continue without Genie** carries on
+  without it, and the agent says which business definitions it assumed. Any
+  other question needs a new card. A message that itself tells the agent to ask
+  Genie ("ask Genie how late is defined") is the OK for that turn. It asks
+  Genie at most one question a turn and only about what business terms mean —
+  never for table names, values or row counts, which it checks with SQL. In a
+  multi-step build, steps finished before the card stay in the editor. With
+  Genie switched off by an admin there is no Genie and no card.
 - **Attachments and screenshots** — the paperclip attaches spreadsheets,
   documents and images for the agent to read, a screenshot or copied image can
   be pasted straight into the message box, and **Send screenshot to agent**
   under the preview attaches a picture of the widget as it currently looks.
   Neither sends on its own: the file waits on the next message, so "this column
   is too narrow" arrives with the thing it describes.
-- **Agent settings** (the sliders icon above the chat) — two options, remembered
+- **Agent settings** (the sliders icon above the chat) — three options, remembered
   in that browser rather than set for everyone. *Conduct review after change*
   (off by default) has the agent re-read its own code once it has compiled and
   run in the preview, as a QA pass over behaviour, states, layout and
@@ -548,7 +667,10 @@ open each card's gear there when those values must differ.
   edit or send, so acting on a suggestion is one click rather than retyping it.
   It costs an extra turn. *Ask before large builds* (on by default) is the
   clarifying-question behaviour above, and can be switched off by anyone who
-  would rather it always guessed.
+  would rather it always guessed. *Genie* — **Ask each time** (the default),
+  **Always allow** or **Off** — decides whether the agent shows each Genie
+  question first, asks without stopping, or never uses Genie. An admin
+  switching Genie off in Admin Panel → Settings overrides it for everyone.
 
 ## Widget Studio: preview and pages
 
@@ -698,14 +820,42 @@ replace it with your admin group.
 
 **Admin Panel** is under Resources at the bottom of the sidebar. It appears only
 for Administrators (see *Sharing and permissions*). Its tabs are **Content**,
-**Categories & Domains**, **Administrators**, **Settings**, **Data Migration**
-and **Action Logs**, and all of them apply to the whole app.
+**Activity**, **Categories & Domains**, **Administrators**, **Settings**,
+**Data Migration** and **Action Logs**, and all of them apply to the whole app.
 
 - **Content** lists every view, widget and agent in the app, whoever owns it,
   with its owner, whether it is published or has unpublished changes, and how
   widely it is shared. It is where an Administrator finds something nobody else
   can reach any more — for example after its owner left — and shares it with
   someone who should manage it.
+  Each row's **Open** (views) or **Edit** (widgets and agents) goes straight to
+  it: a view opens in the canvas, a widget in Widget Studio and an agent in
+  Agent Studio. Archived views have **Restore** instead.
+- **Activity** shows who did what in the app, newest first. It records
+  creating, publishing, reverting, discarding the draft of, archiving,
+  restoring, deleting and sharing views, widgets and agents; certifying a
+  widget; finished Widget Studio and Agent Studio generations (completed,
+  failed or cancelled); assistant chat turns; Settings changes; adding or
+  removing Administrators; and, merged in from Action Logs, each executable
+  widget action. Only metadata is kept: who, what kind, which object, when,
+  and small facts such as a version number or how many entries an access list
+  has. Prompts, chat text, widget code, query results, setting values and the
+  names on an access list are never recorded. Recording started with this
+  release, so earlier events aren't there.
+  - Filter by kind (Publishing, New drafts, Sharing & administrators, Archive &
+    delete, Studio generations, Chat, Widget actions, Settings), object type,
+    time range or an exact username. **Only this** on a row narrows to that
+    object; clicking a kind narrows to it; **Show older** loads the next page.
+  - The strip at the top lists people active in the last 15 minutes. Someone
+    counts as seen when they use the app, noted at most every ten minutes, so
+    it is approximate.
+  - Clicking a person shows their last 30 days: counts by kind, the views,
+    widgets and agents they worked on most, and when they were last seen.
+  - **Open** / **Edit** on a row works as in Content, for objects that still
+    exist and aren't archived.
+  - Events older than **Delete activity events after (days)** (Settings, the
+    Retention and context card; starts at 365, 0 keeps them) are deleted by an
+    hourly job. Widget action rows in Action Logs are kept regardless.
 - **Categories & Domains**: *categories* group widgets by function (Monitoring,
   Analytics…) in Widget Studio and the Widget Library; *domains* label widgets,
   views and agents with a business area so people can filter by it. Neither
@@ -722,7 +872,7 @@ and **Action Logs**, and all of them apply to the whole app.
   whole app. Two kinds of event write a row: a button press in an
   **Executable** widget (the widget, the action name, who pressed it, when, and
   the view it was on) and a data migration export or import. Views, publishing
-  and sharing changes are not logged. The columns are Timestamp, Widget, Action,
+  and sharing changes are not logged here; they are on **Activity**. The columns are Timestamp, Widget, Action,
   User, Domain, User Explanation and Action ID; opening a row also shows a
   **Request ID** and **Dashboard Context**, a snapshot of the view's name, tab
   and every widget on the tab with its settings. **Search logs…** searches only
@@ -730,7 +880,8 @@ and **Action Logs**, and all of them apply to the whole app.
   ID is added as a comment (`cc-action: <id>`) at the front of the SQL an
   executable widget runs, so searching Databricks query history for it finds the
   exact statement. The row is written first; if it can't be, the action doesn't
-  run.
+  run. Only Administrators can read the log: the app refuses it to anyone else,
+  though everyone's actions are still recorded.
 
 ## Drafts and publishing
 
@@ -1019,6 +1170,88 @@ to a minute. The same card shows when each background job (work the app does on
 a timer, such as refreshing a search index) last ran, and whether it failed. If
 someone asks why a feature is missing or greyed out, send their administrator to
 that card.
+
+**Setting up email.** Email goes through the organisation's own Amazon SES
+account and stays off until three things are in place. First, AWS keys for an IAM
+user allowed only `ses:SendEmail` on a verified SES sender identity, added to the
+app as secret resources named `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`,
+with `AWS_REGION` set to the identity's region; the user guide's **Set up email**
+section has the bundle snippet. Second, production access for the SES account,
+without which SES delivers only to verified addresses. Third, the verified address
+entered as **From address** under Admin Panel → Settings → **Email**. AWS keys are
+never entered in Settings. The same card holds **Allow email** (off stops all
+email at once), **Domains email may go to** (one per line, `*.example.com` for
+subdomains; empty means each person's own domain only, so once it is set, list
+your own domain too), **Most recipients per email** (10, at most 50) and **Most
+emails per person per day** (50, counted over 24 hours). The Setup card's
+**Email** row says what is still missing. Each email is recorded with its sender,
+recipients, subject and outcome, never its body.
+
+### Setting up scheduling
+
+Scheduled work runs as the person who scheduled it, with their own data access,
+never as the app. For that, each person connects their account to the app once,
+and the app keeps the connection, encrypted, so it can act for them while they are
+away. Setting it up is a one-time job for administrators:
+
+1. An **account admin** creates a custom OAuth app connection for this app in the
+   Databricks account console (**Settings → App connections → Add connection**):
+   no client secret (a public client), the **SQL** access scope, the redirect URL
+   the Setup card shows (this app's address followed by `/api/oauth/callback`),
+   and a refresh token lifetime of 30 days (43,200 minutes).
+2. An app Administrator pastes the client id it shows into **Admin Panel →
+   Settings → Scheduling → OAuth client id**. If the lifetime chosen wasn't 30
+   days, set **Connection lifetime (days)** to match, so reminders to reconnect
+   arrive on time.
+3. Recommended: whoever deploys the app gives it a `TOKEN_VAULT_KEY` from a secret
+   scope. Without one the app derives its key from its own credentials, and
+   rotating those makes everyone connect again.
+
+The **Scheduling** line on the Setup card turns ready once the client id is saved.
+A connection lasts as long as the integration allows; after that, or if someone's
+access is revoked, they are asked to connect again. One integration can serve
+several copies of the app if each copy's redirect URL is added to it. Moving data
+to another app never copies connections, so people connect again there.
+
+### How schedules run
+
+A schedule is one of two things. A **report** runs a read-only query and emails
+the result as a table, optionally with a CSV attached, to its recipients; a query
+that changes data is refused when the report is created and again before every
+run. An **action** runs the statement of an executable widget its owner can use,
+recorded in the action log like any confirmed action, and can email its
+recipients a short note saying how it went. Either way the run is its owner, with
+their own access to data, and recipients follow the same rules as the Send dialog.
+
+Timing is **hourly** (at a minute past each hour), **daily**, **weekly** on chosen
+weekdays, or **monthly** on chosen days, in the owner's time zone. A day past the
+end of a month means its last day, so the 31st runs on the 30th in April. On the
+night clocks go forward, a time that doesn't exist runs when the clock jumps; on
+the night they go back, a time that happens twice runs once, the first time. A
+schedule runs within about 30 seconds of being due, and **Run now** queues one run
+within the same 30 seconds. If the app was down when a run was due, it runs once
+when the app is back, not once per missed time. A report can be set to send only
+when the query returns rows, or only when it returns none; otherwise that run is
+recorded as skipped.
+
+A schedule is **active**, **paused**, or **waiting for its owner to reconnect**.
+After 3 failed runs in a row (the **Failures in a row before a schedule pauses**
+setting under Admin Panel → Settings → Scheduling) it pauses itself and emails its
+owner; resuming starts the count again. Runs that wait for a reconnect, or that
+fail because of the app's own setup (email or scheduling switched off, no SQL
+warehouse), don't count. A week before someone's connection runs out, and again a
+day before, they get an email asking them to connect again, if email is set up and
+they have a schedule running. If it runs out, their schedules wait and start again
+by themselves within a minute of reconnecting.
+
+People see and manage their own schedules, up to 25 each (**Most schedules per
+person**). App Administrators can see everyone's, and can rename, retime, pause,
+resume, run or delete any of them, but only the owner can change what a schedule
+runs or who it goes to. Creating, changing, pausing, resuming, running, deleting,
+and pausing after failures all appear in the Admin Panel's Activity tab. Moving
+data to another app never copies schedules. On a developer's own machine with
+`DEV_MODE` on, schedules run as the app's service principal instead of the owner;
+a deployed app never does.
 
 ### Turn on hybrid search
 

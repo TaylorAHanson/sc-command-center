@@ -50,6 +50,7 @@ from agent_studio_store import (
     get_agent_studio_store,
 )
 from services import llm_params, research_tools
+from services import activity, caller_identity
 from services.generation_jobs import JobStore
 from services.llm_client import reply_text
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
@@ -1572,6 +1573,15 @@ def _authoring_task(job_id: str, req: AuthorRequest, api_key: str, base_url: str
     # A plain function, so FastAPI runs it on its thread pool: the run blocks on
     # the job table and on sync tools, and must not hold up the worker's loop.
     asyncio.run(_run_authoring(job_id, req, api_key, base_url, obo_token))
+    _record_authoring(job_id, req, obo_token)
+
+
+def _record_authoring(job_id: str, req: AuthorRequest, obo_token: Optional[str]) -> None:
+    """Log a finished authoring run for the Activity tab: how it ended, never the prompt or draft."""
+    job = authoring_jobs.snapshot(job_id) or {}
+    who = caller_identity.username(get_agent_studio_store()._client(obo_token))
+    activity.record(who, "agent.generate", None, None,
+                    {"status": job.get("status") or "unknown", "edit": bool(req.current_prompt)})
 
 
 @router.post("/generate")

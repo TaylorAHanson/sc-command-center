@@ -3,6 +3,7 @@ import { section as overview } from './sections/overview';
 import { section as quickstart } from './sections/quickstart';
 import { section as views } from './sections/views';
 import { section as widgets } from './sections/widgets';
+import { section as schedules } from './sections/schedules';
 import { section as assistant } from './sections/assistant';
 import { section as widgetStudio } from './sections/widget-studio';
 import { section as agentStudio } from './sections/agent-studio';
@@ -21,6 +22,7 @@ export const SECTIONS: GuideSection[] = [
   quickstart,
   views,
   widgets,
+  schedules,
   assistant,
   widgetStudio,
   agentStudio,

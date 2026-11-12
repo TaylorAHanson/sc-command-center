@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveLink, type AppApi } from '../appApi';
 import { DEFAULT_THEME } from '../store/appSpec';
+import { isAvailable, useCapabilities } from '../capabilities';
+import { normalizeEmailRequest, recipientsText } from '../email';
+import { describeRecurrence, normalizeScheduleRequest } from '../schedules';
 
 export type PageWidth = 'laptop' | 'wide' | 'narrow';
 
@@ -36,6 +39,9 @@ export const usePreviewApp = () => {
     timer.current = window.setTimeout(() => setNote(null), 5000);
   }, []);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  const capabilities = useCapabilities();
+  const emailAvailable = isAvailable(capabilities, 'email');
+  const scheduleAvailable = isAvailable(capabilities, 'scheduling');
 
   const app = useMemo<AppApi>(() => ({
     tabs: STAND_IN_TABS,
@@ -67,7 +73,26 @@ export const usePreviewApp = () => {
       say(`In a view this opens the assistant${agent}${prompt}. The user presses Send.`);
     },
     theme: { primary: DEFAULT_THEME.primary, dark: DEFAULT_THEME.dark, font: null },
-  }), [activeTabId, say]);
+    sendEmail: (request) => {
+      const { subject, to, table, attachCsv } = normalizeEmailRequest(request);
+      const who = recipientsText(to);
+      const rows = table ? ` with a ${table.rows.length.toLocaleString()}-row table${attachCsv ? ' and its CSV' : ''}` : '';
+      say(`In a view this opens the Send dialog for “${(subject || 'an email').slice(0, 120)}”${who ? ` to ${who.slice(0, 160)}` : ''}${rows}. The user checks the recipients and the preview, then presses Send.`);
+      return Promise.resolve({ sent: false, status: 'cancelled' as const, recipients: [] });
+    },
+    emailAvailable,
+    schedule: (request) => {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const asked = normalizeScheduleRequest(request, { tz, executable: true });
+      const what = asked.kind === 'run_statement' ? 'run its statement' : `email “${(asked.subject || asked.name || 'its results').slice(0, 120)}”`;
+      const who = asked.kind === 'email_report' && asked.recipients?.length ? ` to ${asked.recipients.join(', ').slice(0, 160)}` : '';
+      const noQuery = asked.sql ? '' : ' The widget passed no `sql`, so the dialog would have nothing to schedule.';
+      const when = describeRecurrence(asked.recurrence);
+      say(`In a view this opens the Schedule dialog to ${what}${who}, ${when.charAt(0).toLowerCase()}${when.slice(1)}. The user adjusts it and presses Save.${noQuery}`);
+      return Promise.resolve({ scheduled: false, status: 'cancelled' });
+    },
+    scheduleAvailable,
+  }), [activeTabId, say, emailAvailable, scheduleAvailable]);
 
   return { app, note, showHome: () => setActiveTabId('home') };
 };

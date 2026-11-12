@@ -222,6 +222,19 @@ SETTING_SPECS: Dict[str, Spec] = {
         maximum=3650,
         group="privacy",
     ),
+    "activity_retention_days": Spec(
+        env="ACTIVITY_RETENTION_DAYS",
+        # A year answers "who published or shared this, and when" across a full
+        # cycle of quarterly reviews. The log is metadata only, so keeping it that
+        # long holds nobody's work; a deployment with a stricter policy lowers it.
+        default="365",
+        kind="int",
+        label="Delete activity events after (days)",
+        help="The Activity tab's events older than this are deleted by an hourly job. 0 keeps them indefinitely. Approved widget actions, in Action Logs, are kept regardless.",
+        minimum=0,
+        maximum=3650,
+        group="privacy",
+    ),
     "send_dashboard_context": Spec(
         env="AGENT_SEND_DASHBOARD_CONTEXT",
         default="true",
@@ -296,6 +309,100 @@ SETTING_SPECS: Dict[str, Spec] = {
         help="Off means attachments are only ever read through extraction tools, so no raw image or PDF is uploaded to the model. Scanned documents and screenshots stop working.",
         group="tools",
     ),
+    # Scheduling (services/token_vault.py). The client id isn't a secret: a public
+    # client has none, and it appears in every sign-in URL.
+    "oauth_client_id": Spec(
+        env="OAUTH_CLIENT_ID",
+        default="",
+        kind="text",
+        label="OAuth client id",
+        help="The client id of the custom OAuth app integration an account admin created for this app. Scheduled work runs as each person through it, and scheduling stays off until it is set. See User Guide → Settings & models → Set up scheduling.",
+        group="scheduling",
+    ),
+    "oauth_refresh_ttl_days": Spec(
+        env="OAUTH_REFRESH_TTL_DAYS",
+        default="30",
+        kind="int",
+        label="Connection lifetime (days)",
+        help="The refresh token lifetime set on that integration. Reminders to reconnect count from when each person connected, so keep the two the same.",
+        minimum=1,
+        maximum=90,
+        group="scheduling",
+    ),
+    # services/scheduler.py. A schedule that keeps failing mails the same people
+    # the same error every time it runs, so it stops itself and tells its owner.
+    "schedule_max_failures": Spec(
+        env="SCHEDULE_MAX_FAILURES",
+        default="3",
+        kind="int",
+        label="Failures in a row before a schedule pauses",
+        help="A schedule that fails this many runs in a row is paused and its owner emailed. Runs that wait for the owner to reconnect, or that the app itself couldn't start, don't count.",
+        minimum=1,
+        maximum=20,
+        group="scheduling",
+    ),
+    "schedule_max_per_person": Spec(
+        env="SCHEDULE_MAX_PER_PERSON",
+        default="25",
+        kind="int",
+        label="Most schedules per person",
+        help="Creating one more than this is refused. Schedules already over the limit keep running.",
+        minimum=1,
+        maximum=500,
+        group="scheduling",
+    ),
+    # Email (services/email_service.py), adding kinds "email" (one address) and
+    # "domains" (one entry per line). The AWS keys and region are deliberately
+    # not here: they arrive as secret resources in the app's environment, and a
+    # row in app_settings is readable by anyone with the database.
+    "email_enabled": Spec(
+        env="EMAIL_ENABLED",
+        # On, because the From address and the AWS keys are what gate email and
+        # both take an admin to supply; this is the switch to stop it again.
+        default="true",
+        kind="bool",
+        label="Allow email",
+        help="Off, nobody can send email from this app and Send buttons are disabled. On, people can send once a From address is set and the AWS keys are in place; the Setup card says what's missing.",
+        group="email",
+    ),
+    "email_from_address": Spec(
+        env="EMAIL_FROM_ADDRESS",
+        default="",
+        kind="email",
+        label="From address",
+        help="An address verified as a sender identity in Amazon SES (or on a verified domain), e.g. command-center@example.com. Every email comes from it, and replies go to the person who sent it.",
+        group="email",
+    ),
+    "email_allowed_domains": Spec(
+        env="EMAIL_ALLOWED_DOMAINS",
+        # Empty means each sender's own domain: until an admin says otherwise, a
+        # widget can't mail a view's numbers outside the organization.
+        default="",
+        kind="domains",
+        label="Domains email may go to",
+        help="One per line, e.g. example.com, or *.example.com for its subdomains. Empty means each person may only email addresses in their own domain.",
+        group="email",
+    ),
+    "email_max_recipients": Spec(
+        env="EMAIL_MAX_RECIPIENTS",
+        default="10",
+        kind="int",
+        label="Most recipients per email",
+        help="An email to more people than this is refused. Amazon SES allows at most 50.",
+        minimum=1,
+        maximum=50,
+        group="email",
+    ),
+    "email_daily_limit": Spec(
+        env="EMAIL_DAILY_LIMIT",
+        default="50",
+        kind="int",
+        label="Most emails per person per day",
+        help="Counted over the last 24 hours, whether sent from a widget or by a schedule the person owns.",
+        minimum=1,
+        maximum=1000,
+        group="email",
+    ),
     # Discover's search (services/view_catalog.py). Auto uses the best mode the
     # database supports; pinning one it can't do falls back and the Setup card
     # says so, so a wrong value here never breaks search.
@@ -326,6 +433,8 @@ SETTING_GROUPS: List[Dict[str, str]] = [
     {"key": "chat", "label": "Chat agent limits"},
     {"key": "widget", "label": "Studio limits"},
     {"key": "search", "label": "Search"},
+    {"key": "scheduling", "label": "Scheduling"},
+    {"key": "email", "label": "Email"},
     {"key": "limits", "label": "Other limits"},
 ]
 
@@ -688,6 +797,33 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
             return "", f"At most {MAX_MCP_SERVERS} servers"
         return "\n".join(servers), None
 
+    if spec.kind == "email":
+        from services.email_service import normalize_address
+
+        address = normalize_address(text)
+        if not address:
+            return "", f"{spec.label} must be one email address, e.g. command-center@example.com"
+        return address, None
+
+    if spec.kind == "domains":
+        from services.email_service import parse_domain_entry
+
+        domains: List[str] = []
+        problems = []
+        for part in re.split(r"[\s,;]+", text):
+            if not part:
+                continue
+            entry, error = parse_domain_entry(part)
+            if error:
+                problems.append(error)
+            elif entry not in domains:
+                domains.append(entry)
+        if problems:
+            return "", "; ".join(problems[:3]) + ("; …" if len(problems) > 3 else "")
+        if len(domains) > 100:
+            return "", "At most 100 domains"
+        return "\n".join(domains), None
+
     if spec.kind == "json":
         # Rejected here rather than at request time: a typo in this field would
         # otherwise surface as an agent failing, far from the field that caused it.
@@ -712,6 +848,16 @@ def validate_value(key: str, raw: Any) -> Tuple[str, Optional[str]]:
             return "", (f"Not a model parameter: {', '.join(stray)}. "
                         f"Allowed: {', '.join(sorted(CONFIGURABLE))}")
         return json.dumps(parsed, separators=(", ", ": ")), None
+
+    if spec.kind == "text":
+        # One line of plain text. Without this branch it would fall through to the
+        # integer parse below. Whatever reads the value re-checks its own format,
+        # because a row can arrive by data migration without passing here.
+        if len(text) > 500:
+            return "", f"{spec.label} is too long (500 characters maximum)"
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in text):
+            return "", f"{spec.label} must be a single line of text"
+        return text, None
 
     try:
         value = int(float(text))

@@ -4,6 +4,8 @@ import { toBlob, toPng } from 'html-to-image';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry, widgetRegistry } from '../widgetRegistry';
 import type { ConfigField } from '../widgetRegistry';
 import { useScript } from '../hooks/useScript';
+import { LinkStateContext, useLinkState, WidgetInstanceContext } from '../hooks/useLinkState';
+import { createLinkStateStore } from '../linkState';
 import { pastedFiles, useChatUploads } from '../hooks/useChatUploads';
 import { BaseWidget } from '../components/BaseWidget';
 import { CodeEditor } from '../components/CodeEditor';
@@ -202,6 +204,25 @@ type StudioMessage = {
     /** What the review would do next, as prompts a click away. */
     suggestions?: StudioSuggestion[];
     attachments?: { id: string; filename: string; kind: string }[];
+    /** A Genie question waiting for the author's OK before the turn carries on. */
+    genieRequest?: GenieHold;
+};
+
+/**
+ * A Genie question the agent asked to send, shown on an approval card.
+ *
+ * Carries the turn it paused, because a button re-sends exactly that request: by
+ * the time anyone clicks, the composer may hold something else entirely.
+ */
+type GenieHold = {
+    question: string;
+    /** The agent's one line on what the answer decides. */
+    reason: string;
+    prompt: string;
+    /** How many non-system messages went with the paused turn as its history. */
+    historyLength: number;
+    attachmentIds: string[];
+    errorLog: string | null;
 };
 
 /** One follow-up the review offered: a defect it left, or an improvement.
@@ -235,6 +256,7 @@ type JobResult = {
     questions?: string[];
     suggestions?: StudioSuggestion[];
     settings?: Record<string, unknown>;
+    genie_request?: { question?: string; reason?: string };
 };
 
 type GenerateOptions = {
@@ -267,23 +289,81 @@ const CAPTURE_IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP/
 // should decide for everyone (and app_settings is deployment-global by design).
 const AGENT_PREFS_KEY = "sc_widget_studio_agent_prefs";
 
-type AgentPrefs = { reviewAfterChange: boolean; askQuestions: boolean };
+type GeniePermission = 'ask' | 'always' | 'off';
+
+const GENIE_PERMISSIONS: { value: GeniePermission; label: string }[] = [
+    { value: 'ask', label: 'Ask each time' },
+    { value: 'always', label: 'Always allow' },
+    { value: 'off', label: 'Off' },
+];
+
+type AgentPrefs = { reviewAfterChange: boolean; askQuestions: boolean; geniePermission: GeniePermission };
 
 const DEFAULT_AGENT_PREFS: AgentPrefs = {
     // Off: it is another model call after the work has already finished, and the
     // wait is the cost people notice most.
     reviewAfterChange: false,
     askQuestions: true,
+    geniePermission: 'ask',
 };
 
 const readAgentPrefs = (): AgentPrefs => {
     try {
         const stored = localStorage.getItem(AGENT_PREFS_KEY);
-        return stored ? { ...DEFAULT_AGENT_PREFS, ...JSON.parse(stored) } : DEFAULT_AGENT_PREFS;
+        if (!stored) return DEFAULT_AGENT_PREFS;
+        const prefs: AgentPrefs = { ...DEFAULT_AGENT_PREFS, ...JSON.parse(stored) };
+        // Anything else reads as "ask", as on the server: a value nobody chose
+        // must not send Genie a question nobody saw.
+        if (!GENIE_PERMISSIONS.some(option => option.value === prefs.geniePermission)) {
+            prefs.geniePermission = 'ask';
+        }
+        return prefs;
     } catch {
         return DEFAULT_AGENT_PREFS;
     }
 };
+
+/** A Genie question waiting for the author: what would be sent, why, and the three answers. */
+const GenieApproval: React.FC<{
+    held: GenieHold;
+    /** Absent once the turn can no longer be answered. */
+    onDecide?: (held: GenieHold, choice: 'once' | 'always' | 'decline') => void;
+}> = ({ held, onDecide }) => (
+    <div className="mt-2.5 rounded-md border border-sky-500/40 bg-sky-500/10 p-2.5">
+        <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-sky-300 mb-1">
+            <ShieldCheck size={12} />
+            Ask Genie?
+        </p>
+        <p className="text-sm text-slate-100">{held.question}</p>
+        {held.reason && (
+            <p className="mt-1 text-xs text-slate-300">
+                <span className="text-slate-400">Why: </span>{held.reason}
+            </p>
+        )}
+        {onDecide && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+                <button
+                    onClick={() => onDecide(held, 'once')}
+                    className="px-2.5 py-1 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+                >
+                    Allow once
+                </button>
+                <button
+                    onClick={() => onDecide(held, 'always')}
+                    className="px-2.5 py-1 text-xs font-medium rounded-md bg-slate-600 hover:bg-slate-500 text-slate-100 transition-colors"
+                >
+                    Always allow
+                </button>
+                <button
+                    onClick={() => onDecide(held, 'decline')}
+                    className="px-2.5 py-1 text-xs font-medium rounded-md bg-slate-600 hover:bg-slate-500 text-slate-100 transition-colors"
+                >
+                    Continue without Genie
+                </button>
+            </div>
+        )}
+    </div>
+);
 
 /** The state of one planned step, at a glance. */
 const StageMark: React.FC<{ status?: GenerationStage['status'] }> = ({ status }) => {
@@ -688,6 +768,9 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     const setVariable = React.useCallback((key: string, value: any) => {
         setVariables(prev => ({ ...prev, [key]: value }));
     }, []);
+    // The preview's `useLinkState` settings, in memory: the address is the
+    // studio's, not a view's. Kept across recompiles, like `variables`.
+    const [previewLinkState] = useState(createLinkStateStore);
 
     const { version: registryVersion } = useWidgetRegistry();
 
@@ -1055,8 +1138,8 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 // `fetch` and `console` are the recorder's, so the widget's own
                 // requests and logging are what gets recorded, not the studio's.
                 // eslint-disable-next-line no-new-func
-                const createComponent = new Function('React', 'useScript', 'Highcharts', 'fetch', 'console', executableCode);
-                const Component = createComponent(React, useScript, HC, recorder.fetch, recorder.console);
+                const createComponent = new Function('React', 'useScript', 'useLinkState', 'Highcharts', 'fetch', 'console', executableCode);
+                const Component = createComponent(React, useScript, useLinkState, HC, recorder.fetch, recorder.console);
                 setPreviewComponent(() => Component);
                 // Clean compile: clear the auto-retry budget for the next error.
                 autoRetryCountRef.current = 0;
@@ -1480,6 +1563,17 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         if (result.code && result.code !== codeRef.current) {
                             if (replaceCode(result.code, stepLabel(stepsApplied + 1))) agentCodeRef.current = result.code;
                         }
+                        const asked = result.genie_request;
+                        const genieRequest: GenieHold | undefined = typeof asked?.question === 'string' && asked.question
+                            ? {
+                                question: asked.question,
+                                reason: typeof asked.reason === 'string' ? asked.reason : '',
+                                prompt: String(body.prompt ?? ''),
+                                historyLength: Array.isArray(body.history) ? body.history.length : 0,
+                                attachmentIds: Array.isArray(body.attachment_ids) ? body.attachment_ids as string[] : [],
+                                errorLog: typeof body.error_log === 'string' ? body.error_log : null,
+                            }
+                            : undefined;
                         finish({
                             role: 'assistant',
                             content: describeGeneration(result, fallbackText),
@@ -1488,14 +1582,16 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             suggestions: Array.isArray(result.suggestions) && result.suggestions.length
                                 ? result.suggestions
                                 : undefined,
+                            genieRequest,
                         });
                         onSettled?.(result);
                         // A planned run's last step usually landed while the job was
                         // still going, so its run settled while the studio was busy
                         // and was not acted on — and with no new code, no new run is
-                        // coming. Act on that one now.
+                        // coming. Act on that one now. Not while a Genie card waits:
+                        // a fix started now would bury the card the author has to answer.
                         const lastRun = lastSettledRef.current;
-                        if ((stepsApplied > 0 || result.code) && lastRun && lastRun.code === codeRef.current) {
+                        if (!genieRequest && (stepsApplied > 0 || result.code) && lastRun && lastRun.code === codeRef.current) {
                             setTimeout(() => settledRef.current(lastRun.entries, lastRun.ran), 0);
                         }
                     } else if (statusData.status === 'failed') {
@@ -1525,6 +1621,15 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         } catch (e) {
             if (stopped) return;
             finish({ role: 'system', content: `Network Error: ${errorText(e)}` });
+        }
+    };
+
+    /** Queue the review pass after a turn that changed the code, if it is switched on. */
+    const reviewAfter = (request: string) => (result: JobResult) => {
+        // Nothing changed, or the agent asked something instead of finishing —
+        // either way there is nothing to review yet.
+        if (agentPrefs.reviewAfterChange && result.code && !result.questions?.length && !result.genie_request) {
+            reviewPendingRef.current = { request };
         }
     };
 
@@ -1610,17 +1715,62 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
             preview_screenshot: options?.screenshot,
             allow_clarify: (options?.allowClarify ?? agentPrefs.askQuestions)
                 && !autoRetryError && !answeringQuestions,
+            genie_permission: agentPrefs.geniePermission,
         }, {
             baseMessages: newMessages,
             checkpointLabel,
             fallbackText: autoRetryError ? `I've attempted to fix the ${failureName} error.` : "Widget code generated.",
-            onSettled: result => {
-                // Nothing changed, or the agent asked a question instead of
-                // building — either way there is nothing to review.
-                if (agentPrefs.reviewAfterChange && result.code && !result.questions?.length) {
-                    reviewPendingRef.current = { request: asked };
-                }
-            },
+            onSettled: reviewAfter(asked),
+        });
+    };
+
+    /**
+     * The author's answer on a Genie approval card: re-send the turn it paused.
+     *
+     * "Allow" names the exact question, which the server asks before the agent
+     * starts; any other question the agent wants waits for another card. Steps that
+     * landed before the pause are in the code this sends, so the turn carries on
+     * from them rather than starting over.
+     */
+    const handleGenieDecision = async (held: GenieHold, choice: 'once' | 'always' | 'decline') => {
+        if (choice === 'always') setAgentPrefs(p => ({ ...p, geniePermission: 'always' }));
+        const note: StudioMessage = {
+            role: 'system',
+            content: choice === 'decline'
+                ? 'Continuing without Genie.'
+                : choice === 'always'
+                    ? 'Allowed. Genie is now always allowed — change that in Agent settings.'
+                    : 'Allowed once.',
+        };
+        const baseMessages = [...messages, note];
+        setMessages(baseMessages);
+        autoRetryCountRef.current = 0;
+        renderRetryCountRef.current = 0;
+        runtimeRetryCountRef.current = 0;
+        stoppedCodeRef.current = null;
+        reviewPendingRef.current = null;
+
+        const asked = held.prompt.trim().replace(/\s+/g, ' ');
+        await runJob('generate', {
+            ...requestContext(),
+            prompt: held.prompt,
+            history: messages.filter(m => m.role !== 'system').slice(0, held.historyLength)
+                .map(m => ({ role: m.role, content: m.content })),
+            error_log: held.errorLog,
+            attachment_ids: held.attachmentIds,
+            allow_clarify: false,
+            // Read from the choice, not from the setting just changed: state set
+            // here is not visible until the next render.
+            genie_permission: choice === 'always' ? 'always' : agentPrefs.geniePermission,
+            approved_genie: choice === 'decline' ? null : held.question,
+            genie_declined: choice === 'decline',
+        }, {
+            baseMessages,
+            checkpointLabel: held.errorLog
+                ? 'Before an automatic fix'
+                : `Before "${asked.length > 60 ? `${asked.slice(0, 57)}…` : asked}"`,
+            fallbackText: 'Widget code generated.',
+            onSettled: reviewAfter(asked),
         });
     };
 
@@ -2106,17 +2256,23 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
     // under the widget's plain id (a manager's draft is registered beside it).
     const publishedCandidate = studioMode === 'published' && editingId ? widgetRegistry[editingId] : undefined;
     const publishedDef = publishedCandidate && !publishedCandidate.isDraft ? publishedCandidate : undefined;
-    const shownWidget = publishedDef ? (
-        <WidgetErrorBoundary resetKey={publishedDef.component}>
-            <ExecuteActionPropInjector>
-                {React.createElement(publishedDef.component, {
-                    id: 'preview-widget',
-                    app: previewApp.app,
-                    data: { ...(publishedDef.defaultProps || {}), username, variables, setVariable },
-                })}
-            </ExecuteActionPropInjector>
-        </WidgetErrorBoundary>
-    ) : previewWidget;
+    const shownWidget = (
+        <LinkStateContext.Provider value={previewLinkState}>
+            <WidgetInstanceContext.Provider value="preview-widget">
+                {publishedDef ? (
+                    <WidgetErrorBoundary resetKey={publishedDef.component}>
+                        <ExecuteActionPropInjector>
+                            {React.createElement(publishedDef.component, {
+                                id: 'preview-widget',
+                                app: previewApp.app,
+                                data: { ...(publishedDef.defaultProps || {}), username, variables, setVariable },
+                            })}
+                        </ExecuteActionPropInjector>
+                    </WidgetErrorBoundary>
+                ) : previewWidget}
+            </WidgetInstanceContext.Provider>
+        </LinkStateContext.Provider>
+    );
 
     return (
         <div className="flex h-full w-full bg-slate-900 text-slate-100 overflow-hidden font-sans">
@@ -2176,6 +2332,32 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                                 </span>
                                             </span>
                                         </label>
+                                        <div className="py-1.5 text-xs">
+                                            <span className="font-medium text-slate-200">Genie</span>
+                                            <div role="radiogroup" aria-label="Genie" className="mt-1 grid grid-cols-3 gap-1">
+                                                {GENIE_PERMISSIONS.map(option => (
+                                                    <button
+                                                        key={option.value}
+                                                        type="button"
+                                                        role="radio"
+                                                        aria-checked={agentPrefs.geniePermission === option.value}
+                                                        onClick={() => setAgentPrefs(p => ({ ...p, geniePermission: option.value }))}
+                                                        className={`px-1.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                                                            agentPrefs.geniePermission === option.value
+                                                                ? 'bg-indigo-600 text-white'
+                                                                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                                                        }`}
+                                                    >
+                                                        {option.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <span className="block text-slate-400 mt-1">
+                                                The agent can ask Genie what a business term means here, as you.
+                                                Ask each time shows you the question and why before it is sent; a
+                                                message telling it to ask Genie is your OK for that turn.
+                                            </span>
+                                        </div>
                                         <div className="mt-1 pt-2 border-t border-slate-700 text-[10px] text-slate-500">
                                             Saved in this browser.
                                         </div>
@@ -2203,6 +2385,14 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                         {displayText(m.content)}
                                     </ReactMarkdown>
                                 </div>
+                                {/* The question stays readable on every turn, as a record of
+                                    what was asked; only the newest can still be answered. */}
+                                {m.genieRequest && (
+                                    <GenieApproval
+                                        held={m.genieRequest}
+                                        onDecide={i === messages.length - 1 && !isGenerating ? handleGenieDecision : undefined}
+                                    />
+                                )}
                                 {/* Only the newest question set is answerable — an older one has
                                     already been answered or abandoned. */}
                                 {m.questions && m.questions.length > 0 && i === messages.length - 1 && !isGenerating && (

@@ -45,8 +45,8 @@ Read that file before touching anything widget-related. `build()` does a
 deliberately ordered two-pass `@babel/standalone` transform — pass 1
 (`react` + `typescript` presets) compiles JSX and elides *type-only* imports,
 pass 2 (`transform-modules-commonjs`) rewrites any remaining runtime `import`
-— then evaluates the result in `new Function('React', 'useScript', ...)` with a
-minimal CommonJS shim. So `useScript` is a genuine injected parameter, and
+— then evaluates the result in `new Function('React', 'useScript', 'useLinkState', ...)` with a
+minimal CommonJS shim. So `useScript` and `useLinkState` are genuine injected parameters, and
 `require` resolves only to React, ReactDOM, or a matching `window` global,
 throwing a clear per-widget error otherwise (which keeps one bad widget from
 failing the whole registry load).
@@ -108,10 +108,11 @@ Practical consequences for widget code:
 - **Brand colours are `brand-navy` / `brand-blue` / `brand-light`, and older
   widgets don't say so.** Before the palette was renamed, widgets were generated
   with the customer's name in those classes, and that code is still in the
-  database. Every compile path (`widgetRegistry.ts`, Widget Studio's preview, the
-  admin preview) passes the source through `withBrandColors` from `brand.ts`,
+  database. Both compile paths (`widgetRegistry.ts` and Widget Studio's preview;
+  the admin preview went in 2.0.0) pass the source through `withBrandColors` from `brand.ts`,
   which maps `<APP_BRAND>-*` to `brand-*`. A new compile path must do the same, or
-  those widgets lose their colours there. The name comes from `/api/health`, which
+  those widgets lose their colours there, and must inject `useLinkState` beside
+  `useScript`, or any widget that keeps a setting in the link fails to render. The name comes from `/api/health`, which
   reads `var.brand` in `databricks.yml`. It is `brand` (no alias) in this repo, and
   a customer's copy sets its own, so no customer name belongs here.
 - **Brand colours are CSS variables, so a view can recolour them.** Tailwind maps
@@ -280,7 +281,8 @@ Two behaviors there are easy to break by accident:
 - **Pattern checks (`src/widgetLint.ts`) mirror the contract.** Errors are code
   that won't work or breaks a platform rule (no default export, an import the
   sandbox can't satisfy, a `useScript` host `isAllowedScriptUrl` refuses, a write
-  without `executeAction`); warnings are usually-wrong patterns (unchecked SQL
+  without `executeAction`, a redefined `useScript` or `useLinkState`, a
+  `useLinkState` key that isn't a literal string of letters, digits, `_` or `-`); warnings are usually-wrong patterns (unchecked SQL
   response, light text, arbitrary Tailwind, a class the stylesheet lacks, a font
   that isn't bundled). Light text is judged against the nearest enclosing element
   that sets a background (`backgroundBehind`: an inline `style` or a `bg-*` class,
@@ -300,6 +302,16 @@ Two behaviors there are easy to break by accident:
 - **Agent settings are per user, so they live in `localStorage`.** `app_settings`
   is deployment-global and these are one person's preference about their own turns.
   Read through `readAgentPrefs`, which must tolerate a missing or malformed value.
+  `geniePermission` (`ask` | `always` | `off`) goes out as `genie_permission` on
+  generate turns only, and anything unknown reads as `ask`, on both sides.
+- **A Genie approval card re-sends the turn it paused, not the composer.** A
+  settled result with `genie_request` becomes `StudioMessage.genieRequest`, a
+  `GenieHold` carrying that turn's prompt, history length, attachments and error
+  log; `handleGenieDecision` re-sends exactly that with `approved_genie` (Allow
+  once / Always allow, which also flips the pref) or `genie_declined`, and
+  `allow_clarify: false`. The buttons show only on the newest message while idle,
+  like **Build it anyway**. A paused turn queues no review and skips the end-of-run
+  follow-up (`lastSettledRef`), so nothing starts a new turn over the card.
 - **The error boundary has to be told the code changed.** A React error boundary
   that has caught something renders its fallback forever; new children don't clear
   it. `WidgetErrorBoundary` takes `resetKey={previewComponent}` and clears itself
@@ -510,6 +522,25 @@ or state again.
   and calls `onClose` itself once that resolves, so a caller must not close it
   too. Publish stays disabled while the preflight reports anything `blocking`.
 
+## Opening an object from the Admin Panel (`pages/admin/openObject.ts`, `pages/admin/ActivityLog.tsx`)
+
+`openObject(type, id, tools)` is the one place that knows where a view, widget
+or agent opens, and both Content and Activity use it. A view goes to
+`#/app/<id>`, which the workspace's `hashchange` handler opens. A widget goes
+through `WorkspaceTools.editWidget`, which Layout also provides around the Admin
+Panel, because Widget Studio takes its widget from the store rather than the
+hash. An agent goes to `#/agent-studio/<id>`; Agent Studio reads the id once on
+mount, loads that agent and puts the hash back to `#/agent-studio`, so a reload
+doesn't reopen it over later work. It returns false when it can't navigate, and
+callers show that rather than doing nothing.
+
+`ActivityLog` never sets state synchronously inside an effect, which the
+`react-hooks` compiler rules reject. Loading is derived (the shown page carries
+the filter key it was fetched for), and relative times ("last hour") are worked
+out when the request is sent, not during render. Verb labels live in
+`VERB_LABELS`; an unknown verb shows as its raw code, so a new server verb never
+breaks the tab. The verb list is in `server/AGENTS.md` → *The Activity tab*.
+
 ## Data Migration (`pages/admin/DataMigration.tsx`)
 
 Import is offered only for the file and options that were just previewed
@@ -653,6 +684,24 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
   explanation). Every "Submit / Run / Sync" control must still go through
   `executeAction`: that log row *is* the audit trail, and the audit trail is the
   product. A failed log write means the action does not run.
+- The injector also binds `props.app.sendEmail` per widget (`useWidgetEmail`
+  in `email.ts`): a call opens `components/SendEmailDialog.tsx` for that widget,
+  and the dialog's Send goes through the same widget's `executeAction`, so email
+  is logged like any action and `appApi.ts`'s own `sendEmail` is only a
+  fallback that reports email unavailable. Only the injector can bind it,
+  because the dialog needs the widget's `executeAction`. The dialog's preview is
+  the server's rendering, shown in an `<iframe sandbox="">`; don't render email
+  HTML into the page.
+- `props.app.schedule` is bound the same way, right after it
+  (`hooks/useWidgetSchedule.ts`): a call opens `WidgetScheduleDialog` in
+  `components/ScheduleDialog.tsx`, which captures the view, the widget and the
+  current link (link state included) when it opens, and saves through the
+  widget's `executeAction` before `POST /api/schedules`. Next-run times, DST and
+  month ends are the server's: the browser only shows `next_run_at`, never
+  computes one. A connect leaves with `window.location.assign` to
+  `/api/oauth/connect?return_to=…`; `main.tsx` takes the `oauth` / `oauth_error`
+  outcome out of the address before anything reads it, and
+  `OAuthOutcomeToast` (in Layout and AppShell) shows it once.
 - `hooks/useActionLogger.ts` — the `logAction` telemetry path.
 - Emitter/receiver pattern: emitters call `props.data.setVariable(key, value)`,
   receivers read `props.data.variables?.key`. Emitters must seed their variable
@@ -660,7 +709,36 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
   the active app, shared by its tabs, and are empty again in another app; the
   store keys them by app id (rather than clearing them in an effect) because
   child effects run before the provider's, so an emitter on the new app would
-  seed into the old app's values and then be wiped.
+  seed into the old app's values and then be wiped. A link can set a variable
+  before any widget mounts, which is one more reason to seed only when unset.
+- **What a view is set to rides in its link (`linkState.ts`).** Dashboard
+  variables are `v.<key>` and a widget's `useLinkState` settings are
+  `w.<first 8 characters of its instance id>.<key>`, in the query string beside
+  the route, which hash sync never touches: `?v.region=West&w.3f2a91c0.sort=revenue#/app/sales`.
+  Strings go as written, anything else (and a string that would read as JSON) as
+  JSON, a filter's value always as text; a value equal to its default is left
+  out; past `MAX_LINK_STATE` (1,500 characters) the largest entries go first, ties
+  by name. Other params are kept byte for byte, and `withoutRouteParams` keeps these.
+  - The store's part is three functions: `takeLinkState` reads it on open,
+    `mirrorLinkState` follows changes with a 300 ms debounced `replaceState`
+    (Safari refuses a page that rewrites its address too often), and
+    `holdLinkState` clears it on an app switch and keeps it on a tab switch.
+    An app opened by a link that carries settings shows exactly those:
+    remembered filter choices are skipped (`linked`), and a filter takes only a
+    value it offers.
+  - `addressLink`, whose state the address holds, is per page, not per
+    provider. The workspace and a standalone shell hand the address to each
+    other and a hash link keeps the query string, so without it the state one
+    app leaves behind would open the next.
+  - `useLinkState` (`hooks/useLinkState.ts`) is scoped by
+    `WidgetInstanceContext`, which `DashboardGrid` and `PageTab` provide
+    *outside* `ExecuteActionPropInjector` (it clones its only child). Without an
+    instance it is plain component state that never reaches a link; Widget
+    Studio's preview gives it an in-memory store, and `ThumbnailCapture` gives it
+    nothing. It reads through `useSyncExternalStore`, so a widget's setting
+    re-renders that widget, not the view.
+  - Copy link and a widget's share link build their query string from memory
+    (`linkSearch`), so they carry what is on screen even inside the 300 ms.
 
 ## Assistant panel
 
@@ -806,15 +884,23 @@ widgetRegistry.ts       Runtime widget loading + shared type contracts
 widgetRuntime.ts        Widget Studio: records what the preview does when it runs
 widgetLint.ts           Widget Studio: pattern checks on widget code
 widgetDataSource.ts     Widget Studio: schema and sample rows from a JSON response
+linkState.ts            What a view is set to, as v.* / w.* query params (codec + store)
 main.tsx Root.tsx       Entry point; Root picks the shell (workspace or one app)
 shell.ts                ShellContext: present an app on its own / edit it
 App.tsx                 The workspace: Layout around DashboardGrid
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
-                        Help/About/UserGuide, AdminPage
+                        Help/About/UserGuide, AdminPage, SchedulesPage
 pages/admin/            AdminContent, Administrators, MigrationBanner,
-                        TaxonomyManager, SettingsManager, DataMigration
+                        TaxonomyManager, SettingsManager, DataMigration,
+                        ActivityLog, openObject (where Open/Edit goes)
 sharing.ts              Sharing labels and ACL helpers (see *The sharing kit*)
 capabilities.ts         useCapabilities: which optional features are set up
+email.ts                Send dialog helpers and useWidgetEmail; the dialog is
+                        components/SendEmailDialog.tsx
+schedules.ts            /api/schedules and /api/oauth types, requests and pure
+                        helpers; the dialog is components/ScheduleDialog.tsx,
+                        the page pages/SchedulesPage.tsx (#/schedules), the
+                        banner and connect toast components/ScheduleNotices.tsx
 contentEnv.ts           Legacy shims; only stripLegacyEnvParam is used
 components/sharing/     ShareDialog, PrincipalPicker, DraftBar, PublishDialog,
                         AccessIcon, useDialog
@@ -824,7 +910,8 @@ components/             BaseWidget, DashboardGrid, WidgetPreview, WidgetTray,
                         ThinkingDisclosure, AttachmentChip, ThumbnailCapture,
                         WidgetDiagnostics
 hooks/                  useAgentChat, useChatUploads, useActionLogger,
-                        useDashboardContext, useScript
+                        useDashboardContext, useScript, useLinkState,
+                        useWidgetSchedule
 contexts/ store/        ActionContext, dashboardStore
 ```
 
@@ -838,3 +925,14 @@ missing hides itself.
 
 Run `npm run lint` before finishing; `npm run build` type-checks via `tsc -b`
 and is the real gate, since dev mode won't surface every type error.
+
+`linkState.ts` and `schedules.ts` have their own tests, run with Node 22.6 or
+later and nothing to install:
+
+```
+node --experimental-strip-types tests/link_state.test.ts   # 17 passed
+node --experimental-strip-types tests/schedules.test.ts    # 26 passed
+```
+
+Each imports its module directly, so keep both free of React, of runtime
+imports, and of `window` outside function bodies.

@@ -27,7 +27,32 @@
 ### Added
 
 - **See what's set up.** A **Setup** card at the top of Admin Panel → Settings lists optional features, whether each is ready, and the next step if not.
+- **Clone, Edit and Delete in the Widget Library's list view.** Hover a row for the same icons as a card; **Status** now shows the **PAGE** badge too.
+- **See who did what.** Admin Panel → **Activity** lists publishing, sharing, deletes, studio generations, chats and setting changes, who is active now, and a summary per person.
+- **Open anything from Content.** Admin Panel → Content has **Open** on views and **Edit** on widgets and agents, going straight to the view or its studio.
+- **Choose how long activity is kept.** *Delete activity events after (days)* in Admin Panel → Settings starts at 365; 0 keeps everything.
+- **Email from widgets.** A widget's email button opens a **Send** dialog where you choose recipients, preview the email, and send it with its table attached as a CSV.
+- **Email settings.** Admin Panel → Settings → **Email** sets the From address, which domains email may go to, and per-person limits. Email stays off until Amazon SES is set up.
+- **Set up scheduling.** Paste your OAuth app connection's client id under **Scheduling** in Admin Panel → Settings; the User Guide's **Set up scheduling** shows how to create one.
+- **Reminders to reconnect.** Anyone with a schedule running gets an email a week and a day before their connection ends; their schedules restart once they reconnect.
+- **Failing schedules pause themselves.** A schedule that fails 3 runs in a row pauses and emails its owner until they resume it.
+- **Scheduling limits.** Admin Panel → Settings → **Scheduling** sets how many failures in a row pause a schedule and how many schedules each person may have.
+- **The address keeps your filters.** A view's filters and widget settings are saved in its address, so a reload or Back opens it set the same way.
+- **Copy link shares what you see.** **Copy link** and a widget's share link include the current filters and settings, and open exactly as sent.
+- **Widgets can keep their settings in the link.** Widget Studio now builds sorts, searches and date ranges to be saved in the view's link; ask the agent to leave any out.
+- **Schedule a report.** A widget's **Schedule** button opens a dialog to email its results hourly, daily, weekly or monthly, to the people you choose.
+- **My schedules.** Resources → **My schedules** lists your schedules with their last and next runs: **Run now**, pause, edit, delete or see each one's history.
+- **Reminder to reconnect.** A banner across the top warns when your schedules' connection ends within a week or needs reconnecting, and links to My schedules.
+- **Widgets can offer a Schedule button.** Ask Widget Studio for "a button that emails this every Monday" and it adds one that opens the Schedule dialog.
 - **Choose how views are searched.** A **Search** card in Admin Panel → Settings sets the search mode and embedding model; Setup's **View search** row shows the mode running.
+
+### Changed
+
+- **Widget Studio asks before using Genie.** It shows each question and why: **Allow once**, **Always allow** or **Continue without Genie**. Change it under Agent settings → **Genie**.
+
+### Fixed
+
+- **Only Administrators can read Action Logs.** The app refuses the action log to everyone else; everyone's actions are still recorded.
 
 ## 2.0.1 — 2026-11-11
 

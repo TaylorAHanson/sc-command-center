@@ -49,6 +49,8 @@ Mounted prefixes (`main.py`): `/api/widgets`, `/api/actions`, `/api/genie`,
 `/api/agent/widget`, `/api/agent/studio`, `/api/agent/uploads`,
 `/api/conversations`, `/api/migration`, `/api/capabilities`, `/api/discover`,
 plus `/api` for n8n and Tableau.
+`/api/oauth` is the token vault's connect flow (see *Token vault*), and
+`/api/schedules` is scheduled reports and actions (see *Scheduler*).
 Interactive docs are at `/api/docs`.
 
 `/api/health` is the one unauthenticated route, so it doubles as the SPA's source
@@ -197,6 +199,8 @@ Table shapes worth knowing before you write a query:
 - **Settings schema only**: `app_settings`, `object_permissions`, `app_admins`,
   `known_principals` (everyone who has signed in, and their groups, for the share
   dialog's typeahead), and `cutover_log` (see *The one-time move to sharing*).
+  The token vault's `user_oauth_tokens` and `oauth_pending` are here too (see
+  *Token vault*).
 
 New columns go in as `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in the migration
 block *after* table creation, each in its own try/except with a rollback, so one
@@ -810,6 +814,8 @@ an agent failing), or `hosts` (one Databricks App host, or one workspace as
 MCP servers every agent gets, one per line), or `choice` (one of the spec's
 `choices`, rendered as a select; `search_mode` is one). A new kind
 needs a branch in `SettingsManager.tsx`, which otherwise renders it as a number.
+`text` is one line of plain text (the OAuth client id); whatever reads it checks
+its own format, since `validate_value` only rules out control characters.
 `hosts` values are written into the CSP header, so `get_host_list_setting`
 re-validates them on read: a row can arrive by data migration without passing
 `validate_value`. `get_mcp_server_list` re-validates for a different reason:
@@ -877,6 +883,320 @@ so call it from a sync handler (see *Blocking work belongs in a sync handler*).
 `database.py` to check that every table is either copied by Data Migration or
 listed in `NOT_COPIED`. `activity_events` travels with the activity group;
 `background_jobs` is never copied, since it describes this deployment's own runs.
+
+### The Activity tab (`services/activity_feed.py`, `routes/activity.py`)
+
+Admin Panel → Activity reads `activity_events` and approved widget actions from
+`action_logs` as one feed. These are the verbs recorded today. A new one belongs
+here and in `VERB_LABELS` in `src/pages/admin/ActivityLog.tsx`, which falls back
+to showing the raw verb:
+
+| Verb | Recorded by | `detail` |
+| --- | --- | --- |
+| `view.create` | `routes/apps.py` `create_app`, `compose_app` | compose: `tabs`, `composed` |
+| `view.publish` | `publish_app` | `version`, `with` (widgets and agents published alongside) |
+| `view.discard` / `view.revert` | `discard_draft` (only if a draft existed) / `revert_app` | revert: `version` |
+| `view.archive` / `view.restore` / `view.delete` | `archive_app` / `restore_app` / `delete_app` | — |
+| `widget.create` | `routes/custom_widgets.py` `create_custom_widget` (new widgets only) | — |
+| `widget.publish` / `widget.revert` | `publish_widget` / `revert_widget` | `version` |
+| `widget.discard` / `widget.delete` | `discard_widget_draft` (only if a draft existed) / `delete_custom_widget` | — |
+| `widget.certify` | `certify_widget` | `version`, `certified` |
+| `agent.create` | `agent_studio_store.save_draft` (new agents only) | — |
+| `agent.publish` / `agent.revert` | `publish` / `revert` | `version` |
+| `agent.discard` / `agent.delete` | `discard` / `delete_profile` | — |
+| `view.share` / `widget.share` / `agent.share` | `routes/sharing.py` `put_acl` | `entries`, `everyone`, `managers` (counts, never names) |
+| `admin.add` / `admin.remove` | `add_admin` / `remove_admin` | object `principal` / the name |
+| `widget.generate` | `routes/widget_studio.py` `_record_generation` | `status`, `edit`, `layout` |
+| `agent.generate` | `routes/agent_studio_profiles.py` `_record_authoring` | `status`, `edit` |
+| `chat.turn` | `routes/agent_proxy.py` `_turn_recorder` | `saved`, `tools`, `failed`; object is the agent if one was picked |
+| `settings.update` | `routes/app_settings.py` `update_settings` | `keys`, `count`, never values |
+| `schedule.create` | `routes/schedules.py` `create_schedule` | `kind`, `status`, `freq`, `recipient_count` |
+| `schedule.update` | `update_schedule` | `kind`, `fields` (names changed, comma-separated, never values), `count` |
+| `schedule.delete` / `schedule.pause` | `delete_schedule` / `pause_schedule` (only if it wasn't already paused by its owner) | `kind` |
+| `schedule.resume` | `resume_schedule` (only if it wasn't active) | `kind`, `status` (`active` or `needs_reconnect`) |
+| `schedule.run` | `run_schedule`: **Run now** only, never a timed run | `kind`, `via: manual` |
+| `schedule.auto_pause` | `services/scheduler.py` `after`, under the owner's name | `kind`, `failure_count`, `run_id` |
+| `schedule.needs_reconnect` | `after` (a run found no usable token) and `lapse` (the connection ended), under the owner's name | `kind` and `run_id`, or `reason: expired` |
+| `widget.action` | *never recorded*: each `action_logs` row, merged in when read | `widget_name`, `action_name` |
+
+The verb says *view*, which is what people call it; `object_type` says `app`, as
+`object_permissions` and `object_drafts` do, so one id joins all three. "A first
+draft" is `*.create`, not every draft save, which would bury everything else.
+Generations have no object yet, so they carry none. Every site records with the
+identity the handler already resolved (`who.username`, or `caller_identity`'s
+per-token cache in the studios' background tasks); don't add a lookup. Widget
+Studio queues `_record_generation` as a second background task, which Starlette
+runs after the generation, so it reads the settled job. Agent Studio records
+inside `_authoring_task`, after `asyncio.run`.
+
+Route tests that reach these handlers fake `activity.record` in their harness
+(`test_apps_routes`, `test_widget_publish`, `test_agent_studio_store`,
+`test_agent_studio_authoring`). The real one fails quietly without credentials,
+but with Lakebase variables exported it would write to a real database, and a
+harness that fakes `get_db_connection` would see its INSERT as a stray query.
+
+**The feed.** `GET /api/activity` (filters `person`, `verb`, `object_type`,
+`object_id`, `since`, `until`; `cursor`, `limit`), `GET /api/activity/active` and
+`GET /api/activity/person`, each behind `access.require_app_admin` before any
+connection opens. `verb` takes comma-separated patterns where `*` stands for any
+run of characters (`*.share,admin.*`); only `[a-z0-9_.*]` is accepted, and `_` is
+escaped in the `LIKE`. Paging is keyset, never `OFFSET`: each source is read
+`limit + 1` rows past the cursor, merged in Python by `(at, source rank, id)`
+descending, and the cursor is the last row's `at|source|id`. Ties at the same
+instant are why the source is in the key: `_keyset` puts every `action` row
+before every `event` row of that instant, so no row repeats or goes missing at a
+page boundary. `action_logs.timestamp` has no zone and is cast with the session's
+zone, the same one `CURRENT_TIMESTAMP` wrote it in. Object names come from one
+`object_drafts` query plus one latest-version query per type, so a page costs a
+fixed handful of queries however many rows it has; an object found nowhere reads
+as deleted. Indexes for the person filter and `action_logs`' order are created
+by `_create_activity_feed_indexes` in `database.py`.
+
+"Active now" is `known_principals.last_seen` in the settings schema, which
+`access.caller` refreshes at most every ten minutes per worker, so the window is
+fifteen minutes: narrower would drop people between refreshes.
+
+**Retention.** `activity_retention_days` (Settings → Retention and context,
+default 365, 0 keeps everything) drives the hourly `activity_retention` job,
+which deletes from `activity_events` only, `PURGE_BATCH` rows per statement and
+at most `PURGE_MAX_BATCHES` per run, committing each so a large backlog never
+holds one long lock. `action_logs` is the audit trail of what widgets changed
+and is never purged here.
+
+## Email (`services/email_service.py`, `routes/email.py`)
+
+Everything that sends email calls **`email_service.send_email(sender_username,
+sender_email, to, subject, message_md, table=None, attach_csv=False,
+view_name=None, view_link=None, source="widget", request_id=None)`**. It needs no
+request, so a background job can call it, and it never raises: it returns
+`{ok, status, reason, transport, message_id, recipients, error, log_id}`, where
+`status` is `sent` / `logged` (ok) or `refused` / `unavailable` / `failed` and
+`error` is a sentence for the person. The caller decides who the sender is (the
+route takes the caller's OBO identity and ignores any sender in the body; a
+schedule passes its owner); everything else is enforced inside, so no caller can
+skip it:
+
+- **Recipients.** Addresses are normalized and anything malformed is refused.
+  Without `email_allowed_domains`, only the sender's own domain; with it, only
+  those entries (`*.example.com` is subdomains, not the apex). At most
+  `email_max_recipients` (default 10, never above SES's 50).
+- **Daily cap.** `email_daily_limit` (default 50) per sender over a rolling 24
+  hours. `reserve` takes a transaction-scoped advisory lock on the sender, counts
+  their `sending` / `sent` / `logged` rows and inserts this one as `sending` in
+  the same transaction, which is what makes the cap hold across both workers. A
+  row that can't be written means nothing is sent.
+- **Content.** Markdown goes through a small renderer here that escapes every
+  character it doesn't recognize, links only to http/https/mailto, and turns
+  images into links (an `<img>` would report who opened the email). A table is
+  data (`{columns, rows}`), drawn up to 50 rows, with an optional CSV (formula
+  cells prefixed with `'`, capped at 10,000 rows and 5 MB). The subject loses
+  control characters, so it can't add a header. There is no way to pass HTML.
+- **The record.** `email_log` (content schema, `_create_email_tables`) holds
+  sender, recipients, subject, status, transport, message id and error, never the
+  body; `activity.record(..., "email.send", "email", log_id, ...)` follows each
+  send and each refusal. The activity detail says `via`, not `source`, because
+  `source` is one of activity's content keys and would be dropped. `email_log`
+  is in `NOT_COPIED`: copied, it would spend the target's daily allowance.
+
+**Transport** (`choose_transport`, pure and tested): `ses` when `email_enabled`,
+a From address, both AWS key env vars and a region (`AWS_REGION` or
+`AWS_DEFAULT_REGION`) are present; else `log` when `APP_ENVIRONMENT=local`, which
+writes the rendered email to the server log and records it as `logged`; else
+`off`. A deployed app never pretends to send. Only the env vars count as
+credentials: boto3's own chain would also try instance metadata, where a
+platform role must not read as "set up". The keys arrive as app secret resources;
+they never go in `app_settings`, the database, the browser or a log line, which
+is why there is no setting for them or for the region. The `email` capability
+(registered in `main.py`'s startup) reports the same three states, with `missing`
+and `next_step` in fix-it order.
+
+**Routes.** `POST /api/email/preview` renders what Send would send and the
+problem that would stop it, writing nothing; `POST /api/email/send` sends.
+Refusals are 400, the daily cap 429, not set up 503 and an SES failure 502, each
+with the sentence as `detail`. The view link is the browser's to send, so it is
+kept only when it is on the request's own origin (`own_view_link`).
+
+**The browser side.** `props.app.sendEmail` never sends: `ExecuteActionPropInjector`
+binds it per widget to the Send dialog (`src/components/SendEmailDialog.tsx`),
+whose Send goes through that widget's `executeAction`, so the action log row is
+written first and its `request_id` is stored on the `email_log` row. Saving a
+widget whose code names `/api/email/send` (or `/api/schedules`, which
+`props.app.schedule` reaches the same way through the Schedule dialog) in a
+string is refused by `widget_safety.DIALOG_ROUTES`. That catches the generated
+case, not a determined author who builds the path at runtime, so the recipient
+policy, caps and log are still what hold either way.
+
+## Token vault (`services/token_vault.py`, `routes/oauth.py`)
+
+**This is the way unattended work keeps running as the user.** A scheduled run,
+a reminder, anything with no request behind it that must touch data, asks
+`token_vault.access_token_for(username)` for that person's access token and builds
+its client from that. It is still OBO: the token is the person's own, issued by
+the workspace to this app's OAuth integration, so Unity Catalog governs the run
+exactly as it would on the page. Never the service principal, never a PAT. The
+vault has no fallback and no DEV_MODE path; the scheduler wraps a local-only
+token source around it (see *Scheduler*).
+
+It exists because Apps forward an access token of about an hour and no refresh
+token. So the app runs its own authorization-code sign-in with PKCE against the
+workspace (`/oidc/v1/authorize`, `/oidc/v1/token`), through a custom OAuth app
+integration that an account admin creates as a public client with the scopes
+`openid email offline_access sql`, and keeps the refresh token that comes back.
+
+```python
+token_vault.access_token_for(username) -> str   # refreshes, saves a rotated token
+token_vault.NeedsReconnect   # .reason: not_connected | expired | revoked | undecryptable
+token_vault.VaultError       # .reason: not_set_up | unavailable (not the person's to fix)
+token_vault.status(username) # {connected, connected_at, expires_at, needs_reconnect, reason}
+token_vault.expiring(within_days) -> [(username, expires_at)]  # soonest first, lapsed included
+```
+
+All of it works with no request in scope. What to know before changing it:
+
+- **Storage.** `user_oauth_tokens` (one row per lowercased username) and
+  `oauth_pending` (sign-ins in flight, 10 minutes) are in the settings schema,
+  created by `_create_vault_tables`. Every `_enc` column is Fernet ciphertext.
+  Tokens are never logged, never returned by a route, and never copied by Data
+  Migration (`NOT_COPIED`); `test_token_vault.py` checks each of those.
+- **The key.** `TOKEN_VAULT_KEY` (a Fernet key) if set, else HKDF-SHA256 of
+  `DATABRICKS_CLIENT_SECRET` with salt `command-center/token-vault` and info
+  `cc-token-vault-v1`; change either and every derived-key row is unreadable.
+  With both, writes use `TOKEN_VAULT_KEY` and the derived key still reads older
+  rows. A malformed `TOKEN_VAULT_KEY` turns the vault off rather than quietly
+  using the derived key. A row no key opens becomes `undecryptable`.
+- **Refreshing.** Under `SELECT ... FOR UPDATE` with a 20-second `lock_timeout`,
+  in the same transaction as the save, because a single-use refresh token spent by
+  two workers at once leaves the person disconnected. `invalid_grant` marks the row
+  `expired` (within an hour of the counted expiry) or `revoked`, records
+  `oauth.needs_reconnect`, and later asks fail without calling the workspace. Any
+  other token-endpoint failure is `VaultError('unavailable')` and leaves the row
+  alone. The access token is cached, encrypted, until 5 minutes before it expires.
+- **Expiry.** What the token response gave as the refresh token's lifetime, if
+  anything; otherwise its issue time plus `oauth_refresh_ttl_days` (Settings,
+  default 30, which should match the integration's TTL). A rotated token restarts
+  the count.
+- **Binding a sign-in to its caller.** `state` belongs to the caller who started
+  it, is deleted as it is read, and lasts 10 minutes. The id_token's `iss`, `aud`,
+  `azp`, `exp`, `nbf` and `nonce` are checked, and its `email`,
+  `preferred_username` or `sub` must be the OBO caller. Its signature isn't checked:
+  it comes straight from our own token request over TLS (OIDC Core 3.1.3.7).
+- **The redirect URI** must match the integration exactly. It is
+  `OAUTH_REDIRECT_URI` if set; else `https://<X-Forwarded-Host>/api/oauth/callback`
+  in a request; else, with no request (the Setup card),
+  `https://<DATABRICKS_APP_NAME>-<DATABRICKS_WORKSPACE_ID>.aws.databricksapps.com/api/oauth/callback`,
+  on AWS only. The URI used at connect is stored with the state and replayed at
+  the exchange. Running locally through Vite needs `OAUTH_REDIRECT_URI`, because
+  its proxy forwards no host.
+- **Coming back.** `return_to` must pass `safe_return_to` (one leading `/`,
+  printable ASCII, no backslash, no scheme or host). The outcome is added before
+  the hash as `oauth=connected` or `oauth_error=<reason>`; the reasons are listed in
+  the module docstring.
+- **Routes.** `GET /api/oauth/connect?return_to=`, `GET /api/oauth/callback`,
+  `GET /api/oauth/status`, `POST /api/oauth/disconnect`. The workspace documents no
+  revocation endpoint, so disconnecting deletes the row and the token lapses.
+- **Registered in `main.py`.** The hourly `oauth_pending_purge` job. The
+  `scheduling` capability is `scheduler.capability`, which is this module's
+  `capability()` (a client id, a key and `DATABRICKS_HOST`) reported as mode
+  `oauth`, except locally (see *Scheduler*).
+- The authorization code appears in uvicorn's access log, as the callback's query
+  string. It is single-use, short-lived and useless without the PKCE verifier,
+  which only the vault holds, encrypted.
+
+## Scheduler (`services/scheduler.py`, `services/schedule_store.py`, `services/recurrence.py`, `routes/schedules.py`)
+
+Reports (`email_report`: a read-only query, emailed as a table) and actions
+(`run_statement`: an executable widget's statement) that run on a timetable as
+the person who set them up. `/api/schedules` is a fixed contract the browser
+builds against; the module docstrings of the route and the scheduler say what it
+returns and why. What to know before changing it:
+
+- **Who a run is.** `scheduler.client_for(owner)`:
+  `WorkspaceClient(host=token_vault.workspace_url(), token=token_vault.access_token_for(owner), auth_type="pat")`.
+  `auth_type="pat"` is only how the SDK sends a bearer token; the token is the
+  owner's OAuth access token, never a personal access token. **The one dev
+  fallback:** with `DEV_MODE=true` *and* `APP_ENVIRONMENT=local`
+  (`config.settings.get_app_environment()`), runs use `get_db_client(None)`, the
+  service principal a local server already signs in as, and the vault isn't asked.
+  Either setting alone isn't enough (`test_scheduler.py` checks both), so a
+  deployed app with DEV_MODE left on runs every schedule as its owner or not at
+  all. Don't add another fallback.
+- **Capability.** `scheduling` is `scheduler.capability`: mode `dev` on that
+  local fallback (the vault's `missing` shown, but available), else the vault's
+  own check, reported as mode `oauth` when available. Creating, resuming and
+  running are 503 `"Scheduling isn't set up in this app yet."` without it, and a
+  report also needs `email` (503 `email_service.UNAVAILABLE`). The tick does
+  nothing while it is off, so schedules wait and each runs once after setup.
+- **Tables** (content schema, `_create_schedule_tables`): `schedules`,
+  `schedule_runs` (cascade-deleted with their schedule; pruned after 180 days),
+  `schedule_reminders`. All three are in `NOT_COPIED`: a copied schedule would
+  make two apps send the same report, and owners must connect on the target
+  anyway. `owner` is stored as `token_vault.normalize_username`; `owner_email`
+  and `owner_groups` are refreshed whenever the owner creates, edits, resumes or
+  runs it, because a run has no request to ask SCIM with and an action checks its
+  widget with those groups (`access.acting_as`).
+- **Three jobs**, registered in `main.py` inside the vault's try/except:
+  `scheduler` (30 s), `schedule_reconnect` (60 s: `needs_reconnect` schedules
+  whose owner's connection works again go active, next run counted from now) and
+  `schedule_reminders` (hourly; see below). Listing your schedules also resumes
+  your own, so someone back from connecting sees them running.
+- **Claiming.** One transaction selects due rows (`status = 'active' AND
+  (next_run_at <= now() OR run_requested) AND (claimed_until IS NULL OR
+  claimed_until < now())`) `FOR UPDATE SKIP LOCKED LIMIT n`, sets
+  `claimed_by`/`claimed_until` (a 15-minute lease), moves `next_run_at` to the
+  next time after now and clears `run_requested`, and commits before anything
+  runs. `plan_claim` is the pure part: a run more than 5 minutes late is
+  `recovery`, a requested one `manual` (a requested run that isn't due keeps its
+  timetable). Runs execute on daemon threads, at most `MAX_PARALLEL` (4) per
+  worker, and a tick keeps claiming as they finish for up to 20 s. Recording a
+  run releases the claim only where `claimed_by` is still this worker. Delivery is
+  at most once: a worker that dies mid-run leaves a lease that expires, and that
+  run is lost, never repeated. A real-Postgres check with four concurrent
+  claimers found no schedule claimed twice.
+- **A report** re-checks that its SQL is read-only (`schedule_store.read_only_problem`),
+  runs it through `routes/sql_query.execute_rows` (the same path as
+  `/execute-raw`, reading at most 10,000 rows), applies `send_when` (a skipped
+  run is `skipped`, which counts as a success), and sends with
+  `send_email(owner, owner_email, ..., source="schedule", request_id=<run id>)`.
+- **An action** re-checks its widget with `widget_check` (the latest
+  non-deprecated published row must have `is_executable = 1`, and the owner must
+  hold a level on it, be an admin, or have it lent by a view; no access reads as
+  404), writes an `action_logs` row for the owner with `request_id` = the run id
+  (no row, no run), then runs `tag_statement(sql, run_id)` (`/* cc-action: <id> */`)
+  through the same path as `/execute-write`, never retried. With recipients and
+  email available it sends a short note; a note that fails leaves the run `ok`
+  with the reason in `error`.
+- **Outcomes** (`next_state`, pure). `NeedsReconnect` makes the run and the
+  schedule `needs_reconnect` and isn't a failure. `VaultError`, email being
+  `unavailable`, no warehouse configured and an action log that can't be written
+  fail the run without counting. Anything else counts; `schedule_max_failures`
+  (Settings → Scheduling, default 3) in a row pauses it (`paused_reason =
+  'failures'`), records `schedule.auto_pause` and emails the owner when email is
+  available. A success or a skip resets the count. Only an *active* schedule
+  changes status, so one the owner paused mid-run stays paused.
+- **Reminders.** Hourly, `token_vault.expiring(7)`, for owners with an active
+  schedule only: one email at 7 days and one at 1 day per connection expiry,
+  recorded in `schedule_reminders` before sending (`source="reminder"`), and none
+  at all while email is unavailable, so they go out once it's back. A connection
+  already past its expiry moves the owner's active schedules to
+  `needs_reconnect`. Skipped entirely on the local fallback.
+- **Routes.** Item routes are for the owner or an app Administrator; anyone else
+  gets 404. An Administrator who isn't the owner may PATCH only `name` and
+  `recurrence` (403 otherwise; unchanged values are ignored, so the whole object
+  can be sent back), because anything else would change what runs under someone
+  else's identity, or who receives it. Creating validates recipients with
+  `email_service.check_recipients` against the owner's address, keeps `view_link`
+  only on the request's own origin, checks the cap (`schedule_max_per_person`,
+  default 25, counted under a per-owner advisory lock) and always creates, as
+  `needs_reconnect` without a usable connection. `POST /{id}/run` only sets
+  `run_requested`; the next tick runs it.
+- **Recurrence** (`services/recurrence.py`, pure, no cron). Wall-clock times in an
+  IANA zone through `zoneinfo`; a missing local time (spring forward) runs at the
+  end of the jump, a repeated one (fall back) at its first occurrence, and hourly
+  keeps to real hours. On Linux `zoneinfo` needs the system tz database or the
+  `tzdata` package; without either only UTC validates.
+- **Logs** carry schedule ids, run ids, statuses and counts, never a token, a
+  row, the SQL or a recipient; an unexpected exception logs its type and line,
+  not its message, which can quote data.
 
 ## View catalog and search (`services/view_catalog.py`, `services/view_signals.py`, `routes/discover.py`)
 
@@ -1118,6 +1438,32 @@ a new widget always gets them. And `run_sql` answers a SELECT of constants only
 result (`ping_result`: the row, then `PING_NOTE`), not a refusal: told "Not run",
 the agent read a failed check and sent the same `SELECT 1` again. A second ping
 in one run gets `PING_REPEATED`, which tells it to return the code.
+
+**Widget Studio asks the author before Genie is sent anything.** It passes a
+`GenieGate` to `langchain_tools(genie=…)`, built by `_genie_gate` from the
+request's `genie_permission` (`ask` | `always` | `off`; missing or unknown reads
+as `ask`, so an old client can't send an unapproved question). With a gate,
+`ask_genie` is a different tool: it takes a `reason` and its docstring limits it
+to business meaning, never names, values, row counts or styling, at most one
+question a turn. In `ask` mode a question isn't sent: `hold` records
+`{question, reason}`, tells the agent to end its turn (`GENIE_HELD`), and every
+later `run_sql` or second question in that turn gets a refusal. The job then
+settles as a pause through `_genie_pause` (next to `_clarify`):
+`code: None` (or, after a planned run, the steps that landed), `genie_request`,
+and `GENIE_PAUSE_TEXT`. The check runs after `_research`, after each step in
+`_run_stages(genie=…)` (that step and the rest are marked `skipped`), and after
+the one-pass agent, whose reply is discarded. The card re-sends the turn with
+`approved_genie`, which `_approved_genie` asks *before* the agent starts, on its
+own `GENIE_APPROVED_SECONDS` slice that leaves `MIN_ONE_PASS_SECONDS`. The
+answer goes into the system prompt as findings and is remembered in the gate,
+so the agent asking it again gets it without a second wait; any other question
+is held again. `genie_declined` ("Continue without Genie") and `off` bind no
+Genie tool. A prompt that itself tells the agent to ask Genie
+(`asks_for_genie`, deliberately conservative: the verb must open a clause, so an
+"Ask Genie" button or "a box where users ask Genie" don't count) approves that
+turn, though never on an auto-fix (`error_log`). The admin switch still wins:
+with `enable_genie_tool` off there is no tool, so nothing is held and no card
+appears. Agent Studio passes no gate, so its tool and docstring are unchanged.
 
 ## Moving data between apps (`services/data_migration.py`, `routes/data_migration.py`)
 
@@ -1442,7 +1788,10 @@ judgement that decides a request is worth planning decides it is worth a questio
 because that is exactly where a wrong guess costs minutes. A question set settles
 the job with `code: None` and a `questions` list; nothing is generated. Two guards
 stop a loop: the client sends `allow_clarify: false` on the answering turn, and
-`CLARIFY_MARKER` in the history means one has already been asked.
+`CLARIFY_MARKER` in the history means one has already been asked. A Genie pause
+(`_genie_pause`, see *Studio research tools*) settles the same way with a
+`genie_request` instead, and a turn re-sent from its card (`approved_genie` or
+`genie_declined`) never asks clarifying questions, having stopped once already.
 
 **The data-source test runs as the user (`get_db_client`).** It ran as the SP,
 with no statement check, which let anyone with studio access run any SQL with the
@@ -1532,7 +1881,7 @@ settles as *completed* with an apology: the user's code is already fine.
 
 ```bash
 PYTHONPATH=server .venv/bin/python tests/test_agent_studio_store.py   # 23 passed
-PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 15 passed
+PYTHONPATH=server .venv/bin/python tests/test_agent_studio_authoring.py # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_agent_runtime.py        # 10 passed
 PYTHONPATH=server .venv/bin/python tests/test_mcp_catalog.py          # 35 passed
 PYTHONPATH=server .venv/bin/python tests/test_mcp_client.py           # 5 passed
@@ -1541,7 +1890,7 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_agent_meta.py    # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_rewrite.py # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_stages.py  # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_helper.py  # 25 passed
-PYTHONPATH=server .venv/bin/python tests/test_widget_agent_context.py # 23 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_agent_context.py # 34 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
 PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_creator_stats.py        # 16 passed
@@ -1561,7 +1910,7 @@ PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 26 passe
 .venv/bin/python tests/test_upload_tools.py                           # 28 passed
 PYTHONPATH=server .venv/bin/python tests/test_conversation_store.py   # 5 passed
 PYTHONPATH=server .venv/bin/python tests/test_db_pool.py              # 14 passed
-PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 30 passed
+PYTHONPATH=server .venv/bin/python tests/test_research_tools.py       # 44 passed
 PYTHONPATH=server .venv/bin/python tests/test_data_migration.py       # 25 passed
 PYTHONPATH=server .venv/bin/python tests/test_app_help.py            # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_role_mappings_home.py   # 2 passed
@@ -1570,10 +1919,18 @@ PYTHONPATH=server .venv/bin/python tests/test_drafts.py               # 16 passe
 PYTHONPATH=server .venv/bin/python tests/test_access_migration.py     # 34 passed
 PYTHONPATH=server .venv/bin/python tests/test_consolidation.py        # 29 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_publish.py       # 31 passed
-PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 31 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 38 passed
 PYTHONPATH=server .venv/bin/python tests/test_background.py           # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed
+PYTHONPATH=server .venv/bin/python tests/test_actions_routes.py       # 7 passed
+PYTHONPATH=server .venv/bin/python tests/test_activity_feed.py        # 24 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_service.py        # 44 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_routes.py         # 9 passed
+PYTHONPATH=server .venv/bin/python tests/test_token_vault.py          # 48 passed
+PYTHONPATH=server .venv/bin/python tests/test_recurrence.py           # 26 passed
+PYTHONPATH=server .venv/bin/python tests/test_scheduler.py            # 56 passed
+PYTHONPATH=server .venv/bin/python tests/test_schedule_routes.py      # 31 passed
 PYTHONPATH=server .venv/bin/python tests/test_view_catalog.py         # 38 passed
 PYTHONPATH=server .venv/bin/python tests/test_view_signals.py         # 14 passed
 PYTHONPATH=server .venv/bin/python tests/test_discover_routes.py      # 9 passed

@@ -111,6 +111,16 @@ BANNED_CONSTRUCTS: Tuple[Tuple[str, str], ...] = (
     ("importScripts(", "Loads code outside the runtime's control. Use useScript() instead."),
 )
 
+#: Endpoints a widget reaches only through a platform dialog, where the person
+#: sees who will be emailed, and what will run as them later, before it happens.
+#: A widget that calls one directly acts for whoever opens it without asking.
+#: Matched in string literals, so a comment mentioning one is fine. Keep in step
+#: with DIALOG_ROUTES in `src/widgetLint.ts`.
+DIALOG_ROUTES: Tuple[Tuple[str, str], ...] = (
+    ("/api/email/send", "Call props.app.sendEmail(...), which opens the Send dialog."),
+    ("/api/schedules", "Call props.app.schedule(...), which opens the Schedule dialog."),
+)
+
 # The host ends where a browser's URL parser ends it. A backslash counts: the
 # parser treats it as `/`, so `https://evil.example\@cdn.jsdelivr.net` goes to
 # evil.example, and reading on to the `@` would approve it. A raw `\` also
@@ -227,11 +237,16 @@ def review_widget_code(code: str, app_hosts: Optional[Iterable[str]] = None) -> 
 
     approved = _resolve(app_hosts)
 
-    stripped, _ = _scan(code)
+    stripped, literals = _scan(code)
     lowered = stripped.lower()
     for construct, advice in BANNED_CONSTRUCTS:
         if construct.lower() in lowered:
             problems.append(f"`{construct}` is not allowed in widget code. {advice}")
+
+    texts = [literal.replace("\\/", "/").lower() for literal in literals]
+    for route, advice in DIALOG_ROUTES:
+        if any(route in text for text in texts):
+            problems.append(f"`{route}` can't be called from widget code. {advice}")
 
     hosts = offending_hosts(code, approved)
     if hosts:

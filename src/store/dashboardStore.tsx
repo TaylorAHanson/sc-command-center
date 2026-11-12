@@ -2,10 +2,12 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState,
 import { v4 as uuidv4 } from 'uuid';
 import { widgetRegistry } from '../widgetRegistry';
 import { rememberedFilters, rememberFilters } from './rememberedFilters';
-import { filterDefaults, isPage, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, PAGE_WIDGET_PLACE, retargetLinks, shownTab, withTab, type App, type AppSpec, type AppTab, type TabLayout, type WidgetLayout } from './appSpec';
+import { filterDefaults, isPage, MAX_NAME_LENGTH, MAX_TABS, newAppSpec, PAGE_WIDGET_PLACE, retargetLinks, shownTab, withTab, type App, type AppFilter, type AppSpec, type AppTab, type TabLayout, type WidgetLayout } from './appSpec';
 import {
   appHash, appLink, isStandalone, linkTab, parseAppRoute, refersTo, routeHash, routeTab, tabIdOf, withoutRouteParams, type AppRoute,
 } from './appRoute';
+import { createLinkStateStore, instanceScope, linkStatePart, readLinkState, writeLinkState, type LinkState, type WidgetLinkState } from '../linkState';
+import { LinkStateContext } from '../hooks/useLinkState';
 import { useShell } from '../shell';
 import { requestJson, type Acl, type Preflight, type PublishInclude, accessSummary } from '../sharing';
 
@@ -20,6 +22,65 @@ const NO_VARIABLES = Object.freeze({}) as DashboardContextType['variables'];
 const fromServer = (a: any): App => ({ ...a, locked: Boolean(a.is_locked) });
 
 const reasonOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+// How long the address waits for what a view is set to to settle before it
+// follows. Browsers refuse a page that rewrites its address a hundred-odd times
+// in a few seconds, which a slider or a search box would otherwise do.
+const MIRROR_DELAY_MS = 300;
+
+const textKeysOf = (filters?: AppFilter[] | null) => new Set((filters || []).map(f => f.key));
+
+// The address's link state as this page last wrote or read it, and whose it
+// is. One per page rather than per provider: the workspace and a standalone
+// shell hand the address to each other, and a hash link keeps the query
+// string, so the state one app leaves behind would otherwise open the next.
+let addressLink: { part: string; appId: string } | null = null;
+
+// The mirror runs on every change, so an over-long view says so once.
+let lastDropped = '';
+
+/**
+ * What a query string says `app` is set to, or null when it says nothing. A
+ * filter only takes a value it offers ('' is All), as with remembered choices;
+ * any other variable passes through to the widgets that read it.
+ */
+const linkedStateOf = (search: string, app: App): LinkState | null => {
+  if (!linkStatePart(search)) return null;
+  const filters = app.spec?.filters || [];
+  const read = readLinkState(search, textKeysOf(filters));
+  for (const f of filters) {
+    if (!Object.prototype.hasOwnProperty.call(read.variables, f.key)) continue;
+    const value = read.variables[f.key];
+    if (!(typeof value === 'string' && (value === '' || f.options.includes(value)))) delete read.variables[f.key];
+  }
+  return read;
+};
+
+/** What the address says `app` is set to, unless another app left it there. */
+const addressLinkFor = (app: App): LinkState | null => {
+  const part = linkStatePart(window.location.search);
+  if (!part || (addressLink?.part === part && addressLink.appId !== app.id)) return null;
+  return linkedStateOf(window.location.search, app);
+};
+
+/**
+ * The query string for a link to `app` as it is set: `variables` measured
+ * against its filters' defaults, and the settings of widgets it places (or of
+ * the one widget `only` names). `base` keeps whatever else the address holds.
+ */
+const linkSearch = (base: string, app: App, variables: Record<string, unknown>, widgets: WidgetLinkState, only?: string): string => {
+  const filters = app.spec?.filters;
+  const placed = new Set(only ? [instanceScope(only)] : app.spec.tabs.flatMap(t => t.widgets.map(w => instanceScope(w.i))));
+  const { search, dropped } = writeLinkState(
+    base,
+    { variables, widgets: Object.fromEntries(Object.entries(widgets).filter(([scope]) => placed.has(scope))) },
+    { defaults: filterDefaults(filters), textKeys: textKeysOf(filters) },
+  );
+  const left = dropped.join(', ');
+  if (left && left !== lastDropped) console.warn(`Left out of the link to keep it short: ${left}`);
+  lastDropped = left;
+  return search;
+};
 
 export type { WidgetLayout, App, AppTab, AppSpec, AppBranding } from './appSpec';
 
@@ -156,11 +217,23 @@ export const DashboardProvider: React.FC<{
   // The published version of views whose managers switched to Published: the
   // sidebar's row is the draft, so this is read separately.
   const [publishedCopies, setPublishedCopies] = useState<Record<string, App>>({});
+  // A standalone view's link is read as the shell opens it, so its first
+  // render already shows what the link is set to.
+  const [standaloneLink] = useState(() => (standalone ? addressLinkFor(standalone.app) : null));
   // Dashboard variables belong to the app on screen: its tabs share them, and
-  // opening another app starts with none, so a filter chosen on one app can't
-  // quietly narrow another that happens to read the same key.
-  const [appVariables, setAppVariables] = useState<{ appId: string; values: Record<string, any> }>({ appId: '', values: NO_VARIABLES });
+  // opening another app starts with none (or with what the link it was opened
+  // by sets), so a filter chosen on one app can't quietly narrow another that
+  // happens to read the same key. `linked` marks values a link set.
+  const [appVariables, setAppVariables] = useState<{ appId: string; values: Record<string, any>; linked?: boolean }>(() => ({
+    appId: standalone?.app.id ?? '', values: standaloneLink?.variables ?? NO_VARIABLES, linked: !!standaloneLink,
+  }));
   const chosen = appVariables.appId === activeAppId ? appVariables.values : NO_VARIABLES;
+  const linkedOpen = appVariables.appId === activeAppId && !!appVariables.linked;
+  // Widgets' `useLinkState` settings, for the app in `linkHeldFor`.
+  const [widgetLinkState] = useState(() => createLinkStateStore(standaloneLink?.widgets));
+  const linkHeldFor = useRef(standalone?.app.id ?? '');
+  const mirrorInputs = useRef<{ app: App | null; variables: Record<string, unknown> }>({ app: null, variables: NO_VARIABLES });
+  const mirrorTimer = useRef<number | undefined>(undefined);
 
   const modeOf = useCallback((app?: App | null): ViewMode => {
     if (app?.access !== 'MANAGE') return 'published';
@@ -174,24 +247,86 @@ export const DashboardProvider: React.FC<{
   const activeAppTab = shownTab(activeApp, activeTabId);
   // A filter's default is what its variable holds until someone chooses; "All"
   // is a choice too (an empty string), so it is not overridden by the default.
-  // The choice someone last left this view on outranks the default.
+  // The choice someone last left this view on outranks the default, except
+  // when a link set the view: the link shows what its sender saw, whole.
   const filters = activeApp?.spec.filters;
   const me = username === 'unknown' ? null : username;
   const variables = useMemo(() => {
-    const start = { ...filterDefaults(filters), ...rememberedFilters(me, activeAppId, filters) };
+    const start = { ...filterDefaults(filters), ...(linkedOpen ? {} : rememberedFilters(me, activeAppId, filters)) };
     return Object.keys(start).length ? { ...start, ...chosen } : chosen;
-  }, [filters, chosen, me, activeAppId]);
+  }, [filters, chosen, me, activeAppId, linkedOpen]);
   useEffect(() => {
     if (appVariables.appId) rememberFilters(me, appVariables.appId, apps.find(a => a.id === appVariables.appId)?.spec.filters, appVariables.values);
   }, [appVariables, me, apps]);
   const appsRef = useRef(apps);
   useEffect(() => { appsRef.current = apps; }, [apps]);
 
-  const selectApp = useCallback((id: string, tabId: string | null = null) => {
+  // Mirror on change: the address follows what the app on screen is set to,
+  // once it settles, with replaceState so settings add no Back steps. Only the
+  // app whose settings are held writes, so one just left can't overwrite the
+  // address of the one being opened.
+  const mirrorLinkState = useCallback(() => {
+    window.clearTimeout(mirrorTimer.current);
+    mirrorTimer.current = window.setTimeout(() => {
+      const { app, variables: shown } = mirrorInputs.current;
+      if (!app || linkHeldFor.current !== app.id) return;
+      const search = linkSearch(window.location.search, app, shown, widgetLinkState.snapshot());
+      addressLink = { part: linkStatePart(search), appId: app.id };
+      if (search === window.location.search) return;
+      try {
+        window.history.replaceState(window.history.state, '', `${window.location.pathname}${search}${window.location.hash}`);
+      } catch (e) {
+        console.warn('Could not update the address:', e);
+      }
+    }, MIRROR_DELAY_MS);
+  }, [widgetLinkState]);
+  useEffect(() => {
+    mirrorInputs.current = { app: activeApp, variables };
+    mirrorLinkState();
+  }, [activeApp, variables, mirrorLinkState]);
+  useEffect(() => {
+    const unsubscribe = widgetLinkState.subscribe(mirrorLinkState);
+    return () => {
+      unsubscribe();
+      window.clearTimeout(mirrorTimer.current);
+    };
+  }, [widgetLinkState, mirrorLinkState]);
+
+  // Clear on app switch: another app starts with nothing set unless `linked`
+  // (what its link says) sets it; the app already held keeps its settings,
+  // which is what keeps them across tab switches. Nothing held yet means the
+  // store has only ever served this app, so it is kept rather than cleared.
+  const holdLinkState = useCallback((id: string, linked: LinkState | null) => {
+    if (linked) {
+      linkHeldFor.current = id;
+      widgetLinkState.replace(linked.widgets);
+      setAppVariables({ appId: id, values: linked.variables, linked: true });
+    } else {
+      if (linkHeldFor.current !== id) {
+        if (linkHeldFor.current) widgetLinkState.replace({});
+        linkHeldFor.current = id;
+      }
+      setAppVariables(prev => (prev.appId === id ? prev : { appId: id, values: NO_VARIABLES }));
+    }
+    mirrorLinkState();
+  }, [widgetLinkState, mirrorLinkState]);
+
+  // Read link state on open: what the address says `app` is set to, when a
+  // navigation brought it (a pasted link, a reload, Back to another app). The
+  // app already held keeps what it holds; the state another app left behind is
+  // ignored, and the mirror writes over it.
+  const takeLinkState = useCallback((app: App): LinkState | null => {
+    if (linkHeldFor.current === app.id) return null;
+    const linked = addressLinkFor(app);
+    if (linked) addressLink = { part: linkStatePart(window.location.search), appId: app.id };
+    return linked;
+  }, []);
+
+  const selectApp = useCallback((id: string, tabId: string | null = null, linked: LinkState | null = null) => {
     setActiveAppIdState(id);
     setActiveTabId(tabId);
-    setAppVariables(prev => (prev.appId === id ? prev : { appId: id, values: NO_VARIABLES }));
-  }, []);
+    holdLinkState(id, linked);
+  }, [holdLinkState]);
 
   const selectTab = useCallback((tabId: string) => setActiveTabId(tabId), []);
 
@@ -205,9 +340,10 @@ export const DashboardProvider: React.FC<{
     // -> effect re-runs -> writes again -> ... pegging a CPU core and dragging
     // the whole machine down the longer the app stays open.
     setAppVariables(prev => {
-      const values = prev.appId === activeAppId ? prev.values : NO_VARIABLES;
-      if (prev.appId === activeAppId && Object.is(values[key], value)) return prev;
-      return { appId: activeAppId, values: { ...values, [key]: value } };
+      const mine = prev.appId === activeAppId;
+      const values = mine ? prev.values : NO_VARIABLES;
+      if (mine && Object.is(values[key], value)) return prev;
+      return { appId: activeAppId, values: { ...values, [key]: value }, linked: mine && prev.linked };
     });
   }, [activeAppId]);
 
@@ -272,7 +408,7 @@ export const DashboardProvider: React.FC<{
       const app = appsRef.current[0] ?? standalone.app;
       if (!refersTo(route.appId, app) || route.workspace) return;
       canonicalize(app);
-      selectApp(app.id, tabIdOf(app, route.tabId));
+      selectApp(app.id, tabIdOf(app, route.tabId), takeLinkState(app));
       if (route.widgetId) setPendingWidgetId(route.widgetId);
       return;
     }
@@ -307,9 +443,9 @@ export const DashboardProvider: React.FC<{
       shell.present(app, tabIdOf(app, route.tabId), route.widgetId);
       return;
     }
-    selectApp(app?.id ?? route.appId, app ? tabIdOf(app, route.tabId) : null);
+    selectApp(app?.id ?? route.appId, app ? tabIdOf(app, route.tabId) : null, app ? takeLinkState(app) : null);
     if (route.widgetId) setPendingWidgetId(route.widgetId);
-  }, [fetchApps, selectApp, shell, standalone]);
+  }, [fetchApps, selectApp, shell, standalone, takeLinkState]);
 
   // The link the page opened with is acted on once, though StrictMode runs this
   // effect twice in development. A standalone app was read before this mounted.
@@ -779,15 +915,18 @@ export const DashboardProvider: React.FC<{
 
   // Remaining tools
   // Either link opens only for people the app is shared with; see `openRoute`.
+  // Both open on what the view is set to now, not on what the address last
+  // caught up with.
   const generateShareLink = (): string => {
     if (!activeApp) return '';
-    return appLink(activeApp, linkTab(activeApp, activeAppTab));
+    return appLink(activeApp, linkTab(activeApp, activeAppTab), null, linkSearch('', activeApp, variables, widgetLinkState.snapshot()));
   };
 
-  // A link that opens one widget, full-screen, on the tab it sits on.
+  // A link that opens one widget, full-screen, on the tab it sits on, carrying
+  // that widget's settings and none of its neighbours'.
   const generateWidgetShareLink = (widgetId: string): string => {
     if (!activeApp || !activeAppTab) return '';
-    return appLink(activeApp, activeAppTab.id, widgetId);
+    return appLink(activeApp, activeAppTab.id, widgetId, linkSearch('', activeApp, variables, widgetLinkState.snapshot(), widgetId));
   };
 
   const clearPendingWidget = useCallback(() => setPendingWidgetId(null), []);
@@ -824,7 +963,9 @@ export const DashboardProvider: React.FC<{
       modeOf, setAppMode, loadPreflight, publishApp, discardDraft, fetchHistory, revertApp, sharingChanged,
       generateShareLink, generateWidgetShareLink, configModal, openConfigModal, closeConfigModal
     }}>
-      {children}
+      <LinkStateContext.Provider value={widgetLinkState}>
+        {children}
+      </LinkStateContext.Provider>
     </DashboardContext.Provider>
   );
 };

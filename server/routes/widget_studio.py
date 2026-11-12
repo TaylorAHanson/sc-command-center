@@ -35,6 +35,7 @@ from services.code_patch import (
     strip_edit_blocks,
 )
 from services import llm_params, native_files, research_tools, sql_safety
+from services import activity, caller_identity
 from services.generation_jobs import JobStore
 from services.settings_store import base_path_for_model, get_int_setting, get_setting
 from services.llm_client import DatabricksChatOpenAI, chat_client, reply_text
@@ -134,6 +135,15 @@ class GenerateRequest(BaseModel):
     # False on the turn that answers a clarifying question, so answering one can
     # never be met with another. See `_clarify`.
     allow_clarify: bool = True
+    # The author's Genie setting (Agent settings → Genie): "ask", "always" or "off".
+    # Missing or unknown reads as "ask", so a client that predates the setting can't
+    # send Genie a question nobody approved. See research_tools.GenieGate.
+    genie_permission: str = "ask"
+    # Set on the turn re-sent from a Genie approval card: the question the author
+    # allowed, asked before the agent starts (`_approved_genie`), or "Continue
+    # without Genie", which takes the tool away for the turn.
+    approved_genie: Optional[str] = None
+    genie_declined: bool = False
     # A few rows the data source returned when it was tested. A schema says a
     # column is a DATE; only a row says it looks like "2026-09-30" and that the
     # status column holds "Late" rather than "LATE".
@@ -1130,6 +1140,9 @@ def _clarify(ask_helper, req: GenerateRequest) -> List[str]:
     """
     if not req.allow_clarify or req.error_log or not _wants_stages(req):
         return []
+    # A turn re-sent from a Genie card has already stopped once for the author.
+    if req.approved_genie or req.genie_declined:
+        return []
     # Belt as well as braces: a client that forgets to set `allow_clarify` on the
     # answering turn must not be able to produce a loop, and a conversation that
     # already contains a question set is one where the user has answered it.
@@ -1157,6 +1170,91 @@ def _clarify(ask_helper, req: GenerateRequest) -> List[str]:
     if not isinstance(raw, list):
         return []
     return [q.strip() for q in raw if isinstance(q, str) and q.strip()][:3]
+
+
+# A Genie question in "ask" mode waits for the author the way clarifying questions
+# do: the turn settles without building past the question, and the studio shows it
+# and the agent's reason on an approval card. Who holds what is research_tools.GenieGate.
+GENIE_PAUSE_TEXT = (
+    "I'd like to ask Genie one question before I go on, and that needs your OK. "
+    "Allow it and I'll carry on with its answer, or continue without it."
+)
+# The approved question is asked before the agent starts, on its own clock inside
+# the job's, so a slow Genie costs this slice and never the build it informs.
+GENIE_APPROVED_SECONDS = 90
+
+
+def _genie_gate(req: GenerateRequest) -> research_tools.GenieGate:
+    """This turn's Genie gate, from the author's setting and the card they answered."""
+    # Only the author's own words approve. An auto-fix turn's prompt is the
+    # studio's text, or whatever sat half-typed in the composer.
+    explicit = not req.error_log and research_tools.asks_for_genie(req.prompt)
+    return research_tools.GenieGate(
+        req.genie_permission,
+        approved=req.approved_genie or "",
+        explicit=explicit,
+        declined=req.genie_declined,
+    )
+
+
+def _approved_genie(ws, gate: research_tools.GenieGate, budget: "_Budget",
+                    job_id: Optional[str]) -> str:
+    """Genie's answer to the question the author just allowed, as prompt context, or "".
+
+    Asked here rather than left to the agent, so the author's click is what sends
+    it and what is sent is what they read. The answer is remembered in the gate,
+    so the agent asking the same question gets it without a second wait.
+    """
+    question = gate.approved
+    if not question or not gate.offered or ws is None:
+        return ""
+    unasked = ("\n\nThe author allowed a Genie question, but {why}. Build from what you can "
+               "confirm, and say in one line which business definitions you assumed.")
+    if not research_tools.enabled_tools().get("ask_genie"):
+        _trace(job_id, "Genie is switched off for this app, so the question you allowed wasn't asked")
+        return unasked.format(why="Genie is switched off for this app")
+    seconds = min(GENIE_APPROVED_SECONDS, budget.left - MIN_ONE_PASS_SECONDS)
+    if seconds < research_tools.MIN_SECONDS:
+        _trace(job_id, "no time left to ask Genie the question you allowed")
+        return unasked.format(why="there was no time left to ask it")
+    _trace(job_id, f"asking Genie the question you allowed: {question[:160]}")
+    answer = research_tools.ask_genie(ws, question, timeout=seconds)
+    gate.remember(question, answer)
+    if research_tools.genie_failed(answer):
+        _trace(job_id, answer.split("\n", 1)[0][:160])
+        return unasked.format(why=f"it went unanswered ({answer.splitlines()[0][:300]})")
+    _trace(job_id, "Genie answered")
+    return ("\n\nGenie's answer to the question the author allowed, asked as the user before "
+            "you started. Build on it rather than guessing, and don't ask Genie this again.\n"
+            f"Question: {question}\nAnswer: {answer}")
+
+
+def _genie_resend_note(req: GenerateRequest) -> str:
+    """What a turn re-sent from a Genie card needs told about the turn it replaces."""
+    if not (req.approved_genie or req.genie_declined):
+        return ""
+    return ("\n\nThis request was paused once to ask the author about a Genie question. Any "
+            "steps that landed before the pause are already in the current code: keep what it "
+            "does, and build only what the request still needs.")
+
+
+def _genie_pause(job_id: str, gate: research_tools.GenieGate, *, code: Optional[str] = None,
+                 settings: Optional[Dict[str, Any]] = None, done: str = "", **fields) -> None:
+    """Settle a turn whose agent is waiting for the author to approve a Genie question.
+
+    `code` is what a planned run had already landed (None when nothing was), and
+    `done` the account of those steps; the studio applied them as they arrived and
+    keeps them whichever button is pressed.
+    """
+    request = gate.request or {}
+    _trace(job_id, f"waiting for your OK to ask Genie: {request.get('question', '')[:160]}")
+    _settle(job_id, status="completed", **fields, result={
+        "code": code,
+        "explanation": ((done.strip() + "\n\n") if done.strip() else "") + GENIE_PAUSE_TEXT,
+        "raw": "",
+        "settings": settings or {},
+        "genie_request": request,
+    })
 
 
 def _wants_stages(req: GenerateRequest) -> bool:
@@ -1216,13 +1314,15 @@ def _may_need_data(req: GenerateRequest) -> bool:
     return bool(_QUERYING_CODE_RE.search(code)) or _wants_research(req)
 
 
-def _research(model: str, make_llm, tools: List[Any], prompt: str, schema_hint: str) -> str:
+def _research(model: str, make_llm, tools: List[Any], prompt: str, schema_hint: str,
+              genie: Optional[research_tools.GenieGate] = None) -> str:
     """Findings about the data a planned run is about to build on, or `""`.
 
     Optional by construction, like the helpers: no tools, no time, a failure or a
     reply of NONE all mean "plan without it", which is what happened before this
     existed. `make_llm(params)` builds the client, so a parameter the endpoint
-    refuses is dropped and retried here as it is everywhere else.
+    refuses is dropped and retried here as it is everywhere else. A Genie question
+    held for the author ends the round too; the caller checks `genie.request`.
     """
     if not tools:
         return ""
@@ -1233,7 +1333,7 @@ def _research(model: str, make_llm, tools: List[Any], prompt: str, schema_hint: 
         "with the findings only, under 200 words: fully qualified table names, the "
         "exact column names with types, notable values or ranges, and anything that "
         "could not be confirmed. If nothing needs looking up, reply with the single "
-        "word NONE.\n\n" + research_tools.prompt_section(tools)
+        "word NONE.\n\n" + research_tools.prompt_section(tools, genie)
     )
 
     def attempt(params: Dict[str, Any]) -> str:
@@ -1401,14 +1501,16 @@ def _settle(job_id: str, **fields) -> None:
 
 
 def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
-                ask, next_llm, budget: "_Budget", context: str = "") -> None:
+                ask, next_llm, budget: "_Budget", context: str = "", *,
+                genie: Optional[research_tools.GenieGate] = None) -> None:
     """Work through a plan, applying each step to the code the last one produced.
 
     Progress goes onto the job as it happens — including the code so far — so the
     studio can tick steps off and put each one in History as it lands. That is the
     point of staging: a request too big for one reply arrives in pieces that are
     each small enough to succeed, and time running out costs the remaining steps
-    rather than the whole turn.
+    rather than the whole turn. A step that holds a Genie question for the author
+    ends the run the same way: what landed stays, and the turn settles as a pause.
     """
     code = req.current_code or ""
     settings: Dict[str, Any] = {}
@@ -1451,6 +1553,13 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
                 SystemMessage(content=stage_system),
                 HumanMessage(content=prompt_for_stage),
             ])
+            if genie is not None and genie.request is not None:
+                # Whatever this step wrote, it wrote without the answer it asked
+                # for; the re-sent turn builds it again from the code so far.
+                for pending in stages[index:]:
+                    pending["status"] = "skipped"
+                _publish(job_id, stages=stages)
+                break
             next_code, explanation, _raw, meta = _apply_reply(
                 reply, looks_truncated(reply), code, staged_req,
                 next_llm, stage_system, prompt_for_stage, budget, job_id=job_id,
@@ -1492,6 +1601,18 @@ def _run_stages(job_id: str, req: GenerateRequest, stages: List[Dict[str, str]],
             "These steps did not land: " + ", ".join(s["title"] for s in failed) +
             ". Ask again for just those and I'll retry them against the current code."
         )
+
+    if genie is not None and genie.request is not None:
+        _genie_pause(
+            job_id, genie,
+            code=code if done and code != (req.current_code or "") else None,
+            settings=settings,
+            done=(f"Worked through {len(done)} of {len(stages)} steps.\n\n"
+                  + "\n\n".join(summary)) if done or failed else "",
+            stages=stages,
+            stage_index=len(done),
+        )
+        return
 
     _settle(job_id, **{
         "status": "completed",
@@ -1620,7 +1741,9 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             return
 
         prompt = req.prompt
-        system_prompt = _build_system_prompt(req)
+        gate = _genie_gate(req)
+        genie_context = _approved_genie(research_ws, gate, budget, job_id) + _genie_resend_note(req)
+        system_prompt = _build_system_prompt(req) + genie_context
         lc_history = _compact_history(ask_helper, req.history)
         # Files the user attached ride on this turn's message only, so re-sending
         # never compounds them across a conversation.
@@ -1632,12 +1755,14 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
 
         # Read-only SQL and Genie, as the user, narrated into the Thinking panel and
         # held to this job's clock. Empty when an admin has switched both off.
+        # Genie also answers to the author's setting, through `gate`.
         research = research_tools.langchain_tools(
             research_ws,
             note=lambda line: _trace(job_id, line),
             seconds_left=lambda: budget.left,
+            genie=gate,
         ) if _may_need_data(req) else []
-        research_prompt = research_tools.prompt_section(research)
+        research_prompt = research_tools.prompt_section(research, gate)
         tool_prompt = ("\n\n" + research_prompt if research_prompt else "") + _sql_check_hint(research)
         agent_tools = [widget_search_tool(research_ws), *research]
 
@@ -1729,6 +1854,7 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
                     research_ws,
                     note=lambda line: _trace(job_id, line),
                     seconds_left=lambda: min(window.left, budget.left - MIN_ONE_PASS_SECONDS),
+                    genie=gate,
                 )
                 schema_hint = (
                     f"\n\nThe configured data source already returns: {json.dumps(req.data_source_schema)}"
@@ -1737,8 +1863,11 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
                 findings = _research(
                     model_name,
                     lambda params: _widget_llm(api_key, base_url, model_name, window, params),
-                    scoped, prompt, schema_hint,
+                    scoped, prompt, schema_hint + genie_context, genie=gate,
                 )
+                if gate.request is not None:
+                    _genie_pause(job_id, gate)
+                    return
                 if findings:
                     _trace(job_id, "research found: " + " ".join(findings.split())[:300])
             context = (
@@ -1750,7 +1879,8 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             if stages:
                 _trace(job_id, "planned this in "
                        + ", ".join(f"{i + 1}) {s['title']}" for i, s in enumerate(stages)))
-                _run_stages(job_id, req, stages, ask_step, next_llm, budget, context)
+                _run_stages(job_id, req, stages, ask_step, next_llm, budget,
+                            genie_context + context, genie=gate)
                 return
             # No plan, and planning took the allowance with it. Starting a one-pass
             # generation now would spend the rest arriving at the same timeout with
@@ -1769,6 +1899,10 @@ def run_generation_task(job_id: str, req: GenerateRequest, api_key: str, host: s
             max_tokens=_widget_max_tokens(),
             params_fn=llm_params.langchain_params,
         )
+        if gate.request is not None:
+            # Any code in the reply was written without the answer it asked for.
+            _genie_pause(job_id, gate)
+            return
 
         last_message = response["messages"][-1]
         truncated = (_finish_reason(last_message) == "length"
@@ -2124,6 +2258,18 @@ def _llm_credentials(db_client: WorkspaceClient) -> tuple[str, str]:
         raise HTTPException(status_code=500, detail=f"OpenAI client init failed: {e}")
 
 
+def _record_generation(job_id: str, req: GenerateRequest, user_client: WorkspaceClient) -> None:
+    """Log a finished Widget Studio turn for the Activity tab: how it ended, never the prompt or code.
+
+    Queued behind `run_generation_task`, and FastAPI runs a request's background
+    tasks one after another, so the job has settled by the time this reads it.
+    """
+    job = generation_jobs.snapshot(job_id) or {}
+    status = "cancelled" if job.get("cancelled") else (job.get("status") or "unknown")
+    activity.record(caller_identity.username(user_client), "widget.generate", None, None,
+                    {"status": status, "edit": bool(req.current_code), "layout": req.layout_kind})
+
+
 # The handlers below are plain `def` because each one blocks — on the job table,
 # and on the SDK's token fetch — and FastAPI runs those on a thread pool. As
 # `async def` they would stall every other request on the worker while they wait.
@@ -2143,6 +2289,7 @@ def start_generate_widget(req: GenerateRequest, background_tasks: BackgroundTask
     # The host, not a URL: this job may call two models on two different routes,
     # so each one derives its own base path. See `_base_url`.
     background_tasks.add_task(run_generation_task, job_id, req, api_key, host, user_client)
+    background_tasks.add_task(_record_generation, job_id, req, user_client)
 
     # The studio sizes its own polling from this rather than from a hardcoded
     # number, so raising the limit in Settings is enough — the client used to give

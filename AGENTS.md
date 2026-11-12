@@ -56,6 +56,8 @@ under plain `python3` (they insert `server/` on `sys.path` themselves), and they
 deliberately cover only pure helpers so they need no Databricks credentials. Use
 the venv interpreter to run them all: the file-parsing tests need pandas, openpyxl,
 pypdf and python-docx. `server/AGENTS.md` lists each file with its expected count.
+The TypeScript tests, `tests/link_state.test.ts` and `tests/schedules.test.ts`,
+run under Node instead; see the end of `src/AGENTS.md`.
 
 ## Layout
 
@@ -86,6 +88,11 @@ server/                 FastAPI gateway — see server/AGENTS.md
                         drafts.py (drafts and published versions),
                        consolidation.py + access_migration.py (the
                        one-time move to drafts and sharing),
+                       token_vault.py (OAuth refresh tokens, so
+                       scheduled work runs as the user; its routes
+                       are routes/oauth.py), scheduler.py +
+                       schedule_store.py + recurrence.py (scheduled
+                       reports and actions; routes/schedules.py),
                        background.py (work on a timer, once across
                        workers), capabilities.py (optional features:
                        off until set up), activity.py (who did what),
@@ -117,6 +124,14 @@ embeddings are inference of the same kind and signed the same way
 background with nobody signed in, and only a view's own name, description, tab
 names, domain and widget names are sent, never its data. Don't extend SP auth
 beyond that without a comparable justification.
+
+Scheduled and other unattended work is OBO too. It runs with the user's own
+access token, which `server/services/token_vault.py` refreshes from the refresh
+token that person granted this app when they connected: never the service
+principal, never a PAT, and the vault has no fallback. See `server/AGENTS.md` →
+*Token vault*. The scheduler's only exception is a developer's machine, where
+`DEV_MODE=true` *and* `APP_ENVIRONMENT=local` together run schedules as the
+local service principal (`server/AGENTS.md` → *Scheduler*).
 
 **The frontend never holds a secret.** No API keys, M2M credentials, or database
 connection strings in `src/`. If an integration needs a secret, static

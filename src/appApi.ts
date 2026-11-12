@@ -2,10 +2,39 @@ import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import { useDashboardStore } from './store/dashboardStore';
 import { colourProblem, DEFAULT_THEME, effectiveTheme, isTabLink, tabLabel, webAddress, type TabLayout } from './store/appSpec';
 import { fontById } from './fonts';
+import { isAvailable, useCapabilities } from './capabilities';
+import type { ScheduleOutcome, ScheduleRequest } from './schedules';
+
+export type { ScheduleOutcome, ScheduleRequest } from './schedules';
 
 export interface AssistantRequest {
   agentId?: string;
   prompt?: string;
+}
+
+/** A table to send: column names, then rows as arrays in that order or objects keyed by column. */
+export interface EmailTable {
+  columns?: string[];
+  rows: unknown[];
+}
+
+export interface EmailRequest {
+  subject?: string;
+  /** Markdown. The server renders and escapes it; HTML arrives as text. */
+  message?: string;
+  /** Who it is for to start with. The person can change it before sending. */
+  to?: string | string[];
+  /** Drawn under the message, its first 50 rows. */
+  table?: EmailTable;
+  /** Attach the table as a CSV file too. */
+  attachCsv?: boolean;
+}
+
+export interface EmailOutcome {
+  /** True once it went out, or in a local run was written to the server log. */
+  sent: boolean;
+  status: 'sent' | 'logged' | 'cancelled' | 'unavailable';
+  recipients: string[];
 }
 
 /**
@@ -13,6 +42,8 @@ export interface AssistantRequest {
  * `props.app`. It reads nothing beyond the app's own tab names and colours, moves
  * only between this app's tabs, and fills in the assistant without sending:
  * pressing Send stays the user's act, since that is what runs tools as them.
+ * Email follows the same rule: `sendEmail` opens a Send dialog, never sends,
+ * and `schedule` opens the Schedule dialog, never creates.
  */
 export interface AppApi {
   tabs: { id: string; name: string; layout: TabLayout }[];
@@ -27,6 +58,22 @@ export interface AppApi {
   openAssistant: (request?: AssistantRequest) => void;
   /** The view's colors, and its font as a CSS font-family (null: Command Center's). */
   theme: { primary: string; dark: string; font: string | null };
+  /**
+   * Opens the platform's Send dialog with this email filled in: the person
+   * edits the recipients, sees the email as it will arrive and presses Send,
+   * which is logged like `executeAction`. Resolves when the dialog closes.
+   */
+  sendEmail: (request: EmailRequest) => Promise<EmailOutcome>;
+  /** False until email is set up in this app; a widget disables its email button then. */
+  emailAvailable: boolean;
+  /**
+   * Opens the platform's Schedule dialog with this schedule filled in: the
+   * person chooses when it runs and who gets it, and saves, which is logged
+   * like `executeAction`. Resolves when the dialog closes.
+   */
+  schedule: (request: ScheduleRequest) => Promise<ScheduleOutcome>;
+  /** False until scheduling is set up in this app. A scheduled report is emailed, so it needs `emailAvailable` too. */
+  scheduleAvailable: boolean;
 }
 
 export interface ResolvedLink {
@@ -91,6 +138,9 @@ export const useAppApi = (): AppApi | undefined => {
   const primary = theme.primary && !colourProblem(theme.primary) ? theme.primary : DEFAULT_THEME.primary;
   const dark = theme.dark && !colourProblem(theme.dark) ? theme.dark : DEFAULT_THEME.dark;
   const font = fontById(theme.font)?.stack || null;
+  const capabilities = useCapabilities();
+  const emailAvailable = isAvailable(capabilities, 'email');
+  const scheduleAvailable = isAvailable(capabilities, 'scheduling');
 
   const hasApp = !!activeApp;
 
@@ -111,6 +161,13 @@ export const useAppApi = (): AppApi | undefined => {
         door?.open({ agentId: request?.agentId, prompt: request?.prompt });
       },
       theme: { primary, dark, font },
+      // ExecuteActionPropInjector replaces these for each widget whose actions
+      // are logged; anywhere else a Send or a Save would leave no audit row, so
+      // no dialog opens.
+      sendEmail: () => Promise.resolve<EmailOutcome>({ sent: false, status: 'unavailable', recipients: [] }),
+      emailAvailable,
+      schedule: () => Promise.resolve<ScheduleOutcome>({ scheduled: false, status: 'unavailable' }),
+      scheduleAvailable,
     };
-  }, [hasApp, tabsKey, activeTabId, primary, dark, font, door, selectTab]);
+  }, [hasApp, tabsKey, activeTabId, primary, dark, font, door, selectTab, emailAvailable, scheduleAvailable]);
 };

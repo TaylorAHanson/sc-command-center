@@ -32,7 +32,7 @@ const Body = () => (
       rows={[
         [<UI>Search widgets…</UI>, 'Searches names and descriptions across every group, ignoring the group you picked on the left.'],
         [<><UI>Categories</UI> / <UI>Domains</UI></>, 'Groups the list down the left side; the number beside each group is how many widgets it holds. Domains are labels for finding things, not permissions.'],
-        [<><UI>Grid View</UI> / <UI>List View</UI></>, 'Cards with previews, or a table of name, creator, status, popularity and size.'],
+        [<><UI>Grid View</UI> / <UI>List View</UI></>, 'Cards with previews, or a table of name, creator, status, popularity and size. A row shows the same badges under Status, and the same hover icons, as a card.'],
         [<UI>Certified</UI>, 'Shows widgets marked certified, plus your own. Your choice is remembered in this browser.'],
         [<><UI>All</UI> / <UI>Mine</UI> / <UI>Shared with me</UI></>, 'Every widget you can see, the widgets you built, or the widgets other people built and shared with you.'],
         [<UI>Top creators</UI>, <>Lists who builds the widgets people use. Click a name to see only their widgets; the <UI>by …</UI> button next to the filters clears it.</>],
@@ -53,7 +53,8 @@ const Body = () => (
         <li>
           Hover icons: <UI>Clone widget</UI> opens a copy in Widget Studio as a new widget of your own, the share icon
           opens <UI>Share</UI> to see who has the widget (and change that, if you can manage it), and{' '}
-          <UI>Edit in Widget Studio</UI> and <UI>Delete widget</UI> appear for people who can manage the widget.
+          <UI>Edit in Widget Studio</UI> and <UI>Delete widget</UI> appear for people who can manage the widget. In list
+          view the same icons appear at the end of the row when you hover it.
         </li>
         <li>
           Can&rsquo;t find a widget you were told about? It has to be shared with you and published. A widget you only
@@ -180,6 +181,35 @@ const Body = () => (
       full-page tab, which is already full size.
     </P>
 
+    <H2 id="email">Send a widget&rsquo;s numbers by email</H2>
+    <P>
+      Some widgets have an email button. It opens the <UI>Send</UI> dialog, and nothing is sent until you press <UI>Send</UI> there.
+    </P>
+    <Steps>
+      <Step title="Choose who it goes to">
+        Type addresses in <UI>To</UI>, separated by commas. The widget may have filled some in; change them as you like. The line under the box says
+        how many people and which domains this app allows.
+      </Step>
+      <Step title="Check the subject and the preview">
+        The preview is the email exactly as it will arrive, with the widget&rsquo;s table and the name of any attached CSV.
+      </Step>
+      <Step title="Send">
+        Press <UI>Send</UI>. The email comes from the app&rsquo;s own address, replies come to you, and its footer names you and the view, with a link back
+        to it. The send is recorded in <UI>Action Logs</UI>.
+      </Step>
+    </Steps>
+    <Callout kind="note" title="Why Send might be unavailable">
+      <List>
+        <li><UI>Email isn&rsquo;t set up in this app yet</UI>: your administrators haven&rsquo;t finished setting up email. Ask them.</li>
+        <li>An address is outside the domains this app allows, or the email has too many recipients. The dialog names the problem.</li>
+        <li>You have reached the number of emails one person may send in 24 hours (50 unless an administrator changed it).</li>
+      </List>
+    </Callout>
+    <P>
+      To have the same numbers emailed on a timetable instead, use the widget&rsquo;s <UI>Schedule</UI> button if it has one; see{' '}
+      <GuideLink to="schedules">Scheduled reports</GuideLink>.
+    </P>
+
     <H2 id="remove-a-widget">Remove a widget</H2>
     <P>
       Click the X in the widget's header. It leaves the tab at once, with no confirmation, and its settings go with
@@ -202,6 +232,6 @@ export const section: GuideSection = {
   title: 'Using widgets',
   summary: 'Find a widget, drop it on a view, arrange it and set it up.',
   icon: MousePointerClick,
-  keywords: 'widget library drag drop resize move remove gear settings version fullscreen link certified search clone',
+  keywords: 'widget library drag drop resize move remove gear settings version fullscreen link certified search clone email send recipients csv',
   Body,
 };
