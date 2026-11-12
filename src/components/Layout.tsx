@@ -63,7 +63,8 @@ const PageLoading: React.FC = () => (
 const PAGES = ['admin', 'studio', 'agent-studio', 'settings', 'help', 'about', 'user-guide', 'release-notes', 'schedules'];
 // `#/user-guide/<section>` is still the guide: a page may carry a path of its own
 // after its name, which that page reads itself (the guide's sections, for one).
-const pageOf = (hash: string): string | null => PAGES.find(p => hash === `#/${p}` || hash.startsWith(`#/${p}/`)) ?? null;
+const pageOf = (hash: string): string | null =>
+  PAGES.find(p => hash === `#/${p}` || hash.startsWith(`#/${p}/`) || hash.startsWith(`#/${p}?`)) ?? null;
 
 const when = (value?: string | null) => (value ? new Date(value).toLocaleString() : '');
 
@@ -280,8 +281,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       if (!showing) newHash = appHash(activeApp, linkTab(activeApp, activeAppTab), null, standalone);
     }
 
-    // A page's own path ("#/user-guide/promotion") is that page's to keep.
-    const insidePage = !!currentPage && window.location.hash.startsWith(`#/${currentPage}/`);
+    // A page's own path ("#/user-guide/promotion") or query ("#/discover?q=…") is that page's to keep.
+    const insidePage = !!currentPage
+      && (window.location.hash.startsWith(`#/${currentPage}/`) || window.location.hash.startsWith(`#/${currentPage}?`));
     if (newHash && !insidePage && window.location.hash !== newHash) {
       window.location.hash = newHash;
     }

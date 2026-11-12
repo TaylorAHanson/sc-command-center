@@ -926,13 +926,21 @@ missing hides itself.
 Run `npm run lint` before finishing; `npm run build` type-checks via `tsc -b`
 and is the real gate, since dev mode won't surface every type error.
 
-`linkState.ts` and `schedules.ts` have their own tests, run with Node 22.6 or
-later and nothing to install:
+`linkState.ts`, `schedules.ts` and `discoverRoute.ts` have their own tests, run
+with Node 22.6 or later and nothing to install:
 
 ```
-node --experimental-strip-types tests/link_state.test.ts   # 17 passed
-node --experimental-strip-types tests/schedules.test.ts    # 26 passed
+node --experimental-strip-types tests/link_state.test.ts      # 17 passed
+node --experimental-strip-types tests/schedules.test.ts       # 26 passed
+node --experimental-strip-types tests/discover_route.test.ts  # 5 passed
 ```
 
-Each imports its module directly, so keep both free of React, of runtime
+Each imports its module directly, so keep them free of React, of runtime
 imports, and of `window` outside function bodies.
+
+**Discover in the browser** goes through `discover.ts`: the light-row types and
+one function per `/api/discover` route, plus `recordVisit` (at most once an hour
+per view per tab). Its search parameters and the page's own address,
+`#/discover?q=…&scope=…&sort=…&rail=…`, are in `discoverRoute.ts`
+(`discoverHref`, `parseDiscoverHref`), so the sidebar and the page agree on it.
+`pageOf` in `Layout.tsx` accepts `#/<page>?…` as well as `#/<page>/…`.
