@@ -338,13 +338,14 @@ const Body = () => (
     </Details>
     <Shot
       name="studio-agent-settings"
-      alt="The Agent settings menu with two checkboxes"
+      alt="The Agent settings menu with two checkboxes and the Genie choice"
       caption="Agent settings, opened from the sliders icon."
       narrow
       legend={[
         'The sliders icon above the chat.',
         'Conduct review after change.',
         'Ask before large builds.',
+        'Genie: Ask each time, Always allow or Off.',
       ]}
     />
 
