@@ -314,5 +314,22 @@ export const modeNote = (q: string | undefined, answered: SearchMode, configured
     };
 };
 
+/** The most views Combine views takes: every view gives at least one tab, and a view has at most 50 (`MAX_TABS`). */
+export const MAX_COMBINED = 50;
+
+/** `row` added to the end of what Combine views will copy, once, up to the limit. */
+export const addPick = (picked: ViewRow[], row: ViewRow): ViewRow[] =>
+    picked.some(r => r.id === row.id) || picked.length >= MAX_COMBINED ? picked : [...picked, row];
+
+/** The picks with `id` moved one place earlier (-1) or later (1); the order is the new view's tab order. */
+export const movePick = (picked: ViewRow[], id: string, by: -1 | 1): ViewRow[] => {
+    const from = picked.findIndex(r => r.id === id);
+    const to = from + by;
+    if (from < 0 || to < 0 || to >= picked.length) return picked;
+    const out = [...picked];
+    [out[from], out[to]] = [out[to], out[from]];
+    return out;
+};
+
 export const countText = (total: number, capped: boolean): string =>
     capped ? `Top ${total.toLocaleString()} matches` : `${total.toLocaleString()} view${total === 1 ? '' : 's'}`;

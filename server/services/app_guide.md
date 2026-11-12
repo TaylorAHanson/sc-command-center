@@ -168,6 +168,14 @@ Back, a reload or a copied link opens it the same way.
   sidebar. **⋯ → Hide from rails** takes a view out of the rails for you only;
   search still finds it, marked **Hidden**, and **Unhide** brings it back. A
   view you manage also has **Share…** there.
+- **Combine views…** (beside the search box; **⋯ → Combine with other
+  views…** on a card starts with that view picked) merges several views
+  (dashboards) into one new view: name it, search for views and **Add** them,
+  order them with the arrows, choose where it opens, then **Create view**. Each
+  view becomes a tab named after it; one with several tabs brings them all,
+  names kept; at most 50 tabs in all. The views are copied as you see them now
+  and don't change, so their links keep working. The new view is a draft only
+  you can see until you publish it.
 - **Administrators** get **Feature** / **Unfeature** (adds it to the end of the
   Featured rail for everyone who can open it) and **Certify** / **Uncertify**
   (the green Certified badge and the Certified rail) on every card. Neither
@@ -200,7 +208,9 @@ shows while the app reads every view; what it has read can already be found.
   a tab. Whoever may move widgets
   in a view may change its tabs: someone who can manage it, in its draft, and
   not while it is locked. The published version is read-only for everyone. A
-  widget added from the Widget Library goes on the tab being shown.
+  widget added from the Widget Library goes on the tab being shown. To make
+  one view whose tabs are copies of other views, use **Combine views…** in
+  Discover (*Finding and searching views*).
 - A tab is **Cards on a grid** (several widgets, each in a card; the default)
   or a **Full page** (one widget filling the whole tab, with no card around it,
   for a landing page or hub). **Add a tab…** and the **+** ask which for a new

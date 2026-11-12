@@ -938,7 +938,7 @@ their own tests, run with Node 22.6 or later and nothing to install:
 node --experimental-strip-types tests/link_state.test.ts      # 17 passed
 node --experimental-strip-types tests/schedules.test.ts       # 26 passed
 node --experimental-strip-types tests/discover_route.test.ts  # 6 passed
-node --experimental-strip-types tests/discover_page.test.ts   # 15 passed
+node --experimental-strip-types tests/discover_page.test.ts   # 16 passed
 ```
 
 Each imports its module directly, so keep them free of React, of runtime
@@ -963,3 +963,5 @@ listens for it, and the sidebar should too, so a view starred in one place is
 starred in the other without a refetch. Anything that lets someone pick a view
 uses `components/discover/ViewSearchBox.tsx` over `suggestViews`/`searchViews`,
 never a list of every view: a deployment can hold tens of thousands.
+`components/discover/ComposeDialog.tsx` (Combine views, `POST
+/api/apps/compose`) is the model: a search box, then an ordered pick list.

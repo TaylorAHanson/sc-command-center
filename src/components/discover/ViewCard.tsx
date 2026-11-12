@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-    AppWindow, Eye, EyeOff, PencilLine, Share2, ShieldCheck, ShieldOff, Sparkles, Star, Users, type LucideIcon,
+    AppWindow, Eye, EyeOff, Layers, PencilLine, Share2, ShieldCheck, ShieldOff, Sparkles, Star, Users, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { ViewRow } from '../../discover';
@@ -17,6 +17,8 @@ export interface ViewActions {
     onFeature: (row: ViewRow) => void;
     onCertify: (row: ViewRow) => void;
     onShare: (row: ViewRow) => void;
+    /** Starts Combine views with this view picked. */
+    onCombine?: (row: ViewRow) => void;
 }
 
 /** Opens a view the way its link would, or in a new tab with a modifier held. */
@@ -37,6 +39,10 @@ const menuSections = (row: ViewRow, a: ViewActions): HeaderMenuSection[] => {
                 : { key: 'hide', label: 'Hide from rails', icon: EyeOff, title: 'Only for you. Search still finds it.', onSelect: () => a.onHide(row) },
         ],
     };
+    if (a.onCombine) {
+        const combine = a.onCombine;
+        general.items.push({ key: 'combine', label: 'Combine with other views…', icon: Layers, onSelect: () => combine(row) });
+    }
     if (a.isAdmin || row.access === 'MANAGE') {
         general.items.push({ key: 'share', label: 'Share…', icon: Share2, onSelect: () => a.onShare(row) });
     }
