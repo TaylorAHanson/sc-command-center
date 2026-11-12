@@ -40,6 +40,10 @@
 - **The address keeps your filters.** A view's filters and widget settings are saved in its address, so a reload or Back opens it set the same way.
 - **Copy link shares what you see.** **Copy link** and a widget's share link include the current filters and settings, and open exactly as sent.
 - **Widgets can keep their settings in the link.** Widget Studio now builds sorts, searches and date ranges to be saved in the view's link; ask the agent to leave any out.
+- **Schedule a report.** A widget's **Schedule** button opens a dialog to email its results hourly, daily, weekly or monthly, to the people you choose.
+- **My schedules.** Resources → **My schedules** lists your schedules with their last and next runs: **Run now**, pause, edit, delete or see each one's history.
+- **Reminder to reconnect.** A banner across the top warns when your schedules' connection ends within a week or needs reconnecting, and links to My schedules.
+- **Widgets can offer a Schedule button.** Ask Widget Studio for "a button that emails this every Monday" and it adds one that opens the Schedule dialog.
 
 ### Changed
 

@@ -14,6 +14,7 @@ import { useShell } from '../shell';
 import { DashboardGrid } from './DashboardGrid';
 import { AgentDrawer } from './AgentDrawer';
 import { ShareDialog } from './sharing';
+import { OAuthOutcomeToast } from './ScheduleNotices';
 
 // The browser tab is the page's, not this component's: whatever it said before
 // the app opened is put back when the app closes.
@@ -249,6 +250,8 @@ export const AppShell: React.FC = () => {
           onChanged={acl => sharingChanged(activeApp.id, acl)}
         />
       )}
+
+      <OAuthOutcomeToast />
     </div>
   );
 };

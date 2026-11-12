@@ -220,7 +220,7 @@ export const GuideLink: React.FC<{ to: string; anchor?: string; children: React.
 );
 
 /** A link that opens a page of the app itself, such as Agent Studio. */
-export const OpenLink: React.FC<{ page: 'studio' | 'agent-studio' | 'admin' | 'settings' | 'release-notes' | 'about'; children: React.ReactNode }> = ({ page, children }) => (
+export const OpenLink: React.FC<{ page: 'studio' | 'agent-studio' | 'admin' | 'settings' | 'release-notes' | 'about' | 'schedules'; children: React.ReactNode }> = ({ page, children }) => (
   <a href={`#/${page}`} className="inline-flex items-center gap-0.5 text-brand-blue font-medium hover:underline">
     {children}<ArrowUpRight className="w-3.5 h-3.5" />
   </a>

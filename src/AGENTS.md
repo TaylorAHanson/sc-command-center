@@ -692,6 +692,16 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
   because the dialog needs the widget's `executeAction`. The dialog's preview is
   the server's rendering, shown in an `<iframe sandbox="">`; don't render email
   HTML into the page.
+- `props.app.schedule` is bound the same way, right after it
+  (`hooks/useWidgetSchedule.ts`): a call opens `WidgetScheduleDialog` in
+  `components/ScheduleDialog.tsx`, which captures the view, the widget and the
+  current link (link state included) when it opens, and saves through the
+  widget's `executeAction` before `POST /api/schedules`. Next-run times, DST and
+  month ends are the server's: the browser only shows `next_run_at`, never
+  computes one. A connect leaves with `window.location.assign` to
+  `/api/oauth/connect?return_to=…`; `main.tsx` takes the `oauth` / `oauth_error`
+  outcome out of the address before anything reads it, and
+  `OAuthOutcomeToast` (in Layout and AppShell) shows it once.
 - `hooks/useActionLogger.ts` — the `logAction` telemetry path.
 - Emitter/receiver pattern: emitters call `props.data.setVariable(key, value)`,
   receivers read `props.data.variables?.key`. Emitters must seed their variable
@@ -879,7 +889,7 @@ main.tsx Root.tsx       Entry point; Root picks the shell (workspace or one app)
 shell.ts                ShellContext: present an app on its own / edit it
 App.tsx                 The workspace: Layout around DashboardGrid
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
-                        Help/About/UserGuide, AdminPage
+                        Help/About/UserGuide, AdminPage, SchedulesPage
 pages/admin/            AdminContent, Administrators, MigrationBanner,
                         TaxonomyManager, SettingsManager, DataMigration,
                         ActivityLog, openObject (where Open/Edit goes)
@@ -887,6 +897,10 @@ sharing.ts              Sharing labels and ACL helpers (see *The sharing kit*)
 capabilities.ts         useCapabilities: which optional features are set up
 email.ts                Send dialog helpers and useWidgetEmail; the dialog is
                         components/SendEmailDialog.tsx
+schedules.ts            /api/schedules and /api/oauth types, requests and pure
+                        helpers; the dialog is components/ScheduleDialog.tsx,
+                        the page pages/SchedulesPage.tsx (#/schedules), the
+                        banner and connect toast components/ScheduleNotices.tsx
 contentEnv.ts           Legacy shims; only stripLegacyEnvParam is used
 components/sharing/     ShareDialog, PrincipalPicker, DraftBar, PublishDialog,
                         AccessIcon, useDialog
@@ -896,7 +910,8 @@ components/             BaseWidget, DashboardGrid, WidgetPreview, WidgetTray,
                         ThinkingDisclosure, AttachmentChip, ThumbnailCapture,
                         WidgetDiagnostics
 hooks/                  useAgentChat, useChatUploads, useActionLogger,
-                        useDashboardContext, useScript, useLinkState
+                        useDashboardContext, useScript, useLinkState,
+                        useWidgetSchedule
 contexts/ store/        ActionContext, dashboardStore
 ```
 
@@ -911,6 +926,13 @@ missing hides itself.
 Run `npm run lint` before finishing; `npm run build` type-checks via `tsc -b`
 and is the real gate, since dev mode won't surface every type error.
 
-`linkState.ts` has its own test, run with Node 22.6 or later and nothing to
-install: `node --experimental-strip-types tests/link_state.test.ts` (17 passed).
-It imports the module directly, so keep `linkState.ts` free of React and `window`.
+`linkState.ts` and `schedules.ts` have their own tests, run with Node 22.6 or
+later and nothing to install:
+
+```
+node --experimental-strip-types tests/link_state.test.ts   # 17 passed
+node --experimental-strip-types tests/schedules.test.ts    # 26 passed
+```
+
+Each imports its module directly, so keep both free of React, of runtime
+imports, and of `window` outside function bodies.

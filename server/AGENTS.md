@@ -1018,9 +1018,12 @@ kept only when it is on the request's own origin (`own_view_link`).
 **The browser side.** `props.app.sendEmail` never sends: `ExecuteActionPropInjector`
 binds it per widget to the Send dialog (`src/components/SendEmailDialog.tsx`),
 whose Send goes through that widget's `executeAction`, so the action log row is
-written first and its `request_id` is stored on the `email_log` row. Widget code
-could still call `/api/email/send` itself; the contract forbids it, and the
-recipient policy, caps and log apply either way.
+written first and its `request_id` is stored on the `email_log` row. Saving a
+widget whose code names `/api/email/send` (or `/api/schedules`, which
+`props.app.schedule` reaches the same way through the Schedule dialog) in a
+string is refused by `widget_safety.DIALOG_ROUTES`. That catches the generated
+case, not a determined author who builds the path at runtime, so the recipient
+policy, caps and log are still what hold either way.
 
 ## Token vault (`services/token_vault.py`, `routes/oauth.py`)
 
@@ -1826,7 +1829,7 @@ PYTHONPATH=server .venv/bin/python tests/test_drafts.py               # 16 passe
 PYTHONPATH=server .venv/bin/python tests/test_access_migration.py     # 34 passed
 PYTHONPATH=server .venv/bin/python tests/test_consolidation.py        # 29 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_publish.py       # 31 passed
-PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 32 passed
+PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 38 passed
 PYTHONPATH=server .venv/bin/python tests/test_background.py           # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed

@@ -43,6 +43,13 @@ const MAX_FINDINGS = 30;
 
 const LINK_STATE_KEY_RE = /^(['"`])[A-Za-z0-9_-]+\1$/;
 
+// Saving refuses code naming these in a string (DIALOG_ROUTES in
+// `server/services/widget_safety.py`); keep the two lists in step.
+const DIALOG_ROUTES: [RegExp, string, string][] = [
+    [/['"`][^'"`\n]*\/api\/email\/send/, '/api/email/send', 'props.app.sendEmail'],
+    [/['"`][^'"`\n]*\/api\/schedules/, '/api/schedules', 'props.app.schedule'],
+];
+
 // Mirrors the `require` shim in WidgetStudio's compile step and widgetRegistry:
 // React, ReactDOM, or a global of that name (Highcharts preloaded by index.html).
 const sandboxHasModule = (name: string): boolean => {
@@ -237,6 +244,14 @@ export function lintWidget(code: string, options: LintOptions = {}): LintFinding
     if (write >= 0 && !/\bexecuteAction\b/.test(code)) {
         add('write-without-action', 'error', write,
             'This widget writes data without `props.executeAction`, so the change bypasses the audit trail. Run the write inside an executeAction callback.');
+    }
+
+    for (const [pattern, route, use] of DIALOG_ROUTES) {
+        const call = pattern.exec(code);
+        if (call) {
+            add('direct-send-or-schedule', 'error', call.index,
+                `Saving is refused while the code calls \`${route}\`. Use \`${use}\`, which opens the platform's dialog so the person checks it first.`);
+        }
     }
 
     // --- warnings: usually wrong, sometimes deliberate -------------------------

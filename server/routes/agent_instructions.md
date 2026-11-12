@@ -286,7 +286,8 @@ props.app?.emailAvailable  // false until email is set up in this app
   hardcode addresses outside the user's organization.
 - **Never call `/api/email/...` yourself, and don't wrap `sendEmail` in
   `executeAction`.** The dialog's Send is what records the email in the audit
-  trail and lets the person check who it goes to.
+  trail and lets the person check who it goes to. Saving is refused while the
+  code contains `/api/email/send` in a string.
 - Where the widget has no view around it (Widget Studio's preview), the call
   describes the dialog it would open instead.
 
@@ -303,6 +304,77 @@ const canEmail = !!props.app?.emailAvailable;
   })}
   className="px-3 py-1.5 rounded-md bg-brand-blue text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed">
   Email this
+</button>
+```
+
+### Scheduling a report (`props.app.schedule`)
+
+Use this when the user asks for a widget whose results go out on a timetable
+("email me this every Monday", "send the team this report daily", "a Schedule
+button"). It opens the app's own Schedule dialog filled in; the person chooses
+when it runs and who gets it, and presses Save. The widget never creates a
+schedule itself. Each run executes the query again later, as the person who
+scheduled it and with their access to data, and emails the results.
+
+```ts
+props.app?.schedule({
+  sql,                                      // required: the statement the widget runs for what it shows
+  name: 'Open orders – West',               // optional; the person can edit everything below
+  subject: 'Open orders – West',
+  message: 'Open orders for **West**.',     // Markdown, as in sendEmail
+  sendWhen: 'has_rows',                     // 'always' (default) | 'has_rows' | 'no_rows'
+  attachCsv: true,                          // attach the results as a CSV
+  recipients: ['me@example.com'],           // optional; defaults to the person scheduling
+  recurrence: { freq: 'weekly', days: [1], time: '08:00' }, // optional; defaults to every day at 08:00
+})  // → Promise<{ scheduled: boolean, id?: string, status?: string }>
+props.app?.scheduleAvailable  // false until scheduling is set up in this app
+props.app?.emailAvailable     // a scheduled report is emailed, so it needs this too
+```
+
+- **Offer it only when asked**, or when the user wants something recurring
+  ("every morning", "weekly"), and only on a widget that shows the result of one
+  SQL statement. Don't add a Schedule button to every widget.
+- **Pass the widget's own SQL, exactly as it runs it now**: the same statement,
+  with the filter values the widget has applied. The schedule keeps that text,
+  so a filter changed later doesn't change it. Use a read-only statement.
+- **`recurrence`**: `freq` is `'hourly'`, `'daily'`, `'weekly'` or `'monthly'`;
+  `time` is 24-hour `"HH:MM"` (hourly uses only its minutes); weekly `days` are
+  1 (Monday) to 7 (Sunday); monthly `days` are 1 to 31, and a day past a short
+  month's end runs on its last day. `tz` is an IANA zone; leave it out and the
+  person's own is used.
+- **`kind: 'run_statement'`** schedules the statement itself to run, emailing
+  nobody. The dialog offers it only on an executable widget, so use it only
+  there, and only when the user asked for a write to run on a timetable.
+- **Disable the button** with the title `Scheduling isn't set up in this app
+  yet` when `props.app?.scheduleAvailable` is false, or `Email isn't set up in
+  this app yet` when `props.app?.emailAvailable` is false. Keep it visible.
+- **Never call `/api/schedules` yourself, and don't wrap `schedule` in
+  `executeAction`.** Saving the widget is refused while its code contains
+  `/api/schedules` in a string. The dialog's Save is what records the schedule
+  in the audit trail and lets the person check it.
+- **Don't promise it's scheduled.** The promise resolves when the dialog
+  closes, with `scheduled` false if the person cancelled. A new schedule may wait
+  for the person to connect their account (`status: 'needs_reconnect'`); the
+  dialog walks them through it.
+- Where the widget has no view around it (Widget Studio's preview), the call
+  describes the dialog it would open instead.
+
+```tsx
+const canSchedule = !!props.app?.scheduleAvailable && !!props.app?.emailAvailable;
+<button
+  disabled={!canSchedule}
+  title={!props.app?.scheduleAvailable ? "Scheduling isn't set up in this app yet"
+    : !props.app?.emailAvailable ? "Email isn't set up in this app yet" : 'Email this on a schedule'}
+  onClick={() => props.app?.schedule({
+    sql,
+    name: `Open orders – ${region}`,
+    subject: `Open orders – ${region}`,
+    sendWhen: 'has_rows',
+    attachCsv: true,
+    recurrence: { freq: 'weekly', days: [1, 2, 3, 4, 5], time: '08:00' },
+  })}
+  className="px-3 py-1.5 rounded-md border border-gray-300 text-slate-800 text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+  Schedule
 </button>
 ```
 
