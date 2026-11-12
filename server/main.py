@@ -138,15 +138,19 @@ async def startup_event():
     from services import email_service
     capabilities.register("email", "Email", email_service.capability)
 
-    # Scheduling's token vault (services/token_vault.py). Guarded because anything
+    # Scheduling: the token vault (services/token_vault.py) and the scheduler that
+    # runs as each owner through it (services/scheduler.py). Guarded because anything
     # raised here stops the whole app, and a broken vault should cost scheduling only.
     try:
-        from services import token_vault
+        from services import scheduler, token_vault
 
-        capabilities.register("scheduling", "Scheduling", token_vault.capability)
+        capabilities.register("scheduling", "Scheduling", scheduler.capability)
         background.register("oauth_pending_purge", 3600, token_vault.purge_pending)
+        background.register("scheduler", scheduler.TICK_SECONDS, scheduler.tick)
+        background.register("schedule_reconnect", scheduler.RECONNECT_SECONDS, scheduler.resume_reconnected)
+        background.register("schedule_reminders", scheduler.REMINDER_SECONDS, scheduler.send_reminders)
     except Exception as e:  # noqa: BLE001
-        logging.error(f"Could not register the token vault: {e}", exc_info=True)
+        logging.error(f"Could not register scheduling: {e}", exc_info=True)
 
     background.start()
 
@@ -327,6 +331,7 @@ from routes import capabilities as capabilities_routes
 from routes import activity as activity_routes
 from routes import email as email_routes
 from routes import oauth
+from routes import schedules
 app.include_router(custom_widgets.router, prefix="/api/widgets", tags=["custom_widgets"])
 app.include_router(widget_studio.router, prefix="/api/agent/widget", tags=["widget_studio"])
 app.include_router(agent_studio_profiles.router, prefix="/api/agent/studio", tags=["agent_studio_profiles"])
@@ -347,6 +352,7 @@ app.include_router(capabilities_routes.router, prefix="/api/capabilities", tags=
 app.include_router(activity_routes.router, prefix="/api/activity", tags=["activity"])
 app.include_router(email_routes.router, prefix="/api/email", tags=["email"])
 app.include_router(oauth.router, prefix="/api/oauth", tags=["oauth"])
+app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
 
 
 # Serve Frontend
