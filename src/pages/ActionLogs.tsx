@@ -21,6 +21,9 @@ interface ActionLogsProps {
 export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
     const [logs, setLogs] = useState<ActionLog[]>([]);
     const [loading, setLoading] = useState(true);
+    // A refusal or a failed load must not read as "No logs found": an empty log
+    // and one you aren't allowed to see are different answers.
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [expandedRow, setExpandedRow] = useState<number | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -31,9 +34,14 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
                 if (response.ok) {
                     const data = await response.json();
                     setLogs(data);
+                } else {
+                    setLoadError(response.status === 403
+                        ? 'Only administrators can read the action logs.'
+                        : 'Couldn’t load the action logs. Reload the page to try again.');
                 }
             } catch (error) {
                 console.error('Failed to fetch action logs', error);
+                setLoadError('Couldn’t load the action logs. Reload the page to try again.');
             } finally {
                 setLoading(false);
             }
@@ -89,6 +97,10 @@ export const ActionLogs: React.FC<ActionLogsProps> = ({ onNavigate }) => {
             {loading ? (
                 <div className="flex-1 flex items-center justify-center">
                     <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+                </div>
+            ) : loadError ? (
+                <div className="flex-1 flex items-center justify-center text-sm text-gray-600" role="alert">
+                    {loadError}
                 </div>
             ) : (
                 <div className="flex-1 overflow-auto bg-white rounded-lg shadow border border-gray-200">

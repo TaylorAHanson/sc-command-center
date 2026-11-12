@@ -227,6 +227,26 @@ const Body = () => (
       <li>Each step of a multi-step build can do the same, and the agent runs any SQL it writes once before handing the code back.</li>
     </List>
 
+    <H3 id="genie-approval">It asks before it uses Genie</H3>
+    <P>
+      Genie knows what business terms mean in your organization, such as what counts as a late shipment. When the
+      agent wants to ask Genie something, it stops and shows you the exact question and why it wants to know.
+    </P>
+    <List>
+      <li><UI>Allow once</UI> asks that question and carries on with the answer.</li>
+      <li>
+        <UI>Always allow</UI> does the same and stops asking from then on. Change it back in{' '}
+        <GuideLink to="widget-studio" anchor="agent-settings">Agent settings</GuideLink>.
+      </li>
+      <li><UI>Continue without Genie</UI> carries on without it, and the agent says which definitions it assumed.</li>
+    </List>
+    <P>
+      It asks at most one question a turn, and only about meaning. Table names, values and row counts it checks
+      with SQL instead. A message that tells it to ask Genie, such as "ask Genie how late is defined", is your OK
+      for that turn. In a multi-step build, the steps it finished before asking stay in the editor. If an admin
+      has switched Genie off in Admin Panel → Settings, the agent never asks.
+    </P>
+
     <H3 id="watches-preview">It watches the preview and fixes its own mistakes</H3>
     <P>
       The studio watches the preview run: every request the widget makes and how many rows came back, anything it
@@ -279,8 +299,8 @@ const Body = () => (
 
     <H3 id="agent-settings">Agent settings</H3>
     <P>
-      The sliders icon above the chat opens <UI>Agent settings</UI>. Both options are remembered in your
-      browser, so they are yours rather than everyone's.
+      The sliders icon above the chat opens <UI>Agent settings</UI>. Each option is remembered in your
+      browser, so it is yours rather than everyone's.
     </P>
     <List>
       <li>
@@ -291,6 +311,11 @@ const Body = () => (
       <li>
         <UI>Ask before large builds</UI> (on by default): the clarifying questions described above. Turn it off
         if you would rather it always guessed and got straight to work.
+      </li>
+      <li>
+        <UI>Genie</UI> (<UI>Ask each time</UI> by default): whether the agent shows you each Genie question
+        first, asks without stopping (<UI>Always allow</UI>), or never uses Genie (<UI>Off</UI>). See{' '}
+        <GuideLink to="widget-studio" anchor="genie-approval">It asks before it uses Genie</GuideLink>.
       </li>
     </List>
     <Details summary="What a review checks and what the chips mean">

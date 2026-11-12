@@ -420,7 +420,9 @@ outside closes it. It lists the widgets in the domain selected, most used first.
   list to every widget, widgets you built, or widgets other people built and
   shared with you.
 - **Grid View** shows cards with previews; **List View** a table of name,
-  creator, status, popularity and size.
+  creator, status, popularity and size. A row's **Status** shows the same
+  **CERTIFIED**, **PAGE** and draft badges as a card, and hovering a row shows
+  the same icons as hovering a card.
 - **Certified** shows certified widgets plus the person's own, remembered in
   that browser. **Top creators** lists who builds the widgets people use;
   clicking a name shows only theirs.
@@ -543,13 +545,24 @@ open each card's gear there when those values must differ.
   rather than being pasted in as fixed numbers. Each step of a multi-step build
   can do this too, and it runs any SQL it writes once before handing the code
   back. Admins can switch either tool off in Admin Panel → Settings.
+  **Before it asks Genie anything** it stops and shows the exact question and a
+  one-line reason on a card in the chat. **Allow once** asks that question and
+  carries on with the answer; **Always allow** does the same and switches the
+  *Genie* agent setting to Always allow; **Continue without Genie** carries on
+  without it, and the agent says which business definitions it assumed. Any
+  other question needs a new card. A message that itself tells the agent to ask
+  Genie ("ask Genie how late is defined") is the OK for that turn. It asks
+  Genie at most one question a turn and only about what business terms mean —
+  never for table names, values or row counts, which it checks with SQL. In a
+  multi-step build, steps finished before the card stay in the editor. With
+  Genie switched off by an admin there is no Genie and no card.
 - **Attachments and screenshots** — the paperclip attaches spreadsheets,
   documents and images for the agent to read, a screenshot or copied image can
   be pasted straight into the message box, and **Send screenshot to agent**
   under the preview attaches a picture of the widget as it currently looks.
   Neither sends on its own: the file waits on the next message, so "this column
   is too narrow" arrives with the thing it describes.
-- **Agent settings** (the sliders icon above the chat) — two options, remembered
+- **Agent settings** (the sliders icon above the chat) — three options, remembered
   in that browser rather than set for everyone. *Conduct review after change*
   (off by default) has the agent re-read its own code once it has compiled and
   run in the preview, as a QA pass over behaviour, states, layout and
@@ -563,7 +576,10 @@ open each card's gear there when those values must differ.
   edit or send, so acting on a suggestion is one click rather than retyping it.
   It costs an extra turn. *Ask before large builds* (on by default) is the
   clarifying-question behaviour above, and can be switched off by anyone who
-  would rather it always guessed.
+  would rather it always guessed. *Genie* — **Ask each time** (the default),
+  **Always allow** or **Off** — decides whether the agent shows each Genie
+  question first, asks without stopping, or never uses Genie. An admin
+  switching Genie off in Admin Panel → Settings overrides it for everyone.
 
 ## Widget Studio: preview and pages
 
@@ -713,14 +729,42 @@ replace it with your admin group.
 
 **Admin Panel** is under Resources at the bottom of the sidebar. It appears only
 for Administrators (see *Sharing and permissions*). Its tabs are **Content**,
-**Categories & Domains**, **Administrators**, **Settings**, **Data Migration**
-and **Action Logs**, and all of them apply to the whole app.
+**Activity**, **Categories & Domains**, **Administrators**, **Settings**,
+**Data Migration** and **Action Logs**, and all of them apply to the whole app.
 
 - **Content** lists every view, widget and agent in the app, whoever owns it,
   with its owner, whether it is published or has unpublished changes, and how
   widely it is shared. It is where an Administrator finds something nobody else
   can reach any more — for example after its owner left — and shares it with
   someone who should manage it.
+  Each row's **Open** (views) or **Edit** (widgets and agents) goes straight to
+  it: a view opens in the canvas, a widget in Widget Studio and an agent in
+  Agent Studio. Archived views have **Restore** instead.
+- **Activity** shows who did what in the app, newest first. It records
+  creating, publishing, reverting, discarding the draft of, archiving,
+  restoring, deleting and sharing views, widgets and agents; certifying a
+  widget; finished Widget Studio and Agent Studio generations (completed,
+  failed or cancelled); assistant chat turns; Settings changes; adding or
+  removing Administrators; and, merged in from Action Logs, each executable
+  widget action. Only metadata is kept: who, what kind, which object, when,
+  and small facts such as a version number or how many entries an access list
+  has. Prompts, chat text, widget code, query results, setting values and the
+  names on an access list are never recorded. Recording started with this
+  release, so earlier events aren't there.
+  - Filter by kind (Publishing, New drafts, Sharing & administrators, Archive &
+    delete, Studio generations, Chat, Widget actions, Settings), object type,
+    time range or an exact username. **Only this** on a row narrows to that
+    object; clicking a kind narrows to it; **Show older** loads the next page.
+  - The strip at the top lists people active in the last 15 minutes. Someone
+    counts as seen when they use the app, noted at most every ten minutes, so
+    it is approximate.
+  - Clicking a person shows their last 30 days: counts by kind, the views,
+    widgets and agents they worked on most, and when they were last seen.
+  - **Open** / **Edit** on a row works as in Content, for objects that still
+    exist and aren't archived.
+  - Events older than **Delete activity events after (days)** (Settings, the
+    Retention and context card; starts at 365, 0 keeps them) are deleted by an
+    hourly job. Widget action rows in Action Logs are kept regardless.
 - **Categories & Domains**: *categories* group widgets by function (Monitoring,
   Analytics…) in Widget Studio and the Widget Library; *domains* label widgets,
   views and agents with a business area so people can filter by it. Neither
@@ -737,7 +781,7 @@ and **Action Logs**, and all of them apply to the whole app.
   whole app. Two kinds of event write a row: a button press in an
   **Executable** widget (the widget, the action name, who pressed it, when, and
   the view it was on) and a data migration export or import. Views, publishing
-  and sharing changes are not logged. The columns are Timestamp, Widget, Action,
+  and sharing changes are not logged here; they are on **Activity**. The columns are Timestamp, Widget, Action,
   User, Domain, User Explanation and Action ID; opening a row also shows a
   **Request ID** and **Dashboard Context**, a snapshot of the view's name, tab
   and every widget on the tab with its settings. **Search logs…** searches only
@@ -745,7 +789,8 @@ and **Action Logs**, and all of them apply to the whole app.
   ID is added as a comment (`cc-action: <id>`) at the front of the SQL an
   executable widget runs, so searching Databricks query history for it finds the
   exact statement. The row is written first; if it can't be, the action doesn't
-  run.
+  run. Only Administrators can read the log: the app refuses it to anyone else,
+  though everyone's actions are still recorded.
 
 ## Drafts and publishing
 

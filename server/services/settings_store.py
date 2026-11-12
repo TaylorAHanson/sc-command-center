@@ -220,6 +220,19 @@ SETTING_SPECS: Dict[str, Spec] = {
         maximum=3650,
         group="privacy",
     ),
+    "activity_retention_days": Spec(
+        env="ACTIVITY_RETENTION_DAYS",
+        # A year answers "who published or shared this, and when" across a full
+        # cycle of quarterly reviews. The log is metadata only, so keeping it that
+        # long holds nobody's work; a deployment with a stricter policy lowers it.
+        default="365",
+        kind="int",
+        label="Delete activity events after (days)",
+        help="The Activity tab's events older than this are deleted by an hourly job. 0 keeps them indefinitely. Approved widget actions, in Action Logs, are kept regardless.",
+        minimum=0,
+        maximum=3650,
+        group="privacy",
+    ),
     "send_dashboard_context": Spec(
         env="AGENT_SEND_DASHBOARD_CONTEXT",
         default="true",

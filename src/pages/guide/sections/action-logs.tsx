@@ -35,14 +35,16 @@ const Body = () => (
     />
     <Callout kind="admin" title="Who can see it">
       <P>
-        Only Administrators can open the Admin Panel, so only they can read the logs. The list covers every action
-        in the app. See <GuideLink to="access" anchor="administrators">Administrators &amp; access</GuideLink>.
+        Only Administrators can read the logs: the Admin Panel is theirs, and the app refuses the list to anyone
+        else. Everyone&rsquo;s actions are still recorded. The list covers every action in the app. See{' '}
+        <GuideLink to="access" anchor="administrators">Administrators &amp; access</GuideLink>.
       </P>
     </Callout>
 
     <H2 id="what-is-recorded">What is recorded</H2>
     <P>
       Two kinds of event write a row. Nothing else does: views, publishing and sharing changes are not in this log.
+      They are on the <GuideLink to="access" anchor="activity">Activity</GuideLink> tab.
     </P>
     <Table
       head={['Event', 'What the row says']}

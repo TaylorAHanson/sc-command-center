@@ -24,6 +24,7 @@ try:
     from fastapi import HTTPException
     from routes import apps
     from services import access, app_spec, app_store, settings_store
+    from services import activity
 except Exception as e:  # pragma: no cover - needs the backend venv
     print(f"SKIP test_apps_routes: {e}")
     sys.exit(0)
@@ -98,6 +99,7 @@ class Store:
         self.committed = False
         self.granted = []  # (type, id, user, committed before?)
         self.acl_deleted = []
+        self.activity = []  # what activity.record was given
 
     def writes(self):
         return [(s, p) for s, p in self.statements if s.split()[0] in ("INSERT", "UPDATE", "DELETE")]
@@ -316,6 +318,7 @@ def run(store, fn, *args, user=ME, admin=False, certified_only=False, **kwargs):
         (access, "owner_of", owner_of),
         (access, "grant_owner", grant_owner),
         (access, "delete_acl", lambda t, i: store.acl_deleted.append((t, i))),
+        (activity, "record", lambda *args, **kwargs: store.activity.append(args)),
         (settings_store, "get_bool_setting",
          lambda key, *a, **k: certified_only if key == "require_certified_for_global_views" else False),
     ]

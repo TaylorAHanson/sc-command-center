@@ -300,6 +300,16 @@ Two behaviors there are easy to break by accident:
 - **Agent settings are per user, so they live in `localStorage`.** `app_settings`
   is deployment-global and these are one person's preference about their own turns.
   Read through `readAgentPrefs`, which must tolerate a missing or malformed value.
+  `geniePermission` (`ask` | `always` | `off`) goes out as `genie_permission` on
+  generate turns only, and anything unknown reads as `ask`, on both sides.
+- **A Genie approval card re-sends the turn it paused, not the composer.** A
+  settled result with `genie_request` becomes `StudioMessage.genieRequest`, a
+  `GenieHold` carrying that turn's prompt, history length, attachments and error
+  log; `handleGenieDecision` re-sends exactly that with `approved_genie` (Allow
+  once / Always allow, which also flips the pref) or `genie_declined`, and
+  `allow_clarify: false`. The buttons show only on the newest message while idle,
+  like **Build it anyway**. A paused turn queues no review and skips the end-of-run
+  follow-up (`lastSettledRef`), so nothing starts a new turn over the card.
 - **The error boundary has to be told the code changed.** A React error boundary
   that has caught something renders its fallback forever; new children don't clear
   it. `WidgetErrorBoundary` takes `resetKey={previewComponent}` and clears itself
@@ -509,6 +519,25 @@ or state again.
   It runs `loadPreflight`, hands `onConfirm` the items still ticked as `include`,
   and calls `onClose` itself once that resolves, so a caller must not close it
   too. Publish stays disabled while the preflight reports anything `blocking`.
+
+## Opening an object from the Admin Panel (`pages/admin/openObject.ts`, `pages/admin/ActivityLog.tsx`)
+
+`openObject(type, id, tools)` is the one place that knows where a view, widget
+or agent opens, and both Content and Activity use it. A view goes to
+`#/app/<id>`, which the workspace's `hashchange` handler opens. A widget goes
+through `WorkspaceTools.editWidget`, which Layout also provides around the Admin
+Panel, because Widget Studio takes its widget from the store rather than the
+hash. An agent goes to `#/agent-studio/<id>`; Agent Studio reads the id once on
+mount, loads that agent and puts the hash back to `#/agent-studio`, so a reload
+doesn't reopen it over later work. It returns false when it can't navigate, and
+callers show that rather than doing nothing.
+
+`ActivityLog` never sets state synchronously inside an effect, which the
+`react-hooks` compiler rules reject. Loading is derived (the shown page carries
+the filter key it was fetched for), and relative times ("last hour") are worked
+out when the request is sent, not during render. Verb labels live in
+`VERB_LABELS`; an unknown verb shows as its raw code, so a new server verb never
+breaks the tab. The verb list is in `server/AGENTS.md` → *The Activity tab*.
 
 ## Data Migration (`pages/admin/DataMigration.tsx`)
 
@@ -820,7 +849,8 @@ App.tsx                 The workspace: Layout around DashboardGrid
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
                         Help/About/UserGuide, AdminPage
 pages/admin/            AdminContent, Administrators, MigrationBanner,
-                        TaxonomyManager, SettingsManager, DataMigration
+                        TaxonomyManager, SettingsManager, DataMigration,
+                        ActivityLog, openObject (where Open/Edit goes)
 sharing.ts              Sharing labels and ACL helpers (see *The sharing kit*)
 capabilities.ts         useCapabilities: which optional features are set up
 email.ts                Send dialog helpers and useWidgetEmail; the dialog is

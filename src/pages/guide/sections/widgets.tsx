@@ -32,7 +32,7 @@ const Body = () => (
       rows={[
         [<UI>Search widgets…</UI>, 'Searches names and descriptions across every group, ignoring the group you picked on the left.'],
         [<><UI>Categories</UI> / <UI>Domains</UI></>, 'Groups the list down the left side; the number beside each group is how many widgets it holds. Domains are labels for finding things, not permissions.'],
-        [<><UI>Grid View</UI> / <UI>List View</UI></>, 'Cards with previews, or a table of name, creator, status, popularity and size.'],
+        [<><UI>Grid View</UI> / <UI>List View</UI></>, 'Cards with previews, or a table of name, creator, status, popularity and size. A row shows the same badges under Status, and the same hover icons, as a card.'],
         [<UI>Certified</UI>, 'Shows widgets marked certified, plus your own. Your choice is remembered in this browser.'],
         [<><UI>All</UI> / <UI>Mine</UI> / <UI>Shared with me</UI></>, 'Every widget you can see, the widgets you built, or the widgets other people built and shared with you.'],
         [<UI>Top creators</UI>, <>Lists who builds the widgets people use. Click a name to see only their widgets; the <UI>by …</UI> button next to the filters clears it.</>],
@@ -53,7 +53,8 @@ const Body = () => (
         <li>
           Hover icons: <UI>Clone widget</UI> opens a copy in Widget Studio as a new widget of your own, the share icon
           opens <UI>Share</UI> to see who has the widget (and change that, if you can manage it), and{' '}
-          <UI>Edit in Widget Studio</UI> and <UI>Delete widget</UI> appear for people who can manage the widget.
+          <UI>Edit in Widget Studio</UI> and <UI>Delete widget</UI> appear for people who can manage the widget. In list
+          view the same icons appear at the end of the row when you hover it.
         </li>
         <li>
           Can&rsquo;t find a widget you were told about? It has to be shared with you and published. A widget you only

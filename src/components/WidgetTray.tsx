@@ -679,7 +679,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 ) : (
                   <div className="flex flex-col">
                     {/* List Header */}
-                    <div className="grid grid-cols-[1fr_120px_120px_140px_80px_60px_64px] gap-4 px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 bg-gray-100/50 rounded-t-lg">
+                    <div className="grid grid-cols-[1fr_120px_120px_140px_80px_60px_136px] gap-4 px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 bg-gray-100/50 rounded-t-lg">
                       <div>Widget Name</div>
                       <div>{grouping === 'domain' ? 'Category' : 'Domain'}</div>
                       <div>Creator</div>
@@ -694,6 +694,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                       {filteredWidgets.map(widget => {
                         const popularity = popularityScores[widget.id] || 0;
                         const creator = creatorOf(widget);
+                        const manages = widget.access === 'MANAGE';
 
                         return (
                           <div
@@ -702,7 +703,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                             onDragStart={(e) => handleDragStart(e, widget)}
                             onClick={() => handleWidgetClick(widget)}
                             className={clsx(
-                              "grid grid-cols-[1fr_120px_120px_140px_80px_60px_64px] gap-4 px-4 py-3 items-center transition-all group",
+                              "grid grid-cols-[1fr_120px_120px_140px_80px_60px_136px] gap-4 px-4 py-3 items-center transition-all group",
                               isLocked
                                 ? "opacity-50 cursor-not-allowed bg-gray-50"
                                 : "hover:bg-blue-50/50 cursor-move"
@@ -749,7 +750,7 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                             </div>
 
                             {/* Status */}
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               {widget.isCertified && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 border border-green-200">
                                   <ShieldCheck className="w-3 h-3" />
@@ -757,6 +758,11 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                                 </span>
                               )}
                               <StateChip widget={widget} />
+                              {widget.layoutKind === 'page' && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200" title="Built to fill a whole tab: place it on a page tab">
+                                  PAGE
+                                </span>
+                              )}
                               {!widget.isCertified && (widget.access !== 'MANAGE' || widget.state === 'published') && (
                                 <span className="text-[10px] text-gray-400">Available</span>
                               )}
@@ -777,8 +783,15 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                               </span>
                             </div>
 
-                            {/* Share / Drag Handle */}
+                            {/* Actions / Drag Handle */}
                             <div className="flex items-center justify-end gap-1">
+                              <button
+                                title="Clone widget"
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onCloneWidget?.(widget.id); onClose(); }}
+                                className="p-1 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-gray-200 hover:text-brand-blue transition-opacity"
+                              >
+                                <Copy className="w-4 h-4" />
+                              </button>
                               {widget.access && (
                                 <button
                                   title={shareTitle(widget)}
@@ -787,6 +800,24 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                                 >
                                   <Share2 className="w-4 h-4" />
                                 </button>
+                              )}
+                              {manages && (
+                                <>
+                                  <button
+                                    title="Edit in Widget Studio"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onEditWidget?.(widget.id); onClose(); }}
+                                    className="p-1 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-indigo-100 hover:text-indigo-600 transition-opacity"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    title="Delete widget"
+                                    onClick={(e) => handleDeleteWidget(e, widget)}
+                                    className="p-1 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-red-100 hover:text-red-600 transition-opacity"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
                               )}
                               <div className="p-1 rounded hover:bg-gray-200 transition-colors text-gray-400 cursor-move group-hover:text-brand-blue">
                                 <GripVertical className="w-4 h-4" />

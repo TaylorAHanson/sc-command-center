@@ -887,7 +887,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {currentPage === 'settings' && <SettingsPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'help' && <HelpPage onNavigate={(page) => setCurrentPage(page)} />}
             {currentPage === 'about' && <AboutPage onNavigate={(page) => setCurrentPage(page)} />}
-            {currentPage === 'admin' && <AdminPage onNavigate={(page) => setCurrentPage(page)} />}
+            {currentPage === 'admin' && (
+              <WorkspaceToolsContext.Provider value={workspaceTools}>
+                <AdminPage onNavigate={(page) => setCurrentPage(page)} />
+              </WorkspaceToolsContext.Provider>
+            )}
             {currentPage === 'studio' && <WidgetStudio editWidgetId={editWidgetId} cloneWidgetId={cloneWidgetId} onClose={() => { setCurrentPage(null); setEditWidgetId(null); setCloneWidgetId(null); }} />}
             {currentPage === 'agent-studio' && <AgentStudio />}
             </React.Suspense>
