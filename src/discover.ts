@@ -120,6 +120,22 @@ export const setHidden = (id: string, hidden: boolean) =>
 export const curateView = (id: string, changes: { featured_position?: number | null; certified?: boolean }) =>
     requestJson<Curation>(item('curation', id), { method: 'PUT', body: JSON.stringify(changes) });
 
+/**
+ * Fired on `window` once the server has accepted a star, a hide or a curation,
+ * so a list showing the same view (the sidebar, the Discover page) can update
+ * that row instead of refetching. The detail carries the new values.
+ */
+export const DISCOVER_CHANGED = 'cc:discover-changed';
+
+export type DiscoverChange =
+    | { id: string; change: 'favorite'; favorite: boolean }
+    | { id: string; change: 'hidden'; hidden: boolean }
+    | { id: string; change: 'curation'; featured_position: number | null; certified: boolean };
+
+export const announceDiscoverChange = (detail: DiscoverChange): void => {
+    window.dispatchEvent(new CustomEvent<DiscoverChange>(DISCOVER_CHANGED, { detail }));
+};
+
 const counted = new Map<string, number>();
 
 /**

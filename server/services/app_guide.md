@@ -128,6 +128,66 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
 - Tabs and full pages are covered in *Tabs and pages*, and how a view's link
   works and who it opens for in *View links*.
 
+## Finding and searching views
+
+**Discover** finds any view you can open; the sidebar keeps only the few you
+use. Open it with **Browse views** in the sidebar, or type in the sidebar's
+search box and press Enter. Its address keeps the search and every filter, so
+Back, a reload or a copied link opens it the same way.
+
+- **Search**: the box at the top suggests up to eight views as you type; pick
+  one to open it, or press Enter for every match. It reads each view's name,
+  description, tab names, owner, domain and widget names; names count most.
+- **Scope chips** under the box: **All I can open** (every published view
+  shared with you, your groups or everyone, plus your own), **Mine** (views you
+  own; only published ones, so a view never published is found under My views
+  in the sidebar), **Shared with me** (views someone else owns), **Favorites**
+  (views you starred) and, for Administrators only, **Everything in this
+  deployment** (every view, whoever it is shared with).
+- **Rails**, shown when nothing is typed, each with **See all**: **Featured**
+  (picked by Administrators, in their order), **Certified** (checked and vouched
+  for by Administrators), **Popular this month** (most people opening it in 30
+  days), **Trending** (gaining viewers this week), **Recently updated** and
+  **New for you** (shared with you or your groups in the last 14 days and not
+  opened yet). Empty rails are left out. Featured and New for you show at most
+  12 views, even on their own.
+- **Filters** beside the results: **Domain** and **Owner** with a count for each
+  value; **Certified** or not; **Opens** in the workspace or on its own page;
+  **Last opened** never, or not in 90 days, by anyone; and **Status**
+  (unpublished changes or not) for people who manage views, which also narrows
+  to the views they manage. **Sort**: Relevance (only with words typed),
+  Popular, Trending, Recently updated, Name, Most favorited. Two buttons switch
+  between cards and a list, remembered in that browser. More results load as
+  you scroll.
+- **A card** shows the name, owner, domain, last update, people who opened it
+  in the last 30 days, how many starred it (that count catches up within about
+  15 minutes), **Featured** and **Certified** badges, a pencil (you can manage
+  it) or an eye (you can use it), and the sidebar's dot for unpublished changes.
+  Clicking it opens the view; Ctrl or ⌘ opens it in a new tab.
+- **The star** adds a view to your favorites, which also sit at the top of the
+  sidebar. **⋯ → Hide from rails** takes a view out of the rails for you only;
+  search still finds it, marked **Hidden**, and **Unhide** brings it back. A
+  view you manage also has **Share…** there.
+- **Administrators** get **Feature** / **Unfeature** (adds it to the end of the
+  Featured rail for everyone who can open it) and **Certify** / **Uncertify**
+  (the green Certified badge and the Certified rail) on every card. Neither
+  changes who can open a view. The amber **Not opened in 90 days** chip lists
+  every view in the deployment nobody has opened in 90 days, or ever, by name,
+  to review for archiving.
+
+**Why results say "Showing keyword matches" or "Showing word matches".** With
+hybrid search on, a search matches by meaning as well as by keyword ("late
+shipments" finds "Delayed deliveries"). The line above the results appears when
+a search was answered by keyword, or by the words typed, instead. Either the app
+doesn't search by meaning yet (keyword search needs Lakebase Search, and meaning
+also needs an embedding model; an Administrator turns on hybrid search, see
+*Admin Settings: models and limits*), or the results are sorted by something
+other than Relevance, which lists the views containing the words typed, or
+matching by meaning took too long that time (searching again usually helps).
+Relevance results stop at the 500 best matches ("Top 500 matches"); add a word
+or filter to narrow them. Just after a deploy, an **Indexing views…** banner
+shows while the app reads every view; what it has read can already be found.
+
 ## Tabs and pages
 
 - **Add a tab…** (in the ⋯ menu) gives a one-tab view a second tab, asking what to
