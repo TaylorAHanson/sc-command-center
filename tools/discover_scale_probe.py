@@ -552,10 +552,6 @@ def main() -> int:
             report.add(f"query embedding ({args.model})",
                        timed(lambda i: vc.embed_texts([QUERIES[i % len(QUERIES)] + " " + str(i)], args.model), n),
                        "the model call by itself, from the probe")
-        for q in QUERIES:
-            if hybrid_ok:
-                vc.embed_query(q, args.model, timeout=10.0)
-
         print("\nsearch, typical caller (5 groups):", flush=True)
         recall: Dict[str, List[List[str]]] = {}
         configs = [("basic", "basic", {}),
@@ -566,6 +562,10 @@ def main() -> int:
         for who_label, who in (("typical", typical), ("narrow", narrow)):
             if who_label == "narrow":
                 print("\nsearch, narrow caller (no groups):", flush=True)
+            # The previous caller's per-request run empties the query cache.
+            for q in QUERIES:
+                if hybrid_ok:
+                    vc.embed_query(q, args.model, timeout=10.0)
             for label, mode, kw in configs:
                 if mode != "basic" and not d.get("bm25"):
                     continue
