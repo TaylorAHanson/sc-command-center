@@ -128,6 +128,75 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
 - Tabs and full pages are covered in *Tabs and pages*, and how a view's link
   works and who it opens for in *View links*.
 
+## Finding and searching views
+
+**Discover** finds any view you can open; the sidebar keeps only the few you
+use. Open it with **Browse views** in the sidebar, or type in the sidebar's
+search box and press Enter. Its address keeps the search and every filter, so
+Back, a reload or a copied link opens it the same way.
+
+- **Search**: the box at the top suggests up to eight views as you type; pick
+  one to open it, or press Enter for every match. It reads each view's name,
+  description, tab names, owner, domain and widget names; names count most.
+- **Scope chips** under the box: **All I can open** (every published view
+  shared with you, your groups or everyone, plus your own), **Mine** (views you
+  own; search finds only published ones, so with nothing typed or filtered,
+  views you have never published are listed first, in a box marked **Not
+  published yet**), **Shared with me** (views someone else owns), **Favorites**
+  (views you starred) and, for Administrators only, **Everything in this
+  deployment** (every view, whoever it is shared with).
+- **Rails**, shown when nothing is typed, each with **See all**: **Featured**
+  (picked by Administrators, in their order), **Certified** (checked and vouched
+  for by Administrators), **Popular this month** (most people opening it in 30
+  days), **Trending** (gaining viewers this week), **Recently updated** and
+  **New for you** (shared with you or your groups in the last 14 days and not
+  opened yet). Empty rails are left out. Featured and New for you show at most
+  12 views, even on their own.
+- **Filters** beside the results: **Domain** and **Owner** with a count for each
+  value; **Certified** or not; **Opens** in the workspace or on its own page;
+  **Last opened** never, or not in 90 days, by anyone; and **Status**
+  (unpublished changes or not) for people who manage views, which also narrows
+  to the views they manage. **Sort**: Relevance (only with words typed),
+  Popular, Trending, Recently updated, Name, Most favorited. Two buttons switch
+  between cards and a list, remembered in that browser. More results load as
+  you scroll.
+- **A card** shows the name, owner, domain, last update, people who opened it
+  in the last 30 days, how many starred it (that count catches up within about
+  15 minutes), **Featured** and **Certified** badges, a pencil (you can manage
+  it) or an eye (you can use it), and the sidebar's dot for unpublished changes.
+  Clicking it opens the view; Ctrl or ⌘ opens it in a new tab.
+- **The star** adds a view to your favorites, which also sit at the top of the
+  sidebar. **⋯ → Hide from rails** takes a view out of the rails for you only;
+  search still finds it, marked **Hidden**, and **Unhide** brings it back. A
+  view you manage also has **Share…** there.
+- **Combine views…** (beside the search box; **⋯ → Combine with other
+  views…** on a card starts with that view picked) merges several views
+  (dashboards) into one new view: name it, search for views and **Add** them,
+  order them with the arrows, choose where it opens, then **Create view**. Each
+  view becomes a tab named after it; one with several tabs brings them all,
+  names kept; at most 50 tabs in all. The views are copied as you see them now
+  and don't change, so their links keep working. The new view is a draft only
+  you can see until you publish it.
+- **Administrators** get **Feature** / **Unfeature** (adds it to the end of the
+  Featured rail for everyone who can open it) and **Certify** / **Uncertify**
+  (the green Certified badge and the Certified rail) on every card. Neither
+  changes who can open a view. The amber **Not opened in 90 days** chip lists
+  every view in the deployment nobody has opened in 90 days, or ever, by name,
+  to review for archiving.
+
+**Why results say "Showing keyword matches" or "Showing word matches".** With
+hybrid search on, a search matches by meaning as well as by keyword ("late
+shipments" finds "Delayed deliveries"). The line above the results appears when
+a search was answered by keyword, or by the words typed, instead. Either the app
+doesn't search by meaning yet (keyword search needs Lakebase Search, and meaning
+also needs an embedding model; an Administrator turns on hybrid search, see
+*Admin Settings: models and limits*), or the results are sorted by something
+other than Relevance, which lists the views containing the words typed, or
+matching by meaning took too long that time (searching again usually helps).
+Relevance results stop at the 500 best matches ("Top 500 matches"); add a word
+or filter to narrow them. Just after a deploy, an **Indexing views…** banner
+shows while the app reads every view; what it has read can already be found.
+
 ## Tabs and pages
 
 - **Add a tab…** (in the ⋯ menu) gives a one-tab view a second tab, asking what to
@@ -140,7 +209,9 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
   a tab. Whoever may move widgets
   in a view may change its tabs: someone who can manage it, in its draft, and
   not while it is locked. The published version is read-only for everyone. A
-  widget added from the Widget Library goes on the tab being shown.
+  widget added from the Widget Library goes on the tab being shown. To make
+  one view whose tabs are copies of other views, use **Combine views…** in
+  Discover (*Finding and searching views*).
 - A tab is **Cards on a grid** (several widgets, each in a card; the default)
   or a **Full page** (one widget filling the whole tab, with no card around it,
   for a landing page or hub). **Add a tab…** and the **+** ask which for a new
@@ -897,7 +968,9 @@ Each has a **draft** — the working copy that people who can manage it edit —
   says where things stand: **Not published yet**, **Published** (people see
   exactly what you see) or **Unpublished changes**; hover it for what it means.
   **Publish** shows only when there is something to publish, so on something
-  already published with no changes it is hidden, not greyed out.
+  already published with no changes it is hidden, not greyed out. Search in
+  Discover finds a view only once it is published; until then it is in My
+  views in the sidebar, and listed first under Discover's **Mine**.
 - **The Draft / Published switch** lets a manager look at the published version
   everyone else sees, then switch back to the draft. It appears only when there
   are unpublished changes (the two differ), or while you are on Published, so

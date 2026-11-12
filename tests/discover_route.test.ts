@@ -47,6 +47,14 @@ test('the address round-trips what it carries', () => {
   assert.deepEqual(parseDiscoverHref(discoverHref({ rail: 'new_for_you' })), { rail: 'new_for_you' });
 });
 
+test('the address carries facet filters, deduplicated and bounded', () => {
+  const route = { domain: ['Ops', 'Sales & Marketing'], owner: ['a@x.com'], standalone: true, status: 'published' as const };
+  assert.deepEqual(parseDiscoverHref(discoverHref(route)), route);
+  const many = Array.from({ length: 30 }, (_, i) => `d${i}`);
+  assert.equal(parseDiscoverHref(discoverHref({ domain: many })).domain?.length, 20);
+  assert.deepEqual(parseDiscoverHref('#/discover?domain=a&domain=a&domain=&standalone=maybe&status=x'), { domain: ['a'] });
+});
+
 test('unknown values in the address are dropped, not trusted', () => {
   assert.deepEqual(parseDiscoverHref('#/discover?scope=root&sort=random&rail=x&certified=yes&opened=1y'), {});
   assert.deepEqual(parseDiscoverHref('#/discover'), {});

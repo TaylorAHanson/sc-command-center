@@ -889,7 +889,8 @@ main.tsx Root.tsx       Entry point; Root picks the shell (workspace or one app)
 shell.ts                ShellContext: present an app on its own / edit it
 App.tsx                 The workspace: Layout around DashboardGrid
 pages/                  Screens: WidgetStudio, AgentStudio, ActionLogs, Settings,
-                        Help/About/UserGuide, AdminPage, SchedulesPage
+                        Help/About/UserGuide, AdminPage, SchedulesPage,
+                        DiscoverPage
 pages/admin/            AdminContent, Administrators, MigrationBanner,
                         TaxonomyManager, SettingsManager, DataMigration,
                         ActivityLog, openObject (where Open/Edit goes)
@@ -901,6 +902,10 @@ schedules.ts            /api/schedules and /api/oauth types, requests and pure
                         helpers; the dialog is components/ScheduleDialog.tsx,
                         the page pages/SchedulesPage.tsx (#/schedules), the
                         banner and connect toast components/ScheduleNotices.tsx
+discover.ts             /api/discover requests and the cc:discover-changed event;
+discoverRoute.ts        the #/discover address and search parameters;
+discoverPage.ts         the Discover page's pure decisions. The page is
+                        pages/DiscoverPage.tsx, its parts components/discover/
 contentEnv.ts           Legacy shims; only stripLegacyEnvParam is used
 components/sharing/     ShareDialog, PrincipalPicker, DraftBar, PublishDialog,
                         AccessIcon, useDialog
@@ -926,13 +931,14 @@ missing hides itself.
 Run `npm run lint` before finishing; `npm run build` type-checks via `tsc -b`
 and is the real gate, since dev mode won't surface every type error.
 
-`linkState.ts`, `schedules.ts` and `discoverRoute.ts` have their own tests, run
-with Node 22.6 or later and nothing to install:
+`linkState.ts`, `schedules.ts`, `discoverRoute.ts` and `discoverPage.ts` have
+their own tests, run with Node 22.6 or later and nothing to install:
 
 ```
 node --experimental-strip-types tests/link_state.test.ts      # 17 passed
 node --experimental-strip-types tests/schedules.test.ts       # 26 passed
-node --experimental-strip-types tests/discover_route.test.ts  # 5 passed
+node --experimental-strip-types tests/discover_route.test.ts  # 6 passed
+node --experimental-strip-types tests/discover_page.test.ts   # 18 passed
 ```
 
 Each imports its module directly, so keep them free of React, of runtime
@@ -941,7 +947,8 @@ imports, and of `window` outside function bodies.
 **Discover in the browser** goes through `discover.ts`: the light-row types and
 one function per `/api/discover` route, plus `recordVisit` (at most once an hour
 per view per tab). Its search parameters and the page's own address,
-`#/discover?q=…&scope=…&sort=…&rail=…`, are in `discoverRoute.ts`
+`#/discover?q=…&scope=…&sort=…&rail=…` plus the facet filters (`domain`,
+`owner`, `certified`, `standalone`, `status`, `opened`), are in `discoverRoute.ts`
 (`discoverHref`, `parseDiscoverHref`), so the sidebar and the page agree on it.
 `pageOf` in `Layout.tsx` accepts `#/<page>?…` as well as `#/<page>/…`.
 Star, reorder, hide and curate only through `setFavorite`, `orderFavorites`,
@@ -949,3 +956,14 @@ Star, reorder, hide and curate only through `setFavorite`, `orderFavorites`,
 accepts, and the sidebar and the Discover page both follow it through
 `onDiscoverChanged`, so a change in one shows in the other. A `fetch` of your
 own leaves both stale.
+
+The page (`pages/DiscoverPage.tsx`) keeps its decisions in `discoverPage.ts`:
+what an address searches for, what each rail's *See all* opens, which filters a
+change keeps, and how a change folds into rows and rails (`applyChange`; a
+change may carry only an `order`, or only curation fields). Typing rewrites the
+current history entry; anything else the reader does pushes one, so Back steps
+through searches. Anything that lets someone pick a view uses
+`components/discover/ViewSearchBox.tsx` over `suggestViews`/`searchViews`,
+never a list of every view: a deployment can hold tens of thousands.
+`components/discover/ComposeDialog.tsx` (Combine views, `POST
+/api/apps/compose`) is the model: a search box, then an ordered pick list.

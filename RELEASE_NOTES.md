@@ -45,6 +45,12 @@
 - **Reminder to reconnect.** A banner across the top warns when your schedules' connection ends within a week or needs reconnecting, and links to My schedules.
 - **Widgets can offer a Schedule button.** Ask Widget Studio for "a button that emails this every Monday" and it adds one that opens the Schedule dialog.
 - **Choose how views are searched.** A **Search** card in Admin Panel → Settings sets the search mode and embedding model; Setup's **View search** row shows the mode running.
+- **Discover.** **Browse views** opens a page to search every view you can open, browse rails such as Featured and Popular this month, and filter by domain or owner.
+- **Search by meaning.** With hybrid search on, Discover also finds views by what they're about, so "late shipments" finds "Delayed deliveries".
+- **Feature and certify views.** Administrators can **Feature** or **Certify** a view from its **⋯** menu in Discover, and list views nobody opened in 90 days.
+- **Hide a view from the rails.** **Hide from rails** in a view's **⋯** menu in Discover stops recommending it to you; search still finds it.
+- **Combine views.** **Combine views…** in Discover makes one new view with a tab for each view you pick, leaving those views as they are.
+- **Unpublished views in Mine.** Discover's **Mine** lists the views you've never published first, marked **Not published yet**, beside the ones search finds.
 
 ### Changed
 
