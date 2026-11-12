@@ -17,7 +17,7 @@ check, write and commit in one transaction.
 """
 import logging
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -106,17 +106,6 @@ def spec_of(row: Dict[str, Any]) -> Dict[str, Any]:
 def is_archived(c, app_id: str) -> bool:
     c.execute("SELECT 1 FROM archived_views WHERE id = %s", (app_id,))
     return c.fetchone() is not None
-
-
-def archived_ids(c) -> Set[str]:
-    c.execute("SELECT id FROM archived_views")
-    return {str(r[0] if not hasattr(r, "keys") else r["id"]) for r in c.fetchall() or []}
-
-
-def hidden_ids(c, username: str) -> Set[str]:
-    """Views shared with this person that they closed in their sidebar."""
-    c.execute("SELECT app_id FROM sidebar_hidden WHERE username = %s", (username,))
-    return {str(r[0] if not hasattr(r, "keys") else r["app_id"]) for r in c.fetchall() or []}
 
 
 def payload(*, name: str, domain: Optional[str], username: str, is_locked: bool,

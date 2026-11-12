@@ -25,27 +25,49 @@ const Body = () => (
     <H2 id="create-a-view">Create and organize views</H2>
     <Steps>
       <Step>
-        Under <UI>My views</UI> in the sidebar, click <UI>New View</UI>. A blank view opens. It is a draft that only
-        you can see until you share and publish it.
+        In the sidebar, click <UI>New view</UI>. A blank view opens. It is a draft that only you can see until you
+        share and publish it.
       </Step>
       <Step>
-        To rename it, hover its name, click the pencil, type the new name and press <Kbd>Enter</Kbd>. <Kbd>Esc</Kbd>{' '}
-        cancels.
+        To rename it, hover it under <UI>My views</UI>, click the pencil, type the new name and press{' '}
+        <Kbd>Enter</Kbd>. <Kbd>Esc</Kbd> cancels.
       </Step>
       <Step>
-        To reorder your views, drag one by the grip beside its name and drop it where you want it.
+        To keep a view at the top of the sidebar, star it: the star beside its name in the view header, or on its
+        sidebar row when you hover it.
       </Step>
     </Steps>
-    <H3 id="sidebar">Your views, and views shared with you</H3>
+    <H3 id="sidebar">Your views in the sidebar</H3>
+    <P>
+      The sidebar lists the views you use, not every view you can open. The rest are in <UI>Browse views</UI>, one
+      click away. With no link, the app opens the view you opened last.
+    </P>
     <List>
       <li>
-        <UI>My views</UI> lists the views you own. Hover one and click its <UI>×</UI> to close it. You are asked first.
-        A view only you can open is then deleted, and a view shared with anyone else is archived instead.
+        <UI>Search views</UI>, at the top, shows matching views as you type. Use <Kbd>↑</Kbd> and <Kbd>↓</Kbd> to pick
+        one and <Kbd>Enter</Kbd> to open it, or press <Kbd>Enter</Kbd> straight away to see every match in Browse
+        views. With the sidebar collapsed, the magnifying glass opens it at the search box.
       </li>
       <li>
-        <UI>Shared with me</UI> lists views other people have shared with you. You see the version they last published.
-        Hover one for two buttons: <UI>Copy</UI> makes a copy of your own under My views, and <UI>Close</UI> takes it off
-        your sidebar. A closed view is still shared with you, and opening its link brings it back.
+        <UI>Favorites</UI> lists the views you starred, up to 15, in your order; <UI>All favorites</UI> shows the rest.
+        Drag one to move it, or select it and press <Kbd>Alt</Kbd>+<Kbd>↑</Kbd> or <Kbd>Alt</Kbd>+<Kbd>↓</Kbd>. A view
+        that has never been published can&rsquo;t be starred yet.
+      </li>
+      <li>
+        <UI>Recent</UI> lists the last five views you opened that aren&rsquo;t favorites. Hover one and click its{' '}
+        <UI>×</UI> to take it off Recent. It is still shared with you, and opening it again brings it back.
+      </li>
+      <li>
+        <UI>My views</UI> lists the eight views you own that changed last; <UI>All my views</UI> shows every one. Hover
+        one and click its <UI>×</UI> to close it. You are asked first. A view only you can open is then deleted, and a
+        view shared with anyone else is archived instead.
+      </li>
+      <li>
+        <UI>New for you</UI>, when it appears, counts views shared with you lately and shows them in Browse views.
+      </li>
+      <li>
+        <UI>Browse views</UI> finds every view shared with you. A view someone else made opens as they last published
+        it; <UI>Make a copy</UI> in its <UI>⋯</UI> menu gives you a copy of your own under My views.
       </li>
       <li>
         <UI>Archived</UI>, collapsed at the bottom, lists archived views you manage, each with <UI>Restore</UI> and{' '}
@@ -212,7 +234,8 @@ const Body = () => (
       </Step>
       <Step>
         Click <UI>Copy link</UI> in the dialog and send it. It opens the view set the way you have it now, filters
-        included. The view also appears under <UI>Shared with me</UI> for the people you shared it with.
+        included. The people you shared it with also find it in <UI>Browse views</UI> and under{' '}
+        <UI>New for you</UI>.
       </Step>
     </Steps>
     <Callout kind="note" title="A link opens only for people the view is shared with">

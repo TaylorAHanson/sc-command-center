@@ -63,7 +63,11 @@ export interface SearchResponse {
 
 export type Rails = Record<RailName, ViewRow[]>;
 
-/** The sidebar's working set. `mine` includes never-published drafts (`state: 'draft_only'`). */
+/**
+ * The caller's favorites, recent and own views. `mine` includes never-published
+ * drafts (`state: 'draft_only'`). The sidebar reads the same lists, corrected
+ * for drafts, archiving and closing, from `GET /api/apps/` (see `workingSet.ts`).
+ */
 export interface Home {
     favorites: ViewRow[];
     recent: ViewRow[];

@@ -28,7 +28,8 @@ colleagues. It runs as a Databricks App, so every user is signed in with their
 own Databricks identity and sees only the data and assets that identity can
 reach.
 
-The left sidebar holds views (**My views**, **Shared with me**, and a collapsed
+The left sidebar holds a search box, your views (**Favorites**, **Recent**, **My
+views**, **New for you**, **New view** and **Browse views**, then a collapsed
 **Archived** group), the Widget Library, Widget Studio, Agent Studio, and —
 under Resources — Getting Started, the User Guide, Release Notes, and, for
 Administrators, the Admin Panel. The assistant (this chat) is the panel on the
@@ -43,11 +44,16 @@ publishing*.
 Someone with no views of their own sees a welcome panel over the canvas the
 first time they open the app, with the assistant opened beside it. It offers
 five things: ask the assistant (starter questions are typed into the message box,
-never sent), browse views shared with them, find widgets in the Widget Library,
-build a widget in Widget Studio, and build an agent in Agent Studio. Anyone can
-use both studios. Hovering a card outlines where that feature lives. It doesn't
-open for someone arriving by a link to a view. **Resources → Getting Started**
-shows it again; **Got it**, the X or Esc close it.
+never sent), browse views shared with them (**Browse views**), find widgets in the
+Widget Library, build a widget in Widget Studio, and build an agent in Agent
+Studio. Anyone can use both studios. Hovering a card outlines where that feature
+lives. It doesn't open for someone arriving by a link to a view. **Resources →
+Getting Started** shows it again; **Got it**, the X or Esc close it. The panel
+also stays up while no view is open at all.
+
+Opening the app without a link to a view opens the view you opened last
+(favorites count). Someone who has opened nothing yet gets their most recently
+changed view of their own, and someone with neither sees the welcome panel.
 
 ## Views and layouts
 
@@ -55,27 +61,42 @@ A view is a named set of widgets, laid out on one or more tabs. Whoever creates
 a view owns it and can manage it; nobody else sees it until it is shared with
 them and published (see *Sharing and permissions* and *Drafts and publishing*).
 
-- The sidebar groups views into **My views** (ones you own), **Shared with me**
-  (ones other people shared with you) and a collapsed **Archived** group (archived
-  views you manage, each with **Restore** and **Delete permanently**). Each view
-  shows an icon for who it is shared with: a lock (only the people on its access
-  list, often just you), people (shared with particular people or groups) or a
-  globe (everyone in this app). A small dot beside it, for people who can manage
-  it, means it has changes nobody else sees yet: grey if it has never been
-  published, amber if it has unpublished changes.
+- The sidebar doesn't list every view you can open, only the ones you use; the
+  rest are one click away in **Browse views** (the Discover page). From the top:
+  - **Search views**: matching views appear under the box as you type (↑/↓ to
+    choose one, Enter to open it); Enter with none chosen, or **Search all views
+    for "…"**, shows every match in Browse views. Collapsed, the sidebar shows a
+    magnifying glass that opens it and puts the cursor in the box.
+  - **Favorites**: views you starred, in the order you put them, up to 15; **All
+    favorites** shows the rest. Drag a favorite to move it, or focus it and press
+    Alt+↑ / Alt+↓. Star or unstar a view with the star on its row (shown on
+    hover) or the star beside its name in the view header. A view that has never
+    been published can't be starred yet.
+  - **Recent**: the last five views you opened that aren't favorites. The **×**
+    on hover takes one off Recent only; it stays shared with you, and opening it
+    again brings it back.
+  - **My views**: your eight most recently changed views; **All my views (N)**
+    shows every one in Browse views. The pencil icon (on hover) renames one: type
+    the name and press Enter, or Esc to cancel.
+  - **New for you (N)**, when views were shared with you lately, opens them in
+    Browse views.
+  - **New view** creates a blank one: a draft that only you can see until you
+    share and publish it. **Browse views** opens the Discover page.
+  - A collapsed **Archived** group (archived views you manage, each with
+    **Restore** and **Delete permanently**).
+- Each view shows an icon for who it is shared with: a lock (only the people on
+  its access list, often just you), people (shared with particular people or
+  groups) or a globe (everyone in this app). A small dot beside it, for people
+  who can manage it, means it has changes nobody else sees yet: grey if it has
+  never been published, amber if it has unpublished changes.
 - Administrators can manage every view, but their sidebar lists only the views
   they own or that are shared with them; **Admin Panel → Content** lists all of
   them, and an Administrator can open any view by its link.
-- **New View** in the sidebar creates a blank one: a draft that only you can see
-  until you share and publish it. The pencil icon (shown on hover) renames it:
-  type the name and press Enter, or Esc to cancel. Drag a view by the grip beside
-  its name to reorder My views.
-- **Closing one of your own views** with the **×** on hover asks first, then
-  deletes it if only you can open it, or archives it if it is shared with anyone
-  else (see *Archiving*, below).
-- A view under **Shared with me** offers two buttons on hover: **Copy**, which
-  makes a copy of your own in My views, and **Close**, which only takes it off
-  your sidebar. It stays shared with you, and opening its link brings it back.
+- **Closing one of your own views** with the **×** on its My views row asks
+  first, then deletes it if only you can open it, or archives it if it is shared
+  with anyone else (see *Archiving*, below).
+- **Make a copy** (in the view's ⋯ menu) makes a copy of your own in My views, of
+  any view you can open.
 - **The view header** shows the view's name and, for people who can manage it,
   a state chip beside the name: **Not published yet**, **Published** or
   **Unpublished changes**; hovering the chip explains what it means. On the
@@ -90,8 +111,8 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
   - **Layout** (called **This tab** when the view has several tabs): **Cards on
     a grid** or **Full page**, with a check against the current one, and **Add
     a tab…** on a one-tab view. Shown to whoever may change the view's tabs.
-  - **View**: **Preview as a viewer** (on a view set to open on its own),
-    **View settings…**, and **Lock layout** / **Unlock layout**.
+  - **View**: **Make a copy**, **Preview as a viewer** (on a view set to open on
+    its own), **View settings…**, and **Lock layout** / **Unlock layout**.
   - **Versions**, for managers: **Version history…** once the view has been
     published, and **Discard draft…** when it has unpublished changes (it asks
     to confirm first).

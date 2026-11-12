@@ -89,6 +89,19 @@ const app = (id, tabs, presentation) => ({
   },
 });
 
+// The sidebar as `GET /api/apps/` sends it: light rows, never a spec, and at most
+// the server's caps however many views there are.
+const workingSet = apps => {
+  const row = a => ({
+    id: a.id, ref: a.id, name: a.name, owner: ME, domain: a.domain, presentation: a.spec.presentation,
+    updated_at: a.timestamp, access: 'MANAGE', state: 'published', favorite: false, last_opened_at: null, sharing: 'private',
+  });
+  return {
+    favorites: [], recent: apps.slice(0, 10).map(row), mine: apps.slice(0, 50).map(row),
+    mine_total: apps.length, new_for_you_count: 0, favorites_total: 0,
+  };
+};
+
 const fmt = ms => (ms == null ? 'never' : `${(ms / 1000).toFixed(2)}s`);
 
 // Real widgets on screen and none still compiling or fetching.
@@ -146,7 +159,7 @@ async function scenario(browser, { label, tabs, presentation }) {
   await page.route('**/api/roles/my-permissions', r => r.fulfill({ json: { username: ME, is_admin: false, domain_permissions: { General: 'editor' } } }));
   await page.route('**/api/roles/my-domains', r => r.fulfill({ json: { domains: ['General'] } }));
   await page.route('**/api/taxonomy/**', r => r.fulfill({ json: { categories: ['Ops', 'Finance', 'Quality'], domains: ['General'] } }));
-  await page.route('**/api/apps/', r => r.fulfill({ json: { apps: [target, ...others] } }));
+  await page.route('**/api/apps/', r => r.fulfill({ json: workingSet([target, ...others]) }));
   await page.route('**/api/apps/target', r => r.fulfill({ json: { app: target } }));
   await page.route('**/api/apps/target/widgets', r => r.fulfill({ contentType: 'application/json', body: appWidgetsBody }));
   await page.route('**/api/widgets/custom', r => r.fulfill({ contentType: 'application/json', body: libraryBody }));

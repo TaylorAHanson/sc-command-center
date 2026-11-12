@@ -27,7 +27,7 @@ from routes.roles import _get_current_username
 from routes.widget_studio import quick_helper_reply
 from services import access, app_links, app_spec, app_store, drafts, look_helper
 from services import activity
-from services import view_catalog
+from services import view_catalog, working_set
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -193,68 +193,18 @@ def _grant_owner(app_id: str, username: str) -> None:
 
 @router.get("/")
 def list_apps(w: WorkspaceClient = Depends(get_db_client)):
-    """The caller's sidebar: views they own and views shared with them, less those they closed.
+    """The caller's sidebar: their favorites, recent views and own views, as light rows.
 
-    Granted views only, admins included. An admin can manage every view, but
-    listing every view in the deployment in each admin's sidebar would bury their
-    own; Admin Panel → Content is where they see them all.
+    Never a spec, and never every view the caller may open: one view shared
+    with everyone would otherwise be in every page load, and a deployment's
+    worth of specs was. A view's spec comes from `GET /{ref}` when it is
+    opened; finding the rest is /api/discover. See services/working_set.py.
     """
     who = access.caller(w)
     try:
-        grants = access.grants_for(who, APP)
+        return working_set.read(who)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching apps: {str(e)}")
-    ids = list(grants)
-    if not ids:
-        return {"apps": []}
-
-    conn = _connect()
-    try:
-        c = conn.cursor()
-        c.execute(
-            f"""
-            SELECT {', '.join('dv.' + col for col in app_store.HEAD_COLUMNS)}
-            FROM dashboard_views dv
-            INNER JOIN (
-                SELECT id, MAX(version) AS max_version
-                FROM dashboard_views
-                WHERE id = ANY(%s)
-                GROUP BY id
-            ) latest ON dv.id = latest.id AND dv.version = latest.max_version
-            """,
-            (ids,),
-        )
-        published = {r["id"]: r for r in app_store.fetch_rows(c)}
-        held = drafts.drafts(c, APP, ids)
-        hidden = app_store.hidden_ids(c, who.username)
-        archived = app_store.archived_ids(c)
-        links = _links(c, list(published))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching apps: {str(e)}")
-    finally:
-        conn.close()
-
-    shown = []
-    for app_id in ids:
-        if app_id in archived or app_id in hidden:
-            continue
-        level = MANAGE if who.is_admin else grants[app_id]
-        pub = published.get(app_id)
-        draft = held.get(app_id) if level == MANAGE else None
-        row = drafts.merge(pub, draft, app_id) if level == MANAGE else pub
-        if row is None:
-            continue
-        version = int(pub["version"]) if pub else None
-        shown.append((row, level, version, draft is not None))
-
-    facts = _acl_facts(row["id"] for row, *_ in shown)
-    apps = [
-        _public(row, level=level, published_version=version, has_draft=has_draft, me=who.username,
-                facts=facts.get(row["id"]), link=links.get(row["id"]))
-        for row, level, version, has_draft in shown
-    ]
-    apps.sort(key=lambda a: (a["name"].lower(), a["id"]))
-    return {"apps": apps}
+        raise HTTPException(status_code=500, detail=f"Error fetching your views: {str(e)}")
 
 
 @router.get("/archived")
@@ -446,6 +396,7 @@ def get_app(app_id: str, mode: Optional[str] = None, w: WorkspaceClient = Depend
         c = conn.cursor()
         app_id, level, row, version, has_draft = _open(c, who, app_id, mode)
         links = _links(c, [app_id] if version else [])
+        favorite = _favorite(c, who, app_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -455,7 +406,21 @@ def get_app(app_id: str, mode: Optional[str] = None, w: WorkspaceClient = Depend
     shown = "published" if level != MANAGE or mode == "published" else "draft"
     app = _public(row, level=level, published_version=version, has_draft=has_draft, me=who.username,
                   facts=_acl_facts([app_id]).get(app_id), link=links.get(app_id))
+    app["favorite"] = favorite
     return {"app": app, "mode": shown}
+
+
+def _favorite(c, who: access.Caller, app_id: str) -> bool:
+    """Whether the caller starred this app, for the header's star. After `_links`, for the same reason."""
+    if not view_catalog.enabled():
+        return False
+    try:
+        c.execute("SELECT 1 FROM user_favorites WHERE username = %s AND app_id = %s",
+                  ((who.username or "").strip().lower(), app_id))
+        return c.fetchone() is not None
+    except Exception as e:  # noqa: BLE001 - an unlit star is the worst of it
+        logger.warning("Couldn't read whether %s is a favorite: %s", app_id, e)
+        return False
 
 
 @router.get("/{app_id}/widgets")
@@ -701,8 +666,11 @@ def _set_hidden(app_id: str, w: WorkspaceClient, hidden: bool) -> Dict[str, Any]
         c = conn.cursor()
         if hidden:
             access.require(who, APP, app_id, USE, not_found=_NOT_FOUND)
+            # Recent shows a closed view again once it is opened after the close,
+            # so closing it again has to move the time on.
             c.execute(
-                "INSERT INTO sidebar_hidden (username, app_id) VALUES (%s, %s) ON CONFLICT (username, app_id) DO NOTHING",
+                "INSERT INTO sidebar_hidden (username, app_id) VALUES (%s, %s) "
+                "ON CONFLICT (username, app_id) DO UPDATE SET timestamp = CURRENT_TIMESTAMP",
                 (who.username, app_id),
             )
         else:

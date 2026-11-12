@@ -24,7 +24,7 @@ try:
     from fastapi import HTTPException
     from routes import apps
     from services import access, app_spec, app_store, settings_store
-    from services import activity
+    from services import activity, view_catalog
 except Exception as e:  # pragma: no cover - needs the backend venv
     print(f"SKIP test_apps_routes: {e}")
     sys.exit(0)
@@ -75,7 +75,7 @@ class Store:
     """The content schema and the access list, as far as the routes read them."""
 
     def __init__(self, *rows, drafts=None, acl=None, archived=(), hidden=(), widgets=(), agents=(),
-                 library=(), links=()):
+                 library=(), links=(), favorites=()):
         self.tables = {t: {} for t in COLUMNS}
         for r in rows:
             self.tables["dashboard_views"].setdefault(r["id"], []).append(dict(r))
@@ -92,6 +92,7 @@ class Store:
         self.acl = {(k if isinstance(k, tuple) else ("app", k)): dict(v) for k, v in (acl or {}).items()}
         self.archived = set(archived)
         self.hidden = set(hidden)  # (username, app id)
+        self.favorites = set(favorites)  # (lowercased username, app id)
         self.library = list(library)  # (id, domain): what the widget library holds
         # slug -> app id, in the order claimed; the last for an id is its current name.
         self.links = dict(links)
@@ -208,8 +209,6 @@ class FakeCursor:
         # ------------------------------------------------- archive, sidebar
         elif text.startswith("SELECT 1 FROM archived_views"):
             self._rows = [(1,)] if params[0] in s.archived else []
-        elif text == "SELECT id FROM archived_views":
-            self._rows = [(i,) for i in s.archived]
         elif text.startswith("SELECT id, archived_by"):
             self._answer(("id", "archived_by", "archived_at"),
                          [{"id": i, "archived_by": "x@example.com", "archived_at": None} for i in sorted(s.archived)])
@@ -217,14 +216,14 @@ class FakeCursor:
             s.archived.add(params[0])
         elif text.startswith("DELETE FROM archived_views"):
             s.archived.discard(params[0])
-        elif text.startswith("SELECT app_id FROM sidebar_hidden"):
-            self._rows = [(a,) for u, a in s.hidden if u == params[0]]
         elif text.startswith("INSERT INTO sidebar_hidden"):
             s.hidden.add(tuple(params))
         elif text.startswith("DELETE FROM sidebar_hidden WHERE username"):
             s.hidden.discard(tuple(params))
         elif text.startswith("DELETE FROM sidebar_hidden"):
             s.hidden = {(u, a) for u, a in s.hidden if a != params[0]}
+        elif text.startswith("SELECT 1 FROM user_favorites"):
+            self._rows = [(1,)] if tuple(params) in s.favorites else []
         else:
             raise AssertionError(f"unexpected statement: {text}")
 
@@ -415,58 +414,27 @@ def test_history_lists_published_versions_to_managers_only():
 
 
 # ------------------------------------------------------------- the sidebar
+# What `GET /` lists is services/working_set.py; see tests/test_apps_list.py.
 
-def listed(store, **kw):
-    return {a["id"]: a for a in run(store, apps.list_apps, **kw)["apps"]}
-
-
-def test_the_sidebar_lists_what_is_shared_with_the_caller_and_says_how():
-    store = Store(row("own", owner=ME), row("theirs", owner=OTHER), row("unshared", owner=OTHER),
-                  acl={"own": {ME: MANAGE}, "theirs": {OTHER: MANAGE, ME: USE}, "unshared": {OTHER: MANAGE}})
-    apps_ = listed(store)
-    assert set(apps_) == {"own", "theirs"}
-    assert (apps_["own"]["access"], apps_["own"]["shared_with_me"], apps_["own"]["owner"]) == (MANAGE, False, ME)
-    assert (apps_["theirs"]["access"], apps_["theirs"]["shared_with_me"]) == (USE, True)
-    assert apps_["theirs"]["sharing"] == "shared" and apps_["own"]["sharing"] == "private"
-
-
-def test_views_shared_with_everyone_are_listed_to_everyone():
-    store = Store(row("hub"), acl={"hub": {OTHER: MANAGE, "*": USE}})
-    assert listed(store)["hub"]["sharing"] == "everyone"
+def test_an_opened_view_says_whether_the_caller_starred_it():
+    store = Store(row("v1"), row("v2"), acl={"v1": {ME: USE}, "v2": {ME: USE}}, favorites={(ME.lower(), "v1")})
+    saved = view_catalog._ready
+    view_catalog._ready = True
+    try:
+        assert run(store, apps.get_app, "v1")["app"]["favorite"] is True
+        assert run(store, apps.get_app, "v2")["app"]["favorite"] is False
+    finally:
+        view_catalog._ready = saved
+    store.statements.clear()
+    assert run(store, apps.get_app, "v1")["app"]["favorite"] is False
+    assert not any("user_favorites" in s for s, _ in store.statements), "the table may not exist yet"
 
 
-def test_closed_and_archived_views_drop_out_of_the_sidebar():
-    store = Store(row("a"), row("b"), row("c"), acl={k: {ME: USE} for k in "abc"},
-                  hidden={(ME, "a")}, archived={"b"})
-    assert set(listed(store)) == {"c"}
-
-
-def test_managers_see_drafts_in_the_sidebar_and_others_only_published_views():
-    store = Store(row("v1", name="Live"),
-                  drafts={"v1": draft_of(row("v1"), name="Halfway"), "d1": draft_of(row("d1", owner=OTHER))},
-                  acl={"v1": {OTHER: MANAGE, ME: USE}, "d1": {OTHER: MANAGE, ME: USE}})
-    as_user = listed(store)
-    assert set(as_user) == {"v1"} and as_user["v1"]["name"] == "Live"
-    as_manager = listed(store, user=OTHER)
-    assert as_manager["v1"]["name"] == "Halfway" and as_manager["d1"]["state"] == "draft_only"
-
-
-def test_an_admin_manages_what_they_are_given_without_listing_everything():
-    store = Store(row("given"), row("other"), acl={"given": {ME: USE}, "other": {OTHER: MANAGE}})
-    apps_ = listed(store, admin=True)
-    assert set(apps_) == {"given"} and apps_["given"]["access"] == MANAGE
-
-
-def test_the_sidebar_carries_link_names_for_published_views_only():
+def test_the_link_names_a_view_by_its_claimed_name_once_published():
     store = Store(row("p1"), drafts={"d1": draft_of(row("d1"))}, acl={"p1": {ME: MANAGE}, "d1": {ME: MANAGE}},
                   links={"supply-hub": "p1", "drafty": "d1"})
-    apps_ = listed(store)
-    assert apps_["p1"]["link"] == "supply-hub" and apps_["d1"]["link"] is None
-
-
-def test_nothing_shared_is_an_empty_sidebar_without_a_query():
-    store = Store(row("v1"))
-    assert run(store, apps.list_apps)["apps"] == [] and store.statements == []
+    assert run(store, apps.get_app, "p1")["app"]["link"] == "supply-hub"
+    assert run(store, apps.get_app, "d1")["app"]["link"] is None
 
 
 # ------------------------------------------------------- links by name
@@ -767,9 +735,18 @@ def test_reverting_makes_an_old_version_the_draft():
 def test_closing_a_shared_view_hides_it_for_the_caller_only():
     store = Store(row("v1"), acl={"v1": {OTHER: MANAGE, ME: USE}})
     run(store, apps.hide_app, "v1")
-    assert store.hidden == {(ME, "v1")} and "v1" in listed(store, user=OTHER)
+    assert store.hidden == {(ME, "v1")}
     run(store, apps.unhide_app, "v1")
     assert store.hidden == set()
+
+
+def test_closing_a_view_again_moves_its_time_on():
+    # Recent shows a closed view again once it is opened after the close, so
+    # otherwise one reopening would outlast every later close.
+    store = Store(row("v1"), acl={"v1": {ME: USE}})
+    run(store, apps.hide_app, "v1")
+    [(sql, _)] = store.writes()
+    assert sql.endswith("ON CONFLICT (username, app_id) DO UPDATE SET timestamp = CURRENT_TIMESTAMP")
 
 
 def test_closing_a_view_one_cannot_see_is_not_found():

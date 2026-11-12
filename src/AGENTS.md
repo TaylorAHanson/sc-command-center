@@ -602,9 +602,23 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
 ## State and cross-widget communication
 
 - `store/dashboardStore.tsx` — `DashboardProvider` / `useDashboardStore`, owning
-  the apps in the sidebar, the active one, and dashboard variables. What an app
-  *is* lives in `store/appSpec.ts` (`App`, `AppTab`, `AppSpec`, `WidgetLayout`),
-  the client's copy of `server/services/app_spec.py`. Six rules:
+  the apps opened in this tab, the sidebar's lists, the active app, and dashboard
+  variables. What an app *is* lives in `store/appSpec.ts` (`App`, `AppTab`,
+  `AppSpec`, `WidgetLayout`), the client's copy of `server/services/app_spec.py`.
+  Seven rules:
+  - **`apps` holds only the views opened (or created, copied, renamed) in this
+    tab, with their full specs**; it is not the sidebar and not every view the
+    person can open. The sidebar is `sidebar`, from `GET /api/apps/` (light rows,
+    see `server/AGENTS.md` → *The sidebar's list*) with this tab's changes laid
+    over it by `workingSet.ts`, so a create, rename, star, publish or delete
+    shows at once and nothing reloads the list for it. `openRoute` reads a view
+    it doesn't hold with `GET /api/apps/{ref}`; anything else that needs a spec
+    (a template, a rename from the sidebar) goes through `loadedApp`, never the
+    list. Opening records a visit (`recordVisit`), which is what Recent is made
+    of, and with no link the store opens `homeRow`: the view opened last, else
+    the newest of the caller's own, else nothing (the Welcome panel). While an
+    open is waiting on the server `opening` is true and Layout leaves the
+    address alone, so the hash isn't rewritten to the view being left.
   - **A view is an app with one tab.** "Tab" means a canvas inside an app and
     nothing else; the sidebar lists apps. Every row saved before apps exists reads
     as a one-tab app whose tab id is the app id.
@@ -621,7 +635,10 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     once (StrictMode always, a rebased update in production), which minted a
     different widget id and queued another save each time. `changeWidgets` only
     marks the app unsaved; an effect on `apps` saves the committed state once, and
-    `addWidget` mints its id before the updater so a replay adds nothing.
+    `addWidget` mints its id before the updater so a replay adds nothing. A
+    sidebar row is not enough to save from: renaming a view that isn't open
+    loads it first (`loadedApp`), then queues the save like any other, so the
+    PUT still carries every tab.
   - **The canvas shows `activeAppTab`**: the tab a link or `components/TabBar.tsx`
     selected, else the first. Read it rather than `spec.tabs[0]`. The bar only
     appears with two or more tabs; a one-tab app gets **Add tab** in Layout's
@@ -885,6 +902,9 @@ widgetRuntime.ts        Widget Studio: records what the preview does when it run
 widgetLint.ts           Widget Studio: pattern checks on widget code
 widgetDataSource.ts     Widget Studio: schema and sample rows from a JSON response
 linkState.ts            What a view is set to, as v.* / w.* query params (codec + store)
+workingSet.ts           The sidebar's lists: GET /api/apps/ with this tab's changes
+                        over it (pure; drawn by components/SidebarViews.tsx
+                        and SidebarSearch.tsx)
 main.tsx Root.tsx       Entry point; Root picks the shell (workspace or one app)
 shell.ts                ShellContext: present an app on its own / edit it
 App.tsx                 The workspace: Layout around DashboardGrid
@@ -931,14 +951,16 @@ missing hides itself.
 Run `npm run lint` before finishing; `npm run build` type-checks via `tsc -b`
 and is the real gate, since dev mode won't surface every type error.
 
-`linkState.ts`, `schedules.ts`, `discoverRoute.ts` and `discoverPage.ts` have
-their own tests, run with Node 22.6 or later and nothing to install:
+`linkState.ts`, `schedules.ts`, `discoverRoute.ts`, `discoverPage.ts` and
+`workingSet.ts` have their own tests, run with Node 22.6 or later and nothing
+to install:
 
 ```
 node --experimental-strip-types tests/link_state.test.ts      # 17 passed
 node --experimental-strip-types tests/schedules.test.ts       # 26 passed
 node --experimental-strip-types tests/discover_route.test.ts  # 6 passed
 node --experimental-strip-types tests/discover_page.test.ts   # 18 passed
+node --experimental-strip-types tests/working_set.test.ts     # 26 passed
 ```
 
 Each imports its module directly, so keep them free of React, of runtime
@@ -955,7 +977,10 @@ Star, reorder, hide and curate only through `setFavorite`, `orderFavorites`,
 `setHidden` and `curateView`: each fires `cc:discover-changed` once the server
 accepts, and the sidebar and the Discover page both follow it through
 `onDiscoverChanged`, so a change in one shows in the other. A `fetch` of your
-own leaves both stale.
+own leaves both stale. The store lays a star or a new order over the sidebar at
+once, then reads `GET /api/apps/` again shortly after. A hide only causes that
+read (New for you leaves hidden views out), and a curation is ignored, since the
+sidebar draws neither featured nor certified (`changesSidebar` in `workingSet.ts`).
 
 The page (`pages/DiscoverPage.tsx`) keeps its decisions in `discoverPage.ts`:
 what an address searches for, what each rail's *See all* opens, which filters a

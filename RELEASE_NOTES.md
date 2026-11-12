@@ -51,10 +51,18 @@
 - **Hide a view from the rails.** **Hide from rails** in a view's **⋯** menu in Discover stops recommending it to you; search still finds it.
 - **Combine views.** **Combine views…** in Discover makes one new view with a tab for each view you pick, leaving those views as they are.
 - **Unpublished views in Mine.** Discover's **Mine** lists the views you've never published first, marked **Not published yet**, beside the ones search finds.
+- **Favorites.** Star a view beside its title or on its sidebar row to keep it at the top of the sidebar; drag favorites, or press Alt+↑/↓, to reorder them.
+- **Recent views.** The sidebar's **Recent** lists the last five views you opened; **×** takes one off until you open it again.
+- **Search from the sidebar.** Matching views appear as you type in the sidebar's search box; press Enter to see every match in **Browse views**.
+- **New for you.** The sidebar shows how many views were shared with you lately and links straight to them.
 
 ### Changed
 
 - **Widget Studio asks before using Genie.** It shows each question and why: **Allow once**, **Always allow** or **Continue without Genie**. Change it under Agent settings → **Genie**.
+- **A shorter sidebar.** **My views** shows your eight latest, with **All my views** for the rest; **Browse views** replaces the **Shared with me** list.
+- **Opens where you left off.** Opening the app without a link shows the view you opened last.
+- **Faster start with many views.** The app loads only the views you open, not every view shared with you.
+- **Make a copy moved to the ⋯ menu.** It's in the view's ⋯ menu for any view you can open.
 
 ### Fixed
 
