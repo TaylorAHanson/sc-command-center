@@ -61,14 +61,13 @@ const Body = () => (
       head={['Part', 'Where', 'What it does']}
       rows={[
         [<UI>Search views</UI>, 'Sidebar, top', 'Finds any view you can open as you type. Enter shows every match in Browse views.'],
-        [<><UI>Favorites</UI> and <UI>Recent</UI></>, 'Sidebar', <>The views you starred, in your order, and the last five you opened. See <GuideLink to="views" anchor="sidebar">Your views in the sidebar</GuideLink>.</>],
-        [<UI>My views</UI>, 'Sidebar', <>The eight views you own that changed last; <UI>All my views</UI> shows the rest. Hover a view to rename or close it. See <GuideLink to="views">Views and layouts</GuideLink>.</>],
-        [<><UI>New view</UI> and <UI>Browse views</UI></>, 'Sidebar', 'Start a blank view, or find views other people have shared with you. New for you, above them, counts the ones shared lately.'],
+        [<><UI>Favorites</UI> and <UI>Recent</UI></>, 'Sidebar', <>The views you starred, in your order, and the last five others you opened. See <GuideLink to="views" anchor="sidebar">Your views in the sidebar</GuideLink>.</>],
+        [<><UI>New view</UI>, <UI>My views</UI> and <UI>Browse views</UI></>, 'Sidebar', 'Start a blank view, see every view you own, or find views other people have shared with you. New for you, above them, counts the ones shared lately.'],
         [<UI>Archived</UI>, 'Sidebar, collapsed', <>Archived views you manage, which you can restore. See <GuideLink to="publishing" anchor="archive">Archive, restore or delete a view</GuideLink>.</>],
         [<UI>Widget Library</UI>, 'Sidebar', <>Opens the tray of widgets you can add. See <GuideLink to="widgets">Using widgets</GuideLink>.</>],
         [<><UI>Widget Studio</UI> and <UI>Agent Studio</UI></>, 'Sidebar', <>Where widgets and agents are built. See <GuideLink to="widget-studio">Widget Studio</GuideLink> and <GuideLink to="agent-studio">Agent Studio</GuideLink>.</>],
         [<UI>Resources</UI>, 'Sidebar, bottom', <><UI>Getting Started</UI>, <UI>User Guide</UI>, <UI>Release Notes</UI> and, if you have access, <UI>Admin Panel</UI>.</>],
-        ['View header', 'Top of the screen', <>The view's name, with a chip saying whether it is published on views you manage. On the right: <UI>Draft</UI> / <UI>Published</UI> when there are unpublished changes, the <UI>⋯</UI> menu (layout, <UI>Add a tab…</UI>, <UI>View settings…</UI>, <UI>Lock layout</UI>, version history), <UI>Share</UI>, and <UI>Publish</UI> when there is something to publish.</>],
+        ['View header', 'Top of the screen', <>The view's name, with a chip saying whether it is published on views you manage. On the right: <UI>Draft</UI> / <UI>Published</UI> when there are unpublished changes, the <UI>⋯</UI> menu (layout, <UI>Add a tab…</UI>, <UI>Make a copy</UI>, <UI>Rename…</UI>, <UI>View settings…</UI>, <UI>Lock layout</UI>, <UI>Delete view…</UI>, version history), <UI>Share</UI>, and <UI>Publish</UI> when there is something to publish.</>],
         ['The assistant', 'Button at the bottom right', <>Opens a panel down the right side that answers questions about the view and your data. See <GuideLink to="assistant">The assistant</GuideLink>.</>],
       ]}
     />

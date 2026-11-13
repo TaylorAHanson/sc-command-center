@@ -613,10 +613,14 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     over it by `workingSet.ts`, so a create, rename, star, publish or delete
     shows at once and nothing reloads the list for it. `openRoute` reads a view
     it doesn't hold with `GET /api/apps/{ref}`; anything else that needs a spec
-    (a template, a rename from the sidebar) goes through `loadedApp`, never the
-    list. Opening records a visit (`recordVisit`), which is what Recent is made
-    of, and with no link the store opens `homeRow`: the view opened last, else
-    the newest of the caller's own, else nothing (the Welcome panel). While an
+    (a template, a copy) goes through `loadedApp`, never the list. Opening
+    records a visit (`recordVisit`), which is what Recent is made of, and with no
+    link the store opens `homeRow`: the view opened last, else the newest of the
+    caller's own, else nothing (the Welcome panel). The sidebar draws only
+    Favorites and Recent, which never share a row (Recent drops favorites, and
+    own views get no list of their own: the caller's own rows give the My views
+    count and `homeRow`'s fallback). Renaming and deleting a view live in its ⋯
+    menu, not on sidebar rows, so they act on the view on screen. While an
     open is waiting on the server `opening` is true and Layout leaves the
     address alone, so the hash isn't rewritten to the view being left.
   - **A view is an app with one tab.** "Tab" means a canvas inside an app and
@@ -636,9 +640,9 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
     different widget id and queued another save each time. `changeWidgets` only
     marks the app unsaved; an effect on `apps` saves the committed state once, and
     `addWidget` mints its id before the updater so a replay adds nothing. A
-    sidebar row is not enough to save from: renaming a view that isn't open
-    loads it first (`loadedApp`), then queues the save like any other, so the
-    PUT still carries every tab.
+    sidebar row is not enough to save from: `renameApp` on a view that isn't
+    open loads it first (`loadedApp`), then queues the save like any other, so
+    the PUT still carries every tab.
   - **The canvas shows `activeAppTab`**: the tab a link or `components/TabBar.tsx`
     selected, else the first. Read it rather than `spec.tabs[0]`. The bar only
     appears with two or more tabs; a one-tab app gets **Add tab** in Layout's
@@ -959,8 +963,8 @@ to install:
 node --experimental-strip-types tests/link_state.test.ts      # 17 passed
 node --experimental-strip-types tests/schedules.test.ts       # 26 passed
 node --experimental-strip-types tests/discover_route.test.ts  # 6 passed
-node --experimental-strip-types tests/discover_page.test.ts   # 18 passed
-node --experimental-strip-types tests/working_set.test.ts     # 26 passed
+node --experimental-strip-types tests/discover_page.test.ts   # 17 passed
+node --experimental-strip-types tests/working_set.test.ts     # 25 passed
 ```
 
 Each imports its module directly, so keep them free of React, of runtime
@@ -990,5 +994,3 @@ current history entry; anything else the reader does pushes one, so Back steps
 through searches. Anything that lets someone pick a view uses
 `components/discover/ViewSearchBox.tsx` over `suggestViews`/`searchViews`,
 never a list of every view: a deployment can hold tens of thousands.
-`components/discover/ComposeDialog.tsx` (Combine views, `POST
-/api/apps/compose`) is the model: a search box, then an ordered pick list.

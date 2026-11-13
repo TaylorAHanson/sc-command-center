@@ -48,7 +48,7 @@ const Body = () => (
     <Table
       head={['Term', 'Meaning', 'Read more']}
       rows={[
-        [<strong>View</strong>, 'A page of widgets that you arrange yourself, on one or more tabs. The sidebar lists the ones you use under Favorites, Recent and My views; Browse views finds the rest.', <GuideLink to="views">Views & layouts</GuideLink>],
+        [<strong>View</strong>, 'A page of widgets that you arrange yourself, on one or more tabs. The sidebar lists the ones you use under Favorites and Recent; My views and Browse views find the rest.', <GuideLink to="views">Views & layouts</GuideLink>],
         [<strong>Tab</strong>, 'One page inside a view. A view can have up to 50.', <GuideLink to="views" anchor="tabs">Tabs</GuideLink>],
         [<strong>Widget</strong>, 'A chart, table, form or tool you place on a view. Widgets are authored in the app, not installed from files.', <GuideLink to="widgets">Using widgets</GuideLink>],
         [<strong>Card</strong>, 'A widget sitting on a tab beside others, in its own frame, movable and resizable. A tab of this kind is Cards on a grid.', <GuideLink to="views" anchor="cards-or-page">Cards or a page</GuideLink>],

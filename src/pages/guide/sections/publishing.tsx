@@ -115,8 +115,8 @@ const Body = () => (
     <Steps>
       <Step title="Archive it">
         <Needs role="Can manage" /> Archiving takes the view out of everyone&rsquo;s sidebar and stops its link opening.
-        Nothing is deleted and every version is kept. Closing your own shared view with the <UI>×</UI> in the sidebar
-        archives it, after you confirm.
+        Nothing is deleted and every version is kept. On a shared view, choose <UI>Archive view…</UI> in the view&rsquo;s{' '}
+        <UI>⋯</UI> menu and confirm.
       </Step>
       <Step title="Restore or delete it">
         Archived views you manage are listed under <UI>Archived</UI> at the bottom of the sidebar. <UI>Restore</UI> brings
@@ -125,7 +125,8 @@ const Body = () => (
     </Steps>
     <Callout kind="warn" title="Delete permanently cannot be undone">
       A view shared with anyone besides you must be archived before it can be deleted, so people can notice it gone
-      first. A private view is deleted straight away when you close it, after you confirm.
+      first. A private view shows <UI>Delete view…</UI> in its <UI>⋯</UI> menu instead, and is deleted straight away
+      once you confirm.
     </Callout>
 
     <H2 id="dev-and-test">Where did Dev and Test go?</H2>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useDashboardStore, type App, type AppVersion, type ArchivedApp } from '../store/dashboardStore';
-import { Plus, Menu, LayoutGrid, Copy, Share2, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow, Compass, Archive, ChevronRight, RotateCcw, Trash2, X, Loader2, FileText, History, Undo2, CalendarClock, Search, Star } from 'lucide-react';
+import { Plus, Menu, LayoutGrid, Copy, Share2, Lock, Unlock, Shield, Code, BookOpen, Bot, ScrollText, Settings2, AppWindow, Compass, Archive, ChevronRight, RotateCcw, Trash2, X, Loader2, FileText, History, Undo2, CalendarClock, Search, Star, Pencil } from 'lucide-react';
 import clsx from 'clsx';
 import { ConfirmModal } from './ConfirmModal';
 import { DraftBar, PublishDialog, ShareDialog } from './sharing';
@@ -9,7 +9,7 @@ import { StatePill } from './sharing/DraftBar';
 import { HeaderMenu } from './HeaderMenu';
 import { SidebarViews } from './SidebarViews';
 import { discoverHref } from '../discover';
-import { hrefOf, type SidebarRow } from '../workingSet';
+import { hrefOf } from '../workingSet';
 import { WidgetTray } from './WidgetTray';
 import { AgentDrawer } from './AgentDrawer';
 import { WelcomeOverlay, type WelcomeSpot } from './WelcomeOverlay';
@@ -160,7 +160,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const schedulingOn = isAvailable(useCapabilities(), 'scheduling');
   const {
     apps, sidebar, sidebarStatus, isFavorite, toggleFavorite, opening, openHome,
-    activeAppId, activeApp, activeAppTab, openRoute, addApp, deleteApp, archiveApp, restoreApp, fetchArchived,
+    activeAppId, activeApp, activeAppTab, openRoute, addApp, deleteApp, archiveApp, restoreApp, fetchArchived, renameApp,
     duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, isAdmin, username,
     canEditApp, canEditLayout, addTab, setTabLayout, isLoading, modeOf, setAppMode, loadPreflight, publishApp, discardDraft, fetchHistory, revertApp, sharingChanged,
   } = useDashboardStore();
@@ -174,6 +174,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [discarding, setDiscarding] = useState(false);
   // A view to delete or archive, waiting on the person's confirmation.
   const [removing, setRemoving] = useState<{ app: { id: string; name: string }; archive: boolean } | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [archived, setArchived] = useState<ArchivedApp[] | null>(null);
@@ -352,10 +353,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const loadArchived = React.useCallback(() => { fetchArchived().then(setArchived); }, [fetchArchived]);
   useEffect(() => { if (archivedOpen) loadArchived(); }, [archivedOpen, loadArchived]);
 
-  // Closing one of your own views deletes it, as it always has, unless other
-  // people can open it: then it is archived first, where a manager can restore it.
-  const closeOwnView = (row: SidebarRow) => setRemoving({
-    app: { id: row.id, name: row.name }, archive: (row.sharing ?? 'private') !== 'private',
+  // Removing a view deletes it, as closing one always has, unless other people
+  // can open it: then it is archived first, where a manager can restore it.
+  const removeView = (view: Pick<App, 'id' | 'name' | 'sharing'>) => setRemoving({
+    app: { id: view.id, name: view.name }, archive: (view.sharing ?? 'private') !== 'private',
   });
   const confirmRemoval = async () => {
     if (!removing) return;
@@ -365,6 +366,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const refusal = archive ? await archiveApp(app.id) : await deleteApp(app.id);
     if (refusal) setNotice(refusal);
     else if (fromArchive || archivedOpen) loadArchived();
+  };
+  const confirmRename = () => {
+    if (!renaming) return;
+    setRenaming(null);
+    renameApp(renaming.id, renaming.name);
   };
 
   // With no view open there is nothing under the panel, so it stays as the page
@@ -426,7 +432,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 selectedId={currentPage === null ? activeAppId || null : null}
                 onOpen={() => setWelcomeRequested(false)}
                 onNewView={() => { setCurrentPage(null); setWelcomeRequested(false); addApp(`View ${sidebar.mineTotal + 1}`); }}
-                onRemove={closeOwnView}
                 onNotice={setNotice}
                 searchRef={searchRef}
                 browseSpot={spot('global-views')}
@@ -591,6 +596,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     }] : []),
                     ...(editable ? [
                       {
+                        key: 'rename', label: 'Rename…', icon: Pencil,
+                        onSelect: () => setRenaming({ id: editable.id, name: editable.name }),
+                      },
+                      {
                         key: 'settings', label: 'View settings…', icon: Settings2,
                         title: 'How this view opens from its link, its title and logo, and its assistant',
                         onSelect: () => setSettingsOpen(true),
@@ -601,6 +610,15 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         onSelect: () => toggleLock(editable.id),
                       },
                     ] : []),
+                    ...(manages && activeRow ? [(activeRow.sharing ?? 'private') === 'private' ? {
+                      key: 'remove', label: 'Delete view…', icon: Trash2, danger: true,
+                      title: 'Only you can open it, so it is deleted for good',
+                      onSelect: () => removeView(activeRow),
+                    } : {
+                      key: 'remove', label: 'Archive view…', icon: Archive, danger: true,
+                      title: 'Out of the sidebar of everyone it is shared with, until a manager restores it from Archived',
+                      onSelect: () => removeView(activeRow),
+                    }] : []),
                   ],
                 },
                 {
@@ -909,6 +927,28 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           onCancel={() => setRemoving(null)}
           onConfirm={confirmRemoval}
         />,
+        document.body,
+      )}
+
+      {renaming && createPortal(
+        <ConfirmModal
+          title="Rename view"
+          message="People it is shared with see the new name once you publish."
+          confirmLabel="Rename"
+          confirmDisabled={!renaming.name.trim()}
+          onCancel={() => setRenaming(null)}
+          onConfirm={confirmRename}
+        >
+          <input
+            type="text"
+            value={renaming.name}
+            onChange={e => setRenaming({ ...renaming, name: e.target.value })}
+            onKeyDown={e => { if (e.key === 'Enter' && renaming.name.trim()) confirmRename(); }}
+            autoFocus
+            aria-label="New name"
+            className="mt-3 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-blue"
+          />
+        </ConfirmModal>,
         document.body,
       )}
 

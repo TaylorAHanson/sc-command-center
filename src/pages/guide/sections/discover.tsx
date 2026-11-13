@@ -97,24 +97,6 @@ const Body = () => (
       </li>
     </List>
 
-    <H2 id="combine">Combine views into one</H2>
-    <P>
-      <UI>Combine views…</UI>, beside the search box, makes one new view out of several: a dashboard per tab instead of a dashboard per view.
-      On a card, <UI>⋯</UI> → <UI>Combine with other views…</UI> starts with that view already picked.
-    </P>
-    <List>
-      <li>Name the new view, then search for the views to add. <UI>Enter</UI> lists every match with an <UI>Add</UI> button.</li>
-      <li>
-        Put them in order with the arrows: each becomes a tab named after it, and a view with several tabs brings all of them, keeping their
-        names. A view can have at most 50 tabs in all.
-      </li>
-      <li>Choose whether it opens in the workspace or on its own page, then press <UI>Create view</UI>.</li>
-    </List>
-    <P>
-      The views you pick are copied as you see them now and don&rsquo;t change, so their links keep working. The new view opens as a draft only
-      you can see; publish and share it when it&rsquo;s ready, and archive the old views if nobody needs them.
-    </P>
-
     <H2 id="curate">For administrators: feature, certify and review</H2>
     <P>An administrator&rsquo;s <UI>⋯</UI> menu on every card adds:</P>
     <List>
@@ -151,6 +133,6 @@ export const section: GuideSection = {
   title: 'Finding views',
   summary: 'Search every view you can open, browse what’s popular and recommended, and star your favorites.',
   icon: Compass,
-  keywords: 'discover find search browse views catalog rails featured certified popular trending recently updated new for you favorites star hide unhide scope mine shared everything filter domain owner sort relevance grid list keyword hybrid meaning semantic indexing 500 archive governance not opened 90 days curate feature certify combine merge compose tabs consolidate',
+  keywords: 'discover find search browse views catalog rails featured certified popular trending recently updated new for you favorites star hide unhide scope mine shared everything filter domain owner sort relevance grid list keyword hybrid meaning semantic indexing 500 archive governance not opened 90 days curate feature certify',
   Body,
 };

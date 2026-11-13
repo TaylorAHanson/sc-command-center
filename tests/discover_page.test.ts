@@ -5,8 +5,8 @@
 // The module imports only types, which is what lets Node load it straight from src/.
 import assert from 'node:assert/strict';
 import {
-  addPick, applyToRails, applyToRows, clearFilters, countText, effectiveScope, effectiveSort, emptyMessage, facetOptions,
-  GOVERNANCE_ROUTE, isGovernance, MAX_COMBINED, mergePages, modeNote, movePick, nextFeaturedPosition, normalizeRoute,
+  applyToRails, applyToRows, clearFilters, countText, effectiveScope, effectiveSort, emptyMessage, facetOptions,
+  GOVERNANCE_ROUTE, isGovernance, mergePages, modeNote, nextFeaturedPosition, normalizeRoute,
   pageMode, RAIL_ORDER, resultsTitle, searchParamsOf, seeAllRoute, showsUnpublished, sortsFor, scopesFor, toggled,
   withChanges, withQuery,
 } from '../src/discoverPage.ts';
@@ -267,22 +267,6 @@ test('Mine lists never-published views above its results, unless a search or fil
   assert.match(emptyMessage({ scope: 'mine', status: 'draft' }, 2).title, /unpublished changes/);
   assert.equal(emptyMessage({ scope: 'mine' }, 0).title, 'You haven’t published a view yet');
   assert.equal(emptyMessage({ scope: 'mine', q: 'zz' }, 2).title, 'No views match “zz”');
-});
-
-test('combine views takes each view once, up to the tab limit, in the order arranged', () => {
-  const a = row('a');
-  const b = row('b');
-  const c = row('c');
-  let picked = addPick(addPick(addPick([], a), b), a);
-  assert.deepEqual(picked.map(r => r.id), ['a', 'b']);
-  picked = addPick(picked, c);
-  assert.deepEqual(movePick(picked, 'c', -1).map(r => r.id), ['a', 'c', 'b']);
-  assert.deepEqual(movePick(picked, 'a', -1).map(r => r.id), ['a', 'b', 'c']);
-  assert.deepEqual(movePick(picked, 'c', 1).map(r => r.id), ['a', 'b', 'c']);
-  assert.equal(movePick(picked, 'zz', 1), picked);
-
-  const full = Array.from({ length: MAX_COMBINED }, (_, i) => row(`v${i}`));
-  assert.equal(addPick(full, row('extra')), full);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

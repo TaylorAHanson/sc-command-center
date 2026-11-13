@@ -29,8 +29,8 @@ const Body = () => (
         share and publish it.
       </Step>
       <Step>
-        To rename it, hover it under <UI>My views</UI>, click the pencil, type the new name and press{' '}
-        <Kbd>Enter</Kbd>. <Kbd>Esc</Kbd> cancels.
+        To rename it, open the <UI>⋯</UI> menu in the view header and choose <UI>Rename…</UI>. Type the new name and
+        press <Kbd>Enter</Kbd>. People it is shared with see the new name once you publish.
       </Step>
       <Step>
         To keep a view at the top of the sidebar, star it: the star beside its name in the view header, or on its
@@ -54,20 +54,20 @@ const Body = () => (
         that has never been published can&rsquo;t be starred yet.
       </li>
       <li>
-        <UI>Recent</UI> lists the last five views you opened that aren&rsquo;t favorites. Hover one and click its{' '}
-        <UI>×</UI> to take it off Recent. It is still shared with you, and opening it again brings it back.
-      </li>
-      <li>
-        <UI>My views</UI> lists the eight views you own that changed last; <UI>All my views</UI> shows every one. Hover
-        one and click its <UI>×</UI> to close it. You are asked first. A view only you can open is then deleted, and a
-        view shared with anyone else is archived instead.
+        <UI>Recent</UI> lists the last five views you opened that aren&rsquo;t favorites, yours and other
+        people&rsquo;s alike, so no view appears twice. Hover one and click its <UI>×</UI> to take it off Recent.
+        Nothing else happens to it, and opening it again brings it back.
       </li>
       <li>
         <UI>New for you</UI>, when it appears, counts views shared with you lately and shows them in Browse views.
       </li>
       <li>
+        <UI>My views</UI>, with how many you own, shows every view you own in Browse views, the ones you have never
+        published first.
+      </li>
+      <li>
         <UI>Browse views</UI> finds every view shared with you. A view someone else made opens as they last published
-        it; <UI>Make a copy</UI> in its <UI>⋯</UI> menu gives you a copy of your own under My views.
+        it; <UI>Make a copy</UI> in its <UI>⋯</UI> menu gives you a copy of your own.
       </li>
       <li>
         <UI>Archived</UI>, collapsed at the bottom, lists archived views you manage, each with <UI>Restore</UI> and{' '}

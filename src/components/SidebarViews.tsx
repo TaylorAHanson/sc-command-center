@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { Clock, GripVertical, Layers, Pencil, Plus, Sparkles, Star, Telescope, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Clock, GripVertical, Layers, Plus, Sparkles, Star, Telescope, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useDashboardStore } from '../store/dashboardStore';
 import { discoverHref } from '../discover';
@@ -37,18 +37,16 @@ const RowAction: React.FC<{
   label: string;
   onClick: () => void;
   selected: boolean;
-  danger?: boolean;
   children: React.ReactNode;
-}> = ({ label, onClick, selected, danger, children }) => (
+}> = ({ label, onClick, selected, children }) => (
   <button
     type="button"
     onClick={e => { e.preventDefault(); e.stopPropagation(); onClick(); }}
     aria-label={label}
     title={label}
     className={clsx(
-      'p-1 rounded transition-colors',
+      'p-1 rounded transition-colors hover:bg-white/10 hover:text-white',
       selected ? 'text-white/80' : 'text-gray-400',
-      danger ? 'hover:bg-red-500/20 hover:text-red-300' : 'hover:bg-white/10 hover:text-white',
     )}
   >
     {children}
@@ -108,9 +106,10 @@ const ViewLink: React.FC<{
 const footLink = 'w-full px-3 py-2 rounded-md text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors flex items-center gap-2';
 
 /**
- * The sidebar's views: search, Favorites, Recent and My views, each a short
- * list from the working set (`GET /api/apps/`), with the rest one link away on
- * the Discover page. Nothing here holds a view's spec.
+ * The sidebar's views: search, Favorites and Recent, two short lists from the
+ * working set (`GET /api/apps/`) that never list a view twice, with the
+ * caller's own views and everything else one link away on the Discover page.
+ * Nothing here holds a view's spec.
  */
 export const SidebarViews: React.FC<{
   /** The view on screen, when a view is what's on screen. */
@@ -118,18 +117,12 @@ export const SidebarViews: React.FC<{
   /** A row or link was chosen: whatever covers the canvas should give way. */
   onOpen: () => void;
   onNewView: () => void;
-  /** Delete or archive one of the caller's views, once they confirm. */
-  onRemove: (row: SidebarRow) => void;
   onNotice: (message: string) => void;
   searchRef?: React.Ref<HTMLInputElement>;
   /** Classes that light up Browse views for the Welcome panel. */
   browseSpot?: string | false;
-}> = ({ selectedId, onOpen, onNewView, onRemove, onNotice, searchRef, browseSpot }) => {
-  const { sidebar, sidebarStatus, refreshSidebar, toggleFavorite, moveFavorite, removeFromRecent, renameApp } = useDashboardStore();
-  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
-  // Enter and Escape end the rename, and the blur that can follow must not end it
-  // again from its stale closure: Escape would rename after all.
-  const editingRef = useRef<{ id: string; name: string } | null>(null);
+}> = ({ selectedId, onOpen, onNewView, onNotice, searchRef, browseSpot }) => {
+  const { sidebar, sidebarStatus, refreshSidebar, toggleFavorite, moveFavorite, removeFromRecent } = useDashboardStore();
   const [dragged, setDragged] = useState<number | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const ready = sidebarStatus === 'ready';
@@ -141,15 +134,6 @@ export const SidebarViews: React.FC<{
   const leaveRecent = async (row: SidebarRow) => {
     const refusal = await removeFromRecent(row.id);
     if (refusal) onNotice(refusal);
-  };
-  const edit = (next: { id: string; name: string } | null) => {
-    editingRef.current = next;
-    setEditing(next);
-  };
-  const finishRename = (save: boolean) => {
-    const done = editingRef.current;
-    edit(null);
-    if (save && done?.name.trim()) renameApp(done.id, done.name);
   };
   const endDrag = () => {
     setDragged(null);
@@ -260,71 +244,6 @@ export const SidebarViews: React.FC<{
         {ready && sidebar.recent.length === 0 && <Hint>Views you open appear here.</Hint>}
       </section>
 
-      <section aria-labelledby="sidebar-mine">
-        <Heading id="sidebar-mine" icon={Layers}>My views</Heading>
-        <ul className="space-y-1">
-          {sidebar.mine.map(row => {
-            const selected = selectedId === row.id;
-            if (editing?.id === row.id) {
-              return (
-                <li key={row.id} className="px-3 py-2 rounded-md text-sm bg-gray-800">
-                  <input
-                    type="text"
-                    value={editing.name}
-                    onChange={e => edit({ id: row.id, name: e.target.value })}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') finishRename(true);
-                      else if (e.key === 'Escape') finishRename(false);
-                    }}
-                    onBlur={() => finishRename(true)}
-                    autoFocus
-                    aria-label={`New name for ‘${row.name}’`}
-                    className="w-full bg-gray-700 text-white px-2 py-1 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-blue"
-                  />
-                </li>
-              );
-            }
-            const manages = row.access === 'MANAGE';
-            const archives = (row.sharing ?? 'private') !== 'private';
-            return (
-              <li key={row.id} className="group relative">
-                <ViewLink
-                  row={row}
-                  selected={selected}
-                  onOpen={onOpen}
-                  actions={(
-                    <>
-                      <StarAction row={row} selected={selected} onToggle={toggle} />
-                      {manages && (
-                        <RowAction label={`Rename ‘${row.name}’`} onClick={() => edit({ id: row.id, name: row.name })} selected={selected}>
-                          <Pencil className="w-3.5 h-3.5" />
-                        </RowAction>
-                      )}
-                      {manages && (
-                        <RowAction
-                          label={archives ? `Archive ‘${row.name}’` : `Delete ‘${row.name}’`}
-                          onClick={() => onRemove(row)}
-                          selected={selected}
-                          danger
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </RowAction>
-                      )}
-                    </>
-                  )}
-                />
-              </li>
-            );
-          })}
-        </ul>
-        {sidebar.mineTotal > sidebar.mine.length && (
-          <a href={discoverHref({ scope: 'mine', sort: 'updated' })} onClick={onOpen} className={footLink}>
-            All my views ({sidebar.mineTotal})
-          </a>
-        )}
-        {ready && sidebar.mine.length === 0 && <Hint>Views you make appear here.</Hint>}
-      </section>
-
       <div className="space-y-1">
         {sidebar.newForYou > 0 && (
           <a href={discoverHref({ rail: 'new_for_you' })} onClick={onOpen} className={footLink}>
@@ -344,6 +263,16 @@ export const SidebarViews: React.FC<{
           <Plus className="w-4 h-4" aria-hidden />
           <span>New view</span>
         </button>
+        <a
+          href={discoverHref({ scope: 'mine', sort: 'updated' })}
+          onClick={onOpen}
+          title="Every view you made, the latest changed first, with ones you haven’t published at the top"
+          className={footLink}
+        >
+          <Layers className="w-4 h-4" aria-hidden />
+          <span className="flex-1">My views</span>
+          {sidebar.mineTotal > 0 && <span className="text-xs text-gray-500">{sidebar.mineTotal}</span>}
+        </a>
         <a href={discoverHref()} onClick={onOpen} className={clsx(footLink, browseSpot)}>
           <Telescope className="w-4 h-4" aria-hidden />
           <span>Browse views</span>

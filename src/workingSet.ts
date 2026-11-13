@@ -67,16 +67,15 @@ export const NO_CHANGES: Changes = Object.freeze({
 }) as Changes;
 
 /** How many rows each list shows before linking to the rest on Discover. */
-export const SHOWN = Object.freeze({ favorites: 15, recent: 5, mine: 8 });
+export const SHOWN = Object.freeze({ favorites: 15, recent: 5 });
 
 export interface SidebarLists {
   favorites: SidebarRow[];
   /** There are favorites beyond those shown. */
   moreFavorites: boolean;
-  /** The latest opened, less favorites, which have a list of their own. */
+  /** The latest opened, whoever owns them, less favorites, which have a list of their own. */
   recent: SidebarRow[];
-  /** The caller's own, the latest changed first. */
-  mine: SidebarRow[];
+  /** How many views the caller owns, for the My views link. */
   mineTotal: number;
   newForYou: number;
 }
@@ -104,6 +103,13 @@ const rowsOf = (set: WorkingSet, loaded: SidebarRow[]): Map<string, SidebarRow> 
   return rows;
 };
 
+/** The caller's own views, the server's and those made or loaded here, the latest changed first. */
+const ownRows = (set: WorkingSet, loaded: SidebarRow[], rows: Map<string, SidebarRow>, gone: Set<string>): SidebarRow[] =>
+  unique([...set.mine.map(r => r.id), ...loaded.filter(r => r.own).map(r => r.id)])
+    .filter(id => rows.has(id) && !gone.has(id))
+    .map(id => rows.get(id)!)
+    .sort((a, b) => timeOf(b.updated_at) - timeOf(a.updated_at) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+
 /** Whether view `id` is a favorite, as far as this tab knows. */
 export const isFavorite = (set: WorkingSet, loaded: SidebarRow[], changes: Changes, id: string): boolean =>
   changes.favored[id] ?? rowsOf(set, loaded).get(id)?.favorite ?? set.favorites.some(r => r.id === id);
@@ -130,10 +136,6 @@ export const sidebarLists = (set: WorkingSet, loaded: SidebarRow[], changes: Cha
     .slice(0, SHOWN.recent)
     .map(row);
 
-  const mineIds = unique([...set.mine.map(r => r.id), ...loaded.filter(r => r.own).map(r => r.id)]).filter(known);
-  const mine = mineIds.map(row)
-    .sort((a, b) => timeOf(b.updated_at) - timeOf(a.updated_at) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
-    .slice(0, SHOWN.mine);
   const listed = new Set(set.mine.map(r => r.id));
   let mineTotal = set.mine_total;
   for (const id of changes.created) if (!listed.has(id) && !gone.has(id)) mineTotal += 1;
@@ -143,8 +145,7 @@ export const sidebarLists = (set: WorkingSet, loaded: SidebarRow[], changes: Cha
     favorites,
     moreFavorites: Math.max(favoritesTotal, favoriteIds.length) > favorites.length,
     recent,
-    mine,
-    mineTotal: Math.max(mineTotal, mineIds.length),
+    mineTotal: Math.max(mineTotal, ownRows(set, loaded, rows, gone).length),
     newForYou: set.new_for_you_count,
   };
 };
@@ -205,7 +206,7 @@ export const homeRow = (set: WorkingSet, loaded: SidebarRow[], changes: Changes,
   const skip = new Set([...changes.gone, ...changes.closed, ...(except ? [except] : [])]);
   const last = unique([...changes.opened, ...set.recent.map(r => r.id)]).find(id => rows.has(id) && !skip.has(id));
   if (last) return rows.get(last)!;
-  return sidebarLists(set, loaded, changes).mine.find(r => !skip.has(r.id)) ?? null;
+  return ownRows(set, loaded, rows, skip)[0] ?? null;
 };
 
 /** Where a sidebar row goes. A standalone view is built in the workspace, so its row opens it there. */

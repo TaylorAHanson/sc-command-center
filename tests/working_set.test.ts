@@ -34,11 +34,10 @@ test('each list stops at what the sidebar shows', () => {
     Array.from({ length: n }, (_, i) => row(`${prefix}${i}`, { updated_at: day(1 + (i % 28)), ...extra }));
   const lists = sidebarLists(set({
     favorites: many('f', 15, { favorite: true }), favorites_total: 40,
-    recent: many('r', 10), mine: many('m', 50), mine_total: 120, new_for_you_count: 3,
+    recent: many('r', 20), mine: many('m', 50), mine_total: 120, new_for_you_count: 3,
   }), [], NO_CHANGES);
   assert.equal(lists.favorites.length, SHOWN.favorites);
   assert.equal(lists.recent.length, SHOWN.recent);
-  assert.equal(lists.mine.length, SHOWN.mine);
   assert.equal(lists.moreFavorites, true);
   assert.equal(lists.mineTotal, 120);
   assert.equal(lists.newForYou, 3);
@@ -58,6 +57,15 @@ test('recent leaves out favorites, the latest opened here first', () => {
     recent: [row('f', { favorite: true }), row('r1'), row('r2')],
   }), [row('new')], changes({ opened: ['new', 'r2'] }));
   assert.deepEqual(ids(lists.recent), ['new', 'r2', 'r1']);
+});
+
+test('your own views are in Recent like anyone else’s, so no view is listed twice', () => {
+  const lists = sidebarLists(set({
+    favorites: [row('f', { favorite: true })], favorites_total: 1,
+    recent: [row('own'), row('theirs'), row('f', { favorite: true })], mine: [row('own'), row('f', { favorite: true })], mine_total: 2,
+  }), [], NO_CHANGES);
+  assert.deepEqual(ids(lists.recent), ['own', 'theirs']);
+  assert.deepEqual(ids(lists.favorites), ['f']);
 });
 
 test('a view starred here leaves Recent for Favorites at once, last in line', () => {
@@ -86,28 +94,12 @@ test('the order dragged here wins over the one last read', () => {
   assert.deepEqual(ids(lists.favorites), ['c', 'a', 'b']);
 });
 
-test('my views are the latest changed first, with ones made and loaded here', () => {
+test('views made here count as yours, and other people’s loaded here do not', () => {
   const lists = sidebarLists(set({
     mine: [row('old', { updated_at: day(1) }), row('mid', { updated_at: day(5) })], mine_total: 2,
   }), [row('made', { own: true, updated_at: day(9) }), row('theirs', { own: false, updated_at: day(10) })],
   changes({ created: ['made'] }));
-  assert.deepEqual(ids(lists.mine), ['made', 'mid', 'old']);
   assert.equal(lists.mineTotal, 3);
-});
-
-test('a rename or save in this tab moves the row and renames it', () => {
-  const lists = sidebarLists(set({
-    mine: [row('a', { updated_at: day(5) }), row('b', { updated_at: day(1) })], mine_total: 2,
-  }), [row('b', { name: 'Renamed', own: true, updated_at: day(8) })], NO_CHANGES);
-  assert.deepEqual(ids(lists.mine), ['b', 'a']);
-  assert.equal(lists.mine[0].name, 'Renamed');
-});
-
-test('a row loaded here keeps what the server said about what it leaves out', () => {
-  const lists = sidebarLists(set({ mine: [row('a', { sharing: 'shared', updated_at: day(1) })], mine_total: 1 }),
-    [row('a', { name: 'A', own: true, sharing: undefined })], NO_CHANGES);
-  assert.equal(lists.mine[0].sharing, 'shared');
-  assert.equal(lists.mine[0].name, 'A');
 });
 
 test('deleting or archiving a view takes it out of every list and the count', () => {
@@ -117,7 +109,6 @@ test('deleting or archiving a view takes it out of every list and the count', ()
   }), [], changes({ gone: ['x'] }));
   assert.deepEqual(ids(lists.favorites), []);
   assert.deepEqual(ids(lists.recent), ['y']);
-  assert.deepEqual(ids(lists.mine), ['y']);
   assert.equal(lists.mineTotal, 8);
 });
 
@@ -125,14 +116,6 @@ test('a view made and deleted here leaves the count where it was', () => {
   const lists = sidebarLists(set({ mine: [row('a')], mine_total: 1 }), [row('t', { own: true })],
     changes({ created: ['t'], gone: ['t'] }));
   assert.equal(lists.mineTotal, 1);
-  assert.deepEqual(ids(lists.mine), ['a']);
-});
-
-test('a view taken out of Recent stays in My views', () => {
-  const lists = sidebarLists(set({ recent: [row('a'), row('b')], mine: [row('a')], mine_total: 1 }), [],
-    changes({ closed: ['a'] }));
-  assert.deepEqual(ids(lists.recent), ['b']);
-  assert.deepEqual(ids(lists.mine), ['a']);
 });
 
 test('the count never says fewer than the rows it has', () => {
@@ -218,6 +201,15 @@ test('with nothing opened yet, home is the newest own view, else nothing', () =>
   assert.equal(homeRow(ws, [], NO_CHANGES)?.id, 'new');
   assert.equal(homeRow(ws, [], NO_CHANGES, 'new')?.id, 'old');
   assert.equal(homeRow(set(), [], NO_CHANGES), null);
+});
+
+test('home counts a view made or saved here as your newest, as it is now', () => {
+  const ws = set({ mine: [row('a', { updated_at: day(5) }), row('b', { updated_at: day(1), sharing: 'shared' })], mine_total: 2 });
+  const home = homeRow(ws, [row('b', { name: 'Renamed', own: true, updated_at: day(8), sharing: undefined })], NO_CHANGES);
+  assert.equal(home?.id, 'b');
+  assert.equal(home?.name, 'Renamed');
+  assert.equal(home?.sharing, 'shared', 'a row loaded here keeps what the server said about what it leaves out');
+  assert.equal(homeRow(ws, [row('made', { own: true, updated_at: day(9) })], changes({ created: ['made'] }))?.id, 'made');
 });
 
 test('a row links to the app page, or the workspace for a standalone view', () => {

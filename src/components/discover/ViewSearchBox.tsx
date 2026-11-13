@@ -8,8 +8,8 @@ const SUGGEST_DELAY_MS = 120;
 /**
  * A search box over views. Typing suggests up to eight (the server's word-prefix
  * match, which answers in every search mode); Enter runs the full search.
- * Discover's header and Combine views both use it, so finding a view works the
- * same everywhere and nothing lists every view to pick from.
+ * Discover's header uses it, and anything else that has to find a view should
+ * too, so finding one works the same everywhere and nothing lists every view.
  *
  * A suggestion commits on mousedown, not click: pressing down blurs the input,
  * whose handler closes the list, so a click handler would never run.

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    AlertCircle, Archive, ArrowLeft, ChevronLeft, ChevronRight, Compass, Info, Layers, LayoutGrid, List, Loader2, RefreshCw, SlidersHorizontal, X,
+    AlertCircle, Archive, ArrowLeft, ChevronLeft, ChevronRight, Compass, Info, LayoutGrid, List, Loader2, RefreshCw, SlidersHorizontal, X,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { findCapability, useCapabilities } from '../capabilities';
@@ -16,7 +16,6 @@ import {
     scopesFor, searchParamsOf, seeAllRoute, showsUnpublished, SORT_LABELS, sortsFor, withChanges, withQuery,
 } from '../discoverPage';
 import { ShareDialog } from '../components/sharing';
-import { ComposeDialog } from '../components/discover/ComposeDialog';
 import { DiscoverFilters } from '../components/discover/DiscoverFilters';
 import { ViewCard, ViewListHeader, ViewListRow, type ViewActions } from '../components/discover/ViewCard';
 import { ViewSearchBox } from '../components/discover/ViewSearchBox';
@@ -82,7 +81,6 @@ export const DiscoverPage: React.FC = () => {
     const [layout, setLayout] = useState<Layout>(readLayout);
     const [notice, setNotice] = useState<string | null>(null);
     const [sharing, setSharing] = useState<ViewRow | null>(null);
-    const [composing, setComposing] = useState<ViewRow[] | null>(null);
     const [unpublished, setUnpublished] = useState<{ rows: ViewRow[]; error: string | null } | null>(null);
     const [managesSome, setManagesSome] = useState(false);
     const [filtersOpen, setFiltersOpen] = useState(false);
@@ -370,7 +368,6 @@ export const DiscoverPage: React.FC = () => {
         onFeature: row => { void toggleFeatured(row); },
         onCertify: row => { void curate(row, { certified: !row.certified }, row.certified ? 'uncertify' : 'certify'); },
         onShare: setSharing,
-        onCombine: row => setComposing([row]),
     };
 
     const setLayoutChoice = (next: Layout) => {
@@ -404,14 +401,6 @@ export const DiscoverPage: React.FC = () => {
                             autoFocus={!route.q}
                             className="min-w-0 flex-1"
                         />
-                        <button
-                            type="button"
-                            onClick={() => setComposing([])}
-                            title="Make one view with a tab for each view you pick"
-                            className={clsx(SECONDARY, 'hidden shrink-0 py-2.5 sm:flex')}
-                        >
-                            <Layers className="h-4 w-4" aria-hidden="true" /> Combine views…
-                        </button>
                     </div>
                     <nav aria-label="Which views" className="mt-3 flex flex-wrap items-center gap-2">
                         {scopesFor(admin).map(s => (
@@ -598,7 +587,6 @@ export const DiscoverPage: React.FC = () => {
                     onClose={() => setSharing(null)}
                 />
             )}
-            {composing && <ComposeDialog initial={composing} onClose={() => setComposing(null)} />}
         </div>
     );
 };

@@ -1303,11 +1303,14 @@ changing the catalog's queries.
 ### The sidebar's list (`services/working_set.py`, `GET /api/apps/`)
 
 `GET /api/apps/` is the caller's **working set**, never every view they can open
-and never a spec: `favorites` (≤ 15, their order), `recent` (≤ 10, by last open,
+and never a spec: `favorites` (≤ 15, their order), `recent` (≤ 20, by last open,
 favorites included), `mine` (≤ 50 of their own, newest change first),
-`mine_total`, `favorites_total` and `new_for_you_count`. Rows carry only what the
-sidebar draws (`FIELDS`, plus `sharing`), so the payload is about 27 KB at the
-caps whatever the deployment's size; it used to be every granted view with its
+`mine_total`, `favorites_total` and `new_for_you_count`. The sidebar draws
+Favorites and five of Recent that aren't favorites, so `recent` holds 15 + 5 to
+survive every favorite having been opened last; `mine` is drawn nowhere and
+gives only the My views count and the view that opens with no link. Rows carry
+only what the sidebar needs (`FIELDS`, plus `sharing`), so the payload is about
+35 KB at the caps whatever the deployment's size; it used to be every granted view with its
 spec, megabytes once views are shared with everyone. A spec comes only from
 `GET /api/apps/{ref}`, which now also says `favorite`. Don't add fields to these
 rows that grow with the view (tabs, widgets, descriptions): the browser loads the

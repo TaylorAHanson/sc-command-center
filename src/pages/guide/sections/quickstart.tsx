@@ -15,7 +15,7 @@ const Body = () => (
       <Step title="Create a view">
         <P>
           In the sidebar, click <UI>New view</UI>. A blank view called "View 1" (or the next number) opens. To rename
-          it, hover its name under <UI>My views</UI> and click the pencil, type a name and press <Kbd>Enter</Kbd>.
+          it, choose <UI>Rename…</UI> in the <UI>⋯</UI> menu at the top right, type a name and press <Kbd>Enter</Kbd>.
         </P>
         <P>
           The view is a draft that only you can see until you share and publish it.
@@ -99,9 +99,10 @@ const Body = () => (
     </Steps>
 
     <Callout kind="note" title="Changing your mind">
-      <UI>Unlock layout</UI> in the same menu lets you change the layout again. To put a view away, hover it under <UI>My views</UI> and
-      click its <UI>×</UI>. You are asked first. A view only you can open is deleted; a shared one is archived, leaving
-      everyone&rsquo;s sidebar to wait under <UI>Archived</UI>, where you can restore it. See{' '}
+      <UI>Unlock layout</UI> in the same menu lets you change the layout again. To put a view away, choose{' '}
+      <UI>Delete view…</UI> in the same menu. You are asked first. A view only you can open is deleted; a shared one
+      shows <UI>Archive view…</UI> instead and leaves everyone&rsquo;s sidebar to wait under <UI>Archived</UI>, where you
+      can restore it. See{' '}
       <GuideLink to="publishing" anchor="archive">Archive, restore or delete a view</GuideLink>.
     </Callout>
 

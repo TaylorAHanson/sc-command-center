@@ -28,9 +28,9 @@ colleagues. It runs as a Databricks App, so every user is signed in with their
 own Databricks identity and sees only the data and assets that identity can
 reach.
 
-The left sidebar holds a search box, your views (**Favorites**, **Recent**, **My
-views**, **New for you**, **New view** and **Browse views**, then a collapsed
-**Archived** group), the Widget Library, Widget Studio, Agent Studio, and —
+The left sidebar holds a search box, your views (**Favorites** and **Recent**,
+then **New for you**, **New view**, **My views** and **Browse views**, then a
+collapsed **Archived** group), the Widget Library, Widget Studio, Agent Studio, and —
 under Resources — Getting Started, the User Guide, Release Notes, and, for
 Administrators, the Admin Panel. The assistant (this chat) is the panel on the
 right; collapsed, it is the round button at the bottom right of the screen.
@@ -72,16 +72,17 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
     Alt+↑ / Alt+↓. Star or unstar a view with the star on its row (shown on
     hover) or the star beside its name in the view header. A view that has never
     been published can't be starred yet.
-  - **Recent**: the last five views you opened that aren't favorites. The **×**
-    on hover takes one off Recent only; it stays shared with you, and opening it
-    again brings it back.
-  - **My views**: your eight most recently changed views; **All my views (N)**
-    shows every one in Browse views. The pencil icon (on hover) renames one: type
-    the name and press Enter, or Esc to cancel.
+  - **Recent**: the last five views you opened that aren't favorites, your own
+    and other people's alike, so no view is listed twice. The **×** on hover
+    takes one off Recent only; nothing else happens to it, and opening it again
+    brings it back.
   - **New for you (N)**, when views were shared with you lately, opens them in
     Browse views.
   - **New view** creates a blank one: a draft that only you can see until you
-    share and publish it. **Browse views** opens the Discover page.
+    share and publish it.
+  - **My views**, with how many you own, opens every view you own in Browse
+    views (its **Mine** filter), the ones never published first.
+  - **Browse views** opens the Discover page.
   - A collapsed **Archived** group (archived views you manage, each with
     **Restore** and **Delete permanently**).
 - Each view shows an icon for who it is shared with: a lock (only the people on
@@ -95,11 +96,15 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
 - A sidebar with none of your views in it, right after the app was updated,
   means the tab is still running the version from before the update: reload
   the page.
-- **Closing one of your own views** with the **×** on its My views row asks
-  first, then deletes it if only you can open it, or archives it if it is shared
-  with anyone else (see *Archiving*, below).
-- **Make a copy** (in the view's ⋯ menu) makes a copy of your own in My views, of
-  any view you can open.
+- **Renaming a view**: **Rename…** in the view's ⋯ menu, on its draft, for people
+  who can manage it. People it is shared with see the new name once it is
+  published.
+- **Deleting a view**: **Delete view…** in the view's ⋯ menu asks first, then
+  deletes it for good. It reads **Archive view…** instead when the view is
+  shared with anyone else, and archives it (see *Archiving*, below). Only people
+  who can manage the view see either.
+- **Make a copy** (in the view's ⋯ menu) makes a copy of your own, of any view
+  you can open; it opens at once and is counted in My views.
 - **The view header** shows the view's name and, for people who can manage it,
   a state chip beside the name: **Not published yet**, **Published** or
   **Unpublished changes**; hovering the chip explains what it means. On the
@@ -115,7 +120,8 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
     a grid** or **Full page**, with a check against the current one, and **Add
     a tab…** on a one-tab view. Shown to whoever may change the view's tabs.
   - **View**: **Make a copy**, **Preview as a viewer** (on a view set to open on
-    its own), **View settings…**, and **Lock layout** / **Unlock layout**.
+    its own), **Rename…**, **View settings…**, **Lock layout** / **Unlock
+    layout**, and, for managers, **Delete view…** or **Archive view…**.
   - **Versions**, for managers: **Version history…** once the view has been
     published, and **Discard draft…** when it has unpublished changes (it asks
     to confirm first).
@@ -193,14 +199,6 @@ Back, a reload or a copied link opens it the same way.
   sidebar. **⋯ → Hide from rails** takes a view out of the rails for you only;
   search still finds it, marked **Hidden**, and **Unhide** brings it back. A
   view you manage also has **Share…** there.
-- **Combine views…** (beside the search box; **⋯ → Combine with other
-  views…** on a card starts with that view picked) merges several views
-  (dashboards) into one new view: name it, search for views and **Add** them,
-  order them with the arrows, choose where it opens, then **Create view**. Each
-  view becomes a tab named after it; one with several tabs brings them all,
-  names kept; at most 50 tabs in all. The views are copied as you see them now
-  and don't change, so their links keep working. The new view is a draft only
-  you can see until you publish it.
 - **Administrators** get **Feature** / **Unfeature** (adds it to the end of the
   Featured rail for everyone who can open it) and **Certify** / **Uncertify**
   (the green Certified badge and the Certified rail) on every card. Neither
@@ -233,9 +231,7 @@ shows while the app reads every view; what it has read can already be found.
   a tab. Whoever may move widgets
   in a view may change its tabs: someone who can manage it, in its draft, and
   not while it is locked. The published version is read-only for everyone. A
-  widget added from the Widget Library goes on the tab being shown. To make
-  one view whose tabs are copies of other views, use **Combine views…** in
-  Discover (*Finding and searching views*).
+  widget added from the Widget Library goes on the tab being shown.
 - A tab is **Cards on a grid** (several widgets, each in a card; the default)
   or a **Full page** (one widget filling the whole tab, with no card around it,
   for a landing page or hub). **Add a tab…** and the **+** ask which for a new

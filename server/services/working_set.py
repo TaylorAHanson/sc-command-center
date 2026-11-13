@@ -11,11 +11,13 @@ what the catalog doesn't hold or only learns on its next drain:
   (`sidebar_hidden`, compared with their last open).
 - Each row says how widely it is shared, for the sidebar's access icon.
 
-Rows are trimmed to what the sidebar draws, so the payload is bounded by the
-list caps (15 favorites, 10 recent, 50 of the caller's own), never by the
-deployment. Until the catalog has finished its first build (the first start
-after an upgrade, or a worker that couldn't create its tables), My views is read
-from the source tables instead, so nobody's views look deleted meanwhile.
+Rows are trimmed to what the sidebar needs, so the payload is bounded by the
+list caps (15 favorites, 20 recent, 50 of the caller's own), never by the
+deployment. The sidebar draws only favorites and recent; the caller's own views
+give the My views count and the view that opens when nothing was opened lately.
+Until the catalog has finished its first build (the first start after an
+upgrade, or a worker that couldn't create its tables), those are read from the
+source tables instead, so nobody's views look deleted meanwhile.
 """
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple

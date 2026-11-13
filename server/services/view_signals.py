@@ -24,7 +24,9 @@ APP = access.APP
 RETENTION_DAYS = 35
 NEW_FOR_YOU_DAYS = 14
 HOME_FAVORITES = 15
-HOME_RECENT = 10
+# The sidebar shows the five latest that aren't favorites, and every favorite
+# can be among the views opened last.
+HOME_RECENT = HOME_FAVORITES + 5
 HOME_MINE = 50
 PRUNE_BATCH = 10_000
 MAX_ID = 200
