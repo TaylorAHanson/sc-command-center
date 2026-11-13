@@ -183,7 +183,8 @@ const Body = () => (
 
     <H2 id="email">Send a widget&rsquo;s numbers by email</H2>
     <P>
-      Some widgets have an email button. It opens the <UI>Send</UI> dialog, and nothing is sent until you press <UI>Send</UI> there.
+      Some widgets have an email button. It opens the <UI>Send</UI> dialog, and nothing is sent until you press <UI>Send</UI> there. An agent
+      with <GuideLink to="agent-studio" anchor="draft-emails">Draft emails</GuideLink> switched on opens the same dialog from a card in the chat.
     </P>
     <Steps>
       <Step title="Choose who it goes to">
@@ -191,7 +192,8 @@ const Body = () => (
         how many people and which domains this app allows.
       </Step>
       <Step title="Check the subject and the preview">
-        The preview is the email exactly as it will arrive, with the widget&rsquo;s table and the name of any attached CSV.
+        The preview is the email exactly as it will arrive: its message or layout, any tables and pictures, with the attached files listed under it.
+        A note under the preview says if an image was left out because it would have loaded from another site.
       </Step>
       <Step title="Send">
         Press <UI>Send</UI>. The email comes from the app&rsquo;s own address, replies come to you, and its footer names you and the view, with a link back

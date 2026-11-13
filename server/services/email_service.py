@@ -46,6 +46,9 @@ from email.utils import formataddr
 from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
+from services import email_content
+from services.email_content import File
+
 logger = logging.getLogger(__name__)
 
 PRODUCT = "Command Center"
@@ -57,6 +60,8 @@ MAX_MESSAGE_CHARS = 20_000
 MAX_VIEW_NAME_CHARS = 120
 MAX_LINK_CHARS = 2_000
 MAX_COLUMNS = 50
+MAX_TABLES = 5
+MAX_TABLE_TITLE_CHARS = 120
 #: Rows drawn in the email itself; the CSV carries more.
 TABLE_MAX_ROWS = 50
 TABLE_CELL_CHARS = 200
@@ -431,6 +436,8 @@ class Table(NamedTuple):
     total_rows: int
     #: Columns dropped past MAX_COLUMNS.
     dropped_columns: int
+    #: A heading above it and the name of its CSV; "" for none.
+    title: str = ""
 
 
 def _cell(value: Any) -> str:
@@ -483,7 +490,18 @@ def normalize_table(table: Any) -> Optional[Table]:
         else:
             raise ValueError("Each table row must be a list of values or an object.")
         rows.append([_cell(v)[:CSV_CELL_CHARS] for v in values])
-    return Table(columns, rows, len(rows_in), dropped)
+    title = clean_line(table.get("title"), MAX_TABLE_TITLE_CHARS) if table.get("title") is not None else ""
+    return Table(columns, rows, len(rows_in), dropped, title)
+
+
+def normalize_tables(table: Any = None, tables: Any = None) -> List[Table]:
+    """`table` (one) and `tables` (a list), in that order, empties dropped."""
+    if tables is not None and not isinstance(tables, (list, tuple)):
+        raise ValueError("Tables must be a list of tables.")
+    found = [t for t in [normalize_table(table)] + [normalize_table(t) for t in (tables or [])] if t is not None]
+    if len(found) > MAX_TABLES:
+        raise ValueError(f"At most {MAX_TABLES} tables in one email.")
+    return found
 
 
 def _short(text: str) -> str:
@@ -510,28 +528,24 @@ def table_html(table: Table, csv_rows: Optional[int] = None) -> str:
         notes.append(f"{table.dropped_columns:,} more columns left out.")
     note_html = (f'<p style="margin:0 0 12px;color:#6b7280;font-size:12px">{html.escape(" ".join(notes))}</p>'
                  if notes else "")
-    return (f'<table style="border-collapse:collapse;font-size:13px;margin:0 0 8px">'
+    heading = (f'<h3 style="margin:16px 0 8px;font-size:15px">{html.escape(table.title)}</h3>'
+               if table.title else "")
+    return (f'{heading}<table style="border-collapse:collapse;font-size:13px;margin:0 0 8px">'
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>{note_html}")
 
 
 def table_text(table: Table) -> str:
-    lines = [" | ".join(_short(c) for c in table.columns)]
+    lines = [table.title] if table.title else []
+    lines.append(" | ".join(_short(c) for c in table.columns))
     lines += [" | ".join(_short(v) for v in row) for row in table.rows[:TABLE_MAX_ROWS]]
-    if len(lines) - 1 < table.total_rows:
-        lines.append(f"(Showing {len(lines) - 1:,} of {table.total_rows:,} rows.)")
+    shown = min(len(table.rows), TABLE_MAX_ROWS)
+    if shown < table.total_rows:
+        lines.append(f"(Showing {shown:,} of {table.total_rows:,} rows.)")
     return "\n".join(lines)
 
 
-_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
-_NUMBER = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
-
-
-def _csv_safe(value: str) -> str:
-    # A spreadsheet runs a cell starting with = + - @ as a formula (CSV injection);
-    # the quote makes it text. Plain negative numbers are left alone.
-    if value.startswith(_FORMULA_START) and not _NUMBER.match(value):
-        return "'" + value
-    return value
+# One guard for every CSV the app sends, its own and a caller's.
+_csv_safe = email_content.csv_safe
 
 
 def _csv_line(values: Sequence[str]) -> str:
@@ -596,23 +610,57 @@ class Rendered(NamedTuple):
     subject: str
     html: str
     text: str
-    #: (filename, bytes, rows) or None.
-    attachment: Optional[Tuple[str, bytes, int]]
+    #: Table CSVs, then the caller's files, then images the HTML embedded. An
+    #: inline one (`cid` set) is shown in the body rather than listed.
+    files: List[File] = []
+    #: What was left out of the caller's HTML, for the person previewing it.
+    notes: List[str] = []
+
+    @property
+    def attachments(self) -> List[File]:
+        return [f for f in self.files if not f.inline]
 
 
-def build_email(subject: str, message_md: str, table: Optional[Table], attach_csv: bool,
-                sender_email: str, view_name: str = "", view_link: str = "") -> Rendered:
-    attachment = None
-    if table is not None and attach_csv:
+def _as_tables(tables: Any) -> List[Table]:
+    if tables is None:
+        return []
+    return [tables] if isinstance(tables, Table) else list(tables)
+
+
+def build_email(subject: str, message_md: str, tables: Any, attach_csv: bool,
+                sender_email: str, view_name: str = "", view_link: str = "",
+                body_html: Optional[email_content.Sanitized] = None,
+                files: Sequence[File] = ()) -> Rendered:
+    """The whole email: the message, then the caller's HTML, then each table,
+    then the footer naming who sent it. `tables` is one Table or a list; with
+    `attach_csv` each goes as a CSV too. `files` are already checked."""
+    table_list = _as_tables(tables)
+    taken = {f.filename.lower() for f in files}
+    csvs: List[File] = []
+    for index, table in enumerate(table_list):
+        if not attach_csv:
+            break
         data, rows = table_csv(table)
-        attachment = (csv_filename(subject), data, rows)
+        base = table.title if table.title else (subject if len(table_list) == 1 else f"{subject} {index + 1}")
+        name = email_content.unique_name(csv_filename(base), taken)
+        csvs.append(File(name, "text/csv", data, rows=rows))
+
     parts = [render_markdown(message_md)] if (message_md or "").strip() else []
     text_parts = [(message_md or "").strip()] if (message_md or "").strip() else []
-    if table is not None:
-        parts.append(table_html(table, attachment[2] if attachment else None))
+    if body_html is not None and body_html.html.strip():
+        parts.append(body_html.html)
+        if body_html.text:
+            text_parts.append(body_html.text)
+    for table, made in zip(table_list, csvs + [None] * len(table_list)):
+        parts.append(table_html(table, made.rows if made else None))
         text_parts.append(table_text(table))
-    if attachment:
-        text_parts.append(f"Attached: {attachment[0]}")
+    caller_files = list(files)
+    if body_html is not None:
+        caller_files = email_content.inline_for_html(caller_files, body_html.referenced) + list(body_html.images)
+    all_files = csvs + caller_files
+    listed = [f.filename for f in all_files if not f.inline]
+    if listed:
+        text_parts.append("Attached: " + ", ".join(listed))
 
     sender_html = html.escape(sender_email)
     where = f" from {html.escape(view_name)}" if view_name else ""
@@ -632,7 +680,7 @@ def build_email(subject: str, message_md: str, table: Optional[Table], attach_cs
             '<div style="margin-top:24px;padding-top:12px;border-top:1px solid #e5e7eb;'
             f'color:#6b7280;font-size:12px">{footer}</div></div></body></html>')
     text = "\n\n".join(text_parts + ["--", footer_text])
-    return Rendered(subject, page, text, attachment)
+    return Rendered(subject, page, text, all_files, list(body_html.notes) if body_html else [])
 
 
 # ---------------------------------------------------------------------------
@@ -716,27 +764,62 @@ class Prepared(NamedTuple):
 
 
 def _content(subject: Any, message_md: Any, table: Any, attach_csv: bool, reply_to: str,
-             view_name: str, view_link: str) -> Tuple[Optional[Rendered], Optional[str], Optional[str], bool]:
+             view_name: str, view_link: str, body_html: Any = None, tables: Any = None,
+             attachments: Any = None) -> Tuple[Optional[Rendered], Optional[str], Optional[str], bool]:
     """(rendered, problem, reason, has table) for the content alone."""
     clean_subject = clean_line(subject, MAX_SUBJECT_CHARS)
     message = str(message_md or "")
     if len(message) > MAX_MESSAGE_CHARS:
         return None, f"The message is too long: at most {MAX_MESSAGE_CHARS:,} characters.", "message_too_long", False
     try:
-        parsed = normalize_table(table)
+        parsed = normalize_tables(table, tables)
     except ValueError as exc:
         return None, str(exc), "bad_table", False
-    rendered = build_email(clean_subject, message, parsed, bool(attach_csv), reply_to, view_name, view_link)
+    try:
+        files = email_content.normalize_attachments(attachments)
+    except ValueError as exc:
+        return None, str(exc), "bad_attachment", bool(parsed)
+    sanitized = None
+    if body_html is not None and str(body_html).strip():
+        try:
+            sanitized = email_content.sanitize_html(str(body_html), files, {f.filename.lower() for f in files})
+        except ValueError as exc:
+            return None, str(exc), "html_too_long", bool(parsed)
+    rendered = build_email(clean_subject, message, parsed, bool(attach_csv), reply_to, view_name, view_link,
+                           sanitized, files)
+    total = sum(len(f.data) for f in rendered.files)
+    if total > email_content.FILES_MAX_BYTES:
+        return (rendered, f"The attachments and images come to {total / (1024 * 1024):.1f} MB; "
+                f"at most {email_content.FILES_MAX_BYTES // (1024 * 1024)} MB can go in one email.",
+                "files_too_large", bool(parsed))
     if not clean_subject:
-        return rendered, "Add a subject.", "no_subject", parsed is not None
-    if not message.strip() and parsed is None:
-        return rendered, "The email is empty: add a message or a table.", "empty", False
-    return rendered, None, None, parsed is not None
+        return rendered, "Add a subject.", "no_subject", bool(parsed)
+    has_body = bool(message.strip() or (sanitized and (sanitized.text or sanitized.images or sanitized.referenced)))
+    if not has_body and not parsed and not files:
+        return rendered, "The email is empty: add a message, a table or a file.", "empty", False
+    return rendered, None, None, bool(parsed)
+
+
+def check_content(subject: Any, message_md: Any, sender_email: str, *, html_body: Any = None,
+                  tables: Any = None, attachments: Any = None,
+                  attach_csv: bool = False) -> Tuple[Optional[Rendered], Optional[str], Optional[str]]:
+    """(rendered, problem, reason) for the content alone, whoever it is for:
+    what an agent's draft must get right before the person sees it."""
+    rendered, problem, reason, _has_table = _content(
+        subject, message_md, None, attach_csv, normalize_address(sender_email) or "", "", "",
+        html_body, tables, attachments)
+    return rendered, problem, reason
+
+
+def current_transport() -> str:
+    """`ses`, `log` or `off`, as a send right now would find it."""
+    return _transport(current_settings())[0]
 
 
 def prepare(cfg: Settings, sender_username: str, sender_email: str, to: Any, subject: Any,
             message_md: Any, table: Any = None, attach_csv: bool = False, view_name: Any = "",
-            view_link: str = "") -> Prepared:
+            view_link: str = "", body_html: Any = None, tables: Any = None,
+            attachments: Any = None) -> Prepared:
     """Everything about a request that needs no database: the sender, the
     recipient policy, the content limits and the rendered email.
 
@@ -747,7 +830,7 @@ def prepare(cfg: Settings, sender_username: str, sender_email: str, to: Any, sub
     reply_to = normalize_address(sender_email) or ""
     rendered, content_problem, content_reason, has_table = _content(
         subject, message_md, table, attach_csv, reply_to,
-        clean_line(view_name, MAX_VIEW_NAME_CHARS), view_link)
+        clean_line(view_name, MAX_VIEW_NAME_CHARS), view_link, body_html, tables, attachments)
     username = (sender_username or "").strip()
     if not username or username == "unknown" or not reply_to:
         return Prepared([], rendered, "Sending email needs a signed-in person with an email address.",
@@ -902,16 +985,23 @@ def _ses_client():
         return _client["client"]
 
 
+def _ses_attachment(f: File) -> Dict[str, Any]:
+    part: Dict[str, Any] = {"FileName": f.filename, "RawContent": f.data, "ContentType": f.content_type,
+                            "ContentDisposition": "INLINE" if f.inline else "ATTACHMENT",
+                            "ContentTransferEncoding": "BASE64"}
+    if f.inline:
+        part["ContentId"] = f.cid
+    return part
+
+
 def _send_ses(rendered: Rendered, from_address: str, reply_to: str, recipients: List[str]) -> str:
     simple: Dict[str, Any] = {
         "Subject": {"Data": rendered.subject, "Charset": "UTF-8"},
         "Body": {"Text": {"Data": rendered.text, "Charset": "UTF-8"},
                  "Html": {"Data": rendered.html, "Charset": "UTF-8"}},
     }
-    if rendered.attachment:
-        name, data, _rows = rendered.attachment
-        simple["Attachments"] = [{"FileName": name, "RawContent": data, "ContentType": "text/csv",
-                                  "ContentDisposition": "ATTACHMENT", "ContentTransferEncoding": "BASE64"}]
+    if rendered.files:
+        simple["Attachments"] = [_ses_attachment(f) for f in rendered.files]
     response = _ses_client().send_email(
         FromEmailAddress=formataddr((PRODUCT, from_address)),
         Destination={"ToAddresses": list(recipients)},
@@ -921,10 +1011,14 @@ def _send_ses(rendered: Rendered, from_address: str, reply_to: str, recipients: 
     return str(response.get("MessageId") or "")
 
 
+def _describe(f: File) -> str:
+    rows = f", {f.rows:,} rows" if f.rows is not None else ""
+    return f"{f.filename} ({'inline ' if f.inline else ''}{f.content_type}{rows}, {len(f.data):,} bytes)"
+
+
 def _send_log(rendered: Rendered, from_address: str, reply_to: str, recipients: List[str]) -> str:
     message_id = f"log-{uuid.uuid4()}"
-    attached = (f"\nAttachment: {rendered.attachment[0]} ({rendered.attachment[2]:,} rows, "
-                f"{len(rendered.attachment[1]):,} bytes)" if rendered.attachment else "")
+    attached = "".join(f"\nAttachment: {_describe(f)}" for f in rendered.files)
     logger.info(
         "Email written to the log instead of sent (local run, SES not set up) %s\n"
         "From: %s\nReply-To: %s\nTo: %s\nSubject: %s%s\n\n%s",
@@ -976,13 +1070,16 @@ def _record_activity(sender: str, status: str, log_id: Optional[int], detail: Di
 def send_email(sender_username: str, sender_email: str, to: Any, subject: Any, message_md: Any,
                table: Any = None, attach_csv: bool = False, view_name: Any = None,
                view_link: Optional[str] = None, source: str = "widget",
-               request_id: Optional[str] = None) -> Dict[str, Any]:
+               request_id: Optional[str] = None, *, html_body: Any = None, tables: Any = None,
+               attachments: Any = None) -> Dict[str, Any]:
     """Send one email as `sender_username`. Never raises.
 
     Callers have already established who the sender is (the route from the OBO
     identity, the scheduler from the schedule's owner); everything else is
-    checked here. `table` is `{columns, rows}`; `view_link` must already be
-    trusted (see `own_view_link`). Returns
+    checked here. `table` is `{columns, rows}` and `tables` a list of them
+    (each may carry a `title`); `html_body` is HTML, sanitized here (see
+    `email_content`); `attachments` are `[{filename, content | data}]`.
+    `view_link` must already be trusted (see `own_view_link`). Returns
     `{ok, status, reason, transport, message_id, recipients, error, log_id}`
     where status is `sent` / `logged` (ok) or `refused` / `unavailable` /
     `failed`, and `error` is a sentence for the sender.
@@ -999,7 +1096,7 @@ def send_email(sender_username: str, sender_email: str, to: Any, subject: Any, m
 
     clean_view = clean_line(view_name, MAX_VIEW_NAME_CHARS)
     prepared = prepare(cfg, sender, sender_email, to, subject, message_md, table, attach_csv,
-                       clean_view, view_link or "")
+                       clean_view, view_link or "", html_body, tables, attachments)
     rendered = prepared.rendered
     entry = Entry(
         sender=sender or "unknown",
@@ -1011,7 +1108,7 @@ def send_email(sender_username: str, sender_email: str, to: Any, subject: Any, m
         view_name=clean_view,
         request_id=clean_line(request_id, 100),
         has_table=prepared.has_table,
-        has_attachment=bool(rendered and rendered.attachment),
+        has_attachment=bool(rendered and rendered.files),
     )
     detail = {"via": entry.source, "transport": transport, "recipient_count": len(entry.recipients),
               "view_name": clean_view or None, "request_id": entry.request_id or None}
@@ -1056,7 +1153,8 @@ def send_email(sender_username: str, sender_email: str, to: Any, subject: Any, m
 
 def preview_email(sender_username: str, sender_email: str, to: Any, subject: Any, message_md: Any,
                   table: Any = None, attach_csv: bool = False, view_name: Any = None,
-                  view_link: Optional[str] = None) -> Dict[str, Any]:
+                  view_link: Optional[str] = None, *, html_body: Any = None, tables: Any = None,
+                  attachments: Any = None) -> Dict[str, Any]:
     """What `send_email` would send, without sending or recording anything."""
     try:
         cfg = current_settings()
@@ -1065,7 +1163,7 @@ def preview_email(sender_username: str, sender_email: str, to: Any, subject: Any
         logger.warning("Email settings unreadable: %s", exc)
         return {"available": False, "problem": UNAVAILABLE, "reason": "settings_unreadable"}
     prepared = prepare(cfg, (sender_username or "").strip(), sender_email, to, subject, message_md,
-                       table, attach_csv, view_name, view_link or "")
+                       table, attach_csv, view_name, view_link or "", html_body, tables, attachments)
     rendered = prepared.rendered
     sent = sends_today((sender_username or "").strip()) if transport != "off" else None
     return {
@@ -1077,9 +1175,12 @@ def preview_email(sender_username: str, sender_email: str, to: Any, subject: Any
         "from_address": cfg.from_address or None,
         "reply_to": normalize_address(sender_email),
         "subject": rendered.subject if rendered else clean_line(subject, MAX_SUBJECT_CHARS),
-        "html": rendered.html if rendered else "",
-        "attachment": ({"filename": rendered.attachment[0], "rows": rendered.attachment[2],
-                        "bytes": len(rendered.attachment[1])} if rendered and rendered.attachment else None),
+        # Inline images as data: URLs, which a browser can draw and a sandboxed
+        # frame shows without fetching anything.
+        "html": email_content.with_data_urls(rendered.html, rendered.files) if rendered else "",
+        "attachments": [{"filename": f.filename, "content_type": f.content_type, "bytes": len(f.data),
+                         "rows": f.rows} for f in rendered.attachments] if rendered else [],
+        "notes": list(rendered.notes) if rendered else [],
         "max_recipients": max(1, min(cfg.max_recipients, SES_MAX_RECIPIENTS)),
         "allowed_domains": cfg.allowed_domains,
         "daily_limit": cfg.daily_limit,

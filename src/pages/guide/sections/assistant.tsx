@@ -132,6 +132,15 @@ const Body = () => (
       … not loaded" placeholder, so an answer cannot pass your data to that site just by displaying an image.
     </P>
 
+    <H2 id="email-drafts">Emails an agent drafts</H2>
+    <P>
+      An agent whose author turned on <GuideLink to="agent-studio" anchor="draft-emails">Draft emails</GuideLink> can write an email when you ask,
+      for example &ldquo;email these numbers to the West team&rdquo;. It appears as a card in the conversation, and nothing is sent until you
+      send it: <UI>Review and send…</UI> opens the <UI>Send</UI> dialog, where you change the recipients and subject, see the email exactly as it
+      will arrive and press <UI>Send</UI>. It comes from you, as any email from this app does; see{' '}
+      <GuideLink to="widgets" anchor="email">Send a widget&rsquo;s numbers by email</GuideLink>. Afterwards the card says who it went to.
+    </P>
+
     <H2 id="agents">Choose an agent</H2>
     <P>
       The picker at the top of the panel, labelled <UI>Active agent</UI> when you hover it, sets which agent answers.{' '}
@@ -252,6 +261,6 @@ export const section: GuideSection = {
   title: 'The assistant',
   summary: 'Ask questions of your data and the app, attach files, keep conversations.',
   icon: Bot,
-  keywords: 'chat ai agent genie sql attach files upload paperclip conversations history pin stop chart trust retention',
+  keywords: 'chat ai agent genie sql attach files upload paperclip conversations history pin stop chart trust retention email draft send',
   Body,
 };

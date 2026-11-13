@@ -711,8 +711,17 @@ lie everywhere except where it was built. `npm run dev` assumes `local`.
   is logged like any action and `appApi.ts`'s own `sendEmail` is only a
   fallback that reports email unavailable. Only the injector can bind it,
   because the dialog needs the widget's `executeAction`. The dialog's preview is
-  the server's rendering, shown in an `<iframe sandbox="">`; don't render email
-  HTML into the page.
+  the server's rendering, shown in an `<iframe sandbox="">` with embedded images
+  as data: URLs; don't render email HTML into the page. `useWidgetEmail` reads
+  any Blob or byte array in `attachments` into base64 (`prepareEmailRequest`)
+  before the dialog opens, so the dialog only ever holds strings. What HTML and
+  files survive is the server's call (`server/services/email_content.py`).
+- An agent's email draft opens the same dialog without a widget:
+  `components/EmailDraftCard.tsx`, drawn by `AgentConversation` for any tool
+  entry carrying `email_draft`, passes `draft` instead of `executeAction`, so
+  Send posts `via: 'assistant'` with the draft and conversation ids and the
+  footer names no view. The server marks a sent draft on the saved turn
+  (`email_sent`), which is how the card knows after a reload.
 - `props.app.schedule` is bound the same way, right after it
   (`hooks/useWidgetSchedule.ts`): a call opens `WidgetScheduleDialog` in
   `components/ScheduleDialog.tsx`, which captures the view, the widget and the
@@ -921,7 +930,8 @@ pages/admin/            AdminContent, Administrators, MigrationBanner,
 sharing.ts              Sharing labels and ACL helpers (see *The sharing kit*)
 capabilities.ts         useCapabilities: which optional features are set up
 email.ts                Send dialog helpers and useWidgetEmail; the dialog is
-                        components/SendEmailDialog.tsx
+                        components/SendEmailDialog.tsx, an agent's draft card
+                        components/EmailDraftCard.tsx
 schedules.ts            /api/schedules and /api/oauth types, requests and pure
                         helpers; the dialog is components/ScheduleDialog.tsx,
                         the page pages/SchedulesPage.tsx (#/schedules), the

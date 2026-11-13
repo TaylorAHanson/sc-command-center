@@ -10,7 +10,9 @@ database is a fake connection. Pinned here:
 - refusals, the daily cap and "not set up" come back as 400 / 429 / 503 with a
   sentence for the person;
 - a view link from another origin never reaches the email;
-- a preview writes nothing.
+- a preview writes nothing;
+- HTML, tables and files go through the same checks, and an agent's draft that
+  is sent is noted on its conversation as the caller.
 """
 import os
 import sys
@@ -146,7 +148,8 @@ def test_a_preview_writes_nothing():
     assert response.status_code == 200
     assert body["available"] and body["problem"] is None and body["recipients"] == ["bob@example.com"]
     assert "<strong>up</strong>" in body["html"] and f'href="{ORIGIN}/#/app/sales"' in body["html"]
-    assert body["attachment"] == {"filename": "q3.csv", "rows": 2, "bytes": body["attachment"]["bytes"]}
+    [attached] = body["attachments"]
+    assert attached == {"filename": "q3.csv", "content_type": "text/csv", "rows": 2, "bytes": attached["bytes"]}
     assert body["sent_today"] == 3 and body["reply_to"] == ME
     assert ses.calls == []
     assert all(text.startswith("SELECT COUNT") for text, _ in conn.statements)
@@ -157,6 +160,49 @@ def test_a_preview_when_not_set_up_says_so():
         body = client.post("/api/email/preview", json=BODY).json()
     assert body["available"] is False and body["problem"] == "Email isn't set up in this app yet."
     assert body["reason"] == "not_set_up" and conn.statements == []
+
+
+
+def test_html_tables_and_files_reach_the_email():
+    with signed_in() as (client, conn, ses):
+        response = client.post("/api/email/send", headers={"Origin": ORIGIN}, json={
+            **BODY, "message": "", "html": "<p>Hi <b>team</b></p><script>x()</script>",
+            "tables": [{"title": "West", "columns": ["a"], "rows": [[1]]}], "attach_csv": True,
+            "attachments": [{"filename": "notes.txt", "content": "hello"}]})
+    assert response.status_code == 200, response.text
+    simple = ses.calls[0]["Content"]["Simple"]
+    assert "<p>Hi <b>team</b></p>" in simple["Body"]["Html"]["Data"] and "x()" not in simple["Body"]["Html"]["Data"]
+    assert [a["FileName"] for a in simple["Attachments"]] == ["west.csv", "notes.txt"]
+
+
+def test_an_attachment_of_another_kind_is_refused():
+    with signed_in() as (client, conn, ses):
+        response = client.post("/api/email/send", headers={"Origin": ORIGIN},
+                               json={**BODY, "attachments": [{"filename": "a.pdf", "content": "x"}]})
+    assert response.status_code == 400 and "only .csv" in response.json()["detail"]
+    assert ses.calls == []
+
+
+def test_an_agents_draft_is_marked_sent_on_its_conversation():
+    from services import conversation_store
+    marked = []
+    original = conversation_store.mark_email_draft
+    conversation_store.mark_email_draft = lambda *args: marked.append(args) or True
+    try:
+        with signed_in() as (client, conn, ses):
+            sent = client.post("/api/email/send", headers={"Origin": ORIGIN}, json={
+                **BODY, "via": "assistant", "conversation_id": "conv-1", "draft_id": "d" * 32, "env": "prod"})
+            refused = client.post("/api/email/send", headers={"Origin": ORIGIN}, json={
+                **BODY, "to": ["eve@other.com"], "via": "assistant", "conversation_id": "conv-1",
+                "draft_id": "e" * 32})
+            bad_via = client.post("/api/email/send", headers={"Origin": ORIGIN}, json={**BODY, "via": "schedule"})
+    finally:
+        conversation_store.mark_email_draft = original
+    assert sent.status_code == 200 and refused.status_code == 400 and bad_via.status_code == 422
+    # Only the send that went is noted, as the caller, never as the body claims.
+    assert marked == [("prod", ME, "conv-1", "d" * 32, "sent", ["bob@example.com"])]
+    sources = [row[6] for row in conn.of("INSERT INTO email_log")]
+    assert sources == ["assistant", "assistant"]
 
 
 if __name__ == "__main__":

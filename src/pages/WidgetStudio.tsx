@@ -2284,8 +2284,19 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                         <span>Widget Studio</span>
                     </div>
                     {/* Only what's about the agent and this chat belongs up here; anything
-                        about the widget itself sits with the workspace on the right. */}
+                        about the widget itself sits with the workspace on the right. Reset
+                        is here because it starts a new conversation, and in the ⋯ menu
+                        people couldn't find it. Not mid-turn: the agent would go on to
+                        write its code into the cleared studio. */}
                     <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleReset}
+                            disabled={isGenerating}
+                            title="Reset: clear the studio to start a new widget. A snapshot of the code is kept in History."
+                            className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded-md text-slate-300 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                            <Eraser size={14} />
+                            Reset
+                        </button>
                         <div className="relative">
                             <button
                                 onClick={() => setShowAgentPrefs(v => !v)}
@@ -2662,14 +2673,6 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                                             className="w-full px-3 py-2 flex items-center gap-2 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors"
                                         >
                                             <Download size={14} className="text-slate-400" /> Export to file
-                                        </button>
-                                        <div className="my-1 border-t border-slate-700" />
-                                        <button
-                                            role="menuitem"
-                                            onClick={() => { setShowWidgetMenu(false); handleReset(); }}
-                                            className="w-full px-3 py-2 flex items-center gap-2 text-left text-sm text-rose-300 hover:bg-rose-950/50 transition-colors"
-                                        >
-                                            <Eraser size={14} /> Reset studio
                                         </button>
                                     </div>
                                 </>

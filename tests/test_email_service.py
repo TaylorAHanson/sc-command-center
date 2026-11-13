@@ -12,7 +12,10 @@ every statement. Pinned here:
 - which transport runs (SES, the local log, or off) for each combination of
   setup, and what the `email` capability tells an admin;
 - that the log row is written before SES is called, holds no body, and that
-  refusals, the daily cap, a failed log write and a failed send all behave.
+  refusals, the daily cap, a failed log write and a failed send all behave;
+- several titled tables, sanitized HTML with embedded images sent as inline
+  parts, attached files, and the limits on each (the rules themselves are
+  `test_email_content.py`'s).
 """
 import csv
 import io
@@ -376,10 +379,10 @@ def test_the_attachment_is_named_after_the_subject():
     assert es.csv_filename("Q3 Revenue — by Region!") == "q3-revenue-by-region.csv"
     assert es.csv_filename("") == "table.csv"
     rendered = es.build_email("Q3 Revenue", "Hi", es.normalize_table(table(60)), True, ME)
-    name, data, rows = rendered.attachment
-    assert name == "q3-revenue.csv" and rows == 60
+    [attached] = rendered.files
+    assert attached.filename == "q3-revenue.csv" and attached.rows == 60 and attached.content_type == "text/csv"
     assert "The attached CSV has them all." in rendered.html and "Attached: q3-revenue.csv" in rendered.text
-    assert es.build_email("Q3", "Hi", es.normalize_table(table(3)), False, ME).attachment is None
+    assert es.build_email("Q3", "Hi", es.normalize_table(table(3)), False, ME).files == []
 
 
 # --- the whole email ------------------------------------------------------------
@@ -666,9 +669,101 @@ def test_a_preview_shows_the_email_without_writing():
     assert preview["available"] and preview["mode"] == "ses"
     assert preview["reason"] == "domain_not_allowed"
     # The recipients are wrong, but the rest still previews.
-    assert "<strong>there</strong>" in preview["html"] and preview["attachment"]["filename"] == "q3.csv"
+    assert "<strong>there</strong>" in preview["html"] and preview["attachments"][0]["filename"] == "q3.csv"
     assert preview["sent_today"] == 7 and preview["daily_limit"] == 50 and preview["from_address"] == FROM
     assert [t for t, _ in conn.statements if not t.startswith("SELECT COUNT")] == []
+
+
+
+# --- HTML, several tables and files ---------------------------------------------
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+PNG_URL = "data:image/png;base64," + __import__("base64").b64encode(PNG).decode()
+
+
+def test_several_tables_each_with_a_title_and_a_csv():
+    tables = [{"title": "West", **table(2)}, {"title": "East", **table(3)}]
+    with configured(SES_READY, SES_ENV), wired(FakeConn(), FakeSES()):
+        preview = es.preview_email(ME, ME, "bob@example.com", "Q3", "", None, True, tables=tables)
+    assert preview["problem"] is None
+    assert [a["filename"] for a in preview["attachments"]] == ["west.csv", "east.csv"]
+    assert ">West</h3>" in preview["html"] and ">East</h3>" in preview["html"]
+    assert es.normalize_tables(table(1), [table(1)]) and len(es.normalize_tables(table(1), [table(1)])) == 2
+    try:
+        es.normalize_tables(None, [table(1)] * (es.MAX_TABLES + 1))
+    except ValueError as exc:
+        assert str(exc) == f"At most {es.MAX_TABLES} tables in one email."
+    else:
+        raise AssertionError("expected a refusal")
+
+
+def test_html_with_an_embedded_chart_goes_inline_through_ses():
+    conn, ses = FakeConn(), FakeSES()
+    markup = (f'<h2 style="color:#123">Weekly</h2><p onclick="x()">Up <b>4%</b></p>'
+              f'<img src="{PNG_URL}" alt="chart"><img src="https://tracker/p.gif"><script>bad()</script>')
+    with configured(SES_READY, SES_ENV), wired(conn, ses):
+        result = send(message_md="", table=None, attach_csv=False, html_body=markup,
+                      attachments=[{"filename": "notes.txt", "content": "see attached"}])
+    assert result["ok"], result
+    simple = ses.calls[0]["Content"]["Simple"]
+    body = simple["Body"]["Html"]["Data"]
+    assert "<h2 style=\"color:#123\">Weekly</h2><p>Up <b>4%</b></p>" in body
+    assert "onclick" not in body and "bad()" not in body and "tracker" not in body
+    notes, image = simple["Attachments"]
+    assert notes["FileName"] == "notes.txt" and notes["ContentDisposition"] == "ATTACHMENT" and "ContentId" not in notes
+    assert image["ContentDisposition"] == "INLINE" and image["ContentType"] == "image/png"
+    assert image["RawContent"] == PNG and f'src="cid:{image["ContentId"]}"' in body
+    assert "Weekly" in simple["Body"]["Text"]["Data"] and "Attached: notes.txt" in simple["Body"]["Text"]["Data"]
+    has_table, has_attachment = conn.of("INSERT INTO email_log")[0][9:11]
+    assert (has_table, has_attachment) == (False, True)
+
+
+def test_inline_parts_match_the_sesv2_model():
+    from botocore.stub import Stubber
+    es._client.clear()
+    try:
+        with configured(SES_READY, SES_ENV):
+            client = es._ses_client()
+            prepared = es.prepare(es.current_settings(), ME, ME, "bob@example.com", "Q3", "", None, False,
+                                  body_html=f'<img src="{PNG_URL}">',
+                                  attachments=[{"filename": "a.csv", "content": "x,y"}])
+            assert prepared.problem is None
+            with Stubber(client) as stub:
+                stub.add_response("send_email", {"MessageId": "0100-stub"})
+                assert es._send_ses(prepared.rendered, FROM, ME, ["bob@example.com"]) == "0100-stub"
+                stub.assert_no_pending_responses()
+    finally:
+        es._client.clear()
+
+
+def test_a_preview_draws_embedded_images_and_says_what_was_left_out():
+    with configured(SES_READY, SES_ENV), wired(FakeConn(), FakeSES()):
+        preview = es.preview_email(ME, ME, "bob@example.com", "Q3", "", None, False,
+                                   html_body=f'<p>Hi</p><img src="{PNG_URL}"><img src="https://x/y.png">')
+    assert preview["problem"] is None
+    assert f'src="{PNG_URL}"' in preview["html"] and "cid:" not in preview["html"]
+    # The inline image is shown in the body, not listed as an attachment.
+    assert preview["attachments"] == []
+    assert preview["notes"] == ["Left out 1 image that would load from another site; only embedded images are sent."]
+
+
+def test_new_content_limits():
+    with configured(SES_READY, SES_ENV), wired(FakeConn(), FakeSES()):
+        assert send(attachments=[{"filename": "x.pdf", "content": "x"}])["reason"] == "bad_attachment"
+        assert send(tables="nope")["reason"] == "bad_table"
+        assert send(html_body="<p>" + "x" * 200_001)["reason"] == "html_too_long"
+        # Only an attachment, no words: still an email.
+        assert send(message_md="", table=None, attachments=[{"filename": "a.txt", "content": "x"}])["ok"]
+        # Markup with nothing left in it is empty.
+        assert send(message_md="", table=None, html_body="<script>x</script>")["reason"] == "empty"
+    original = es.email_content.FILES_MAX_BYTES
+    es.email_content.FILES_MAX_BYTES = 100
+    try:
+        with configured(SES_READY, SES_ENV), wired(FakeConn(), FakeSES()):
+            result = send(attachments=[{"filename": "a.txt", "content": "x" * 101}], table=None)
+        assert result["reason"] == "files_too_large" and "at most 0 MB" in result["error"]
+    finally:
+        es.email_content.FILES_MAX_BYTES = original
 
 
 if __name__ == "__main__":

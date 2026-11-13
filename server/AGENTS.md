@@ -964,11 +964,12 @@ at most `PURGE_MAX_BATCHES` per run, committing each so a large backlog never
 holds one long lock. `action_logs` is the audit trail of what widgets changed
 and is never purged here.
 
-## Email (`services/email_service.py`, `routes/email.py`)
+## Email (`services/email_service.py`, `services/email_content.py`, `services/email_tool.py`, `routes/email.py`)
 
 Everything that sends email calls **`email_service.send_email(sender_username,
 sender_email, to, subject, message_md, table=None, attach_csv=False,
-view_name=None, view_link=None, source="widget", request_id=None)`**. It needs no
+view_name=None, view_link=None, source="widget", request_id=None, *,
+html_body=None, tables=None, attachments=None)`**. It needs no
 request, so a background job can call it, and it never raises: it returns
 `{ok, status, reason, transport, message_id, recipients, error, log_id}`, where
 `status` is `sent` / `logged` (ok) or `refused` / `unavailable` / `failed` and
@@ -986,12 +987,34 @@ skip it:
   their `sending` / `sent` / `logged` rows and inserts this one as `sending` in
   the same transaction, which is what makes the cap hold across both workers. A
   row that can't be written means nothing is sent.
-- **Content.** Markdown goes through a small renderer here that escapes every
-  character it doesn't recognize, links only to http/https/mailto, and turns
-  images into links (an `<img>` would report who opened the email). A table is
-  data (`{columns, rows}`), drawn up to 50 rows, with an optional CSV (formula
-  cells prefixed with `'`, capped at 10,000 rows and 5 MB). The subject loses
-  control characters, so it can't add a header. There is no way to pass HTML.
+- **Content: the caller decides it, the server keeps it safe.** A widget or an
+  agent chooses what an email holds and the person sees exactly that in the Send
+  dialog, so the rules hold back only what a preview can't show, or what would
+  make an email under the app's From address something else. Markdown goes
+  through a small renderer here that escapes every character it doesn't
+  recognize, links only to http/https/mailto, and turns images into links.
+  `html_body` goes through `email_content.sanitize_html`, which **rebuilds**
+  the markup from an allow-list (tags, attributes, CSS properties with values
+  that fetch and escape nothing) rather than filtering it, so every tag it opens
+  it closes and nothing reaches the footer that names the sender. Scripts,
+  styles, forms, frames, SVG and event handlers go; `display:none` goes too,
+  because hidden text would still be in the plain-text part.
+- **Images are embedded, never fetched.** An `<img>` from another site would
+  report who opened the email, which no preview reveals, so it is dropped with a
+  note (`Rendered.notes`, shown under the preview). A `data:` image becomes an
+  inline part with a Content-ID of ours; `cid:<filename>` names an attached
+  image, which then goes inline. An image must match its type's signature.
+- **Tables and files.** A table is data (`{title?, columns, rows}`, up to
+  `MAX_TABLES` of them via `table` and `tables`), drawn up to 50 rows, each with
+  an optional CSV (formula cells prefixed with `'`, capped at 10,000 rows and
+  5 MB). `attachments` are `[{filename, content}]` for text or `[{filename,
+  data}]` (base64 / data: URL) for images, and only `email_content.ATTACHMENT_TYPES`:
+  txt, csv, tsv, json, md, png, jpg, gif, webp, the kinds a browser makes with
+  no library. No PDF or office formats (that would mean a library, deliberately
+  not added), no SVG or HTML files, nothing executable. A caller's
+  CSV/TSV is rewritten through the same formula guard. 10 files, 5 MB each,
+  10 MB for every file together including inline images and table CSVs. The
+  subject loses control characters, so it can't add a header.
 - **The record.** `email_log` (content schema, `_create_email_tables`) holds
   sender, recipients, subject, status, transport, message id and error, never the
   body; `activity.record(..., "email.send", "email", log_id, ...)` follows each
@@ -1011,8 +1034,14 @@ is why there is no setting for them or for the region. The `email` capability
 (registered in `main.py`'s startup) reports the same three states, with `missing`
 and `next_step` in fix-it order.
 
+**SES.** One `send_email` call with `Content.Simple`: text and HTML bodies,
+and `Attachments` for every file, `INLINE` with a `ContentId` for an image the
+HTML shows. `test_email_service.py` checks the request against the SESv2
+service model with botocore's Stubber, which a hand-written fake can't.
+
 **Routes.** `POST /api/email/preview` renders what Send would send and the
-problem that would stop it, writing nothing; `POST /api/email/send` sends.
+problem that would stop it, writing nothing, with inline images swapped for
+data: URLs so the sandboxed preview frame can draw them; `POST /api/email/send` sends.
 Refusals are 400, the daily cap 429, not set up 503 and an SES failure 502, each
 with the sentence as `detail`. The view link is the browser's to send, so it is
 kept only when it is on the request's own origin (`own_view_link`).
@@ -1026,6 +1055,28 @@ widget whose code names `/api/email/send` (or `/api/schedules`, which
 string is refused by `widget_safety.DIALOG_ROUTES`. That catches the generated
 case, not a determined author who builds the path at runtime, so the recipient
 policy, caps and log are still what hold either way.
+
+**An agent's drafts (`services/email_tool.py`).** An author switches the tool on
+per agent by listing `agent_studio_store.EMAIL_TOOL_ID` (`builtin/send_email`)
+among its tools. Built-in ids live in that list so versions, drafts, Data
+Migration and consolidation carry the switch with no new column;
+`split_builtin_tools` takes them out before anything treats the list as MCP ids,
+so an agent whose only tool is the switch still gets the default catalog, and
+`builtin` is never looked up as a server. `upstream_tool_ids` drops them for
+the external runtime, which has no such tool. The tool **never sends**: it runs
+`check_content` (problems go back to the model to fix) and the recipient check
+(a problem there still drafts; the person fixes the To line), then returns the
+draft, which the runtime puts on the turn's tool entry as `email_draft`. That
+entry reaches the drawer in the `tool_calls` frame and is saved with the turn,
+so the card survives a reload. From chat only text files can be attached; a
+model can't produce real image bytes. The card opens the same Send dialog, which
+posts `via: "assistant"` with `conversation_id` and `draft_id`; a send that goes
+calls `conversation_store.mark_email_draft`, scoped to the conversation's owner,
+which sets `email_sent` on that entry. `with_tool_evidence` then tells the agent
+on its next turn whether its draft went, and the card shows it as sent. Why it
+only drafts: the model writes recipients and body from a conversation the
+person may half be reading, and a line in an uploaded file or a Genie answer
+could ask for a send; an email can't be called back.
 
 ## Token vault (`services/token_vault.py`, `routes/oauth.py`)
 
@@ -1977,8 +2028,10 @@ PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed
 PYTHONPATH=server .venv/bin/python tests/test_actions_routes.py       # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity_feed.py        # 24 passed
-PYTHONPATH=server .venv/bin/python tests/test_email_service.py        # 44 passed
-PYTHONPATH=server .venv/bin/python tests/test_email_routes.py         # 9 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_service.py        # 49 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_content.py        # 25 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_tool.py           # 13 passed
+PYTHONPATH=server .venv/bin/python tests/test_email_routes.py         # 12 passed
 PYTHONPATH=server .venv/bin/python tests/test_token_vault.py          # 48 passed
 PYTHONPATH=server .venv/bin/python tests/test_recurrence.py           # 26 passed
 PYTHONPATH=server .venv/bin/python tests/test_scheduler.py            # 56 passed

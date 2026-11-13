@@ -256,18 +256,26 @@ improves how well the Assistant can reason about it.
 
 ### Sending by email (`props.app.sendEmail`)
 
-Use this when the user asks for a widget that emails what it shows ("Email this
-table to my team", "Send me these numbers"). It opens the app's own Send dialog
-with the email filled in; the person edits the recipients, sees the email as it
-will arrive, and presses Send. The widget never sends anything itself.
+Use this when the user asks for a widget that emails something ("Email this
+table to my team", "Send me this chart", "A button that emails a summary"). It
+opens the app's own Send dialog with the email filled in; the person edits the
+recipients, sees the email exactly as it will arrive, and presses Send. The
+widget never sends anything itself. **You decide what the email holds**: a
+Markdown message, an HTML layout, tables, a picture of a chart, text files.
 
 ```ts
 props.app?.sendEmail({
   subject: 'Q3 revenue by region',                  // the person can edit it
-  message: '**Revenue is up 4%** on last quarter.', // Markdown: paragraphs, lists, **bold**, *italic*, `code`, [links](https://…)
+  message: '**Revenue is up 4%** on last quarter.', // Markdown: paragraphs, headings, lists, **bold**, *italic*, `code`, [links](https://…)
+  html: '<h2 style="color:#0b5cad">Q3</h2><p>…</p>',  // optional, after `message`: an HTML layout (rules below)
   to: ['finance-team@example.com'],                 // optional starting recipients, string or array
   table: { columns: ['Region', 'Revenue'], rows: rows.map(r => [r.region, r.revenue]) }, // optional
-  attachCsv: true,                                  // optional: also attach the table as a CSV
+  tables: [{ title: 'By month', columns: ['Month', 'Total'], rows: monthly }],           // optional, more tables
+  attachCsv: true,                                  // optional: also attach each table as a CSV
+  attachments: [                                    // optional files, see below
+    { filename: 'notes.txt', content: 'Plain text, CSV, TSV, JSON or Markdown' },
+    { filename: 'chart.png', data: canvas.toDataURL('image/png') },
+  ],
 })  // → Promise<{ sent: boolean, status: 'sent' | 'logged' | 'cancelled' | 'unavailable', recipients: string[] }>
 props.app?.emailAvailable  // false until email is set up in this app
 ```
@@ -275,11 +283,51 @@ props.app?.emailAvailable  // false until email is set up in this app
 - **Disable the button when `props.app?.emailAvailable` is false**, with the
   title `Email isn't set up in this app yet`. Keep the button visible: the person
   should see the feature exists and can ask an administrator for it.
-- **Send data, not markup.** `message` is Markdown and the server escapes it, so
-  HTML shows up as text, and images are never drawn. Put rows in `table` rather
-  than formatting them into the message: the email shows the first 50, and
-  `attachCsv: true` carries up to 10,000 in the attachment. Rows may be arrays
-  in column order or objects keyed by column name.
+- **HTML is for layout, with inline styles.** The server keeps p, div, span,
+  h1–h6, table and its parts, ul/ol/li, a, b/strong, i/em, br, hr, img, pre,
+  code, blockquote and a few more, each with a `style` attribute of ordinary
+  properties (colour, background-color, font, padding, margin, border, width,
+  text-align…). Everything else is dropped: `<style>` blocks, classes, scripts,
+  forms, buttons, iframes, SVG, event handlers, CSS `url()` and `position`.
+  Tailwind classes do nothing in an email; write `style="…"`. Links may go only
+  to http, https and mailto.
+- **Images must be embedded, never linked.** An `<img>` whose `src` is another
+  site is dropped (it would tell that site who opened the email). Embed it: put
+  a data: URL in `src` (a canvas's `toDataURL('image/png')`), or attach the image
+  and write `<img src="cid:chart.png">` with its filename. PNG, JPEG, GIF or WebP.
+- **Picture of a chart.** A canvas chart (Chart.js, ECharts with the canvas
+  renderer) gives `canvas.toDataURL('image/png')` directly. An SVG chart
+  (Highcharts, Vega, D3) must be drawn onto a canvas first, because SVG can't be
+  sent:
+
+  ```ts
+  const svgToPng = (svg: SVGSVGElement): Promise<string> => new Promise((resolve, reject) => {
+    const { width, height } = svg.getBoundingClientRect();
+    const xml = new XMLSerializer().serializeToString(svg);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width * 2; canvas.height = height * 2;     // sharp on high-DPI screens
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = reject;
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+  });
+  ```
+  For Vega, `await view.toImageURL('png')` does the same.
+- **Attachments are files a browser makes on its own:** `.txt`, `.csv`, `.tsv`,
+  `.json`, `.md` as `content` (a string), and `.png`, `.jpg`, `.gif`, `.webp` as
+  `data` (a data: URL, base64, or a Blob). Nothing else is accepted: no PDF,
+  Excel or Word file (there is no library for them here), no HTML file, nothing
+  executable. At most 10 files, 5 MB each, 10 MB for the whole email. A CSV you
+  build yourself is fine, but a `table` with `attachCsv: true` is simpler.
+- **Send data as tables.** Put rows in `table` / `tables` rather than formatting
+  them into the message: the email shows the first 50 of each, and `attachCsv`
+  carries up to 10,000. Rows may be arrays in column order or objects keyed by
+  column name. At most 5 tables; a `title` heads each one and names its CSV.
 - **Don't promise delivery.** The promise resolves when the dialog closes, and
   `sent` is false if the person cancelled. The app limits recipients (by
   default to the sender's own email domain, at most 10 people), so never
@@ -305,6 +353,20 @@ const canEmail = !!props.app?.emailAvailable;
   className="px-3 py-1.5 rounded-md bg-brand-blue text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed">
   Email this
 </button>
+```
+
+An email with a chart picture and a styled summary:
+
+```tsx
+onClick={async () => {
+  const chart = containerRef.current?.querySelector('canvas');
+  props.app?.sendEmail({
+    subject: 'Weekly throughput',
+    html: `<p style="font-size:15px">Throughput was <b style="color:#047857">${total.toLocaleString()}</b> units this week.</p>`
+      + (chart ? `<img src="${chart.toDataURL('image/png')}" alt="Throughput by day" width="600">` : ''),
+    table: { title: 'By day', columns: ['Day', 'Units'], rows: days.map(d => [d.day, d.units]) },
+  });
+}}
 ```
 
 ### Scheduling a report (`props.app.schedule`)

@@ -36,7 +36,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -75,9 +75,27 @@ def canonical_tool_ids(tools: List[Any]) -> List[str]:
     return list(dict.fromkeys(ids))
 
 
+#: Tools this app provides itself, switched on per agent by listing their id
+#: among its tools. They live in the same list as MCP ids so an agent's versions,
+#: drafts and snapshots carry the switch with no new column, but they are not MCP
+#: tools: the runtime builds them, and they don't count as a curated tool list
+#: (an agent whose only tool is one of these still gets the default catalog).
+#: The `builtin` label names no MCP server, which `split_builtin_tools` keeps
+#: from ever being looked up as one.
+EMAIL_TOOL_ID = "builtin/send_email"
+BUILTIN_TOOL_IDS = frozenset({EMAIL_TOOL_ID})
+
+
+def split_builtin_tools(tools: List[Any]) -> Tuple[List[str], List[str]]:
+    """(MCP tool ids, built-in tool ids), each canonical and in order."""
+    ids = canonical_tool_ids(tools)
+    return [t for t in ids if t not in BUILTIN_TOOL_IDS], [t for t in ids if t in BUILTIN_TOOL_IDS]
+
+
 def upstream_tool_ids(tools: List[Any]) -> List[str]:
-    """The reverse, for a runtime that only knows the servers' own names."""
-    return [_UPSTREAM_TOOL_IDS.get(t, t) for t in tools or [] if isinstance(t, str)]
+    """The reverse, for a runtime that only knows the servers' own names. The
+    external runtime has none of this app's built-in tools, so they are left out."""
+    return [_UPSTREAM_TOOL_IDS.get(t, t) for t in tools or [] if isinstance(t, str) and t not in BUILTIN_TOOL_IDS]
 
 
 def _max_bytes() -> int:

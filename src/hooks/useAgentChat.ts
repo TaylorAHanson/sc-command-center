@@ -4,12 +4,17 @@ import { useDashboardStore, DEFAULT_AGENT_PIN } from '../store/dashboardStore';
 import { DEFAULT_AGENT_NAME, pinnedAgentOf } from '../store/appSpec';
 import { useChatUploads } from './useChatUploads';
 import type { Level, PublishState } from '../sharing';
+import type { AgentEmailDraft } from '../email';
 
 export type { Attachment } from './useChatUploads';
 
 export interface ToolCall {
     tool_name: string;
     status?: string;
+    /** An agent's email tool hands its draft over here; the chat shows it as a card. */
+    email_draft?: AgentEmailDraft;
+    /** Set by the server once the person sent that draft. */
+    email_sent?: { status: 'sent' | 'logged'; recipients: string[] };
 }
 
 export interface AgentProfile {

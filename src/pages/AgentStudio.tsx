@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     Bot, Save, RefreshCw, Trash2, Plus, Settings, FileText, Sparkles,
     ListChecks, AlertTriangle, Wrench, ChevronDown, FolderOpen, Play,
-    Code2, ShieldCheck, Search, MessageSquarePlus, FilePlus2, Check, Share2, X,
+    Code2, ShieldCheck, Search, MessageSquarePlus, FilePlus2, Check, Share2, X, Mail,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -16,6 +16,7 @@ import { SendStopButton } from '../components/SendStopButton';
 import { DraftBar, ShareDialog, type DraftMode } from '../components/sharing';
 import { LEVEL_LABELS, STATE_LABELS, type Level, type PublishState } from '../sharing';
 import { agentIdFromHash } from './admin/openObject';
+import { isAvailable, useCapabilities } from '../capabilities';
 
 const DARK_CHAT_MARKDOWN: Components = { img: DarkChatImage };
 
@@ -52,6 +53,14 @@ interface ToolProblem {
     name: string;
     sign_in: boolean;
 }
+
+// Tools the app provides itself. They sit in the agent's tool list beside MCP ids
+// (so versions, drafts and snapshots carry them), but they are switches here, not
+// catalog entries, and an agent with only these still gets the default catalog.
+// Matches BUILTIN_TOOL_IDS in server/agent_studio_store.py.
+const EMAIL_TOOL_ID = 'builtin/send_email';
+const BUILTIN_TOOL_IDS = [EMAIL_TOOL_ID];
+const isBuiltinTool = (id: string) => BUILTIN_TOOL_IDS.includes(id);
 
 const TOOL_SOURCE_LABELS: Record<string, string> = {
     sql: 'SQL',
@@ -269,6 +278,7 @@ export const AgentStudio: React.FC = () => {
     const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
     const [domains, setDomains] = useState<string[]>([DEFAULT_DOMAIN]);
     const [tools, setTools] = useState<ToolInfo[]>([]);
+    const emailReady = isAvailable(useCapabilities(), 'email');
     const [toolsLoading, setToolsLoading] = useState(false);
     const [toolProblems, setToolProblems] = useState<ToolProblem[]>([]);
     const [toolFilter, setToolFilter] = useState('');
@@ -489,7 +499,13 @@ export const AgentStudio: React.FC = () => {
         if (draft.name) setName(draft.name);
         if (typeof draft.description === 'string') setDescription(draft.description);
         if (typeof draft.model === 'string' && draft.model) setModel(draft.model);
-        if (Array.isArray(draft.tools)) setSelectedTools(draft.tools);
+        // The assistant chooses MCP tools; the app's own tools stay the author's switch.
+        if (Array.isArray(draft.tools)) {
+            setSelectedTools(prev => [
+                ...draft.tools.filter((t: unknown) => typeof t === 'string' && !isBuiltinTool(t)),
+                ...prev.filter(isBuiltinTool),
+            ]);
+        }
         if (typeof draft.prompt === 'string' && draft.prompt) setAgentPrompt(draft.prompt);
         if (Array.isArray(draft.skills)) {
             setSkills(draft.skills.map((s: any) => ({ name: s.name, description: s.description || '', content: s.content || '' })));
@@ -755,6 +771,7 @@ export const AgentStudio: React.FC = () => {
     // Selection is keyed on the canonical server-qualified id. We also treat a
     // legacy bare-name entry as selected (older profiles stored just the name).
     const toolIsSelected = (t: ToolInfo) => selectedTools.includes(t.id) || selectedTools.includes(t.name);
+    const mcpSelectedCount = selectedTools.filter(t => !isBuiltinTool(t)).length;
 
     const toggleTool = (t: ToolInfo) => {
         setSelectedTools(prev =>
@@ -1210,11 +1227,41 @@ export const AgentStudio: React.FC = () => {
                                 </div>
 
                                 <div>
+                                    <span className="block text-sm font-medium text-slate-300 mb-1.5">App tools</span>
+                                    <label className="flex gap-3 items-start rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 cursor-pointer hover:border-slate-600">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedTools.includes(EMAIL_TOOL_ID)}
+                                            onChange={e => setSelectedTools(prev => e.target.checked
+                                                ? [...prev.filter(t => t !== EMAIL_TOOL_ID), EMAIL_TOOL_ID]
+                                                : prev.filter(t => t !== EMAIL_TOOL_ID))}
+                                            className="mt-0.5 accent-indigo-500"
+                                        />
+                                        <span className="text-xs">
+                                            <span className="flex items-center gap-1.5 text-sm font-medium text-slate-200">
+                                                <Mail size={14} className="text-slate-400" /> Draft emails
+                                            </span>
+                                            <span className="block text-slate-400 mt-0.5">
+                                                The agent can write an email, with tables and text files, when someone asks
+                                                for one. It never sends: a card in the chat opens the Send dialog, where the
+                                                person checks the recipients and the email, then presses Send. It goes from
+                                                them, under the app's email rules.
+                                            </span>
+                                            {!emailReady && (
+                                                <span className="block text-amber-300/90 mt-1">
+                                                    Email isn't set up in this app yet, so the agent will say so instead of drafting.
+                                                </span>
+                                            )}
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div>
                                     <div className="flex items-center justify-between mb-1.5">
                                         <label className="block text-sm font-medium text-slate-300">
                                             Tools (AI Gateway MCP)
-                                            {selectedTools.length > 0 && (
-                                                <span className="ml-2 text-xs font-normal text-indigo-300">{selectedTools.length} selected</span>
+                                            {mcpSelectedCount > 0 && (
+                                                <span className="ml-2 text-xs font-normal text-indigo-300">{mcpSelectedCount} selected</span>
                                             )}
                                         </label>
                                         <button onClick={() => refreshTools(true)} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">

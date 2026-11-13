@@ -240,12 +240,24 @@ def history_for_model(env: str, conversation_id: str, limit: int = HISTORY_TURNS
     ]
 
 
+def _email_outcome(tool: Dict[str, Any]) -> str:
+    """What became of an email the agent drafted, as the replay tells it."""
+    if not isinstance(tool.get("email_draft"), dict):
+        return ""
+    sent = tool.get("email_sent")
+    if isinstance(sent, dict):
+        if sent.get("status") == "logged":
+            return " (the person sent it; a local run wrote it to the server log)"
+        return f" (the person sent it to {', '.join(sent.get('recipients') or []) or 'its recipients'})"
+    return " (not sent yet: the person hasn't sent it)"
+
+
 def with_tool_evidence(role: str, content: str, tools_json: Any) -> str:
     """Append the tools an assistant turn ran, for the replay to carry."""
     if role != "assistant":
         return content
     names = [
-        str(t.get("tool_name") or t.get("name") or "").strip()
+        str(t.get("tool_name") or t.get("name") or "").strip() + _email_outcome(t)
         for t in _json_loads(tools_json, [])
         if isinstance(t, dict) and (t.get("tool_name") or t.get("name"))
     ]
@@ -349,6 +361,63 @@ def append_message(env: str, conversation_id: str, role: str, content: str, *,
             )
         conn.commit()
         return seq
+    finally:
+        conn.close()
+
+
+def mark_draft_entries(tool_calls: Any, draft_id: str, sent: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """`tool_calls` with the email draft `draft_id` marked as sent, or None when
+    no entry holds that draft. Pure, so the matching is testable."""
+    calls = _json_loads(tool_calls, [])
+    if not isinstance(calls, list):
+        return None
+    found = False
+    out: List[Dict[str, Any]] = []
+    for call in calls:
+        draft = call.get("email_draft") if isinstance(call, dict) else None
+        if isinstance(draft, dict) and draft.get("id") == draft_id:
+            call = {**call, "email_sent": sent}
+            found = True
+        out.append(call)
+    return out if found else None
+
+
+def mark_email_draft(env: str, username: str, conversation_id: str, draft_id: str,
+                     status: str, recipients: List[str]) -> bool:
+    """Note on the assistant turn that drafted it that an email went out.
+
+    The agent reads it back on its next turn (`with_tool_evidence`), and a
+    reopened chat shows the draft as sent rather than offering it again. Scoped
+    to the conversation's owner, like everything here. False when there is no
+    such draft in a conversation of theirs.
+    """
+    if not conversation_id or not re.fullmatch(r"[A-Za-z0-9-]{8,64}", draft_id or ""):
+        return False
+    sent = {"status": status, "recipients": list(recipients)[:50]}
+    conn = _conn(env)
+    try:
+        c = conn.cursor()
+        # The owner as the chat route stored them; SCIM is not consistent about case.
+        c.execute(
+            """
+            SELECT m.seq, m.tool_calls_json FROM chat_messages m
+              JOIN chat_conversations v ON v.id = m.conversation_id
+             WHERE m.conversation_id = %s AND lower(v.username) = lower(%s)
+               AND m.role = 'assistant' AND m.tool_calls_json LIKE %s
+            """,
+            (conversation_id, username, f"%{draft_id}%"),
+        )
+        for seq, tools in c.fetchall():
+            marked = mark_draft_entries(tools, draft_id, sent)
+            if marked is None:
+                continue
+            c.execute(
+                "UPDATE chat_messages SET tool_calls_json = %s WHERE conversation_id = %s AND seq = %s",
+                (json.dumps(marked), conversation_id, seq),
+            )
+            conn.commit()
+            return True
+        return False
     finally:
         conn.close()
 

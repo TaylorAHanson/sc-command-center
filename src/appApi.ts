@@ -14,20 +14,43 @@ export interface AssistantRequest {
 
 /** A table to send: column names, then rows as arrays in that order or objects keyed by column. */
 export interface EmailTable {
+  /** A heading above it, and the name of its CSV. */
+  title?: string;
   columns?: string[];
   rows: unknown[];
 }
 
+/**
+ * A file to attach. Text (`.txt`, `.csv`, `.tsv`, `.json`, `.md`) as `content`;
+ * an image (`.png`, `.jpg`, `.gif`, `.webp`) as `data`: a data: URL such as a
+ * canvas's `toDataURL()`, base64, or a Blob. Nothing else can be attached.
+ */
+export interface EmailAttachment {
+  filename: string;
+  content?: string;
+  data?: string | Blob | ArrayBuffer | Uint8Array;
+}
+
 export interface EmailRequest {
   subject?: string;
-  /** Markdown. The server renders and escapes it; HTML arrives as text. */
+  /** Markdown. The server renders and escapes it; HTML in it arrives as text. */
   message?: string;
+  /**
+   * HTML for a richer layout, after `message`. The server keeps an allow-list
+   * of tags and inline styles; scripts, forms and images from other sites are
+   * dropped. Embed an image as a data: URL, or as `cid:<filename>` of an image
+   * in `attachments`.
+   */
+  html?: string;
   /** Who it is for to start with. The person can change it before sending. */
   to?: string | string[];
-  /** Drawn under the message, its first 50 rows. */
+  /** Drawn under the body, its first 50 rows. */
   table?: EmailTable;
-  /** Attach the table as a CSV file too. */
+  /** More tables, each drawn in turn. */
+  tables?: EmailTable[];
+  /** Attach each table as a CSV file too. */
   attachCsv?: boolean;
+  attachments?: EmailAttachment[];
 }
 
 export interface EmailOutcome {

@@ -415,9 +415,11 @@ const Body = () => (
 
     <H3 id="email-buttons">Email buttons</H3>
     <P>
-      Ask for "a button that emails this table" and the widget gets one that opens the app&rsquo;s <UI>Send</UI> dialog with a subject, a message and
-      the table filled in, optionally with the table attached as a CSV. The person sending chooses the recipients, sees a preview and presses{' '}
-      <UI>Send</UI>; the widget can&rsquo;t send by itself. Until email is set up the button is greyed out with &ldquo;Email isn&rsquo;t set up in this app
+      Ask for "a button that emails this table", "email a picture of this chart" or "email a formatted summary" and the widget gets a button that
+      opens the app&rsquo;s <UI>Send</UI> dialog with the email filled in. The widget chooses what goes in it: a message or an HTML layout, tables
+      (each optionally attached as a CSV), a picture of a chart, and files a browser can make by itself: text, CSV, TSV, JSON, Markdown, PNG,
+      JPEG, GIF or WebP. PDF, Excel and Word files can&rsquo;t be attached, and an image has to travel inside the email rather than load from
+      another site. The person sending chooses the recipients, sees a preview and presses <UI>Send</UI>; the widget can&rsquo;t send by itself. Until email is set up the button is greyed out with &ldquo;Email isn&rsquo;t set up in this app
       yet&rdquo;. In the studio&rsquo;s preview, pressing it describes the dialog instead. See{' '}
       <GuideLink to="widgets" anchor="email">Send a widget&rsquo;s numbers by email</GuideLink>.
     </P>
@@ -504,21 +506,20 @@ const Body = () => (
     </P>
     <P>
       The other controls sit on the right of the tabs, above the preview: <UI>History</UI>, <UI>Reload</UI>, the{' '}
-      <UI>⋯</UI> menu (<UI>Import from file…</UI>, <UI>Export to file</UI>, <UI>Reset studio</UI>), then{' '}
-      <UI>Save draft</UI> and close. Only the agent's own settings sit above the chat.{' '}
+      <UI>⋯</UI> menu (<UI>Import from file…</UI>, <UI>Export to file</UI>), then{' '}
+      <UI>Save draft</UI> and close. Above the chat sit only <UI>Reset</UI> and the agent's own settings.{' '}
       <UI>Reload</UI> recompiles and remounts the widget so anything it loads on start runs again.{' '}
-      <UI>Reset studio</UI> asks first, then clears the studio for a new widget; a snapshot of the code is kept
-      in <UI>History</UI>.
+      <UI>Reset</UI> asks first, then clears the studio and the chat to start a new widget; a snapshot of the
+      code is kept in <UI>History</UI>. It is greyed out while the agent is working.
     </P>
     <Shot
       name="studio-more-menu"
-      alt="The more menu open, showing Import from file, Export to file and Reset studio"
+      alt="The more menu open, showing Import from file and Export to file"
       caption="The ⋯ menu."
       legend={[
         'The ⋯ menu.',
         'Import from file… opens a widget file as a new widget.',
         'Export to file downloads the widget.',
-        'Reset studio.',
       ]}
     />
     <P>

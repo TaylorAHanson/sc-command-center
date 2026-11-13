@@ -9,6 +9,7 @@ import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { SendStopButton } from './SendStopButton';
 import { VegaChart, CHART_FENCE_MODES } from './VegaChart';
 import { ChatImage } from './ChatImage';
+import { EmailDraftCard } from './EmailDraftCard';
 import { pastedFiles } from '../hooks/useChatUploads';
 import { backgroundStyle, canvasTone, type CanvasBackground } from '../store/appSpec';
 
@@ -57,7 +58,7 @@ const MarkdownPre: React.FC<React.ComponentProps<'pre'> & ExtraProps> = ({ node,
 const MARKDOWN_COMPONENTS: Components = { pre: MarkdownPre, img: ChatImage };
 
 type ConversationChat = Pick<AgentChat, 'messages' | 'input' | 'setInput' | 'isLoading' | 'send' | 'stop'>
-    & Partial<Pick<AgentChat, 'attachments' | 'attachFiles' | 'removeAttachment' | 'isUploading' | 'uploadError' | 'clearUploadError' | 'persists' | 'isRestoring'>>;
+    & Partial<Pick<AgentChat, 'attachments' | 'attachFiles' | 'removeAttachment' | 'isUploading' | 'uploadError' | 'clearUploadError' | 'persists' | 'isRestoring' | 'conversationId'>>;
 
 /**
  * The shared EDH Agent transcript + composer. Used by both the Command Center
@@ -95,6 +96,7 @@ export const AgentConversation: React.FC<{
     const {
         messages, input, setInput, isLoading, send, stop,
         attachments = [], attachFiles, removeAttachment, isUploading, uploadError, clearUploadError,
+        persists, conversationId,
     } = chat;
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -221,6 +223,17 @@ export const AgentConversation: React.FC<{
                                             <TypingDots />
                                         )}
                                     </div>
+                                    {/* An agent's email drafts: the person sends them, from the dialog. */}
+                                    {msg.tool_calls?.map((tc, tIdx) => tc.email_draft ? (
+                                        <EmailDraftCard
+                                            key={`draft-${tc.email_draft.id || tIdx}`}
+                                            draft={tc.email_draft}
+                                            sent={tc.email_sent}
+                                            // Only a saved chat can be marked once it goes.
+                                            conversationId={persists ? conversationId : undefined}
+                                            glass={glass && !msg.isError}
+                                        />
+                                    ) : null)}
                                     {msg.tool_calls && msg.tool_calls.length > 0 && (
                                         <div className={`mt-2 pt-2 border-t ${glass ? 'border-white/10' : 'border-gray-100'}`}>
                                             <p className={`text-[10px] font-semibold mb-1 ${glass ? 'text-white/50' : 'text-gray-400'}`}>TOOLS USED</p>

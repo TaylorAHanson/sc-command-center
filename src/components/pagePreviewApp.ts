@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveLink, type AppApi } from '../appApi';
 import { DEFAULT_THEME } from '../store/appSpec';
 import { isAvailable, useCapabilities } from '../capabilities';
-import { normalizeEmailRequest, recipientsText } from '../email';
+import { normalizeEmailRequest, recipientsText, tablesOf } from '../email';
 import { describeRecurrence, normalizeScheduleRequest } from '../schedules';
 
 export type PageWidth = 'laptop' | 'wide' | 'narrow';
@@ -74,10 +74,17 @@ export const usePreviewApp = () => {
     },
     theme: { primary: DEFAULT_THEME.primary, dark: DEFAULT_THEME.dark, font: null },
     sendEmail: (request) => {
-      const { subject, to, table, attachCsv } = normalizeEmailRequest(request);
-      const who = recipientsText(to);
-      const rows = table ? ` with a ${table.rows.length.toLocaleString()}-row table${attachCsv ? ' and its CSV' : ''}` : '';
-      say(`In a view this opens the Send dialog for “${(subject || 'an email').slice(0, 120)}”${who ? ` to ${who.slice(0, 160)}` : ''}${rows}. The user checks the recipients and the preview, then presses Send.`);
+      const asked = normalizeEmailRequest(request);
+      const who = recipientsText(asked.to);
+      const tables = tablesOf(asked);
+      const parts = [
+        asked.html ? 'its HTML' : '',
+        tables.length === 1 ? `a ${tables[0].rows.length.toLocaleString()}-row table${asked.attachCsv ? ' and its CSV' : ''}`
+          : tables.length > 1 ? `${tables.length} tables${asked.attachCsv ? ' and their CSVs' : ''}` : '',
+        asked.attachments?.length ? `${asked.attachments.length} attached file${asked.attachments.length === 1 ? '' : 's'}` : '',
+      ].filter(Boolean);
+      const what = parts.length ? ` with ${parts.join(', ')}` : '';
+      say(`In a view this opens the Send dialog for “${(asked.subject || 'an email').slice(0, 120)}”${who ? ` to ${who.slice(0, 160)}` : ''}${what}. The user checks the recipients and the preview, then presses Send.`);
       return Promise.resolve({ sent: false, status: 'cancelled' as const, recipients: [] });
     },
     emailAvailable,

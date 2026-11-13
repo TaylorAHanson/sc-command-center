@@ -34,7 +34,9 @@
 - **Unpublished views in Mine.** Discover's **Mine** lists the views you've never published first, marked **Not published yet**.
 - **Links keep what you see.** A view's filters and widget settings are saved in its address, so a reload, Back or **Copy link** opens it exactly as it was.
 - **Widgets can keep their settings in the link.** Widget Studio builds sorts, searches and date ranges to be saved in the view's link; ask the agent to leave any out.
-- **Email from widgets.** A widget's email button opens a **Send** dialog where you choose recipients, preview the email, and send it with its table attached as a CSV.
+- **Email from widgets.** A widget's email button opens a **Send** dialog where you choose recipients, preview the email and send it.
+- **Emails can carry more.** Widget Studio builds emails with formatted layouts, several tables, chart pictures and text, CSV, JSON or image files.
+- **Agents can draft emails.** Turn on **Draft emails** in an agent's Settings in Agent Studio; you review its draft in the **Send** dialog and send it yourself.
 - **Email settings.** Admin Panel → Settings → **Email** sets the From address, which domains email may go to, and per-person limits. Email stays off until Amazon SES is set up.
 - **Schedule a report.** A widget's **Schedule** button emails its results hourly, daily, weekly or monthly to the people you choose; ask Widget Studio to add one.
 - **My schedules.** Resources → **My schedules** lists your schedules with their last and next runs: **Run now**, pause, edit, delete or see each one's history.
@@ -47,6 +49,7 @@
 
 ### Changed
 
+- **Reset is back above the chat.** Widget Studio's **Reset**, to start a new widget, sits beside Agent settings instead of in the **⋯** menu.
 - **Widget Studio asks before using Genie.** It shows each question and why: **Allow once**, **Always allow** or **Continue without Genie**. Change it under Agent settings → **Genie**.
 - **A shorter sidebar.** **Favorites** and **Recent** never list a view twice; **My views** and **Browse views** open Discover, replacing the **My views** and **Shared with me** lists.
 - **Opens where you left off.** Opening the app without a link shows the view you opened last.

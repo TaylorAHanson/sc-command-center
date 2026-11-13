@@ -286,6 +286,20 @@ const Body = () => (
       <Ext href="https://docs.databricks.com/aws/en/generative-ai/mcp/managed-mcp">managed MCP servers</Ext>.
     </P>
 
+    <H3 id="draft-emails">Let the agent draft emails</H3>
+    <P>
+      Under <UI>App tools</UI>, above the tool list, <UI>Draft emails</UI> lets the agent write an email when someone asks for one, such as
+      &ldquo;email this to my team&rdquo;. It is off until you turn it on. The agent writes the subject, the recipients and the body, which can
+      have tables and text files; it can&rsquo;t attach images or other files from the chat.
+    </P>
+    <P>
+      The agent never sends. Its email appears in the chat as a card with a <UI>Review and send…</UI> button that opens the same{' '}
+      <UI>Send</UI> dialog a widget&rsquo;s email button opens. The person edits the recipients, checks the preview and presses <UI>Send</UI>, and it goes
+      from them under the app&rsquo;s usual email limits. The card then says who it went to, and in a saved conversation the agent knows on its next
+      turn whether it was sent. If email isn&rsquo;t set up in this app, the agent says so instead. The switch is saved with the agent&rsquo;s tools, so it
+      is published and copied with it, and the authoring assistant leaves it as you set it.
+    </P>
+
     <H2 id="python-tools">Python tools and skills</H2>
     <P>
       <UI>Skills</UI> are named markdown blocks of guidance, each with a name, a one-line description and its own
@@ -348,6 +362,6 @@ export const section: GuideSection = {
   title: 'Agent Studio',
   summary: 'Build an assistant with its own instructions, model and tools.',
   icon: Sparkles,
-  keywords: 'create agent assistant prompt skills tools genie sql python tool sandbox sharing share publish draft can use can manage pin model mcp jira atlassian sign in',
+  keywords: 'create agent assistant prompt skills tools genie sql python tool sandbox sharing share publish draft can use can manage pin model mcp jira atlassian sign in email draft send',
   Body,
 };

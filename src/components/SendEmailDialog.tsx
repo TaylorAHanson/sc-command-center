@@ -1,11 +1,11 @@
 import React, { useEffect, useId, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, CheckCircle2, Loader2, Mail, Paperclip, X } from 'lucide-react';
-import type { EmailOutcome, EmailRequest } from '../appApi';
+import type { EmailOutcome } from '../appApi';
 import { findCapability, useCapabilities } from '../capabilities';
 import {
-    EMAIL_UNAVAILABLE, logAndSend, previewEmail, recipientsText,
-    type EmailPayload, type EmailPreview, type ExecuteAction,
+    EMAIL_UNAVAILABLE, logAndSend, postEmail, previewEmail, recipientsText, tablesOf,
+    type EmailPayload, type EmailPreview, type ExecuteAction, type PreparedEmail,
 } from '../email';
 import { appLink, linkTab } from '../store/appRoute';
 import { tabLabel } from '../store/appSpec';
@@ -13,10 +13,16 @@ import { useDashboardStore } from '../store/dashboardStore';
 import { useDialog } from './sharing/useDialog';
 
 export interface SendEmailDialogProps {
-    /** What the widget asked for, already through `normalizeEmailRequest`. */
-    request: EmailRequest;
-    /** The widget's own, so the Send lands in the action log under its name. */
-    executeAction: ExecuteAction;
+    /** What the widget or the agent asked for, already through `prepareEmailRequest` / `requestFromDraft`. */
+    request: PreparedEmail;
+    /** A widget's own, so the Send lands in the action log under its name. */
+    executeAction?: ExecuteAction;
+    /**
+     * An agent's draft instead of a widget's request: sent as `via: assistant`,
+     * with no view in its footer (the agent wrote it, not the view), and noted
+     * on its conversation once it goes when there is one.
+     */
+    draft?: { id: string; conversationId?: string };
     onClose: (outcome: EmailOutcome) => void;
 }
 
@@ -27,15 +33,20 @@ type Phase =
 
 const PREVIEW_DELAY_MS = 350;
 
+const sizeText = (bytes: number) =>
+    bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
 const domainOf = (address: string | null) => (address && address.includes('@') ? address.split('@').pop() : '') || '';
 
 /**
- * The platform's Send dialog behind `props.app.sendEmail`. The widget supplies
- * the subject, message and table; the person decides who it goes to and sees the
- * email exactly as the server renders it before anything is sent. The preview is
- * the server's HTML in a sandboxed frame, so it runs nothing and reads nothing.
+ * The platform's Send dialog, behind `props.app.sendEmail` and an agent's email
+ * draft alike. The widget or agent supplies the subject, body, tables and files;
+ * the person decides who it goes to and sees the email exactly as the server
+ * renders it before anything is sent. The preview is the server's HTML in a
+ * sandboxed frame, with embedded images as data: URLs, so it runs nothing and
+ * fetches nothing.
  */
-export const SendEmailDialog: React.FC<SendEmailDialogProps> = ({ request, executeAction, onClose }) => {
+export const SendEmailDialog: React.FC<SendEmailDialogProps> = ({ request, executeAction, draft, onClose }) => {
     const { activeApp, activeAppTab } = useDashboardStore();
     const capability = findCapability(useCapabilities(), 'email');
     const [to, setTo] = useState(() => recipientsText(request.to));
@@ -49,24 +60,27 @@ export const SendEmailDialog: React.FC<SendEmailDialogProps> = ({ request, execu
     const subjectId = useId();
 
     const view = useMemo(() => {
-        if (!activeApp) return { name: '', link: '' };
+        if (!activeApp || draft) return { name: '', link: '' };
         const index = activeAppTab ? activeApp.spec.tabs.findIndex(t => t.id === activeAppTab.id) : -1;
         const tabName = activeAppTab && activeApp.spec.tabs.length > 1 ? tabLabel(activeApp, activeAppTab, Math.max(index, 0)) : '';
         return {
             name: tabName && tabName !== activeApp.name ? `${activeApp.name} – ${tabName}` : activeApp.name,
             link: appLink(activeApp, linkTab(activeApp, activeAppTab)),
         };
-    }, [activeApp, activeAppTab]);
+    }, [activeApp, activeAppTab, draft]);
 
     const payload = useMemo<EmailPayload>(() => ({
         to,
         subject,
         message: request.message || '',
-        table: request.table || null,
+        html: request.html || '',
+        tables: tablesOf(request),
         attach_csv: !!request.attachCsv,
+        attachments: request.attachments,
         view_name: view.name,
         view_link: view.link,
-    }), [to, subject, request, view]);
+        ...(draft ? { via: 'assistant' as const, draft_id: draft.id, conversation_id: draft.conversationId || '' } : {}),
+    }), [to, subject, request, view, draft]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -100,7 +114,7 @@ export const SendEmailDialog: React.FC<SendEmailDialogProps> = ({ request, execu
     const send = async () => {
         setError(null);
         setPhase({ kind: 'sending' });
-        const result = await logAndSend(executeAction, payload);
+        const result = executeAction ? await logAndSend(executeAction, payload) : await postEmail(payload);
         if (result.ok) {
             setPhase({ kind: 'done', status: result.status, recipients: result.recipients });
         } else {
@@ -212,13 +226,17 @@ export const SendEmailDialog: React.FC<SendEmailDialogProps> = ({ request, execu
                         <div>
                             <div className="flex items-center justify-between">
                                 <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Preview</span>
-                                {preview?.attachment && (
-                                    <span className="flex items-center gap-1 text-xs text-gray-600">
-                                        <Paperclip size={12} aria-hidden="true" />
-                                        {preview.attachment.filename} · {preview.attachment.rows.toLocaleString()} rows
-                                    </span>
-                                )}
                             </div>
+                            {!!preview?.attachments.length && (
+                                <ul className="mt-1 flex flex-wrap gap-1.5" aria-label="Attachments">
+                                    {preview.attachments.map(file => (
+                                        <li key={file.filename} className="flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600">
+                                            <Paperclip size={12} aria-hidden="true" />
+                                            {file.filename} · {file.rows !== null ? `${file.rows.toLocaleString()} rows` : sizeText(file.bytes)}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                             {preview?.html ? (
                                 <iframe
                                     title="Email preview"
@@ -236,6 +254,11 @@ export const SendEmailDialog: React.FC<SendEmailDialogProps> = ({ request, execu
                             )}
                         </div>
 
+                        {!!preview?.notes.length && (
+                            <ul className="space-y-0.5 text-xs text-amber-700">
+                                {preview.notes.map(note => <li key={note}>{note}</li>)}
+                            </ul>
+                        )}
                         {preview?.available && preview.problem && (
                             <p role="alert" className="flex items-start gap-1.5 text-sm text-red-600">
                                 <AlertCircle size={15} className="mt-0.5 shrink-0" /> {preview.problem}

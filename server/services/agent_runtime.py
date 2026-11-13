@@ -704,7 +704,7 @@ def _build_tools(
     ``dispatch`` maps a sanitized function name to a descriptor:
       {"kind": "mcp"|"python"|"upload", "friendly": str, ...invocation fields}
     """
-    from agent_studio_store import canonical_tool_ids
+    from agent_studio_store import EMAIL_TOOL_ID, split_builtin_tools
     from routes.agent_studio_profiles import GENIE_ONE_TOOL, discover_mcp_tools, server_for_tool_id
 
     specs: List[Dict[str, Any]] = []
@@ -716,6 +716,19 @@ def _build_tools(
     # an agent asked "how do I share this view" invents an answer.
     specs.append(app_help_tool_spec())
     dispatch["app_help"] = {"kind": "app_help", "friendly": "Reading the app guide"}
+
+    # Ids are canonicalized here as well as on read from the store, because a
+    # "Try it" draft or an older client can still send `genie/genie_ask`. The
+    # app's own tools come out first: they are switches, not a curated MCP list.
+    wanted, builtins = split_builtin_tools((profile or {}).get("tools") or [])
+
+    # --- Built in, when the author switched it on: drafting an email ---------
+    # Only drafts; the person sends from the Send dialog (services/email_tool.py).
+    if EMAIL_TOOL_ID in builtins:
+        from services import email_tool
+
+        specs.append(email_tool.tool_spec())
+        dispatch[email_tool.NAME] = {"kind": "email", "friendly": email_tool.FRIENDLY}
 
     # --- Attached files ----------------------------------------------------
     # Registered whenever the turn carries files, regardless of the profile's
@@ -742,9 +755,6 @@ def _build_tools(
             }
 
     # --- MCP tools (AI Gateway) -------------------------------------------
-    # Ids are canonicalized here as well as on read from the store, because a
-    # "Try it" draft or an older client can still send `genie/genie_ask`.
-    wanted = canonical_tool_ids((profile or {}).get("tools") or [])
     # Only the servers this agent's tools live on, beyond the configured ones —
     # listing every Genie space on every turn would cost a session per space.
     extra = sorted({s for s in (server_for_tool_id(str(ref)) for ref in wanted) if s})
@@ -998,7 +1008,7 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
     each step. When it answers True the turn settles with whatever this step had
     written plus a stopped marker, so no further model or tool calls are spent.
     """
-    used_tools: List[Dict[str, str]] = []
+    used_tools: List[Dict[str, Any]] = []
     finished = False
 
     def _settle(text: str, error: Optional[str] = None) -> None:
@@ -1154,9 +1164,19 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
                     args = json.loads(s["args"]) if s["args"].strip() else {}
                 except json.JSONDecodeError:
                     args = {}
+                used: Dict[str, Any] = {}
                 if desc is None:
                     result = f"Unknown tool '{fn}'."
                     friendly = fn
+                elif desc.get("kind") == "email":
+                    from services import email_tool
+
+                    friendly = desc["friendly"]
+                    result, email_draft = email_tool.draft(who, args)
+                    # The draft travels on the turn's tool entry: the drawer draws
+                    # it as a card, and it is saved with the turn like any pill.
+                    if email_draft:
+                        used["email_draft"] = email_draft
                 else:
                     friendly = desc["friendly"]
                     result = _run_tool(ws, desc, args)
@@ -1165,7 +1185,7 @@ def _run_loop(put: Callable[[Optional[bytes]], None], *, obo_token: Optional[str
                     "tool_call_id": s["id"] or f"call_{i}",
                     "content": _with_sql_hint(result, args),
                 })
-                used_tools.append({"tool_name": friendly, "status": "done"})
+                used_tools.append({"tool_name": friendly, "status": "done", **used})
 
             # Emit the cumulative pill list (the UI replaces the whole array).
             put(_sse({"type": "tool_calls", "content": list(used_tools)}))

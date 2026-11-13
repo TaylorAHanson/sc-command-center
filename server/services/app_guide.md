@@ -500,12 +500,16 @@ and its code still can't contain an address: an address is only ever a card's
 setting.
 
 **Sending by email.** A widget can offer an email button; ask Widget Studio for
-"a button that emails this table". Pressing it opens a **Send** dialog with the
-**To** line (addresses separated by commas, filled in if the widget suggests
-someone), the **Subject**, and a preview of the email exactly as it will arrive,
-including any table and the name of the attached CSV. Nothing is sent until
-**Send** is pressed, and the send is recorded in **Action Logs** like any other
-action. The email comes from the app's own address, replies go to the sender, and
+"a button that emails this table", "email a picture of this chart" or "email a
+formatted summary". The widget decides what the email holds: a message, an HTML
+layout, tables (each can come with a CSV), a picture of a chart, and text, CSV,
+TSV, JSON, Markdown or image files (PNG, JPEG, GIF, WebP; not PDF, Excel or Word).
+Pressing it opens a **Send** dialog with the **To** line (addresses separated by
+commas, filled in if the widget suggests someone), the **Subject**, and a preview
+of the email exactly as it will arrive, with the attached files listed under it.
+Images in an email are embedded in it; one that would load from another site is
+left out, and the preview says so. Nothing is sent until **Send** is pressed, and
+the send is recorded in **Action Logs** like any other action. The email comes from the app's own address, replies go to the sender, and
 its footer names the sender and the view with a link back to it. Recipients are
 limited: by default only addresses in the sender's own email domain, at most 10
 per email and 50 emails per person in 24 hours, unless an administrator changed
@@ -628,11 +632,13 @@ Anyone can build a widget; editing an existing one needs **Can manage** on it.
 No React expertise is required for simple and moderately complex widgets —
 they are generated from a description.
 
-Layout: only the agent settings sit above the chat. The right-hand header holds
-the tabs, then **History**, **Reload**, a **⋯** menu with *Import from file*,
-*Export to file* and *Reset studio*, then **Save draft** and the X. For a saved
-widget, the bar under the tabs holds **Share**, plus the draft controls and
-**Certify** if you can manage it.
+Layout: above the chat sit only **Reset** and the agent settings (the sliders
+icon). **Reset** asks first, then clears the studio and the chat to start a new
+widget, keeping a snapshot of the code in **History**; it is greyed out while the
+agent is working. The right-hand header holds the tabs, then **History**,
+**Reload**, a **⋯** menu with *Import from file* and *Export to file*, then
+**Save draft** and the X. For a saved widget, the bar under the tabs holds
+**Share**, plus the draft controls and **Certify** if you can manage it.
 
 - **Save draft and Publish** — **Save draft** writes your draft in place and
   leaves you in the studio to carry on working; it adds no version, and only
@@ -1195,6 +1201,20 @@ example after being given access to a new Genie space. The list is what the
 author can reach as themselves in the workspace this app runs in, so a kind can
 be empty for them, and Genie spaces, functions or indexes in a different
 Databricks workspace are not listed.
+
+**Draft emails** is a switch above the tool list, under **App tools** in an
+agent's Settings tab, and it is off until the author turns it on. With it on, the
+agent can write an email when someone asks it to ("email this to my team"),
+with a message or an HTML layout, tables and text files (no images or other
+files from chat). It never sends: the chat shows a card with the subject and
+recipients and a **Review and send…** button, which opens the same **Send**
+dialog a widget's email button opens. The person edits the recipients, checks the
+preview and presses **Send**; it goes from them, under the same limits as any
+email, and the card then says who it went to. In a saved chat the agent learns on
+its next turn whether it was sent. If email isn't set up in this app the agent
+says so instead of drafting. The switch is kept with the agent's tools, so it is
+versioned, published and copied with the agent; the authoring assistant doesn't
+turn it on or off.
 
 **Python tools carry real privilege, and authoring one is a trusted activity.**
 The code an author writes runs on the server whenever the agent decides to call
