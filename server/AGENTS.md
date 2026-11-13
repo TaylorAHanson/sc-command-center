@@ -1266,8 +1266,14 @@ platform details that shaped the SQL:
 only the view's own words, a row is re-embedded only when its `embed_hash`
 changes, 100 per call. A query is embedded with a 400 ms cap and a per-process
 cache; past the cap the search answers in keyword mode and the late answer is
-still cached, so the same search a moment later is hybrid. Changing
-`search_embedding_model` re-embeds everything; `off` turns hybrid off.
+still cached, so the same search a moment later is hybrid. Each late or failed
+query embedding is logged at INFO ("Search query embedding took …s, past the
+…s budget"), because the search itself only says keyword: grep the app log for
+it before changing the cap. On the deploy, 40 of 40 fresh queries made the cap
+once the workers were warm; just after the first start, 9 of 20 didn't. Changing
+`search_embedding_model` re-embeds everything; `off` turns hybrid off. With no
+published views `embed_job` has nothing to embed and builds no index; the Setup
+row says meaning-based search starts once a view is published.
 
 **Usage signals never count distinct at read time.** `view_visits` has one row
 per person, view and day, and `view_daily` gains a viewer only when that row is
@@ -1286,7 +1292,13 @@ it created. From a laptop each round trip is ~65 ms, so it reports database time
 from `EXPLAIN ANALYZE` and an in-region estimate (database + Python + 2 ms per
 round trip): basic and keyword search p95 under 60 ms, hybrid ~105 ms with the
 query embedding cached, home under 75 ms and 44 KB for someone who owns 1,000
-views. Rerun it after changing the catalog's queries.
+views. The 2.1.0 release run (2026-11-12, `command-center-local-v1`) matched:
+every read under 100 ms median in-region, hybrid ~90 ms cached and ~220 ms with
+the query embedded. Run it from a shell that hasn't sourced `.env` (set
+`PGDATABASE=databricks_postgres` yourself), and don't deploy against the same
+database while it runs: if it installed the search extensions, its cleanup drops
+them with `CASCADE`, taking the app's search indexes along. Rerun it after
+changing the catalog's queries.
 
 ### The sidebar's list (`services/working_set.py`, `GET /api/apps/`)
 

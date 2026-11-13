@@ -239,7 +239,10 @@ failures are caught and logged instead of raised.
 
 `databricks.yml` is authoritative for deployed configuration except the start
 command, which lives in `app.yaml`; `.env` covers local development (`dev.sh`
-sources it). The split is deliberate: the bundle's `config:` block reaches the
+sources it). Don't source `.env` into a shell you deploy or run the CLI from:
+its `DATABRICKS_HOST`, service-principal credentials and `PG*` variables
+override the CLI profile, so commands reach the wrong workspace or database.
+`env -i HOME="$HOME" PATH="$PATH" databricks …` runs one cleanly. The split is deliberate: the bundle's `config:` block reaches the
 app only through `databricks bundle run`, while a restart the platform does by
 itself (patching, maintenance) reads `app.yaml`. So the command must not depend
 on anything the bundle sets, and the bundle must not set a `command:` of its

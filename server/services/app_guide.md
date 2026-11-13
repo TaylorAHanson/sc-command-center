@@ -92,6 +92,9 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
 - Administrators can manage every view, but their sidebar lists only the views
   they own or that are shared with them; **Admin Panel → Content** lists all of
   them, and an Administrator can open any view by its link.
+- A sidebar with none of your views in it, right after the app was updated,
+  means the tab is still running the version from before the update: reload
+  the page.
 - **Closing one of your own views** with the **×** on its My views row asks
   first, then deletes it if only you can open it, or archives it if it is shared
   with anyone else (see *Archiving*, below).
@@ -1367,6 +1370,8 @@ be turned off again, and restarts the project's computes, so pick a quiet moment
 Nothing else is needed: within about ten minutes the app installs the search
 extensions, builds the keyword index, then embeds every view in the background
 and builds the vector index, and the Setup card counts the views embedded so far.
+With no published views there is nothing to embed yet, and the card says
+meaning-based search starts once a view is published.
 Only a view's own name, description, tab names, domain and widget names are
 sent to the embedding model, never its data, and the app's service principal
 makes those calls, so it needs permission to query the model. If the app may not

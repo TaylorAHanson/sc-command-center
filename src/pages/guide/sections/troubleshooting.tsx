@@ -26,6 +26,11 @@ const Body = () => (
           <>Ask whoever sent it to share it with you. See <GuideLink to="access" anchor="ask">Ask for access</GuideLink>.</>,
         ],
         [
+          'The sidebar lists none of your views right after the app was updated.',
+          'The tab is still running the version from before the update, which reads the list of views the old way.',
+          'Reload the page.',
+        ],
+        [
           'Something was shared with you, but you can\u2019t see it.',
           'It has never been published, and people with Can use only see published versions.',
           <>Ask its owner to publish it. See <GuideLink to="publishing">Drafts &amp; publishing</GuideLink>.</>,

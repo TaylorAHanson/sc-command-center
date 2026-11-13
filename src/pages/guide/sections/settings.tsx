@@ -293,7 +293,8 @@ const Body = () => (
       </Step>
       <Step title="Wait for the app">
         Within about ten minutes the app installs the search extensions and builds the keyword index. It then embeds every view in the background
-        and builds the vector index. The <UI>View search</UI> row counts the views embedded so far.
+        and builds the vector index. The <UI>View search</UI> row counts the views embedded so far. With no published views there is nothing to
+        embed yet, and the row says meaning-based search starts once a view is published.
       </Step>
       <Step title="Check the Setup card">
         Click <UI>Check again</UI>. The row reads <Code>hybrid</Code> when everything is in place. If the app may not install the extensions itself, the

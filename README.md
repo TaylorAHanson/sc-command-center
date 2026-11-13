@@ -116,6 +116,13 @@ Data Migration snapshots are format 2: they carry drafts, access lists and Admin
 
 There is no longer an in-app Dev / Test / Prod workspace or promotion. A one-time consolidation made Prod the published version and newer Dev (or Test) work the draft. Separate deployments (a dev app, stage, prod) remain, each with its own database, and content moves between them with **Admin Panel → Data Migration** snapshots.
 
+### Optional features: off until set up
+Three features need something set up outside the app. Until it is, each stays off and says why, and the rest of the app works. **Admin Panel → Settings → Setup** shows what is ready and the next step; the full steps are in the in-app User Guide under **Admin settings**.
+
+*   **Email** (a widget's **Send** button, scheduled reports): verify a sender in Amazon SES, give the app an IAM user's keys as secret resources plus `AWS_REGION`, then set the From address in **Settings → Email**. A local run writes emails to the log instead of sending them.
+*   **Scheduling** (reports and actions on a timer, run as the person who scheduled them, never as the app): an account admin adds an OAuth app connection (public client, SQL scope, 30-day refresh tokens, this app's `/api/oauth/callback` as the redirect URL) and pastes its client id in **Settings → Scheduling**. A `TOKEN_VAULT_KEY` secret is recommended. Each person then connects once.
+*   **Hybrid view search** (Discover finds views by meaning, not just words): enable Lakebase Search on the Lakebase project. The app installs the extensions, builds the indexes and embeds views itself; without it, search uses keyword or word matching.
+
 ## Contributing to the Codebase
 
 > **Working with an AI coding agent?** Start with [`AGENTS.md`](AGENTS.md), plus
