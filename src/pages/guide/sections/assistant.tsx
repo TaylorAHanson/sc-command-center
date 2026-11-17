@@ -101,7 +101,7 @@ const Body = () => (
       rows={[
         ['File types', 'Spreadsheets and CSVs, PDFs, Word documents, JSON, text and images (PNG, JPG, WEBP, GIF).'],
         ['Size', 'Up to 25 MB each.'],
-        ['Number', 'Five per conversation.'],
+        ['Number', '15 per conversation.'],
         ['Who sees them', 'Only you. Deleting the conversation deletes its files.'],
       ]}
     />

@@ -48,6 +48,13 @@ def flavor(model: str) -> Optional[str]:
 IMAGE_LONG_EDGE = 1568
 IMAGE_MAX_BYTES = 3_500_000
 
+# What one turn's files may add to the request, as base64. Each file is capped on
+# its own, but a conversation holds up to 15, and a handful of large PDFs and
+# screenshots together pass the ~32 MB a model endpoint accepts, failing the
+# whole call. Files past the budget are left to the tools, like a long PDF; the
+# headroom is for the prompt, history and Widget Studio's preview screenshot.
+TURN_MAX_ENCODED_BYTES = 20 * 1024 * 1024
+
 
 def fit_image(raw: bytes, media_type: str) -> Optional[Tuple[bytes, str]]:
     """`raw` as an image a model will accept, as (bytes, media type), or None.
@@ -167,6 +174,7 @@ def parts(model: str, env: str, attachments: List[Dict[str, Any]]) -> List[Dict[
 
     max_bytes, max_pages = limits()
     out: List[Dict[str, Any]] = []
+    spent = 0
     for meta in attachments:
         kind = meta.get("kind") or ""
         size = int(meta.get("size_bytes") or 0)
@@ -198,6 +206,11 @@ def parts(model: str, env: str, attachments: List[Dict[str, Any]]) -> List[Dict[
                 continue
             raw, media_type = fitted
         encoded = base64.b64encode(raw).decode("ascii")
+        # `continue` rather than `break`: a later, smaller file may still fit.
+        if spent + len(encoded) > TURN_MAX_ENCODED_BYTES:
+            logger.info("File %s left to the tools: this turn's files are over budget", filename)
+            continue
+        spent += len(encoded)
 
         if kind == "image":
             out.append({"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{encoded}"}})

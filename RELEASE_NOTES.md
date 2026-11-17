@@ -49,6 +49,7 @@
 
 ### Changed
 
+- **Attach up to 15 files.** A conversation in Widget Studio or the assistant now takes 15 attached files instead of five.
 - **Reset is back above the chat.** Widget Studio's **Reset**, to start a new widget, sits beside Agent settings instead of in the **⋯** menu.
 - **Widget Studio asks before using Genie.** It shows each question and why: **Allow once**, **Always allow** or **Continue without Genie**. Change it under Agent settings → **Genie**.
 - **A shorter sidebar.** **Favorites** and **Recent** never list a view twice; **My views** and **Browse views** open Discover, replacing the **My views** and **Shared with me** lists.

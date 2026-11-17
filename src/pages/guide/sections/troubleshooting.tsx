@@ -183,7 +183,7 @@ const Body = () => (
         ],
         [
           'An attached file will not read.',
-          'The usual causes are a scanned PDF with no text layer, a password-protected file, or an unsupported format. Files are limited to 25 MB each and five per conversation.',
+          'The usual causes are a scanned PDF with no text layer, a password-protected file, or an unsupported format. Files are limited to 25 MB each and 15 per conversation.',
           <>Export a text version, or remove the password. See <GuideLink to="assistant">The assistant</GuideLink>.</>,
         ],
         [

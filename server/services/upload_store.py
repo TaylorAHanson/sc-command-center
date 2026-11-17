@@ -40,9 +40,10 @@ STATUS_FAILED = "failed"
 # content anyway, so a bigger ceiling would buy very little.
 DEFAULT_MAX_MB = 25
 
-# Enough for a conversation to compare a few files without any single turn
-# carrying an unbounded number of prompt cards.
-MAX_PER_CONVERSATION = 5
+# Enough for a Widget Studio session working from a folder of reference files
+# (5 was too few in practice) without any single turn carrying an unbounded
+# number of prompt cards. CHAT_MAX_ATTACHMENTS overrides it per deployment.
+MAX_PER_CONVERSATION = 15
 
 
 def max_upload_bytes() -> int:

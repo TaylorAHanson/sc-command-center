@@ -652,7 +652,10 @@ services. The load-bearing decisions:
   past 1568 px anyway; so anything larger on either count is resized to that long
   edge, as PNG, or JPEG when PNG still won't fit. That is why images skip the
   `AGENT_RUNTIME_NATIVE_FILE_MB` cap. One that can't be made to fit is left out
-  rather than failing the call. Needs `pillow`, listed in `pyproject.toml`
+  rather than failing the call. On top of those per-file caps, one turn's files may add
+  at most `TURN_MAX_ENCODED_BYTES` (20 MB of base64) between them, since 15
+  attachments could otherwise pass what the endpoint accepts; the rest stay on the
+  tool path. Needs `pillow`, listed in `pyproject.toml`
   because locally only matplotlib brings it.
 - **Nothing lives in process memory.** Two uvicorn workers mean an upload handled
   by one is invisible to the other, so every tool call re-reads from Postgres.
@@ -661,7 +664,7 @@ services. The load-bearing decisions:
   `upload_store` is a read-through cache of immutable derived bytes and is safe to
   be cold. Parsing itself runs as a FastAPI background task, since a 25 MB workbook
   is far too slow to hold a request open.
-- **Limits** are `CHAT_MAX_UPLOAD_MB` (25), `CHAT_MAX_ATTACHMENTS` (5 per
+- **Limits** are `CHAT_MAX_UPLOAD_MB` (25), `CHAT_MAX_ATTACHMENTS` (15 per
   conversation), `CHAT_KEEP_CONVERSATIONS` (50 per user, pruned when a new
   conversation is created). `file_extract.py` owns parsing and has no database or
   HTTP imports at all — keep it that way, it is the only part that is cheap to test
@@ -1994,7 +1997,7 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_agent_stages.py  # 15 passe
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_helper.py  # 25 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_agent_context.py # 34 passed
 PYTHONPATH=server .venv/bin/python tests/test_widget_generation_jobs.py # 8 passed
-PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 16 passed
+PYTHONPATH=server .venv/bin/python tests/test_native_files.py         # 17 passed
 PYTHONPATH=server .venv/bin/python tests/test_creator_stats.py        # 16 passed
 PYTHONPATH=server .venv/bin/python tests/test_caller_identity.py      # 11 passed
 PYTHONPATH=server .venv/bin/python tests/test_settings_store.py       # 29 passed

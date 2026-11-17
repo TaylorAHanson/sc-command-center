@@ -1061,8 +1061,10 @@ def _attachments(req: GenerateRequest) -> List[Dict[str, Any]]:
         return []
     from services import upload_store
 
+    # The same ceiling the upload endpoint enforces; a fixed number here would
+    # silently drop whatever the conversation is allowed past it.
     out: List[Dict[str, Any]] = []
-    for upload_id in req.attachment_ids[:5]:
+    for upload_id in req.attachment_ids[:upload_store.max_per_conversation()]:
         try:
             meta = upload_store.get_upload(req.env, upload_id, None)
         except Exception as exc:  # noqa: BLE001 — a missing file is not a failed turn

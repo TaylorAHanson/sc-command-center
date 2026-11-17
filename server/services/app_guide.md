@@ -1449,7 +1449,7 @@ files can also be dragged onto the panel. A screenshot or copied image pasted
 into the message box (Cmd+V / Ctrl+V) is attached too, named "Pasted image" and
 the time; when the clipboard also holds text, as it does for cells copied from
 Excel, the text is pasted instead. Spreadsheets and CSVs, PDFs, Word
-documents, JSON, plain text and images are accepted, up to 25 MB each and five
+documents, JSON, plain text and images are accepted, up to 25 MB each and 15
 files per conversation. A chip above the message box shows each file being read
 and then what it contains, such as "5,000 rows x 6 columns"; the X removes it.
 

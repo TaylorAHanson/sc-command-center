@@ -171,6 +171,19 @@ def test_a_spreadsheet_is_left_to_extraction():
     ]) == []
 
 
+def test_files_past_the_turn_budget_are_left_to_the_tools():
+    budget = native_files.TURN_MAX_ENCODED_BYTES
+    # Each PDF encodes to a little over 40% of the budget, so two fit and a third doesn't.
+    big = b"x" * int(budget * 0.31)
+    tiny = b"y" * 100
+    upload_store.load_raw = lambda env, upload_id: tiny if upload_id == "small" else big  # type: ignore[assignment]
+    files = [_pdf(id=f"p{i}", size_bytes=1024) for i in range(3)] + [_pdf(id="small")]
+    out = native_files.parts("databricks-claude-sonnet-4", "dev", files)
+    assert len(out) == 3
+    assert base64.b64decode(out[-1]["source"]["data"]) == tiny
+    assert sum(len(p["source"]["data"]) for p in out) <= budget
+
+
 def test_limits_survive_a_malformed_override():
     os.environ["AGENT_RUNTIME_NATIVE_FILE_MB"] = "not a number"
     os.environ["AGENT_RUNTIME_NATIVE_PDF_PAGES"] = ""
@@ -199,6 +212,7 @@ if __name__ == "__main__":
         test_an_upload_over_the_file_limit_is_shrunk_rather_than_dropped,
         test_a_preview_screenshot_is_shrunk_too,
         test_a_spreadsheet_is_left_to_extraction,
+        test_files_past_the_turn_budget_are_left_to_the_tools,
         test_limits_survive_a_malformed_override,
     ]
     try:
