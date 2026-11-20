@@ -51,6 +51,13 @@ dependencies = [
 
 [tool.uv]
 package = false
+# Floors the workspace enforces at deploy time on transitive packages: a lock
+# that pins anything older fails the deploy ("uv.lock locks certifi==…, which
+# violates workspace Python constraint"). Constraints rather than dependencies,
+# because nothing imports these directly; they only bound what uv may resolve.
+constraint-dependencies = [
+    "certifi>=2026.10.19",
+]
 
 # uv.lock records the index every package came from, and the deployed App
 # downloads from those URLs. A developer's own uv config often points at a
