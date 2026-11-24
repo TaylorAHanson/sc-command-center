@@ -940,6 +940,9 @@ discover.ts             /api/discover requests and the cc:discover-changed event
 discoverRoute.ts        the #/discover address and search parameters;
 discoverPage.ts         the Discover page's pure decisions. The page is
                         pages/DiscoverPage.tsx, its parts components/discover/
+actionLogs.ts           Admin Panel → Action Logs: the /api/actions/search
+                        request, date range, paging and saved state (pure;
+                        drawn by pages/ActionLogs.tsx)
 contentEnv.ts           Legacy shims; only stripLegacyEnvParam is used
 components/sharing/     ShareDialog, PrincipalPicker, DraftBar, PublishDialog,
                         AccessIcon, useDialog
@@ -965,9 +968,9 @@ missing hides itself.
 Run `npm run lint` before finishing; `npm run build` type-checks via `tsc -b`
 and is the real gate, since dev mode won't surface every type error.
 
-`linkState.ts`, `schedules.ts`, `discoverRoute.ts`, `discoverPage.ts` and
-`workingSet.ts` have their own tests, run with Node 22.6 or later and nothing
-to install:
+`linkState.ts`, `schedules.ts`, `discoverRoute.ts`, `discoverPage.ts`,
+`workingSet.ts` and `actionLogs.ts` have their own tests, run with Node 22.6
+or later and nothing to install:
 
 ```
 node --experimental-strip-types tests/link_state.test.ts      # 17 passed
@@ -975,6 +978,7 @@ node --experimental-strip-types tests/schedules.test.ts       # 26 passed
 node --experimental-strip-types tests/discover_route.test.ts  # 6 passed
 node --experimental-strip-types tests/discover_page.test.ts   # 17 passed
 node --experimental-strip-types tests/working_set.test.ts     # 25 passed
+node --experimental-strip-types tests/action_logs.test.ts     # 9 passed
 ```
 
 Each imports its module directly, so keep them free of React, of runtime

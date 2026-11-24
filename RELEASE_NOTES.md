@@ -46,6 +46,7 @@
 - **See who did what.** Admin Panel → **Activity** lists publishing, sharing, deletes, studio generations, chats and setting changes, and who is active now; kept 365 days by default.
 - **Open anything from Content.** Admin Panel → Content has **Open** on views and **Edit** on widgets and agents, going straight to the view or its studio.
 - **Clone, Edit and Delete in the Widget Library's list view.** Hover a row for the same icons as a card; **Status** now shows the **PAGE** badge too.
+- **Search, filter and sort Action Logs.** Admin Panel → Action Logs searches the whole log, filters by widget, action, user, domain or dates, sorts any column and pages through every entry.
 
 ### Changed
 
@@ -60,6 +61,7 @@
 
 ### Fixed
 
+- **Action Logs times are in your time zone.** Timestamps match the Activity tab instead of being shown hours off.
 - **Only Administrators can read Action Logs.** The app refuses the action log to everyone else; everyone's actions are still recorded.
 
 ## 2.0.1 — 2026-11-11

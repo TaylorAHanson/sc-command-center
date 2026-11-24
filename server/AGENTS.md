@@ -967,6 +967,36 @@ at most `PURGE_MAX_BATCHES` per run, committing each so a large backlog never
 holds one long lock. `action_logs` is the audit trail of what widgets changed
 and is never purged here.
 
+### The Action Logs tab (`services/action_log_query.py`, `routes/actions.py`)
+
+`action_logs` is never purged, so Admin Panel → Action Logs searches, filters,
+sorts and pages in SQL rather than loading the newest rows and filtering in the
+browser (it used to show only the newest 100). `GET /api/actions/search` takes
+`q`, `widget_id`, `action_name`, `username`, `domain`, `since`, `until`, `sort`,
+`dir`, `limit` (1–200) and `offset`, and answers `{rows, total, limit, offset,
+sort, dir}`; `GET /api/actions/facets` gives each filter's choices from the whole
+log (`widgets`, `actions`, `users`, `domains`, each `{value, label, count}`, at
+most `MAX_FACET_VALUES`). Both call `access.require_app_admin` before any
+connection opens, as `GET /` does. `GET /` itself is unchanged, a bare list of
+the newest rows taking `limit`, `offset` and `env`, because stored widget code
+can call any `/api` route and some may read it; don't change its shape.
+
+`action_log_query.py` builds every statement as `(sql, params)`, so
+`tests/test_action_log_query.py` pins them without a database. Only constants
+from that module are spliced into the SQL: the sort column comes from `SORTS`,
+the direction from `DIRECTIONS`, and anything else is a `%s`. `q` is a substring
+across `SEARCH_COLUMNS` with `%`, `_` and `\` escaped (ILIKE's default escape;
+an explicit `ESCAPE '\'` would depend on `standard_conforming_strings`), plus
+`al.id` when it is a number; `dashboard_context` isn't searched, being a whole
+tab's snapshot. Every sort breaks ties on `al.id` in the same direction so a page
+boundary can't repeat or skip a row. Paging is offset, unlike the Activity feed:
+this tab sorts by any column and numbers its pages, which keyset can't do; a row
+logged while someone reads shifts later pages by one. A short page answers
+`total` itself; otherwise a `COUNT(*)` runs, joining `widgets` only when the
+domain is read. `_create_action_log_indexes` adds `(widget_id, timestamp)` and
+`(action_name, timestamp)`; time and user are served by
+`_create_activity_feed_indexes`. Substring search scans, which no b-tree helps.
+
 ## Email (`services/email_service.py`, `services/email_content.py`, `services/email_tool.py`, `routes/email.py`)
 
 Everything that sends email calls **`email_service.send_email(sender_username,
@@ -2029,7 +2059,8 @@ PYTHONPATH=server .venv/bin/python tests/test_widget_safety.py        # 38 passe
 PYTHONPATH=server .venv/bin/python tests/test_background.py           # 9 passed
 PYTHONPATH=server .venv/bin/python tests/test_capabilities.py         # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity.py             # 6 passed
-PYTHONPATH=server .venv/bin/python tests/test_actions_routes.py       # 7 passed
+PYTHONPATH=server .venv/bin/python tests/test_actions_routes.py       # 13 passed
+PYTHONPATH=server .venv/bin/python tests/test_action_log_query.py     # 19 passed
 PYTHONPATH=server .venv/bin/python tests/test_activity_feed.py        # 24 passed
 PYTHONPATH=server .venv/bin/python tests/test_email_service.py        # 49 passed
 PYTHONPATH=server .venv/bin/python tests/test_email_content.py        # 25 passed

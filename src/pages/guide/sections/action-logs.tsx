@@ -20,7 +20,8 @@ const Body = () => (
         <UI>Action Logs</UI>, the last tab. The page is titled <UI>Action Logs (Telemetry)</UI>.
       </Step>
       <Step>
-        Type in <UI>Search logs...</UI> to narrow the list, and click a row to read its detail.
+        Type in <UI>Search logs...</UI>, pick from the filters or click a column heading to sort, then click a row
+        to read its detail. See <GuideLink to="action-logs" anchor="find-an-entry">Find an entry</GuideLink>.
       </Step>
     </Steps>
     <Shot
@@ -69,7 +70,7 @@ const Body = () => (
     <Table
       head={['Column', 'What it shows']}
       rows={[
-        [<UI key="t">Timestamp</UI>, 'When the action was logged, in your local time. The newest entries come first.'],
+        [<UI key="t">Timestamp</UI>, 'When the action was logged, in your local time. The newest entries come first unless you sort by another column.'],
         [<UI key="w">Widget</UI>, 'The widget the action came from.'],
         [<UI key="a">Action</UI>, 'The action name the widget used. Blank for older entries.'],
         [<UI key="u">User</UI>, 'Who did it. The app works this out from the signed-in user, never from the request, so it cannot be typed in by the widget. Blank for entries logged before names were recorded.'],
@@ -89,12 +90,45 @@ const Body = () => (
         of the cause-and-effect pair.
       </li>
     </List>
-    <Details summary="Search, and how far back the list goes">
+    <H2 id="find-an-entry">Find an entry</H2>
+    <P>
+      The search, the filters and the sort all work on the whole log, however long it is, not only on the page
+      you can see.
+    </P>
+    <Table
+      head={['Control', 'What it does']}
+      rows={[
+        [
+          <UI key="s">Search logs...</UI>,
+          <>Finds entries whose widget name or id, action, user, explanation, request ID or domain contains what you type. It searches once you pause typing. Type an Action ID, such as <C key="n">42</C> or <C key="h">#42</C>, to find that entry. The Dashboard Context is not searched.</>,
+        ],
+        [
+          <><UI key="w">Any widget</UI>, <UI key="a">Any action</UI>, <UI key="u">Anyone</UI>, <UI key="d">Any domain</UI></>,
+          'Show only one widget, action, user or domain. Each list holds every value in the log, with how many entries it has.',
+        ],
+        [
+          <UI key="r">From / to</UI>,
+          'Show only entries logged between two days, both days included, in your local time. Leave either one empty for no limit on that side.',
+        ],
+        [
+          'Column headings',
+          <>Click <UI key="t">Timestamp</UI>, <UI key="wi">Widget</UI>, <UI key="ac">Action</UI>, <UI key="us">User</UI>, <UI key="do">Domain</UI> or <UI key="id">Action ID</UI> to sort by it; click again to reverse the order. An arrow marks the sorted column.</>,
+        ],
+        [
+          'The footer',
+          <>Shows how many entries match. Choose <UI key="p">Rows per page</UI> (25, 50, 100 or 200) and move between pages with the arrow buttons.</>,
+        ],
+      ]}
+    />
+    <P>
+      <UI>Clear all filters</UI> removes the search, filters and date range together. The tab remembers what you
+      set, and the page you were on, while the browser tab stays open, even after you switch to another Admin
+      Panel tab or reload.
+    </P>
+    <Details summary="Exporting the log">
       <P>
-        <UI>Search logs...</UI> matches the widget name, action, user, explanation, domain and request ID. It
-        searches only the entries already loaded, which are the 100 most recent in the app. There are no
-        date filters, paging or export buttons. A data migration snapshot includes activity history by default,
-        which is the way to take a full copy of the log.
+        There is no export button. A data migration snapshot includes activity history by default, which is the
+        way to take a full copy of the log.
       </P>
     </Details>
 
@@ -136,6 +170,6 @@ export const section: GuideSection = {
   title: 'Action logs',
   summary: 'See who changed what, and what people did with widgets.',
   icon: ScrollText,
-  keywords: 'audit trail telemetry log history who did what executable action request id',
+  keywords: 'audit trail telemetry log history who did what executable action request id search filter sort page date range',
   Body,
 };

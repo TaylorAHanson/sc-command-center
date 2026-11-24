@@ -972,13 +972,28 @@ for Administrators (see *Sharing and permissions*). Its tabs are **Content**,
   and sharing changes are not logged here; they are on **Activity**. The columns are Timestamp, Widget, Action,
   User, Domain, User Explanation and Action ID; opening a row also shows a
   **Request ID** and **Dashboard Context**, a snapshot of the view's name, tab
-  and every widget on the tab with its settings. **Search logs…** searches only
-  the 100 most recent entries; there are no date filters or export. The Request
+  and every widget on the tab with its settings. The Request
   ID is added as a comment (`cc-action: <id>`) at the front of the SQL an
   executable widget runs, so searching Databricks query history for it finds the
   exact statement. The row is written first; if it can't be, the action doesn't
   run. Only Administrators can read the log: the app refuses it to anyone else,
-  though everyone's actions are still recorded.
+  though everyone's actions are still recorded. The whole log is searchable, not
+  just what is on screen, and there is no export button (a data migration
+  snapshot is the way to take a full copy):
+  - **Search logs…** finds entries whose widget name or id, action, user, User
+    Explanation, Request ID or domain contains what you type (it waits for a
+    pause in typing); typing an Action ID, such as `42` or `#42`, also finds
+    that entry. It does not search the Dashboard Context.
+  - The dropdowns filter by **Widget**, **Action**, **User** and **Domain**,
+    listing every value in the log with how many entries each has; the two date
+    boxes limit it to a range of days, both days included, in your local time.
+    **Clear all filters** removes them all.
+  - Click a column heading (Timestamp, Widget, Action, User, Domain or Action
+    ID) to sort by it, and again to reverse it. Newest first is the default.
+  - The footer shows how many entries match, **Rows per page** (25, 50, 100 or
+    200) and buttons for the first, previous, next and last page.
+  - The tab remembers its search, filters, sort and page while the browser tab
+    stays open, including after switching Admin Panel tabs or reloading.
 
 ## Drafts and publishing
 
