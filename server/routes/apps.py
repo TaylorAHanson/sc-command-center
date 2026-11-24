@@ -17,6 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from databricks.sdk import WorkspaceClient
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
@@ -26,7 +27,7 @@ from routes import custom_widgets as widget_routes
 from routes.roles import _get_current_username
 from routes.widget_studio import quick_helper_reply
 from services import access, app_links, app_spec, app_store, drafts, look_helper
-from services import activity
+from services import activity, content_archive, settings_store
 from services import view_catalog, working_set
 
 logger = logging.getLogger(__name__)
@@ -158,12 +159,47 @@ def _row_for(c, app_id: str, level: str, mode: Optional[str]) -> Tuple[Optional[
     return row, version, held is not None
 
 
+class Archived(HTTPException):
+    """An archived app, to someone who holds a level on it: 410, with who archived it and why.
+
+    Not the 404 a missing app gets: the caller can use it, so it confirms nothing
+    they didn't know, and a link that only said "not found" left people asking
+    where their view went. `GET /{ref}` sends `info` so the page can show the
+    archive and, to a manager, Restore.
+    """
+
+    def __init__(self, info: Dict[str, Any]):
+        super().__init__(status_code=410, detail=_ARCHIVED)
+        self.info = info
+
+
+_ARCHIVED = "This view is archived. Someone who manages it can restore it."
+
+
+def _archived_info(c, app_id: str, level: str) -> Dict[str, Any]:
+    published = app_store.head(c, app_id)
+    held = drafts.read(c, APP, app_id) if level == MANAGE else None
+    row = drafts.merge(published, held, app_id) or {}
+    marker = content_archive.archived(c, APP, [app_id]).get(app_id) or {}
+    facts = _acl_facts([app_id]).get(app_id) or {}
+    return {
+        "id": app_id,
+        "name": row.get("name") or "",
+        "owner": facts.get("owner") or _person(row.get("username")),
+        **marker,
+        "can_restore": level == MANAGE,
+        "unused_days": settings_store.get_int_setting(content_archive.SETTING),
+    }
+
+
 def _open(c, who: access.Caller, ref: str, mode: Optional[str] = None,
           ) -> Tuple[str, str, Dict[str, Any], Optional[int], bool]:
     """The app a ref names, if the caller may open it: (id, level, row, published version, has draft); else 404.
 
-    Archived apps are out of circulation and read as missing, as they drop out of
-    the sidebar; the Archived group is the way back to them.
+    Archived apps are out of circulation: they drop out of the sidebar and
+    Discover, and opening one raises `Archived` (410) rather than serving it.
+    The sidebar's Archived group, the page a link lands on, and Admin Panel →
+    Content are the ways back.
     """
     if mode is not None and mode not in MODES:
         raise HTTPException(status_code=400, detail="mode must be 'draft' or 'published'.")
@@ -172,7 +208,7 @@ def _open(c, who: access.Caller, ref: str, mode: Optional[str] = None,
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
     level = access.require(who, APP, app_id, USE, not_found=_NOT_FOUND)
     if app_store.is_archived(c, app_id):
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+        raise Archived(_archived_info(c, app_id, level))
     row, version, has_draft = _row_for(c, app_id, level, mode)
     if row is None:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
@@ -218,7 +254,7 @@ def list_archived_apps(w: WorkspaceClient = Depends(get_db_client)):
     conn = _connect()
     try:
         c = conn.cursor()
-        c.execute("SELECT id, archived_by, timestamp AS archived_at FROM archived_views ORDER BY timestamp DESC")
+        c.execute("SELECT id, archived_by, reason, timestamp AS archived_at FROM archived_views ORDER BY timestamp DESC")
         rows = app_store.fetch_rows(c)
         levels = access.levels_for(who, APP, [r["id"] for r in rows])
         managed = [r for r in rows if levels.get(r["id"]) == MANAGE]
@@ -236,6 +272,7 @@ def list_archived_apps(w: WorkspaceClient = Depends(get_db_client)):
                 "domain": row.get("domain"),
                 "archived_by": r.get("archived_by"),
                 "archived_at": _timestamp(r.get("archived_at")),
+                "reason": r.get("reason") or content_archive.MANUAL,
             })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching archived views: {str(e)}")
@@ -397,6 +434,8 @@ def get_app(app_id: str, mode: Optional[str] = None, w: WorkspaceClient = Depend
         app_id, level, row, version, has_draft = _open(c, who, app_id, mode)
         links = _links(c, [app_id] if version else [])
         favorite = _favorite(c, who, app_id)
+    except Archived as e:
+        return JSONResponse(status_code=410, content={"detail": e.detail, "archived": e.info})
     except HTTPException:
         raise
     except Exception as e:
@@ -731,10 +770,7 @@ def archive_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
         c = conn.cursor()
         if not app_store.exists(c, app_id):
             raise HTTPException(status_code=404, detail="View not found")
-        c.execute(
-            "INSERT INTO archived_views (id, archived_by) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
-            (app_id, who.username),
-        )
+        content_archive.archive(c, APP, app_id, who.username, content_archive.MANUAL)
         view_catalog.touch(c, APP, app_id)
         conn.commit()
         activity.record(who.username, "view.archive", APP, app_id)
@@ -751,17 +787,26 @@ def archive_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
 
 @router.post("/{app_id}/restore")
 def restore_app(app_id: str, w: WorkspaceClient = Depends(get_db_client)):
-    """Put an archived app back exactly as it was."""
+    """Put an archived app back exactly as it was, and start its unused-for clock again.
+
+    The widgets it places that the sweep archived come back with it: a widget a
+    live view shows is never swept, so those went because this view did. The
+    view's managers chose to show them, which is the same reason a view lends its
+    widgets without a grant on each (see `routes/custom_widgets.py`).
+    """
     who = access.caller(w)
     access.require(who, APP, app_id, MANAGE, not_found=_NOT_FOUND)
     conn = _connect()
     try:
         c = conn.cursor()
-        c.execute("DELETE FROM archived_views WHERE id = %s", (app_id,))
+        content_archive.restore(c, APP, app_id)
+        widgets = content_archive.restore_placed_widgets(c, app_id)
         view_catalog.touch(c, APP, app_id)
         conn.commit()
-        activity.record(who.username, "view.restore", APP, app_id)
-        return {"status": "success", "id": app_id, "archived": False}
+        activity.record(who.username, "view.restore", APP, app_id, {"widgets": len(widgets)} if widgets else None)
+        for widget_id in widgets:
+            activity.record(who.username, "widget.restore", WIDGET, widget_id, {"via": "view"})
+        return {"status": "success", "id": app_id, "archived": False, "widgets_restored": widgets}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Error restoring view: {str(e)}")

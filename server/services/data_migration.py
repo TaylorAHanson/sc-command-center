@@ -87,6 +87,7 @@ TABLES: List[TableSpec] = [
     TableSpec("shared_views", "content", ("username", "view_id")),
     TableSpec("sidebar_hidden", "content", ("username", "app_id")),
     TableSpec("archived_views", "content", ("id",)),
+    TableSpec("archived_widgets", "content", ("id",)),
     TableSpec("app_links", "content", ("slug",)),
     TableSpec("user_favorites", "content", ("username", "app_id")),
     TableSpec("view_hidden", "content", ("username", "app_id")),
@@ -146,6 +147,12 @@ NOT_COPIED = NOT_COPIED | frozenset({"schedules", "schedule_runs", "schedule_rem
 #: one deployment, and would make the target's "popular" describe the source's.
 NOT_COPIED = NOT_COPIED | frozenset({"view_catalog", "view_catalog_queue", "view_catalog_state",
                                     "view_visits", "view_daily"})
+
+#: When each view and widget was last used, and when archiving was switched on,
+#: describe this deployment: copied, the target would archive on the source's
+#: evidence. The target's own sweep starts its grace period when it first runs.
+#: The archive markers themselves travel with the content (`archived_widgets`).
+NOT_COPIED = NOT_COPIED | frozenset({"content_last_used", "content_archive_state"})
 
 GROUPS: List[Dict[str, Any]] = [
     {"key": "content", "label": "Widgets, views and agents",

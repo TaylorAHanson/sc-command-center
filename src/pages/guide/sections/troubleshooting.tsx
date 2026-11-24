@@ -22,7 +22,7 @@ const Body = () => (
         ],
         [
           'A link says the view isn\u2019t there.',
-          'It isn\u2019t shared with you, or it has been archived. The app answers the same way as for something that doesn\u2019t exist.',
+          'It isn\u2019t shared with you. The app answers the same way as for something that doesn\u2019t exist. (An archived view says it is archived instead.)',
           <>Ask whoever sent it to share it with you. See <GuideLink to="access" anchor="ask">Ask for access</GuideLink>.</>,
         ],
         [
@@ -101,6 +101,11 @@ const Body = () => (
           <>Discarding a draft is refused.</>,
           'It has never been published, so there is no published version to go back to.',
           <>Delete it instead, if you no longer want it. See <GuideLink to="publishing" anchor="history">History, Revert and Discard draft</GuideLink>.</>,
+        ],
+        [
+          'A view or widget I used to have is gone from the sidebar, Discover or the Widget Library.',
+          'Nobody had used it for the number of days set in Settings, so it was archived automatically. Nothing was deleted.',
+          <>Restore it from <UI>Archived</UI> (sidebar or Widget Library), or ask whoever manages it. See <GuideLink to="publishing" anchor="unused">Views and widgets nobody uses are archived</GuideLink>.</>,
         ],
         [
           'Deleting a view asks you to archive it first.',

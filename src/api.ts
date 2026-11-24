@@ -1,4 +1,5 @@
 import { requestJson, type Level, type PublishState } from './sharing';
+import type { ArchiveMarker } from './widgetRegistry';
 
 const API_BASE = '/api';
 
@@ -33,6 +34,8 @@ export interface WidgetDraftInfo {
     published_version: number | null;
     state: PublishState;
     access: Level;
+    /** Set while the widget is archived. */
+    archived?: ArchiveMarker | null;
 }
 
 export const fetchWidgetDraft = (id: string) => requestJson<WidgetDraftInfo>(widgetUrl(id, 'draft'));
@@ -44,7 +47,15 @@ export const publishWidget = (id: string) =>
 export const discardWidgetDraft = (id: string) =>
     requestJson<{ state: PublishState }>(widgetUrl(id, 'discard'), { method: 'POST' });
 
-export const revertWidget = (id: string, version: number) =>
+/** Out of the library and the pickers; views that place it keep rendering it. Managers only. */
+export const archiveWidget = (id: string) =>
+    requestJson<{ archived: boolean }>(widgetUrl(id, 'archive'), { method: 'POST' });
+
+/** Back in the library, with its unused-for clock started again. */
+export const restoreWidget = (id: string) =>
+    requestJson<{ archived: boolean }>(widgetUrl(id, 'restore'), { method: 'POST' });
+
+export const revertWidget =(id: string, version: number) =>
     requestJson<{ state: PublishState }>(widgetUrl(id, 'revert'), { method: 'POST', body: JSON.stringify({ version }) });
 
 /** The latest published version unless `version` names another. */

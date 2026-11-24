@@ -161,6 +161,10 @@ async def startup_event():
     background.register("discover.prune", 6 * 60 * 60, view_signals.prune_job)
     capabilities.register("search", "View search", view_catalog.capability_check)
 
+    # Archiving views and widgets nobody uses (services/content_archive.py).
+    from services import content_archive
+    background.register("archive.sweep", content_archive.EVERY_SECONDS, content_archive.sweep_job)
+
     background.start()
 
 

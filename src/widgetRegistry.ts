@@ -62,8 +62,17 @@ export interface WidgetDefinition {
   isDraft?: boolean;
   hasDraft?: boolean;
   publishedVersion?: number | null;
-  /** False for a widget only lent by a view: it renders there, the library doesn't offer it. */
+  /** False for a widget only lent by a view, or archived: it renders there, the library doesn't offer it. */
   inLibrary?: boolean;
+  /** Set while the widget is archived: out of the library, still rendering where it is placed. */
+  archived?: ArchiveMarker;
+}
+
+/** Who archived something and why: by hand, or because nobody used it for the set number of days. */
+export interface ArchiveMarker {
+  archived_at: string | null;
+  archived_by: string | null;
+  reason: 'manual' | 'unused';
 }
 
 /** Where a manager's draft of a widget is registered. */
@@ -353,6 +362,7 @@ const registerRows = async (url: string) => {
           hasDraft: w.has_draft ?? known?.hasDraft,
           publishedVersion: w.published_version !== undefined ? w.published_version : known?.publishedVersion,
           inLibrary: w.in_library === false ? false : describesAccess ? true : (known?.inLibrary ?? false),
+          archived: w.archived ?? (describesAccess ? undefined : known?.archived),
         };
 
         // Always register the versioned ID
@@ -427,6 +437,10 @@ const libraryWidgets = () =>
   Object.values(widgetRegistry).filter(w => !w.id.includes('@') && w.inLibrary !== false);
 
 export const getAvailableWidgets = libraryWidgets;
+
+/** Archived widgets the caller may restore, for the library's Archived list. */
+export const getArchivedWidgets = () =>
+  Object.values(widgetRegistry).filter(w => !w.id.includes('@') && !!w.archived && w.access === 'MANAGE');
 
 export const getWidgetCategories = () => {
   const categories = new Set<string>();

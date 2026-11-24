@@ -29,7 +29,7 @@ def test_archiving_records_who_and_keeps_every_version():
     store = shared()
     assert run(store, apps.archive_app, "v1")["archived"] is True
     inserts = [p for s, p in store.statements if s.startswith("INSERT INTO archived_views")]
-    assert inserts == [("v1", ME)] and store.committed
+    assert inserts == [("v1", ME, "manual")] and store.committed
     assert not [s for s, _ in store.writes() if s.startswith("DELETE")], "archiving deletes nothing"
 
 

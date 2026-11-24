@@ -188,7 +188,13 @@ The bottom tray that lists every widget. Three things about attribution:
 - **The library offers only what it may.** Widgets a view merely lends (see
   `server/AGENTS.md` → *Composition*) arrive with `in_library: false`;
   `widgetRegistry` registers them so the view renders and leaves them out of what
-  the tray lists. Don't list registry entries directly.
+  the tray lists. Don't list registry entries directly. Archived widgets arrive
+  the same way, plus an `archived` marker (`WidgetDefinition.archived`): they
+  keep rendering on views that place them, and the tray's **Archived** list
+  (`getArchivedWidgets`, managers only) is where they are restored. An archived
+  view answers `GET /api/apps/{ref}` with 410 and its marker, which the store
+  keeps as `archivedView` and `ArchivedViewNotice` shows in place of the canvas
+  (see `server/AGENTS.md` → *Archiving*).
 - **An uncredited widget invites a claim instead of showing a blank byline.** No
   widget built before the identity fix has a recoverable author (see
   `server/routes/custom_widgets.py::claim_custom_widget`), so where a name would go

@@ -239,7 +239,8 @@ const Body = () => (
       </Step>
     </Steps>
     <Callout kind="note" title="A link opens only for people the view is shared with">
-      Anyone else is told the view isn&rsquo;t there, and so is everyone while the view is archived. Inside the Command
+      Anyone else is told the view isn&rsquo;t there. While the view is archived, its link says so, and who archived it,
+      with <UI>Restore</UI> for its managers. Inside the Command
       Center, people who can manage the view see its draft and people who can use it see the latest published version.
       A view set to open on its own always shows the published version there, read-only, even to its managers. Everyone
       who could open a view before sharing was introduced still can.

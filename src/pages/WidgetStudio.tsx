@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Terminal, Code, Eye, RefreshCw, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X, Paperclip, Camera, Sliders, Loader2, Wrench, Lightbulb, MoreHorizontal, Eraser, Share2, ShieldCheck } from 'lucide-react';
+import { Terminal, Code, Eye, RefreshCw, Save, AlertCircle, AlertTriangle, Check, Settings, Plus, Trash2, Download, Upload, History, RotateCcw, X, Paperclip, Camera, Sliders, Loader2, Wrench, Lightbulb, MoreHorizontal, Eraser, Share2, ShieldCheck, Archive, ArchiveRestore } from 'lucide-react';
 import { toBlob, toPng } from 'html-to-image';
 import { loadCustomWidgets, getWidgetDomains, useWidgetRegistry, widgetRegistry } from '../widgetRegistry';
-import type { ConfigField } from '../widgetRegistry';
+import type { ArchiveMarker, ConfigField } from '../widgetRegistry';
+import { archiveNote } from '../archive';
 import { useScript } from '../hooks/useScript';
 import { LinkStateContext, useLinkState, WidgetInstanceContext } from '../hooks/useLinkState';
 import { createLinkStateStore } from '../linkState';
@@ -14,7 +15,7 @@ import { ThinkingDisclosure } from '../components/ThinkingDisclosure';
 import { SendStopButton } from '../components/SendStopButton';
 import { DraftBar, ShareDialog, type DraftMode } from '../components/sharing';
 import type { Level, PublishState } from '../sharing';
-import { certifyWidget, discardWidgetDraft, fetchWidgetDraft, publishWidget } from '../api';
+import { archiveWidget, certifyWidget, discardWidgetDraft, fetchWidgetDraft, publishWidget, restoreWidget } from '../api';
 import { WidgetDiagnostics } from '../components/WidgetDiagnostics';
 import type { RuntimeStatus } from '../components/WidgetDiagnostics';
 import { RuntimeRecorder, formatRuntimeEntry } from '../widgetRuntime';
@@ -114,6 +115,8 @@ interface WidgetStanding {
     publishedVersion: number | null;
     /** Whether the latest published version is certified. */
     certified: boolean;
+    /** Set while the widget is archived: out of the library, still rendering where it is placed. */
+    archived: ArchiveMarker | null;
 }
 
 const DEFAULT_WIDGET_CODE = "export default function MyWidget() {\n  return (\n    <div className=\"p-4 bg-white rounded-lg shadow h-full flex items-center justify-center\">\n      <h3 className=\"text-xl font-bold text-slate-800\">Hello Widget</h3>\n    </div>\n  );\n}";
@@ -959,6 +962,7 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                 access: info.access,
                 publishedVersion: info.published_version,
                 certified: info.published?.is_certified === 1,
+                archived: info.archived ?? null,
             });
         } catch {
             setStanding(null);
@@ -1971,6 +1975,26 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
         }
     };
 
+    // Archiving leaves every view that places the widget rendering it; it only
+    // leaves the library and the pickers, so it needs no warning beyond saying so.
+    const handleArchive = async (archive: boolean) => {
+        if (!editingId) return;
+        try {
+            if (archive) await archiveWidget(editingId);
+            else await restoreWidget(editingId);
+            await loadCustomWidgets();
+            await refreshStanding(editingId);
+            setSaveNotice({
+                tone: 'ok',
+                text: archive
+                    ? `"${widgetName}" is archived: out of the Widget Library, still showing on the views that have it.`
+                    : `"${widgetName}" is back in the Widget Library.`,
+            });
+        } catch (err) {
+            setSaveNotice({ tone: 'error', text: `Could not ${archive ? 'archive' : 'restore'} the widget: ${errorText(err)}` });
+        }
+    };
+
     const handleCertify = async (certified: boolean) => {
         if (!editingId) return;
         try {
@@ -2712,6 +2736,27 @@ export const WidgetStudio: React.FC<WidgetStudioProps> = ({ editWidgetId, cloneW
                             busy={isSaving || isPublishingDraft}
                         />
                         <div className="ml-auto flex items-center gap-1">
+                            {standing.archived && (
+                                <span
+                                    title={`${archiveNote(standing.archived)} Out of the Widget Library; views that have it still show it.`}
+                                    className="h-7 px-2 flex items-center gap-1.5 rounded-md text-xs font-medium border bg-amber-500/15 text-amber-300 border-amber-500/30"
+                                >
+                                    <Archive size={13} />
+                                    Archived
+                                </span>
+                            )}
+                            {standing.access === 'MANAGE' && (
+                                <button
+                                    onClick={() => { void handleArchive(!standing.archived); }}
+                                    title={standing.archived
+                                        ? 'Put it back in the Widget Library for everyone it is shared with'
+                                        : 'Take it out of the Widget Library. Views that have it keep showing it, and you can restore it.'}
+                                    className="h-7 px-2 flex items-center gap-1.5 rounded-md text-xs font-medium text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white transition-colors"
+                                >
+                                    {standing.archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+                                    {standing.archived ? 'Restore' : 'Archive'}
+                                </button>
+                            )}
                             {standing.access === 'MANAGE' && standing.publishedVersion && (
                                 <button
                                     onClick={() => { void handleCertify(!standing.certified); }}

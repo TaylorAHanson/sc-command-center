@@ -268,7 +268,7 @@ def merge(events: Iterable[Dict[str, Any]], actions: Iterable[Dict[str, Any]],
 def describe_objects(c, refs: Iterable[Tuple[Optional[str], Optional[str]]]) -> Dict[Tuple[str, str], Dict[str, Any]]:
     """The current name and state of each view, widget or agent named in some events.
 
-    State is `published`, `draft` (never published), `archived` (views only) or
+    State is `published`, `draft` (never published), `archived` (views and widgets) or
     `deleted`, so the tab can link only to what can still be opened.
     """
     wanted: Dict[str, List[str]] = {}
@@ -288,7 +288,10 @@ def describe_objects(c, refs: Iterable[Tuple[Optional[str], Optional[str]]]) -> 
     archived: set = set()
     if "app" in wanted:
         c.execute("SELECT id FROM archived_views WHERE id = ANY(%s)", (wanted["app"],))
-        archived = {r["id"] for r in _rows(c)}
+        archived = {("app", r["id"]) for r in _rows(c)}
+    if "widget" in wanted:
+        from services import content_archive
+        archived |= {("widget", i) for i in content_archive.archived(c, "widget", wanted["widget"])}
     out: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for object_type, ids in wanted.items():
         retired = "" if object_type == "app" else ", COALESCE(is_deprecated, 0) AS retired"
@@ -303,7 +306,7 @@ def describe_objects(c, refs: Iterable[Tuple[Optional[str], Optional[str]]]) -> 
             draft = pending.get((object_type, object_id))
             if pub is not None and pub.get("retired"):
                 state = "deleted"
-            elif object_type == "app" and object_id in archived:
+            elif (object_type, object_id) in archived:
                 state = "archived"
             elif pub is not None:
                 state = "published"

@@ -148,11 +148,13 @@ them and published (see *Sharing and permissions* and *Drafts and publishing*).
   instead. See *Drafts and publishing*.
 - A widget on a view that has never been published shows a **Not published
   yet** card to people using the view, in place of the widget.
-- **Archiving** takes a view you manage out of everyone's sidebar without
-  deleting anything; it then appears under **Archived**, where **Restore** brings
-  it back exactly as it was and **Delete permanently** removes every version. A
-  view shared with anyone besides its owner must be archived before it can be
-  deleted; a private view can be deleted straight away.
+- **Archiving** takes a view you manage out of everyone's sidebar and Discover
+  without deleting anything; it then appears under **Archived**, where
+  **Restore** brings it back exactly as it was and **Delete permanently** removes
+  every version. A view shared with anyone besides its owner must be archived
+  before it can be deleted; a private view can be deleted straight away. Views
+  nobody uses are also archived automatically; see *Archiving unused views and
+  widgets*.
 - **View settings…** (in the ⋯ menu) is covered in *View
   settings*: how the view opens, its look, its filters and its agent.
 - Tabs and full pages are covered in *Tabs and pages*, and how a view's link
@@ -288,8 +290,10 @@ shows while the app reads every view; what it has read can already be found.
   Dev/Test/Prod switcher, keep working.
 - **A link opens only for people the view is shared with.** Anyone else is told
   the view isn't there, exactly as if it didn't exist, so a link never confirms
-  that something exists. An archived view's link stops opening too, until it is
-  restored. Inside the Command Center, people who can manage the view see its
+  that something exists. An archived view's link, opened by someone it is
+  shared with, says the view is archived, who archived it and when (or that it
+  was archived automatically for going unused); people who manage it get
+  **Restore** right there, and everyone else is told whom to ask. Inside the Command Center, people who can manage the view see its
   draft and people who can use it see the latest published version. A view set
   to open on its own from its link always shows the published version there,
   read-only, even to its managers, who use **Edit** to go back to the draft.
@@ -624,6 +628,10 @@ outside closes it. It lists the widgets in the domain selected, most used first.
   people who can manage the widget. Delete removes the widget from the library
   for everyone, after one confirmation, and can't be undone; to take a widget off
   just one view, use the X on its card instead.
+- **Archived** (at the bottom of the left-hand list, shown only when you manage
+  an archived widget) lists those widgets with when and why each was archived,
+  **Edit** and **Restore**. Archived widgets aren't offered anywhere else in the
+  library, but keep showing on every view that already has them.
 
 ## Widget Studio
 
@@ -927,7 +935,9 @@ for Administrators (see *Sharing and permissions*). Its tabs are **Content**,
   someone who should manage it.
   Each row's **Open** (views) or **Edit** (widgets and agents) goes straight to
   it: a view opens in the canvas, a widget in Widget Studio and an agent in
-  Agent Studio. Archived views have **Restore** instead.
+  Agent Studio. Views and widgets have **Archive**, or **Restore** once
+  archived; the **Archived** state filter lists both, and a chip reads
+  **Archived · unused** for those archived automatically.
 - **Activity** shows who did what in the app, newest first. It records
   creating, publishing, reverting, discarding the draft of, archiving,
   restoring, deleting and sharing views, widgets and agents; certifying a
@@ -1039,7 +1049,8 @@ code. It is a signal to people browsing the Widget Library, and a requirement
 for shared views only when an Administrator turns that setting on.
 
 **Archive, Restore and Delete permanently.** Archiving a view takes it out of
-everyone's sidebar, stops its link opening, and keeps every version; it then
+everyone's sidebar and Discover, makes its link say it is archived, and keeps
+every version; it then
 shows under **Archived** for the people who manage it, where **Restore** brings
 it back exactly as it was and **Delete permanently** removes every version for
 good. A view shared with anyone besides its owner must be archived before it can
@@ -1056,6 +1067,47 @@ workspace still open. Widget Studio work that was never saved before the upgrade
 isn't restored when the studio next opens. Separate deployments of the app — a development app, a
 stage app and production — are unchanged; moving content between them is
 *Moving data to another app*, below.
+
+## Archiving unused views and widgets
+
+Views and widgets nobody uses are archived automatically, so Discover, the
+sidebar and the Widget Library stay about what people actually use. Archiving
+never deletes anything, and anything archived can be restored exactly as it was.
+
+- **How long.** Admin Panel → Settings → **Unused content** → **Archive views and
+  widgets unused for (days)**: 60 to start with, 0 turns it off. An hourly job
+  does the archiving, so a change takes effect within the hour.
+- **What counts as use.** For a view: someone opening it, publishing it, saving
+  its draft, or starring it. For a widget: someone opening a view that shows it,
+  adding it to a view, running one of its actions, publishing it or saving its
+  draft. Only published views and widgets are archived; drafts nobody has
+  published are left alone.
+- **What is never archived.** A widget that any view still in use shows, on its
+  published version or its draft; a view featured in Discover; and a view or
+  widget an active schedule runs from. A widget therefore goes only after every
+  view showing it has gone.
+- **Nothing goes on day one.** The count starts when archiving is switched on —
+  when the app is first updated to this release, or when an Administrator
+  changes the setting from 0 back to a number of days — so nothing is archived
+  for lacking a history the app wasn't recording yet. At most 200 things are
+  archived in one run, least recently used first.
+- **What archiving does.** An archived view leaves Discover, search and everyone's
+  sidebar; its link says it is archived instead of opening it. An archived widget
+  leaves the Widget Library, its search and the studio's suggestions, but keeps
+  showing on every view that already has it, so no view anyone is looking at
+  breaks.
+- **Getting it back.** People who can manage it, and Administrators, restore it:
+  a view from the sidebar's **Archived** group, from its link, or from Admin
+  Panel → Content; a widget from the Widget Library's **Archived** list, the
+  **Restore** button in Widget Studio, or Admin Panel → Content. Restoring
+  starts the count again. Restoring a view also restores the widgets that were
+  archived automatically because it was; a widget someone archived by hand stays
+  archived.
+- **Archiving by hand.** A view's ⋯ menu has **Archive view…** once it is
+  shared; a widget you manage has **Archive** in Widget Studio's header. Admin
+  Panel → Content archives either.
+- **The record.** Every archive and restore is in Admin Panel → **Activity**
+  (under Archive & delete); automatic ones are listed under the name `system`.
 
 ## Moving data to another app
 

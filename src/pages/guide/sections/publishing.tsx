@@ -2,7 +2,7 @@
 import { Upload } from 'lucide-react';
 import type { GuideSection } from '../types';
 import {
-  Callout, Card, Cards, Details, GuideLink, H2, Lead, List, Needs, P, Step, Steps, Table, UI,
+  Callout, Card, Cards, Code, Details, GuideLink, H2, Lead, List, Needs, P, Step, Steps, Table, UI,
 } from '../kit';
 
 const Body = () => (
@@ -114,19 +114,51 @@ const Body = () => (
     <H2 id="archive">Archive, restore or delete a view</H2>
     <Steps>
       <Step title="Archive it">
-        <Needs role="Can manage" /> Archiving takes the view out of everyone&rsquo;s sidebar and stops its link opening.
-        Nothing is deleted and every version is kept. On a shared view, choose <UI>Archive view…</UI> in the view&rsquo;s{' '}
-        <UI>⋯</UI> menu and confirm.
+        <Needs role="Can manage" /> Archiving takes the view out of everyone&rsquo;s sidebar and Discover, and its link
+        says it is archived instead of opening it. Nothing is deleted and every version is kept. On a shared view, choose{' '}
+        <UI>Archive view…</UI> in the view&rsquo;s <UI>⋯</UI> menu and confirm.
       </Step>
       <Step title="Restore or delete it">
-        Archived views you manage are listed under <UI>Archived</UI> at the bottom of the sidebar. <UI>Restore</UI> brings
-        one back exactly as it was. <UI>Delete permanently</UI> removes every version for good.
+        Archived views you manage are listed under <UI>Archived</UI> at the bottom of the sidebar, and their link shows{' '}
+        <UI>Restore</UI> too. <UI>Restore</UI> brings one back exactly as it was. <UI>Delete permanently</UI> removes every
+        version for good.
       </Step>
     </Steps>
     <Callout kind="warn" title="Delete permanently cannot be undone">
       A view shared with anyone besides you must be archived before it can be deleted, so people can notice it gone
       first. A private view shows <UI>Delete view…</UI> in its <UI>⋯</UI> menu instead, and is deleted straight away
       once you confirm.
+    </Callout>
+
+    <H2 id="unused">Views and widgets nobody uses are archived</H2>
+    <P>
+      A published view or widget nobody has used for 60 days is archived automatically, so Discover, the sidebar and the
+      Widget Library stay about what people use. Nothing is deleted, and it can be restored exactly as it was.
+    </P>
+    <List>
+      <li>
+        <strong>Use</strong> means someone opening, publishing, saving or starring a view; for a widget, someone opening a
+        view that shows it, adding it to a view, running one of its actions, publishing it or saving it.
+      </li>
+      <li>
+        <strong>Never archived:</strong> a widget any view still in use shows, a view featured in Discover, and anything an
+        active schedule runs from. A widget goes only after every view showing it has gone.
+      </li>
+      <li>
+        <strong>An archived widget keeps working</strong> on every view that already has it. It just leaves the Widget
+        Library, where you find it under <UI>Archived</UI> with <UI>Restore</UI>; Widget Studio has <UI>Archive</UI> and{' '}
+        <UI>Restore</UI> in its header too.
+      </li>
+      <li>
+        <strong>Restoring starts the count again.</strong> Restoring a view also brings back the widgets archived
+        automatically because it was.
+      </li>
+    </List>
+    <Callout kind="admin" title="Change the number of days">
+      Admin Panel → <GuideLink to="settings">Settings</GuideLink> → <UI>Unused content</UI>. 0 turns automatic archiving
+      off. The count starts when archiving is switched on, so nothing is archived the day the app is updated, or the day
+      you turn it back on. Every archive and restore is listed in Admin Panel → <UI>Activity</UI>; automatic ones under{' '}
+      <Code>system</Code>.
     </Callout>
 
     <H2 id="dev-and-test">Where did Dev and Test go?</H2>
@@ -164,6 +196,6 @@ export const section: GuideSection = {
   title: 'Drafts & publishing',
   summary: 'Save drafts, publish versions, revert, and certify.',
   icon: Upload,
-  keywords: 'draft publish published version history revert discard certify archive restore delete dev test prod workspace promote promotion release',
+  keywords: 'draft publish published version history revert discard certify archive archived unused restore delete dev test prod workspace promote promotion release',
   Body,
 };
