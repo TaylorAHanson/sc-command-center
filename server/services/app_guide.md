@@ -181,7 +181,9 @@ Back, a reload or a copied link opens it the same way.
   days), **Trending** (gaining viewers this week), **Recently updated** and
   **New for you** (shared with you or your groups in the last 14 days and not
   opened yet). Empty rails are left out. Featured and New for you show at most
-  12 views, even on their own.
+  12 views, even on their own; there a **Sort** menu keeps the rail's order
+  (**Featured order** or **Newest shared**) or sorts those views by Popular,
+  Trending, Recently updated, Name or Most favorited.
 - **Filters** beside the results: **Domain** and **Owner** with a count for each
   value; **Certified** or not; **Opens** in the workspace or on its own page;
   **Last opened** never, or not in 90 days, by anyone; and **Status**
@@ -190,6 +192,13 @@ Back, a reload or a copied link opens it the same way.
   Popular, Trending, Recently updated, Name, Most favorited. Two buttons switch
   between cards and a list, remembered in that browser. More results load as
   you scroll.
+- **In the list**, clicking a column heading sorts by it, the same as picking
+  from **Sort**: **Viewers** is Popular (most people in 30 days first),
+  **Stars** is Most favorited, **Updated** is newest first, **Name** is A to Z.
+  An arrow marks the sorted column. Each sorts one way only (there is no
+  reverse order); Owner and Domain don't sort, and Relevance and Trending are
+  only in the **Sort** menu. To sort by popularity, click **Viewers** or pick
+  **Popular**.
 - **A card** shows the name, owner, domain, last update, people who opened it
   in the last 30 days, how many starred it (that count catches up within about
   15 minutes), **Featured** and **Certified** badges, a pencil (you can manage

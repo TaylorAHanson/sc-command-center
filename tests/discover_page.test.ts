@@ -5,10 +5,10 @@
 // The module imports only types, which is what lets Node load it straight from src/.
 import assert from 'node:assert/strict';
 import {
-  applyToRails, applyToRows, clearFilters, countText, effectiveScope, effectiveSort, emptyMessage, facetOptions,
+  applyToRails, applyToRows, clearFilters, columnOf, COLUMN_SORTS, countText, effectiveScope, effectiveSort, emptyMessage, facetOptions,
   GOVERNANCE_ROUTE, isGovernance, mergePages, modeNote, nextFeaturedPosition, normalizeRoute,
-  pageMode, RAIL_ORDER, resultsTitle, searchParamsOf, seeAllRoute, showsUnpublished, sortsFor, scopesFor, toggled,
-  withChanges, withQuery,
+  pageMode, RAIL_ORDER, RAIL_SORTS, resultsTitle, searchParamsOf, seeAllRoute, showsUnpublished, sortDirection, sortRows, sortsFor,
+  scopesFor, toggled, withChanges, withQuery,
 } from '../src/discoverPage.ts';
 import { discoverHref, parseDiscoverHref } from '../src/discoverRoute.ts';
 import type { Rails, ViewRow } from '../src/discover.ts';
@@ -79,7 +79,8 @@ test('each rail’s See all opens its sort or filter, or the rail alone', () => 
 test('an address naming a searchable rail opens that search', () => {
   assert.deepEqual(normalizeRoute({ rail: 'popular', scope: 'mine' }), { scope: 'mine', sort: 'popular' });
   assert.deepEqual(normalizeRoute({ rail: 'certified' }), { certified: true });
-  assert.deepEqual(normalizeRoute({ rail: 'featured', q: 'x', sort: 'name' }), { rail: 'featured' });
+  assert.deepEqual(normalizeRoute({ rail: 'featured', q: 'x', sort: 'name' }), { rail: 'featured', sort: 'name' });
+  assert.deepEqual(normalizeRoute({ rail: 'new_for_you', sort: 'relevance' }), { rail: 'new_for_you' });
   const plain = { q: 'x' };
   assert.equal(normalizeRoute(plain), plain);
 });
@@ -267,6 +268,58 @@ test('Mine lists never-published views above its results, unless a search or fil
   assert.match(emptyMessage({ scope: 'mine', status: 'draft' }, 2).title, /unpublished changes/);
   assert.equal(emptyMessage({ scope: 'mine' }, 0).title, 'You haven’t published a view yet');
   assert.equal(emptyMessage({ scope: 'mine', q: 'zz' }, 2).title, 'No views match “zz”');
+});
+
+test('the list’s headings sort by the column they head, one way each', () => {
+  assert.equal(COLUMN_SORTS.viewers, 'popular');
+  assert.equal(COLUMN_SORTS.stars, 'favorites');
+  assert.equal(columnOf('popular'), 'viewers');
+  assert.equal(columnOf('name'), 'name');
+  assert.equal(columnOf('updated'), 'updated');
+  // Relevance and trending have no column; the Sort menu still offers them.
+  assert.equal(columnOf('relevance'), null);
+  assert.equal(columnOf('trending'), null);
+  assert.equal(columnOf(undefined), null);
+  assert.equal(sortDirection('name'), 'ascending');
+  for (const s of ['popular', 'trending', 'updated', 'favorites'] as const) assert.equal(sortDirection(s), 'descending');
+  // Every heading names a sort the server runs without words typed, and a rail on its own offers too.
+  for (const s of Object.values(COLUMN_SORTS)) {
+    assert.ok(sortsFor(false).includes(s), s);
+    assert.ok(RAIL_SORTS.includes(s), s);
+  }
+  // A heading on the results is the Sort menu: the same change to the address.
+  const sorted = withChanges({ q: 'sales', domain: ['Ops'] }, { sort: COLUMN_SORTS.viewers });
+  assert.deepEqual(sorted, { q: 'sales', domain: ['Ops'], sort: 'popular' });
+  assert.equal(searchParamsOf(sorted, false).sort, 'popular');
+});
+
+test('a rail on its own keeps its sort in the address, and leaves it behind with the rail', () => {
+  const featured = withChanges({ rail: 'featured' }, { rail: 'featured', sort: 'popular' });
+  assert.deepEqual(featured, { rail: 'featured', sort: 'popular' });
+  assert.equal(pageMode(featured), 'rail');
+  assert.deepEqual(opened(discoverHref(featured)), featured);
+  assert.deepEqual(withChanges(featured, { rail: 'featured', sort: undefined }), { rail: 'featured' });
+  // Searching or picking a scope from there ranks as any other search does.
+  assert.deepEqual(withQuery(featured, 'sales'), { q: 'sales' });
+  assert.deepEqual(withChanges(featured, { scope: 'mine' }), { scope: 'mine' });
+  assert.deepEqual(withChanges(featured, { scope: 'mine', sort: 'name' }), { scope: 'mine', sort: 'name' });
+});
+
+test('a short list sorts the way a search would, ties in the order they came', () => {
+  const a = row('a', { name: 'beta', viewers_30d: 5, favorites: 1, trend: 0.5, updated_at: '2026-11-01T00:00:00Z' });
+  const b = row('b', { name: 'Alpha', viewers_30d: 9, favorites: 1, trend: 2, updated_at: null });
+  const c = row('c', { name: 'gamma', viewers_30d: 5, favorites: 4, trend: 1, updated_at: '2026-11-20T00:00:00Z' });
+  const list = [a, b, c];
+  const ids = (rows: ViewRow[]) => rows.map(r => r.id);
+  assert.deepEqual(ids(sortRows(list, 'popular')), ['b', 'a', 'c']);
+  assert.deepEqual(ids(sortRows(list, 'favorites')), ['c', 'a', 'b']);
+  assert.deepEqual(ids(sortRows(list, 'trending')), ['b', 'c', 'a']);
+  assert.deepEqual(ids(sortRows(list, 'updated')), ['c', 'a', 'b'], 'never updated goes last');
+  assert.deepEqual(ids(sortRows(list, 'name')), ['b', 'a', 'c'], 'case does not matter');
+  // Relevance, or no sort, is the order the list came in, and nothing is changed in place.
+  assert.equal(sortRows(list, 'relevance'), list);
+  assert.equal(sortRows(list, undefined), list);
+  assert.deepEqual(ids(list), ['a', 'b', 'c']);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

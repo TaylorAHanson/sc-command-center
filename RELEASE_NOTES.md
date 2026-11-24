@@ -32,6 +32,7 @@
 - **Search from the sidebar.** Matching views appear as you type, Enter shows them all in Discover, and **New for you** links to views shared with you lately.
 - **Feature, certify or hide views.** Administrators **Feature** or **Certify** a view from its **⋯** menu in Discover; anyone can **Hide from rails** to stop seeing it recommended.
 - **Unpublished views in Mine.** Discover's **Mine** lists the views you've never published first, marked **Not published yet**.
+- **Sort Discover's list by its columns.** In list layout, click **Viewers** to sort by popularity, or **Stars**, **Updated** or **Name**; **Featured** and **New for you** have a **Sort** menu too.
 - **Links keep what you see.** A view's filters and widget settings are saved in its address, so a reload, Back or **Copy link** opens it exactly as it was.
 - **Widgets can keep their settings in the link.** Widget Studio builds sorts, searches and date ranges to be saved in the view's link; ask the agent to leave any out.
 - **Email from widgets.** A widget's email button opens a **Send** dialog where you choose recipients, preview the email and send it.

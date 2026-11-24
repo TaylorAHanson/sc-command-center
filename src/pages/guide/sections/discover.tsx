@@ -61,7 +61,9 @@ const Body = () => (
       ]}
     />
     <P>
-      <UI>Featured</UI> and <UI>New for you</UI> show at most 12 views even on their own; search finds any other view.
+      <UI>Featured</UI> and <UI>New for you</UI> show at most 12 views even on their own; search finds any other view. On its own page,
+      either one has a <UI>Sort</UI> menu that keeps its own order (<UI>Featured order</UI> or <UI>Newest shared</UI>) or sorts those views
+      by <UI>Popular</UI>, <UI>Trending</UI>, <UI>Recently updated</UI>, <UI>Name</UI> or <UI>Most favorited</UI>.
     </P>
 
     <H2 id="filters">Sort and filter results</H2>
@@ -79,6 +81,12 @@ const Body = () => (
       <UI>Sort</UI> offers <UI>Relevance</UI> (when you&rsquo;ve typed something), <UI>Popular</UI>, <UI>Trending</UI>,{' '}
       <UI>Recently updated</UI>, <UI>Name</UI> and <UI>Most favorited</UI>. The two buttons beside it switch between cards and a list, and
       Discover remembers your choice. More results load as you scroll.
+    </P>
+    <P>
+      In the list, click a column heading to sort by it: <UI>Viewers</UI> sorts by <UI>Popular</UI> (most people first),{' '}
+      <UI>Stars</UI> by <UI>Most favorited</UI>, <UI>Updated</UI> newest first and <UI>Name</UI> A to Z. An arrow marks the column the list
+      is sorted by, and the <UI>Sort</UI> menu follows along. Each column sorts one way only. <UI>Relevance</UI> and <UI>Trending</UI>{' '}
+      have no column, so pick them from the menu.
     </P>
 
     <H2 id="cards">What a card shows</H2>
@@ -133,6 +141,6 @@ export const section: GuideSection = {
   title: 'Finding views',
   summary: 'Search every view you can open, browse what’s popular and recommended, and star your favorites.',
   icon: Compass,
-  keywords: 'discover find search browse views catalog rails featured certified popular trending recently updated new for you favorites star hide unhide scope mine shared everything filter domain owner sort relevance grid list keyword hybrid meaning semantic indexing 500 archive governance not opened 90 days curate feature certify',
+  keywords: 'discover find search browse views catalog rails featured certified popular trending recently updated new for you favorites star hide unhide scope mine shared everything filter domain owner sort relevance popularity column heading viewers stars grid list keyword hybrid meaning semantic indexing 500 archive governance not opened 90 days curate feature certify',
   Body,
 };

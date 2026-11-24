@@ -1,9 +1,10 @@
 import React from 'react';
 import {
-    AppWindow, CircleDashed, Eye, EyeOff, PencilLine, Share2, ShieldCheck, ShieldOff, Sparkles, Star, Users, type LucideIcon,
+    AppWindow, ArrowDown, ArrowUp, CircleDashed, Eye, EyeOff, PencilLine, Share2, ShieldCheck, ShieldOff, Sparkles, Star, Users, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
-import type { ViewRow } from '../../discover';
+import type { SearchSort, ViewRow } from '../../discover';
+import { COLUMN_SORTS, columnOf, sortDirection, type ListColumn } from '../../discoverPage';
 import { LEVEL_LABELS, STATE_LABELS } from '../../sharing';
 import { formatWhen, relativeTime } from '../../schedules';
 import type { HeaderMenuSection } from '../HeaderMenu';
@@ -196,37 +197,98 @@ export const ViewCard: React.FC<{ row: ViewRow; actions: ViewActions }> = ({ row
 };
 
 // Columns that matter least drop out first as the page narrows, so the name,
-// the counts and the menu always fit without scrolling sideways.
+// the counts and the menu always fit without scrolling sideways. A column that
+// drops out leaves the header and every row alike, so a screen reader's table
+// still lines up. Counts are wide enough for their heading and its sort arrow.
 const COL = {
     star: 'w-7 shrink-0',
     name: 'min-w-0 flex-1 overflow-hidden',
     owner: 'hidden w-40 shrink-0 truncate 2xl:block',
     domain: 'hidden w-32 shrink-0 truncate 2xl:block',
     updated: 'hidden w-24 shrink-0 truncate xl:block',
-    count: 'w-12 shrink-0 text-right tabular-nums',
+    count: 'w-[4.5rem] shrink-0 text-right tabular-nums',
     end: 'flex w-20 shrink-0 items-center justify-end gap-1',
 };
 
-export const ViewListHeader: React.FC = () => (
-    <div aria-hidden="true" className="flex items-center gap-3 border-b border-gray-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-        <span className={COL.star} />
-        <span className={COL.name}>Name</span>
-        <span className={COL.owner}>Owner</span>
-        <span className={COL.domain}>Domain</span>
-        <span className={COL.updated}>Updated</span>
-        <span className={COL.count} title="People who opened it in the last 30 days">Viewers</span>
-        <span className={COL.count} title="People who starred it">Stars</span>
-        <span className={COL.end} />
+/** The list layout: a table, so its columns and which one it is sorted by reach assistive technology. */
+export const ViewList: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+    <div role="table" aria-label={label} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        {children}
+    </div>
+);
+
+const COLUMN_TITLES: Record<ListColumn, string> = {
+    name: 'Sort by name, A to Z',
+    updated: 'Sort by most recently updated',
+    viewers: 'Sort by most people who opened it in the last 30 days',
+    stars: 'Sort by most people who starred it',
+};
+
+/**
+ * A heading that sorts the list by its column. Each sort runs one way only,
+ * the way the server pages it, so the column already sorted has nothing to
+ * toggle to and clicking it again does nothing.
+ */
+const SortHeading: React.FC<{
+    column: ListColumn;
+    sort?: SearchSort;
+    onSort?: (sort: SearchSort) => void;
+    className: string;
+    end?: boolean;
+    children: React.ReactNode;
+}> = ({ column, sort, onSort, className, end, children }) => {
+    if (!onSort) return <span role="columnheader" className={className}>{children}</span>;
+    const target = COLUMN_SORTS[column];
+    const active = columnOf(sort) === column;
+    const Arrow = sortDirection(target) === 'ascending' ? ArrowUp : ArrowDown;
+    return (
+        <span role="columnheader" aria-sort={active ? sortDirection(target) : undefined} className={className}>
+            <button
+                type="button"
+                title={active ? COLUMN_TITLES[column].replace('Sort by', 'Sorted by') : COLUMN_TITLES[column]}
+                onClick={() => { if (!active) onSort(target); }}
+                className={clsx(
+                    'group/sort inline-flex max-w-full items-center gap-0.5 rounded font-semibold uppercase tracking-wide focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30',
+                    end && 'flex-row-reverse',
+                    active ? 'text-brand-blue' : 'hover:text-gray-800',
+                )}
+            >
+                <span className="truncate">{children}</span>
+                <Arrow
+                    aria-hidden="true"
+                    className={clsx('h-3 w-3 shrink-0', active ? 'opacity-100' : 'opacity-0 group-hover/sort:opacity-60 group-focus-visible/sort:opacity-60')}
+                />
+            </button>
+        </span>
+    );
+};
+
+/**
+ * The list's headings. Given `onSort`, Name, Updated, Viewers (Popular) and
+ * Stars (Most favorited) sort the list, and `sort` marks the column it is
+ * sorted by. Owner and domain don't sort: search has no such order.
+ */
+export const ViewListHeader: React.FC<{ sort?: SearchSort; onSort?: (sort: SearchSort) => void }> = ({ sort, onSort }) => (
+    <div role="row" className="flex items-center gap-3 border-b border-gray-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+        <span role="columnheader" className={COL.star}><span className="sr-only">Favorite</span></span>
+        <SortHeading column="name" sort={sort} onSort={onSort} className={COL.name}>Name</SortHeading>
+        <span role="columnheader" className={COL.owner}>Owner</span>
+        <span role="columnheader" className={COL.domain}>Domain</span>
+        <SortHeading column="updated" sort={sort} onSort={onSort} className={COL.updated}>Updated</SortHeading>
+        <SortHeading column="viewers" sort={sort} onSort={onSort} className={COL.count} end>Viewers</SortHeading>
+        <SortHeading column="stars" sort={sort} onSort={onSort} className={COL.count} end>Stars</SortHeading>
+        <span role="columnheader" className={COL.end}><span className="sr-only">Actions</span></span>
     </div>
 );
 
 export const ViewListRow: React.FC<{ row: ViewRow; actions: ViewActions }> = ({ row, actions }) => (
     <div
+        role="row"
         onClick={e => openView(row, e)}
         className={clsx('flex cursor-pointer items-center gap-3 border-b border-gray-100 px-3 py-2 text-sm last:border-b-0 hover:bg-gray-50', row.hidden && 'bg-gray-50/60')}
     >
-        <span className={COL.star}><StarButton row={row} onToggle={actions.onFavorite} /></span>
-        <div className={COL.name}>
+        <span role="cell" className={COL.star}><StarButton row={row} onToggle={actions.onFavorite} /></span>
+        <div role="cell" className={COL.name}>
             <div className="flex min-w-0 items-center gap-1.5">
                 <Name row={row} className="truncate" />
                 <Badges row={row} compact />
@@ -236,12 +298,12 @@ export const ViewListRow: React.FC<{ row: ViewRow; actions: ViewActions }> = ({ 
                 {row.description}
             </div>
         </div>
-        <span className={clsx(COL.owner, 'text-gray-600')} title={row.owner ?? undefined}>{row.owner}</span>
-        <span className={clsx(COL.domain, 'text-gray-600')} title={row.domain ?? undefined}>{row.domain}</span>
-        <span className={clsx(COL.updated, 'text-gray-500')} title={row.updated_at ? `Updated ${formatWhen(row.updated_at)}` : undefined}>{relativeTime(row.updated_at)}</span>
-        <span className={clsx(COL.count, 'text-gray-600')} title={viewersTitle(row.viewers_30d)}>{row.viewers_30d.toLocaleString()}</span>
-        <span className={clsx(COL.count, 'text-gray-600')} title={favoritesTitle(row.favorites)}>{row.favorites.toLocaleString()}</span>
-        <span className={COL.end}>
+        <span role="cell" className={clsx(COL.owner, 'text-gray-600')} title={row.owner ?? undefined}>{row.owner}</span>
+        <span role="cell" className={clsx(COL.domain, 'text-gray-600')} title={row.domain ?? undefined}>{row.domain}</span>
+        <span role="cell" className={clsx(COL.updated, 'text-gray-500')} title={row.updated_at ? `Updated ${formatWhen(row.updated_at)}` : undefined}>{relativeTime(row.updated_at)}</span>
+        <span role="cell" className={clsx(COL.count, 'text-gray-600')} title={viewersTitle(row.viewers_30d)}>{row.viewers_30d.toLocaleString()}</span>
+        <span role="cell" className={clsx(COL.count, 'text-gray-600')} title={favoritesTitle(row.favorites)}>{row.favorites.toLocaleString()}</span>
+        <span role="cell" className={COL.end}>
             <Marks row={row} />
             <ViewMenu sections={menuSections(row, actions)} label={`More for ${row.name}`} />
         </span>

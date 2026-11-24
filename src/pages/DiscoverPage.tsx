@@ -8,16 +8,17 @@ import { fetchMe } from '../sharing';
 import {
     curateView, discoverHref, fetchDiscoverStatus, fetchHome, fetchRails, onDiscoverChanged, parseDiscoverHref,
     searchQuery, searchViews, setFavorite, setHidden,
-    type DiscoverChange, type DiscoverRoute, type DiscoverStatus, type RailName, type Rails, type SearchMode, type SearchResponse, type ViewRow,
+    type DiscoverChange, type DiscoverRoute, type DiscoverStatus, type RailName, type Rails, type SearchMode, type SearchResponse,
+    type SearchSort, type ViewRow,
 } from '../discover';
 import {
     applyToRails, applyToRows, clearFilters, countText, effectiveScope, effectiveSort, emptyMessage, GOVERNANCE_ROUTE, isGovernance,
-    mergePages, modeNote, nextFeaturedPosition, normalizeRoute, pageMode, RAIL_LABELS, RAIL_LIMIT, RAIL_ORDER, resultsTitle, SCOPE_LABELS,
-    scopesFor, searchParamsOf, seeAllRoute, showsUnpublished, SORT_LABELS, sortsFor, withChanges, withQuery,
+    mergePages, modeNote, nextFeaturedPosition, normalizeRoute, pageMode, RAIL_LABELS, RAIL_LIMIT, RAIL_ORDER, RAIL_ORDER_LABELS, RAIL_SORTS,
+    resultsTitle, SCOPE_LABELS, scopesFor, searchParamsOf, seeAllRoute, showsUnpublished, SORT_LABELS, sortRows, sortsFor, withChanges, withQuery,
 } from '../discoverPage';
 import { ShareDialog } from '../components/sharing';
 import { DiscoverFilters } from '../components/discover/DiscoverFilters';
-import { ViewCard, ViewListHeader, ViewListRow, type ViewActions } from '../components/discover/ViewCard';
+import { ViewCard, ViewList, ViewListHeader, ViewListRow, type ViewActions } from '../components/discover/ViewCard';
 import { ViewSearchBox } from '../components/discover/ViewSearchBox';
 
 const PRIMARY = 'flex items-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-brand-navy disabled:cursor-not-allowed disabled:opacity-50';
@@ -304,6 +305,9 @@ export const DiscoverPage: React.FC = () => {
 
     const change = (patchRoute: Partial<DiscoverRoute>) => go(withChanges(route, patchRoute));
 
+    // The Sort menu and the list's column headings both land here, so the two always agree.
+    const sortBy = (sort: SearchSort) => change({ sort });
+
     const type = (value: string) => {
         setText(value);
         window.history.replaceState(window.history.state, '', addressFor(withQuery(route, value)));
@@ -475,6 +479,8 @@ export const DiscoverPage: React.FC = () => {
                     <RailAlone
                         name={route.rail}
                         rails={rails}
+                        sort={route.sort}
+                        onSort={sort => go(withChanges(route, { rail: route.rail, sort }))}
                         layout={layout}
                         onLayout={setLayoutChoice}
                         actions={actions}
@@ -509,16 +515,11 @@ export const DiscoverPage: React.FC = () => {
                                     <button type="button" onClick={() => setFiltersOpen(o => !o)} aria-expanded={filtersOpen} className={clsx(SECONDARY, 'lg:hidden')}>
                                         <SlidersHorizontal className="h-4 w-4" aria-hidden="true" /> Filters
                                     </button>
-                                    <label className="flex items-center gap-1.5 text-sm text-gray-600">
-                                        <span className="hidden sm:inline">Sort</span>
-                                        <select
-                                            value={effectiveSort(route)}
-                                            onChange={e => change({ sort: e.target.value as DiscoverRoute['sort'] })}
-                                            className="rounded-lg border border-gray-300 bg-white py-1.5 pl-2 pr-7 text-sm text-gray-800 focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                                        >
-                                            {sortsFor(!!route.q?.trim()).map(s => <option key={s} value={s}>{SORT_LABELS[s]}</option>)}
-                                        </select>
-                                    </label>
+                                    <SortSelect
+                                        value={effectiveSort(route)}
+                                        options={sortsFor(!!route.q?.trim()).map(s => [s, SORT_LABELS[s]])}
+                                        onChange={v => sortBy(v as SearchSort)}
+                                    />
                                     <LayoutToggle layout={layout} onChange={setLayoutChoice} />
                                 </div>
                             </div>
@@ -538,7 +539,9 @@ export const DiscoverPage: React.FC = () => {
 
                             <ResultNotes route={route} page={current} configured={configured} isAdmin={admin} listsUnpublished={wantsUnpublished} />
 
-                            {unpublishedRows.length > 0 && <Unpublished rows={unpublishedRows} layout={layout} actions={actions} />}
+                            {unpublishedRows.length > 0 && (
+                                <Unpublished rows={unpublishedRows} layout={layout} actions={actions} sort={effectiveSort(route)} onSort={sortBy} />
+                            )}
                             {wantsUnpublished && unpublished?.error && (
                                 <p className="text-xs text-red-700">Couldn’t list the views you haven’t published: {unpublished.error}</p>
                             )}
@@ -552,7 +555,14 @@ export const DiscoverPage: React.FC = () => {
                             ) : current && (
                                 <>
                                     {unpublishedRows.length > 0 && <h2 className="text-sm font-semibold text-gray-800">Published</h2>}
-                                    <Rows rows={current.rows} layout={layout} actions={actions} />
+                                    <Rows
+                                        rows={current.rows}
+                                        layout={layout}
+                                        actions={actions}
+                                        label={resultsTitle(route)}
+                                        sort={effectiveSort(route)}
+                                        onSort={sortBy}
+                                    />
                                     {current.next_cursor && !current.moreError && <div ref={setSentinel} aria-hidden="true" className="h-px" />}
                                     {moreFor === key && (
                                         <div className="flex justify-center py-4 text-gray-400"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading more" /></div>
@@ -611,32 +621,63 @@ const LayoutToggle: React.FC<{ layout: Layout; onChange: (layout: Layout) => voi
     </div>
 );
 
-const Rows: React.FC<{ rows: ViewRow[]; layout: Layout; actions: ViewActions }> = ({ rows, layout, actions }) =>
+/** The page's Sort menu; the list layout's column headings set the same thing. */
+const SortSelect: React.FC<{ value: string; options: [string, string][]; onChange: (value: string) => void }> = ({ value, options, onChange }) => (
+    <label className="flex items-center gap-1.5 text-sm text-gray-600">
+        <span className="hidden sm:inline">Sort</span>
+        <select
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white py-1.5 pl-2 pr-7 text-sm text-gray-800 focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+        >
+            {options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+    </label>
+);
+
+/** Views as cards or as a list; with `onSort`, the list's headings sort it, and `sort` marks the column it is sorted by. */
+const Rows: React.FC<{
+    rows: ViewRow[];
+    layout: Layout;
+    actions: ViewActions;
+    label?: string;
+    sort?: SearchSort;
+    onSort?: (sort: SearchSort) => void;
+}> = ({ rows, layout, actions, label = 'Views', sort, onSort }) =>
     layout === 'grid' ? (
         <div className={GRID}>
             {rows.map(row => <ViewCard key={row.id} row={row} actions={actions} />)}
         </div>
     ) : (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-            <ViewListHeader />
+        <ViewList label={label}>
+            <ViewListHeader sort={sort} onSort={onSort} />
             {rows.map(row => <ViewListRow key={row.id} row={row} actions={actions} />)}
-        </div>
+        </ViewList>
     );
 
-/** The caller's never-published views, kept apart so nobody takes them for search results. */
-const Unpublished: React.FC<{ rows: ViewRow[]; layout: Layout; actions: ViewActions }> = ({ rows, layout, actions }) => (
-    <section aria-labelledby="discover-unpublished-title" className="space-y-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
-        <div>
-            <h2 id="discover-unpublished-title" className="text-sm font-semibold text-gray-800">
-                Not published yet <span className="font-normal text-gray-500">· {rows.length}</span>
-            </h2>
-            <p className="mt-0.5 text-xs text-gray-500">
-                Only people who manage these can open them, and search finds a view once it’s published.
-            </p>
-        </div>
-        <Rows rows={rows} layout={layout} actions={actions} />
-    </section>
-);
+/**
+ * The caller's never-published views, kept apart so nobody takes them for
+ * search results. They come newest first and are put in the page's sort here,
+ * since search never sees them; its headings sort the page like the results'.
+ */
+const Unpublished: React.FC<{
+    rows: ViewRow[]; layout: Layout; actions: ViewActions; sort: SearchSort; onSort: (sort: SearchSort) => void;
+}> = ({ rows, layout, actions, sort, onSort }) => {
+    const sorted = useMemo(() => sortRows(rows, sort), [rows, sort]);
+    return (
+        <section aria-labelledby="discover-unpublished-title" className="space-y-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+            <div>
+                <h2 id="discover-unpublished-title" className="text-sm font-semibold text-gray-800">
+                    Not published yet <span className="font-normal text-gray-500">· {rows.length}</span>
+                </h2>
+                <p className="mt-0.5 text-xs text-gray-500">
+                    Only people who manage these can open them, and search finds a view once it’s published.
+                </p>
+            </div>
+            <Rows rows={sorted} layout={layout} actions={actions} label="Not published yet" sort={sort} onSort={onSort} />
+        </section>
+    );
+};
 
 const Skeleton: React.FC<{ layout: Layout }> = ({ layout }) => (
     <div className={layout === 'grid' ? GRID : 'space-y-2'} aria-hidden="true">
@@ -804,16 +845,23 @@ const ALONE_EMPTY: Partial<Record<RailName, (isAdmin: boolean) => { title: strin
 const RailAlone: React.FC<{
     name: RailName;
     rails: { data: Rails | null; error: string | null } | null;
+    /** Undefined keeps the rail's own order. */
+    sort: SearchSort | undefined;
+    onSort: (sort: SearchSort | undefined) => void;
     layout: Layout;
     onLayout: (layout: Layout) => void;
     actions: ViewActions;
     isAdmin: boolean;
     onBack: () => void;
     onRetry: () => void;
-}> = ({ name, rails, layout, onLayout, actions, isAdmin, onBack, onRetry }) => {
+}> = ({ name, rails, sort, onSort, layout, onLayout, actions, isAdmin, onBack, onRetry }) => {
     const { title, blurb } = RAIL_LABELS[name];
-    const rows = rails?.data?.[name] ?? [];
+    const data = rails?.data?.[name];
+    // A rail is at most RAIL_LIMIT views and arrives whole, so it is sorted here rather than searched again.
+    const rows = useMemo(() => sortRows(data ?? [], sort), [data, sort]);
     const empty = ALONE_EMPTY[name]?.(isAdmin) ?? { title: `No ${title.toLowerCase()} views`, hint: '' };
+    const own = RAIL_ORDER_LABELS[name] ?? 'Default';
+    const capped = name === 'new_for_you' ? `the ${RAIL_LIMIT} most recent` : `the first ${RAIL_LIMIT}`;
     return (
         <section className="space-y-4" aria-labelledby="discover-rail-title">
             <button type="button" onClick={onBack} className="flex items-center gap-1 text-sm font-medium text-brand-blue hover:underline">
@@ -824,6 +872,11 @@ const RailAlone: React.FC<{
                     <h1 id="discover-rail-title" className="text-lg font-semibold text-gray-900">{title}</h1>
                     <p className="text-sm text-gray-500">{blurb}</p>
                 </div>
+                <SortSelect
+                    value={sort ?? ''}
+                    options={[['', own], ...RAIL_SORTS.map((s): [string, string] => [s, SORT_LABELS[s]])]}
+                    onChange={v => onSort(v ? (v as SearchSort) : undefined)}
+                />
                 <LayoutToggle layout={layout} onChange={onLayout} />
             </div>
             {!rails ? (
@@ -834,10 +887,10 @@ const RailAlone: React.FC<{
                 <EmptyBox title={empty.title} hint={empty.hint} />
             ) : (
                 <>
-                    <Rows rows={rows} layout={layout} actions={actions} />
+                    <Rows rows={rows} layout={layout} actions={actions} label={title} sort={sort} onSort={onSort} />
                     {rows.length >= RAIL_LIMIT && (
                         <p className="text-center text-sm text-gray-500">
-                            {name === 'new_for_you' ? `Showing the ${RAIL_LIMIT} most recent.` : `Showing the first ${RAIL_LIMIT}.`} Search above to find any other view.
+                            {sort ? `Sorting ${capped}.` : `Showing ${capped}.`} Search above to find any other view.
                         </p>
                     )}
                 </>

@@ -53,6 +53,61 @@ export const scopesFor = (isAdmin: boolean): SearchScope[] =>
 export const sortsFor = (hasQuery: boolean): SearchSort[] =>
     hasQuery ? ['relevance', 'popular', 'trending', 'updated', 'name', 'favorites'] : ['popular', 'trending', 'updated', 'name', 'favorites'];
 
+/**
+ * The sorts a rail shown alone offers besides its own order (`RAIL_ORDER_LABELS`).
+ * It holds at most `RAIL_LIMIT` views, so the page sorts them itself (`sortRows`).
+ */
+export const RAIL_SORTS: readonly SearchSort[] = ['popular', 'trending', 'updated', 'name', 'favorites'];
+
+/** What a rail shown alone calls its own order, the one the server sent. */
+export const RAIL_ORDER_LABELS: Partial<Record<RailName, string>> = {
+    featured: 'Featured order',
+    new_for_you: 'Newest shared',
+};
+
+/** The list layout's columns that sort, and the sort each one picks. Owner and domain don't: the server can't sort by them. */
+export type ListColumn = 'name' | 'updated' | 'viewers' | 'stars';
+
+export const COLUMN_SORTS: Record<ListColumn, SearchSort> = {
+    name: 'name',
+    updated: 'updated',
+    viewers: 'popular',
+    stars: 'favorites',
+};
+
+/**
+ * The order a sort lists views in, for `aria-sort`. Each runs one way only, as
+ * the server pages them: A to Z by name, the most or newest first otherwise.
+ */
+export const sortDirection = (sort: SearchSort): 'ascending' | 'descending' => (sort === 'name' ? 'ascending' : 'descending');
+
+/** The column a sort is shown on, if any; relevance and trending have none. */
+export const columnOf = (sort: SearchSort | undefined): ListColumn | null =>
+    (Object.keys(COLUMN_SORTS) as ListColumn[]).find(c => COLUMN_SORTS[c] === sort) ?? null;
+
+const when = (iso: string | null) => {
+    const t = iso ? Date.parse(iso) : NaN;
+    return Number.isNaN(t) ? -Infinity : t;
+};
+
+const COMPARE: Partial<Record<SearchSort, (a: ViewRow, b: ViewRow) => number>> = {
+    popular: (a, b) => b.viewers_30d - a.viewers_30d,
+    trending: (a, b) => b.trend - a.trend,
+    updated: (a, b) => when(b.updated_at) - when(a.updated_at),
+    favorites: (a, b) => b.favorites - a.favorites,
+    name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+};
+
+/**
+ * A short list the page already holds (a rail shown alone, the never-published
+ * box in Mine) in the order `sort` gives a search. Ties keep the order they
+ * came in; relevance, or no sort, leaves the list as it is.
+ */
+export const sortRows = (rows: ViewRow[], sort: SearchSort | undefined): ViewRow[] => {
+    const compare = sort && COMPARE[sort];
+    return compare ? [...rows].sort(compare) : rows;
+};
+
 /** What a rail's "See all" opens. */
 export const seeAllRoute = (rail: RailName): DiscoverRoute => {
     switch (rail) {
@@ -64,10 +119,15 @@ export const seeAllRoute = (rail: RailName): DiscoverRoute => {
     }
 };
 
-/** An address naming a rail that a search stands in for opens that search; a rail shown alone shows only itself. */
+/**
+ * An address naming a rail that a search stands in for opens that search; a
+ * rail shown alone shows only itself, in its own order or one of `RAIL_SORTS`.
+ */
 export const normalizeRoute = (route: DiscoverRoute): DiscoverRoute => {
     if (!route.rail) return route;
-    if (RAILS_ALONE.includes(route.rail)) return { rail: route.rail };
+    if (RAILS_ALONE.includes(route.rail)) {
+        return route.sort && RAIL_SORTS.includes(route.sort) ? { rail: route.rail, sort: route.sort } : { rail: route.rail };
+    }
     const rest: DiscoverRoute = { ...route };
     delete rest.rail;
     return { ...rest, ...seeAllRoute(route.rail) };
@@ -116,11 +176,16 @@ export const searchParamsOf = (route: DiscoverRoute, isAdmin: boolean): SearchPa
 /**
  * The route with `patch` applied. Unset and empty values are dropped, `all` is
  * the default scope, relevance is the default sort (with words; without them it
- * means nothing), and a rail shown alone is left behind unless the patch names one.
+ * means nothing), and a rail shown alone is left behind unless the patch names
+ * one. Its sort goes with it: that sorted only the rail's few views, and a
+ * search run from there should rank by relevance as any other does.
  */
 export const withChanges = (route: DiscoverRoute, patch: Partial<DiscoverRoute>): DiscoverRoute => {
     const merged: DiscoverRoute = { ...route, ...patch };
-    if (!('rail' in patch)) delete merged.rail;
+    if (!('rail' in patch)) {
+        if (merged.rail && !('sort' in patch)) delete merged.sort;
+        delete merged.rail;
+    }
     const out: Record<string, unknown> = {};
     for (const [key, raw] of Object.entries(merged)) {
         const value = key === 'q' && typeof raw === 'string' ? raw.trim() : raw;

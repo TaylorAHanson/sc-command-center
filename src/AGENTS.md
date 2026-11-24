@@ -973,7 +973,7 @@ to install:
 node --experimental-strip-types tests/link_state.test.ts      # 17 passed
 node --experimental-strip-types tests/schedules.test.ts       # 26 passed
 node --experimental-strip-types tests/discover_route.test.ts  # 6 passed
-node --experimental-strip-types tests/discover_page.test.ts   # 17 passed
+node --experimental-strip-types tests/discover_page.test.ts   # 20 passed
 node --experimental-strip-types tests/working_set.test.ts     # 25 passed
 ```
 
@@ -1004,3 +1004,15 @@ current history entry; anything else the reader does pushes one, so Back steps
 through searches. Anything that lets someone pick a view uses
 `components/discover/ViewSearchBox.tsx` over `suggestViews`/`searchViews`,
 never a list of every view: a deployment can hold tens of thousands.
+
+**Sorting.** The list layout is an ARIA table whose Name, Updated, Viewers and
+Stars headings are buttons setting the same `sort` as the Sort menu
+(`COLUMN_SORTS`: Viewers is `popular`, Stars `favorites`), with `aria-sort` on
+the sorted one. Each runs one way, because the server's keyset pages
+(`_KEYSET` in `view_catalog.py`) have a fixed direction per sort and an index to
+match; a reverse order would need both, so don't add a toggle on the client
+alone. Lists the page already holds whole, a rail shown alone (at most
+`RAIL_LIMIT`) and Mine's never-published box, sort in the browser through
+`sortRows`; a rail alone keeps its sort in the address (`?rail=featured&sort=…`)
+and `withChanges` drops it with the rail, so a search from there ranks by
+relevance.
