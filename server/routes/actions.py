@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, Any, List, Dict
 import json
 from databricks.sdk import WorkspaceClient
-from database import log_user_action, get_action_logs
+from database import log_user_action, get_action_logs, query_action_logs, action_log_facets
 from middleware.auth import get_db_client
 from routes.roles import _get_current_username
 from services import access
+from services import action_log_query as alq
 
 router = APIRouter(
     prefix="/api/actions",
@@ -62,5 +63,57 @@ def get_actions(
     access.require_app_admin(w)
     try:
         return get_action_logs(limit, offset, env)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# `GET /` above stays exactly as it was, a bare list of the newest rows, for
+# anything written against it before (stored widget code can call any /api
+# route). The Action Logs tab reads these two instead. Neither takes `env`.
+
+@router.get("/search")
+def search_actions(
+    q: str = "",
+    widget_id: str = "",
+    action_name: str = "",
+    username: str = "",
+    domain: str = "",
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    sort: str = alq.DEFAULT_SORT,
+    direction: str = Query(alq.DEFAULT_DIRECTION, alias="dir"),
+    limit: int = Query(alq.DEFAULT_LIMIT, ge=1, le=alq.MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    w: WorkspaceClient = Depends(get_db_client),
+):
+    """One page of the action log, searched, filtered and sorted on the server.
+
+    `q` is a substring of the widget, its id, the action, the user, the
+    explanation, the request id or the domain (or an action id, `42` / `#42`).
+    The filters match exactly, the user case-insensitively; `since` is
+    inclusive and `until` exclusive, ISO times (UTC when no zone is given).
+    `total` is how many rows match in all, so the browser can number pages.
+    """
+    access.require_app_admin(w)
+    try:
+        filters = alq.make_filters(q, widget_id, action_name, username, domain, since, until)
+        key, way = alq.parse_sort(sort, direction)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        page = query_action_logs(filters, key, way, limit, offset, with_total=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"rows": page["rows"], "total": page["total"], "limit": limit, "offset": offset,
+            "sort": key, "dir": way}
+
+
+@router.get("/facets")
+def action_facets(w: WorkspaceClient = Depends(get_db_client)):
+    """The choices each filter offers, from the whole log: `widgets`, `actions`,
+    `users` and `domains`, each a list of `{value, label, count}`."""
+    access.require_app_admin(w)
+    try:
+        return action_log_facets()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

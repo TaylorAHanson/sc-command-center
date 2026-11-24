@@ -57,8 +57,22 @@ def run(log, fn, *args, user=ME, admin=False, **kwargs):
         log.rows.insert(0, row)
         return {"status": "success", "action_id": len(log.rows)}
 
+    def query_action_logs(filters, sort, direction, limit, offset, env="dev", with_total=False):
+        log.reads.append(("search", filters, sort, direction, limit, offset))
+        if log.broken:
+            raise RuntimeError("connection refused")
+        rows = list(log.rows)[offset:offset + limit]
+        return {"rows": rows, "total": len(log.rows) if with_total else None}
+
+    def action_log_facets():
+        log.reads.append(("facets",))
+        return {"widgets": [], "actions": [{"value": "approve", "label": "approve", "count": len(log.rows)}],
+                "users": [], "domains": []}
+
     patches = [
         (actions, "get_action_logs", get_action_logs),
+        (actions, "query_action_logs", query_action_logs),
+        (actions, "action_log_facets", action_log_facets),
         (actions, "log_user_action", log_user_action),
         (actions, "_get_current_username", lambda _w: user),
         (access, "caller", lambda _w: who),
@@ -112,6 +126,60 @@ def test_an_administrator_s_paging_reaches_the_store():
 
 def test_a_store_failure_for_an_administrator_is_still_reported_as_one():
     exc = refused(Log(broken=True), actions.get_actions, admin=True)
+    assert exc.status_code == 500 and "connection refused" in exc.detail
+
+
+# ------------------------------------------------------------- searching it
+
+def search(**changes):
+    """Every parameter, as FastAPI would fill them in; a direct call gets no defaults."""
+    params = {"q": "", "widget_id": "", "action_name": "", "username": "", "domain": "",
+              "since": None, "until": None, "sort": "timestamp", "direction": "desc",
+              "limit": 50, "offset": 0}
+    params.update(changes)
+    return params
+
+
+def test_someone_who_is_not_an_administrator_cannot_search_the_log_or_list_its_filters():
+    log = Log(entry(1, OTHER))
+    assert refused(log, actions.search_actions, **search()).status_code == 403
+    assert refused(log, actions.action_facets).status_code == 403
+    assert log.reads == [], "refused before anything was read"
+
+
+def test_an_administrator_gets_a_page_and_how_many_match_in_all():
+    log = Log(*[entry(i, ME) for i in range(5, 0, -1)])
+    page = run(log, actions.search_actions, admin=True, **search(limit=2, offset=2))
+    assert [r["id"] for r in page["rows"]] == [3, 2]
+    assert (page["total"], page["limit"], page["offset"], page["sort"], page["dir"]) == (5, 2, 2, "timestamp", "desc")
+
+
+def test_the_search_filters_and_sort_reach_the_store_cleaned():
+    log = Log(entry(1, ME))
+    run(log, actions.search_actions, admin=True,
+        **search(q=" refund ", username=" Taylor@Example.com", sort="Username", direction="ASC",
+                 since="2026-11-01T00:00:00Z"))
+    _, filters, sort, direction, limit, offset = log.reads[0]
+    assert (filters.q, filters.username, sort, direction) == ("refund", "Taylor@Example.com", "username", "asc")
+    assert filters.since is not None and filters.since.tzinfo is not None
+
+
+def test_a_bad_sort_or_date_is_a_400_and_reads_nothing():
+    for bad in (search(sort="dashboard_context"), search(direction="up"), search(since="yesterday")):
+        log = Log(entry(1, ME))
+        exc = refused(log, actions.search_actions, admin=True, **bad)
+        assert exc.status_code == 400, bad
+        assert log.reads == []
+
+
+def test_an_administrator_lists_each_filter_s_choices():
+    log = Log(entry(2, OTHER), entry(1, ME))
+    facets = run(log, actions.action_facets, admin=True)
+    assert facets["actions"] == [{"value": "approve", "label": "approve", "count": 2}]
+
+
+def test_a_store_failure_while_searching_is_reported_as_one():
+    exc = refused(Log(broken=True), actions.search_actions, admin=True, **search())
     assert exc.status_code == 500 and "connection refused" in exc.detail
 
 

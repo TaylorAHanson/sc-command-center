@@ -9,6 +9,7 @@ from psycopg2.extras import RealDictCursor
 from config.settings import get_lakebase_config
 from databricks.sdk import WorkspaceClient
 import db_pool
+from services import action_log_query as alq
 
 # Resolving Lakebase connection parameters is expensive: identifying the caller,
 # listing database instances/projects to work out which naming convention this
@@ -778,6 +779,27 @@ def _create_activity_feed_indexes(conn) -> None:
             logging.warning(f"Could not create an activity index: {e}")
 
 
+def _create_action_log_indexes(conn) -> None:
+    """What Admin Panel → Action Logs (services/action_log_query.py) filters on.
+
+    Order by time is served by `idx_action_logs_timestamp` and the user filter by
+    `idx_action_logs_lower_user_ts`, both from `_create_activity_feed_indexes`.
+    These cover the widget and action filters, and the distinct values each
+    filter offers. Free-text search is a substring match across several columns,
+    which no plain b-tree serves; it scans, which an audit trail's size allows."""
+    c = conn.cursor()
+    for sql in (
+        "CREATE INDEX IF NOT EXISTS idx_action_logs_widget_ts ON action_logs (widget_id, timestamp DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_action_logs_action_ts ON action_logs (action_name, timestamp DESC)",
+    ):
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            logging.warning(f"Could not create an action log index: {e}")
+
+
 def _create_email_tables(conn) -> None:
     """`email_log`: one row per email asked for (services/email_service.py).
 
@@ -1390,6 +1412,7 @@ def init_db(env: str = "dev"):
     if env == content_env():
         _create_operations_tables(conn)
         _create_activity_feed_indexes(conn)
+        _create_action_log_indexes(conn)
         _create_email_tables(conn)
         _create_schedule_tables(conn)
         _create_discover_tables(conn)
@@ -1473,32 +1496,49 @@ def log_user_action(widget_id: str, widget_name: str, explanation: str, context:
     return {"status": "success", "action_id": last_id}
 
 def get_action_logs(limit: int = 100, offset: int = 0, env: str = "dev") -> List[Dict[str, Any]]:
+    """The newest action log rows, as `GET /api/actions/` has always returned them."""
+    return query_action_logs(alq.Filters(), alq.DEFAULT_SORT, alq.DEFAULT_DIRECTION, limit, offset, env)["rows"]
+
+
+def query_action_logs(filters: alq.Filters, sort: str, direction: str, limit: int, offset: int,
+                      env: str = "dev", with_total: bool = False) -> Dict[str, Any]:
+    """One page of the action log, searched, filtered and sorted in SQL
+    (`services/action_log_query.py` builds every statement), and, when asked, how
+    many rows match in all."""
     conn = get_db_connection(env)
-    
-    c = conn.cursor(cursor_factory=RealDictCursor)
-    query = '''
-        SELECT al.id, al.widget_id, al.widget_name, al.action_name, al.username, al.request_id,
-               al.user_explanation, al.dashboard_context, al.timestamp, w.domain
-        FROM action_logs al
-        LEFT JOIN (
-            SELECT id, domain
-            FROM widgets
-            WHERE is_deprecated = 0
-            AND version = (
-                SELECT MAX(version) FROM widgets w2
-                WHERE w2.id = widgets.id AND w2.is_deprecated = 0
-            )
-        ) w ON al.widget_id = w.id
-        ORDER BY al.timestamp DESC 
-        LIMIT %s OFFSET %s
-    '''
-    c.execute(query, (limit, offset))
-    
-    # RealDictCursor return dict-like objects
-    logs = [dict(row) for row in c.fetchall()]
-        
-    conn.close()
-    return logs
+    try:
+        c = conn.cursor(cursor_factory=RealDictCursor)
+        sql, params = alq.page_query(filters, sort, direction, limit, offset)
+        c.execute(sql, params)
+        rows = [dict(row) for row in c.fetchall()]
+        total = None
+        if with_total and (rows or offset == 0) and len(rows) < limit:
+            # A short page is the last one, so it already says how many match.
+            total = offset + len(rows)
+        elif with_total:
+            sql, params = alq.count_query(filters)
+            c.execute(sql, params)
+            total = int(c.fetchone()["total"])
+        conn.commit()
+    finally:
+        conn.close()
+    return {"rows": rows, "total": total}
+
+
+def action_log_facets() -> Dict[str, List[Dict[str, Any]]]:
+    """The choices for each Action Logs filter, read from the whole log rather
+    than the page on screen."""
+    conn = get_db_connection()
+    try:
+        c = conn.cursor(cursor_factory=RealDictCursor)
+        out: Dict[str, List[Dict[str, Any]]] = {}
+        for name, sql, params in alq.facet_queries():
+            c.execute(sql, params)
+            out[name] = alq.facet_values(c.fetchall())
+        conn.commit()
+    finally:
+        conn.close()
+    return out
 
 def get_popularity_scores(env: str = "dev") -> Dict[str, int]:
     conn = get_db_connection(env)
