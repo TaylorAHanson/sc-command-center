@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from database import get_db_connection
 from middleware.auth import get_db_client
-from services import access, drafts
+from services import access, content_archive, drafts
 from services import activity
 
 router = APIRouter()
@@ -115,15 +115,19 @@ def _latest_rows(c, object_type: str) -> Dict[str, Dict[str, Any]]:
 
 @router.get("/content")
 def content(w: WorkspaceClient = Depends(get_db_client)):
-    """Every view, widget and agent with its state and how widely it is shared. Admins only."""
+    """Every view, widget and agent with its state and how widely it is shared. Admins only.
+
+    `archived` is the archive marker of a view or widget (when, by whom, and
+    whether by hand or because nobody used it), or null.
+    """
     access.require_app_admin(w)
     summaries = access.acl_summaries()
     conn = get_db_connection()
     items: List[Dict[str, Any]] = []
     try:
         c = conn.cursor()
-        c.execute("SELECT id FROM archived_views")
-        archived = {r[0] if not hasattr(r, "keys") else r["id"] for r in c.fetchall()}
+        archived = {object_type: content_archive.archived(c, object_type)
+                    for object_type in (content_archive.APP, content_archive.WIDGET)}
         for object_type in access.TYPES:
             published = _latest_rows(c, object_type)
             pending = drafts.drafts(c, object_type)
@@ -142,7 +146,7 @@ def content(w: WorkspaceClient = Depends(get_db_client)):
                     "owner": owner,
                     "state": drafts.state_of(draft is not None, (pub or {}).get("version")),
                     "published_version": (pub or {}).get("version"),
-                    "archived": object_type == "app" and object_id in archived,
+                    "archived": (archived.get(object_type) or {}).get(object_id),
                     "entries": summary["entries"],
                     "everyone": summary["everyone"],
                     "updated_at": _timestamp((draft or {}).get("updated_at") or (pub or {}).get("timestamp")),

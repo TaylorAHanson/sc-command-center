@@ -78,7 +78,8 @@ const Body = () => (
     </P>
     <P>
       <UI>Open</UI> on a view opens it in the canvas; <UI>Edit</UI> on a widget or agent opens it in Widget Studio or Agent
-      Studio. An archived view has <UI>Restore</UI> instead.
+      Studio. Views and widgets have <UI>Archive</UI>, or <UI>Restore</UI> once archived; the <UI>Archived</UI> filter lists
+      both, marked <UI>Archived · unused</UI> when archived automatically.
     </P>
 
     <H2 id="activity">See who did what</H2>

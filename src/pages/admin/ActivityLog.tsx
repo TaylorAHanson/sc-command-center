@@ -82,6 +82,8 @@ const VERB_LABELS: Record<string, string> = {
     'widget.discard': 'Discarded a widget’s draft',
     'widget.revert': 'Reverted a widget',
     'widget.certify': 'Changed a widget’s certification',
+    'widget.archive': 'Archived a widget',
+    'widget.restore': 'Restored a widget',
     'widget.delete': 'Deleted a widget',
     'widget.share': 'Changed who can use a widget',
     'widget.generate': 'Generated in Widget Studio',

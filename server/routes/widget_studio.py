@@ -68,6 +68,10 @@ def widget_search_tool(ws: Optional[WorkspaceClient]):
                 c = conn.cursor()
                 search_term = f"%{query}%"
                 only, params = ("", []) if visible is None else (" AND id = ANY(%s)", [sorted(visible)])
+                # Archived widgets are out of the library, so they aren't suggested either.
+                from services import content_archive
+                if content_archive.enabled():
+                    only += " AND id NOT IN (SELECT id FROM archived_widgets)"
                 c.execute(
                     "SELECT DISTINCT ON (id) id, name, description FROM widgets "
                     f"WHERE (name ILIKE %s OR description ILIKE %s) AND is_deprecated = 0{only} "

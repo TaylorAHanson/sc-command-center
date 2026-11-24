@@ -235,6 +235,19 @@ SETTING_SPECS: Dict[str, Spec] = {
         maximum=3650,
         group="privacy",
     ),
+    "archive_unused_days": Spec(
+        env="ARCHIVE_UNUSED_DAYS",
+        # Two months spans a quarter-end a monthly view is opened for. The count
+        # starts when archiving is first switched on, never earlier, so a first
+        # deploy archives nothing for this long.
+        default="60",
+        kind="int",
+        label="Archive views and widgets unused for (days)",
+        help="Published views and widgets nobody has opened, added, run, saved or published for this long are archived by an hourly job: out of Discover, the sidebar and the Widget Library, never deleted, and restorable by their managers. A widget stays while any live view shows it. The count starts when this is first switched on. 0 turns it off.",
+        minimum=0,
+        maximum=3650,
+        group="content",
+    ),
     "send_dashboard_context": Spec(
         env="AGENT_SEND_DASHBOARD_CONTEXT",
         default="true",
@@ -430,6 +443,7 @@ SETTING_GROUPS: List[Dict[str, str]] = [
     {"key": "models", "label": "Models"},
     {"key": "tools", "label": "What the assistant may reach"},
     {"key": "privacy", "label": "Retention and context"},
+    {"key": "content", "label": "Unused content"},
     {"key": "chat", "label": "Chat agent limits"},
     {"key": "widget", "label": "Studio limits"},
     {"key": "search", "label": "Search"},

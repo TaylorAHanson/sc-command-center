@@ -101,7 +101,9 @@ server/                 FastAPI gateway — see server/AGENTS.md
                        view_catalog.py + view_signals.py (Discover: the
                        view catalog, its search, opens and favorites),
                        working_set.py (the sidebar's light list,
-                       GET /api/apps/)
+                       GET /api/apps/), content_archive.py
+                       (archiving views and widgets, and the
+                       sweep that archives what nobody uses)
   middleware/auth.py    OBO token extraction and WorkspaceClient factories
   config/               Static config + settings.py (env var reads)
 src/                    React SPA — see src/AGENTS.md

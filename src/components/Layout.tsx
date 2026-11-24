@@ -13,6 +13,8 @@ import { hrefOf } from '../workingSet';
 import { WidgetTray } from './WidgetTray';
 import { AgentDrawer } from './AgentDrawer';
 import { WelcomeOverlay, type WelcomeSpot } from './WelcomeOverlay';
+import { ArchivedViewNotice } from './ArchivedViewNotice';
+import { archiveNote } from '../archive';
 import { AppSettingsModal } from './AppSettingsModal';
 import { AddTabMenu, TabBar } from './TabBar';
 import { FilterBar } from './FilterBar';
@@ -161,6 +163,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const {
     apps, sidebar, sidebarStatus, isFavorite, toggleFavorite, opening, openHome,
     activeAppId, activeApp, activeAppTab, openRoute, addApp, deleteApp, archiveApp, restoreApp, fetchArchived, renameApp,
+    archivedView, restoreArchivedView,
     duplicateApp, generateShareLink, toggleLock, configModal, closeConfigModal, isAdmin, username,
     canEditApp, canEditLayout, addTab, setTabLayout, isLoading, modeOf, setAppMode, loadPreflight, publishApp, discardDraft, fetchHistory, revertApp, sharingChanged,
   } = useDashboardStore();
@@ -376,7 +379,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   // With no view open there is nothing under the panel, so it stays as the page
   // until one is: someone new, or someone who has opened nothing yet and made nothing.
   const welcomeFirstRun = !welcomeSeen && !openedWithLink && sidebarStatus === 'ready' && sidebar.mineTotal === 0;
-  const showWelcome = currentPage === null && !isLoading && (welcomeRequested || welcomeFirstRun || (!activeApp && !opening));
+  // A link to an archived view says so, in place of the view, until something else opens.
+  const [archivedDismissed, setArchivedDismissed] = useState<string | null>(null);
+  const archivedHere = currentPage === null && !activeApp && !opening && archivedView
+    && archivedView.ref === activeAppId && archivedDismissed !== archivedView.ref ? archivedView : null;
+  const showWelcome = currentPage === null && !isLoading && !archivedHere
+    && (welcomeRequested || welcomeFirstRun || (!activeApp && !opening));
   // The assistant is the first thing the panel offers, so it is open beside it.
   // Once: closing the drawer while the panel is still up keeps it closed.
   const welcomeOpenedAgent = useRef(false);
@@ -454,7 +462,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     {archived?.length === 0 && <p className="text-xs text-gray-500 px-1">Nothing archived.</p>}
                     {archived?.map(a => (
                       <div key={a.id} className="group flex items-center gap-1 px-3 py-1.5 rounded-md text-sm text-gray-400 hover:bg-gray-800">
-                        <span className="truncate flex-1" title={a.archived_at ? `Archived ${when(a.archived_at)}` : undefined}>{a.name}</span>
+                        <span className="truncate flex-1" title={archiveNote({ archived_at: a.archived_at ?? null, archived_by: a.archived_by ?? null, reason: a.reason ?? 'manual' }) || undefined}>{a.name}</span>
+                        {a.reason === 'unused' && (
+                          <span className="text-[10px] uppercase tracking-wide text-gray-500" title="Archived automatically because nobody used it">unused</span>
+                        )}
                         <button
                           onClick={async () => {
                             const refusal = await restoreApp(a.id);
@@ -787,6 +798,17 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </div>
               </main>
             </div>
+            {archivedHere && (
+              <ArchivedViewNotice
+                view={archivedHere}
+                onRestore={async () => {
+                  const refusal = await restoreArchivedView();
+                  if (!refusal && archivedOpen) loadArchived();
+                  return refusal;
+                }}
+                onDismiss={() => setArchivedDismissed(archivedHere.ref)}
+              />
+            )}
             {showWelcome && (
               <WelcomeOverlay
                 agentName={assistantDoor ? assistantLabel(agentChat) : null}
@@ -920,7 +942,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         <ConfirmModal
           title={removing.archive ? `Archive ‘${removing.app.name}’?` : `Delete ‘${removing.app.name}’?`}
           message={removing.archive
-            ? 'It leaves the sidebar of everyone it is shared with, and its link stops opening it. You can restore it from Archived.'
+            ? 'It leaves Discover and the sidebar of everyone it is shared with, and its link says it is archived. You can restore it from Archived.'
             : 'The view and all its published versions are deleted for good.'}
           confirmLabel={removing.archive ? 'Archive' : 'Delete'}
           variant={removing.archive ? 'warning' : 'danger'}

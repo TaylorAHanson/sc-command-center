@@ -749,6 +749,59 @@ def _create_discover_tables(conn) -> None:
         view_catalog.tables_ready()
 
 
+def _create_archive_tables(conn) -> None:
+    """Archiving views and widgets (services/content_archive.py), in the content schema.
+
+    `archived_widgets` is the widget twin of `archived_views`, keyed by id for
+    the same reason (a flag on a versioned table would be lost on a revert), and
+    both carry `reason`: `manual`, or `unused` when the sweep archived it.
+    `content_last_used` keeps each object's latest use past the 35 days
+    `view_visits` holds, and its restore time, so a restore isn't undone by the
+    next sweep. `content_archive_state` remembers when archiving was switched
+    on, which counts as a use: nothing is archived for lacking a history
+    nobody was recording.
+    """
+    c = conn.cursor()
+    statements = (
+        "ALTER TABLE archived_views ADD COLUMN IF NOT EXISTS reason TEXT",
+        '''
+        CREATE TABLE IF NOT EXISTS archived_widgets (
+            id TEXT PRIMARY KEY,
+            archived_by TEXT,
+            reason TEXT,
+            timestamp TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS content_last_used (
+            object_type TEXT NOT NULL,
+            object_id TEXT NOT NULL,
+            last_used_at TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (object_type, object_id)
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS content_archive_state (
+            key TEXT PRIMARY KEY,
+            value JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        ''',
+    )
+    ok = True
+    for sql in statements:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            conn.rollback()
+            ok = False
+            logging.warning(f"Could not create an archive table: {e}")
+    if ok:
+        from services import content_archive
+        content_archive.tables_ready()
+
+
 def _create_discover_access_indexes(conn) -> None:
     """Discover's "New for you" reads the last fortnight of grants; without this
     it scans every access-list entry on each sidebar load."""
@@ -1052,7 +1105,8 @@ def init_db(env: str = "dev"):
         )
     ''')
 
-    # Global views that have been removed from circulation but not deleted.
+    # Views that have been removed from circulation but not deleted; `reason`
+    # (manual / unused) is added by _create_archive_tables.
     # A table of its own rather than a flag on dashboard_views: that table is
     # versioned and promotion copies whole rows between environments, so a flag
     # would travel with a promoted version (or vanish on a rollback), whereas
@@ -1416,6 +1470,7 @@ def init_db(env: str = "dev"):
         _create_email_tables(conn)
         _create_schedule_tables(conn)
         _create_discover_tables(conn)
+        _create_archive_tables(conn)
 
     # Link names for global views saved before they existed, or that arrived by
     # snapshot. Under the lock, so two workers don't hand one view two names.

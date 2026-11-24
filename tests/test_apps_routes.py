@@ -209,6 +209,10 @@ class FakeCursor:
         # ------------------------------------------------- archive, sidebar
         elif text.startswith("SELECT 1 FROM archived_views"):
             self._rows = [(1,)] if params[0] in s.archived else []
+        elif text.startswith("SELECT id, archived_by, reason, timestamp FROM archived_views WHERE id = ANY"):
+            self._answer(("id", "archived_by", "reason", "timestamp"),
+                         [{"id": i, "archived_by": "x@example.com", "reason": "unused", "timestamp": None}
+                          for i in sorted(s.archived) if i in params[0]])
         elif text.startswith("SELECT id, archived_by"):
             self._answer(("id", "archived_by", "archived_at"),
                          [{"id": i, "archived_by": "x@example.com", "archived_at": None} for i in sorted(s.archived)])
@@ -320,6 +324,7 @@ def run(store, fn, *args, user=ME, admin=False, certified_only=False, **kwargs):
         (activity, "record", lambda *args, **kwargs: store.activity.append(args)),
         (settings_store, "get_bool_setting",
          lambda key, *a, **k: certified_only if key == "require_certified_for_global_views" else False),
+        (settings_store, "get_int_setting", lambda key, *a, **k: 60),
     ]
     saved = [(mod, name, getattr(mod, name)) for mod, name, _ in patches]
     for mod, name, value in patches:
@@ -396,8 +401,20 @@ def test_a_view_never_published_is_missing_to_people_who_can_only_use_it():
     assert refused(store, apps.get_app, "d1", user=OTHER, mode="published").status_code == 404
 
 
-def test_an_archived_app_reads_as_missing():
-    store = mine(row("v1"), archived={"v1"})
+def test_an_archived_app_says_so_and_who_may_restore_it():
+    store = Store(row("v1", name="Orders"), archived={"v1"}, acl={"v1": {OTHER: MANAGE, ME: USE}})
+    answer = run(store, apps.get_app, "v1")
+    assert answer.status_code == 410
+    body = json.loads(answer.body)
+    assert body["archived"]["name"] == "Orders" and body["archived"]["reason"] == "unused"
+    assert body["archived"]["can_restore"] is False and body["archived"]["owner"] == OTHER
+    managed = run(Store(row("v1"), archived={"v1"}, acl={"v1": {ME: MANAGE}}), apps.get_app, "v1")
+    assert json.loads(managed.body)["archived"]["can_restore"] is True
+    assert store.writes() == [], "opening an archived view writes nothing"
+
+
+def test_an_archived_app_is_still_missing_to_people_it_isnt_shared_with():
+    store = Store(row("v1"), archived={"v1"}, acl={"v1": {OTHER: MANAGE}})
     assert refused(store, apps.get_app, "v1").status_code == 404
 
 
@@ -793,7 +810,7 @@ def test_an_apps_widgets_follow_the_apps_read_rule():
     store = Store(row("g1", widgets=placed), row("v2", widgets=placed), archived={"v2"},
                   acl={"v2": {ME: MANAGE}}, library=[("iframe", "General")])
     assert refused(store, apps.app_widgets, "g1").status_code == 404
-    assert refused(store, apps.app_widgets, "v2").status_code == 404
+    assert refused(store, apps.app_widgets, "v2").status_code == 410
     assert library_queries(store) == [], "a refused app says nothing about what it holds"
 
 

@@ -441,6 +441,15 @@ const Body = () => (
       </li>
     </List>
 
+    <H2 id="unused">Archive what nobody uses</H2>
+    <P>
+      <strong><UI>Archive views and widgets unused for (days)</UI></strong>, on the <UI>Unused content</UI> card, archives
+      published views and widgets nobody has used for that long. It starts at <Code>60</Code>; <Code>0</Code> turns it
+      off. The count starts when archiving is switched on, so updating the app or turning it back on archives nothing
+      that day. Nothing is deleted, and managers restore what they need. See{' '}
+      <GuideLink to="publishing" anchor="unused">Views and widgets nobody uses are archived</GuideLink>.
+    </P>
+
     <H2 id="limits">Limits</H2>
     <P>
       Each is a ceiling, so raising it costs nothing until something needs the room.

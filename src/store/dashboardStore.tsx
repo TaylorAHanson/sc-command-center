@@ -10,6 +10,7 @@ import { createLinkStateStore, instanceScope, linkStatePart, readLinkState, writ
 import { LinkStateContext } from '../hooks/useLinkState';
 import { useShell } from '../shell';
 import { requestJson, type Acl, type Preflight, type PublishInclude, accessSummary } from '../sharing';
+import type { ArchivedView } from '../archive';
 import { onDiscoverChanged, orderFavorites, recordVisit, setFavorite } from '../discover';
 import {
   EMPTY_WORKING_SET, NO_CHANGES, changesSidebar, favoriteOrderAfter, homeRow, isFavorite as isFavoriteIn, moved, openedFirst, settled, sidebarLists,
@@ -136,6 +137,8 @@ export interface ArchivedApp {
   version: number;
   archived_by?: string | null;
   archived_at?: string | null;
+  /** By hand, or by the sweep because nobody used it. */
+  reason?: 'manual' | 'unused';
 }
 
 interface DashboardContextType {
@@ -192,6 +195,14 @@ interface DashboardContextType {
   archiveApp: (id: string) => Promise<string | null>;
   restoreApp: (id: string) => Promise<string | null>;
   fetchArchived: () => Promise<ArchivedApp[]>;
+  /**
+   * The archived view the last link named, as the server described it (410), with
+   * the ref the link used; null once a view opens. The canvas shows it in place
+   * of the view, with Restore for its managers.
+   */
+  archivedView: (ArchivedView & { ref: string }) | null;
+  /** Restores the archived view on screen and opens it. Resolves to the server's refusal, if any. */
+  restoreArchivedView: () => Promise<string | null>;
   /** Reads the view first if this tab hasn't: a save sends the whole spec. */
   renameApp: (id: string, newName: string) => Promise<void>;
   setActiveAppId: (id: string) => void;
@@ -448,8 +459,16 @@ export const DashboardProvider: React.FC<{
 
   // Any view the caller can use opens by its link; the server says which view
   // a ref means, including one named by a name it has since been renamed from.
+  // An archived view answers 410 with who archived it and why, to anyone it is
+  // shared with; that is kept for the canvas to say so rather than show nothing.
+  const [archivedView, setArchivedView] = useState<(ArchivedView & { ref: string }) | null>(null);
   const readApp = useCallback(async (ref: string): Promise<App | null> => {
     const res = await fetch(`/api/apps/${encodeURIComponent(ref)}`);
+    if (res.status === 410) {
+      const body = await res.json().catch(() => null);
+      if (body?.archived) setArchivedView({ ...body.archived, ref });
+      return null;
+    }
     return res.ok ? fromServer((await res.json()).app) : null;
   }, []);
 
@@ -483,6 +502,7 @@ export const DashboardProvider: React.FC<{
     }
 
     const seq = ++openSeq.current;
+    setArchivedView(null);
     let app = appsRef.current.find(a => refersTo(route.appId, a));
     canonicalize(app);
     if (!app) {
@@ -797,6 +817,7 @@ export const DashboardProvider: React.FC<{
     } catch (e) {
       return reasonOf(e);
     }
+    setArchivedView(prev => (prev?.id === id ? null : prev));
     setChanges(prev => ({ ...prev, gone: prev.gone.filter(x => x !== id) }));
     try {
       const read = await readApp(id);
@@ -804,6 +825,16 @@ export const DashboardProvider: React.FC<{
     } catch (e) {
       console.error(`Failed to read restored view ${id}`, e);
     }
+    return null;
+  };
+
+  const restoreArchivedView = async (): Promise<string | null> => {
+    const shown = archivedView;
+    if (!shown) return null;
+    const refusal = await restoreApp(shown.id);
+    if (refusal) return refusal;
+    setArchivedView(null);
+    await openRoute({ appId: shown.id, tabId: null, widgetId: null });
     return null;
   };
 
@@ -1146,7 +1177,7 @@ export const DashboardProvider: React.FC<{
       activeAppId, activeApp, activeAppTab, activeDomain, setActiveDomain, isLoading, isAdmin, username, openRoute, pendingWidgetId, clearPendingWidget,
       standalone: Boolean(standalone),
       variables, setVariable,
-      addApp, deleteApp, archiveApp, restoreApp, fetchArchived, renameApp, setActiveAppId: selectApp,
+      addApp, deleteApp, archiveApp, restoreApp, fetchArchived, archivedView, restoreArchivedView, renameApp, setActiveAppId: selectApp,
       selectTab, addTab, setTabLayout, renameTab, moveTab, removeTab,
       duplicateApp, addWidget, removeWidget, updateWidget, updateLayout,
       toggleLock, setPinnedAgent, updateAppSpec, canEditApp, canEditLayout,

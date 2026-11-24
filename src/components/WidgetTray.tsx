@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid, Pencil, Trash2, Copy, Trophy, PencilLine, Share2 } from 'lucide-react';
+import { X, GripVertical, Lock, Search, ShieldCheck, Filter, Activity, LayoutList, Grid, Pencil, Trash2, Copy, Trophy, PencilLine, Share2, Archive, ArchiveRestore } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
-import { getWidgetCategories, getWidgetDomains, getAvailableWidgets, loadCustomWidgets, loadWidgetSnapshots, useWidgetRegistry } from '../widgetRegistry';
+import { getArchivedWidgets, getWidgetCategories, getWidgetDomains, getAvailableWidgets, loadCustomWidgets, loadWidgetSnapshots, useWidgetRegistry } from '../widgetRegistry';
 import type { WidgetDefinition } from '../widgetRegistry';
 import { WidgetPreview } from './WidgetPreview';
 import { CreatorLeaderboard } from './CreatorLeaderboard';
 import { creatorOf, displayName, isPerson, isSamePerson } from '../creators';
-import { logWidgetRun, getPopularityScores } from '../api';
+import { logWidgetRun, getPopularityScores, restoreWidget } from '../api';
+import { archiveNote } from '../archive';
 import { AccessIcon, ShareDialog } from './sharing';
 import { STATE_LABELS } from '../sharing';
 import clsx from 'clsx';
@@ -85,6 +86,20 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
   // widgets, which is what makes the board a way in rather than a scoreboard.
   const [creatorFilter, setCreatorFilter] = useState<string | null>(null);
   const { version: registryVersion } = useWidgetRegistry();
+  // Archived widgets the caller manages: out of the library, listed here to restore.
+  const [showArchived, setShowArchived] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  // Read on every render: `useWidgetRegistry` re-renders the tray whenever the registry changes.
+  const archivedWidgets = getArchivedWidgets();
+  const restore = async (widget: WidgetDefinition) => {
+    setRestoreError(null);
+    try {
+      await restoreWidget(widget.id);
+      await loadCustomWidgets();
+    } catch (e) {
+      setRestoreError(`Couldn't restore “${widget.name}”: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
 
   // Fetch current user identity when tray opens
   useEffect(() => {
@@ -521,11 +536,64 @@ export const WidgetTray: React.FC<WidgetTrayProps> = ({ isOpen, onClose, onEditW
                 );
               })}
             </div>
+            {archivedWidgets.length > 0 && (
+              <div className="p-2 border-t border-gray-200">
+                <button
+                  onClick={() => setShowArchived(a => !a)}
+                  aria-pressed={showArchived}
+                  title="Widgets you manage that are archived: out of the library, still showing on views that have them"
+                  className={clsx(
+                    "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
+                    showArchived ? "bg-amber-100 text-amber-900 font-semibold" : "text-gray-600 hover:bg-gray-200"
+                  )}
+                >
+                  <span className="flex items-center gap-1.5"><Archive className="w-3.5 h-3.5" /> Archived</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded ml-2 bg-gray-300">{archivedWidgets.length}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Widget Grid/List */}
           <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
-            {filteredWidgets.length > 0 ? (
+            {showArchived && archivedWidgets.length > 0 ? (
+              <div>
+                <h3 className="text-lg font-semibold text-brand-navy mb-1 flex items-center gap-2">
+                  Archived
+                  <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{archivedWidgets.length}</span>
+                </h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Out of the library and the pickers. Views that already have them keep showing them. Restore one to offer it again.
+                </p>
+                {restoreError && <p role="alert" className="mb-3 text-sm text-red-600">{restoreError}</p>}
+                <ul className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white">
+                  {archivedWidgets.map(widget => (
+                    <li key={widget.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-gray-900">{widget.name}</div>
+                        <div className="truncate text-xs text-gray-500">{archiveNote(widget.archived)}</div>
+                      </div>
+                      {onEditWidget && (
+                        <button
+                          onClick={() => { onEditWidget(widget.id); onClose(); }}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                          title="Open in Widget Studio"
+                        >
+                          <Pencil className="w-3.5 h-3.5" /> Edit
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { void restore(widget); }}
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-brand-blue hover:bg-blue-50"
+                        title="Put it back in the library for everyone it is shared with"
+                      >
+                        <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : filteredWidgets.length > 0 ? (
               <div>
                 <h3 className="text-lg font-semibold text-brand-navy mb-4 flex items-center gap-2">
                   {searchQuery ? `Search Results for "${searchQuery}"` : (selectedGroup || `All ${grouping === 'domain' ? 'Domains' : 'Categories'}`)}

@@ -31,7 +31,7 @@ from database import get_db_connection
 from middleware.auth import get_db_client
 from routes.roles import _get_current_username
 from services import access, drafts
-from services import activity
+from services import activity, content_archive
 from services.creator_stats import is_person, unowned_sql
 
 router = APIRouter()
@@ -193,6 +193,7 @@ def shape_rows(
     lent_latest: Iterable[str] = (),
     lent_pins: Iterable[str] = (),
     sharing: Optional[Dict[str, str]] = None,
+    archived: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """The rows a caller gets, from what is stored and what they may reach.
 
@@ -201,9 +202,15 @@ def shape_rows(
     used. A widget the caller has no level on still contributes the rows a view
     lends them (``lent_latest`` / ``lent_pins``), and nothing else — not the
     rest of its version list, not its draft, not its sharing.
+
+    ``archived`` is each archived widget's marker (`services/content_archive.py`).
+    Its rows say so and come back `in_library: false`, like a lent row: the
+    registry still renders it on every view that places it, the library and the
+    pickers stop offering it.
     """
     lent_latest, lent_pins = set(lent_latest), set(lent_pins)
     sharing = sharing or {}
+    archived = archived or {}
     by_id: "OrderedDict[str, List[Dict[str, Any]]]" = OrderedDict()
     newest: Dict[str, Dict[str, Any]] = {}
     for r in published:
@@ -224,6 +231,8 @@ def shape_rows(
             "published_version": version,
             "is_draft": False,
         }
+        if widget_id in archived:
+            common.update(archived=archived[widget_id], in_library=False)
         if level:
             common["sharing"] = sharing.get(widget_id) or "private"
             for r in by_id.get(widget_id, []):
@@ -323,14 +332,17 @@ def caller_rows(c, who: access.Caller) -> List[Dict[str, Any]]:
     """`/custom` for this caller: what they can reach, plus what their views lend them."""
     sharing = _sharing()
     if who.is_admin:
-        return shape_rows(library_rows(c), drafts.drafts(c, WIDGET), None, sharing=sharing)
+        return shape_rows(library_rows(c), drafts.drafts(c, WIDGET), None, sharing=sharing,
+                          archived=content_archive.archived(c, WIDGET))
     levels = access.grants_for(who, WIDGET)
     lent_latest, lent_pins = lent_by_views(c, who)
     wanted = set(levels) | lent_latest | {p.rpartition("@")[0] for p in lent_pins}
     published = library_rows(c, sorted(wanted), sorted(lent_pins)) if wanted else []
     managed = [i for i, level in levels.items() if level == MANAGE]
     pending = drafts.drafts(c, WIDGET, managed) if managed else {}
-    return shape_rows(published, pending, levels, lent_latest=lent_latest, lent_pins=lent_pins, sharing=sharing)
+    archived = content_archive.archived(c, WIDGET, wanted | set(pending)) if (wanted or pending) else {}
+    return shape_rows(published, pending, levels, lent_latest=lent_latest, lent_pins=lent_pins, sharing=sharing,
+                      archived=archived)
 
 
 def bundle_rows(c, who: access.Caller, ids: Sequence[str], pinned: Sequence[str] = (), *,
@@ -347,7 +359,8 @@ def bundle_rows(c, who: access.Caller, ids: Sequence[str], pinned: Sequence[str]
     managed = list(ids) if levels is None else [i for i, level in levels.items() if level == MANAGE]
     pending = drafts.drafts(c, WIDGET, managed) if draft and managed else {}
     return shape_rows(library_rows(c, list(ids), pinned), pending, levels,
-                      lent_latest=ids, lent_pins=pinned, sharing=_sharing())
+                      lent_latest=ids, lent_pins=pinned, sharing=_sharing(),
+                      archived=content_archive.archived(c, WIDGET, ids))
 
 
 @router.get("/custom")
@@ -512,6 +525,7 @@ def get_widget_draft(widget_id: str, w: WorkspaceClient = Depends(get_db_client)
         c = conn.cursor()
         latest = drafts.latest(c, WIDGET, widget_id)
         held = drafts.read(c, WIDGET, widget_id) if level == MANAGE else None
+        archived = content_archive.archived(c, WIDGET, [widget_id]).get(widget_id)
         conn.commit()
     finally:
         conn.close()
@@ -524,6 +538,8 @@ def get_widget_draft(widget_id: str, w: WorkspaceClient = Depends(get_db_client)
         "published_version": version,
         "state": drafts.state_of(held is not None, version),
         "access": level,
+        # Out of the library, still rendering where it is placed; managers restore it.
+        "archived": archived,
     }
 
 
@@ -838,6 +854,55 @@ def claim_custom_widget(widget_id: str, w: WorkspaceClient = Depends(get_db_clie
     if not claimed:
         raise HTTPException(status_code=409, detail="Somebody else claimed this widget first.")
     return {"status": "success", "id": widget_id, "created_by": me, "versions": claimed}
+
+
+@router.post("/custom/{widget_id}/archive")
+def archive_widget(widget_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """Take a widget out of the library and the pickers, deleting nothing.
+
+    Views that already place it keep rendering it, so archiving can't break a
+    dashboard anyone is looking at; that is what makes it safe to do by hand
+    and on a timer alike. Idempotent.
+    """
+    who = _managed(w, widget_id)
+    if not content_archive.enabled():
+        raise HTTPException(status_code=503, detail="Archiving isn't available until the app has finished starting.")
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        if not drafts.exists(c, WIDGET, widget_id):
+            raise HTTPException(status_code=404, detail="Widget not found")
+        changed = content_archive.archive(c, WIDGET, widget_id, who.username, content_archive.MANUAL)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    if changed:
+        activity.record(who.username, "widget.archive", WIDGET, widget_id, {"reason": content_archive.MANUAL})
+    return {"status": "success", "id": widget_id, "archived": True}
+
+
+@router.post("/custom/{widget_id}/restore")
+def restore_widget(widget_id: str, w: WorkspaceClient = Depends(get_db_client)):
+    """Put an archived widget back in the library, and start its unused-for clock again."""
+    who = _managed(w, widget_id)
+    if not content_archive.enabled():
+        raise HTTPException(status_code=503, detail="Archiving isn't available until the app has finished starting.")
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        changed = content_archive.restore(c, WIDGET, widget_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    if changed:
+        activity.record(who.username, "widget.restore", WIDGET, widget_id)
+    return {"status": "success", "id": widget_id, "archived": False}
 
 
 @router.delete("/custom/{widget_id}")

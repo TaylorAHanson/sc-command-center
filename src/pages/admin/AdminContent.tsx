@@ -12,6 +12,8 @@ import {
     type AccessSummary, type Acl, type ObjectType, type PublishState,
 } from '../../sharing';
 import { formatServerTime } from './time';
+import { archiveNote } from '../../archive';
+import type { ArchiveMarker } from '../../widgetRegistry';
 
 interface ContentItem {
     object_type: ObjectType;
@@ -20,7 +22,8 @@ interface ContentItem {
     owner: string | null;
     state: PublishState;
     published_version: number | null;
-    archived: boolean;
+    /** Views and widgets: who archived it, when, and whether by hand or for going unused. */
+    archived: ArchiveMarker | null;
     entries: number;
     everyone: boolean;
     updated_at: string | null;
@@ -57,6 +60,12 @@ const deleteUrl = (item: ContentItem): string => {
     if (item.object_type === 'app') return `/api/apps/${id}`;
     if (item.object_type === 'widget') return `/api/widgets/custom/${id}`;
     return `/api/agent/studio/profiles/${id}`;
+};
+
+// Views and widgets can be archived; agents can't.
+const archiveUrl = (item: ContentItem, kind: 'archive' | 'restore'): string => {
+    const id = encodeURIComponent(item.object_id);
+    return item.object_type === 'app' ? `/api/apps/${id}/${kind}` : `/api/widgets/custom/${id}/${kind}`;
 };
 
 const viewLink = (id: string) =>
@@ -134,12 +143,10 @@ export const AdminContent: React.FC = () => {
         const p = pending;
         setPending(null);
         if (!p) return;
-        const id = encodeURIComponent(p.item.object_id);
         setActionError(null);
         setBusy(keyOf(p.item));
         try {
-            if (p.kind === 'archive') await requestJson(`/api/apps/${id}/archive`, { method: 'POST' });
-            else if (p.kind === 'restore') await requestJson(`/api/apps/${id}/restore`, { method: 'POST' });
+            if (p.kind === 'archive' || p.kind === 'restore') await requestJson(archiveUrl(p.item, p.kind), { method: 'POST' });
             else await requestJson(deleteUrl(p.item), { method: 'DELETE' });
             await load();
         } catch (e) {
@@ -151,17 +158,22 @@ export const AdminContent: React.FC = () => {
 
     const confirmCopy = (p: Pending) => {
         const what = TYPE_META[p.item.object_type].label.toLowerCase();
+        const isView = p.item.object_type === 'app';
         if (p.kind === 'archive') return {
-            title: 'Archive view',
+            title: `Archive ${what}`,
             message: `Archive “${p.item.name}”?`,
-            detail: 'It leaves everyone’s sidebar, including the people it is shared with. Nothing is deleted: restore it here, or delete it permanently.',
+            detail: isView
+                ? 'It leaves Discover and everyone’s sidebar, including the people it is shared with, and its link says it is archived. Nothing is deleted: restore it here, or delete it permanently.'
+                : 'It leaves the Widget Library and the pickers. Views that already have it keep showing it. Nothing is deleted: restore it here.',
             label: 'Archive',
             variant: 'warning' as const,
         };
         if (p.kind === 'restore') return {
-            title: 'Restore view',
+            title: `Restore ${what}`,
             message: `Restore “${p.item.name}”?`,
-            detail: 'It comes back for everyone it is shared with, exactly as it was archived.',
+            detail: isView
+                ? 'It comes back for everyone it is shared with, exactly as it was archived, with any widgets that were archived because it was.'
+                : 'It comes back to the Widget Library for everyone it is shared with.',
             label: 'Restore',
             variant: 'primary' as const,
         };
@@ -287,6 +299,7 @@ export const AdminContent: React.FC = () => {
                                     const summary = accessSummaryFromCount(item.entries, item.everyone);
                                     const key = keyOf(item);
                                     const isView = item.object_type === 'app';
+                                    const archivable = item.object_type !== 'agent';
                                     const rowBusy = busy === key;
                                     return (
                                         <tr key={key} className={clsx('hover:bg-gray-50', item.archived && 'bg-gray-50/60')}>
@@ -312,7 +325,12 @@ export const AdminContent: React.FC = () => {
                                                         <span className="text-xs text-gray-400" title="Latest published version">v{item.published_version}</span>
                                                     )}
                                                     {item.archived && (
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-700">Archived</span>
+                                                        <span
+                                                            title={archiveNote(item.archived)}
+                                                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-700"
+                                                        >
+                                                            {item.archived.reason === 'unused' ? 'Archived · unused' : 'Archived'}
+                                                        </span>
                                                     )}
                                                 </div>
                                             </td>
@@ -329,7 +347,7 @@ export const AdminContent: React.FC = () => {
                                             <td className="px-4 py-3 text-right whitespace-nowrap">
                                                 <div className="flex justify-end items-center gap-1">
                                                     {rowBusy && <Loader2 size={16} className="animate-spin text-gray-400 mr-1" />}
-                                                    {!item.archived && (
+                                                    {(!item.archived || !isView) && (
                                                         <button
                                                             onClick={() => openItem(item)}
                                                             disabled={rowBusy}
@@ -347,7 +365,7 @@ export const AdminContent: React.FC = () => {
                                                     >
                                                         <Share2 size={14} /> Share
                                                     </button>
-                                                    {isView && !item.archived && (
+                                                    {archivable && !item.archived && (
                                                         <button
                                                             onClick={() => setPending({ kind: 'archive', item })}
                                                             disabled={rowBusy}
@@ -357,7 +375,7 @@ export const AdminContent: React.FC = () => {
                                                             <Archive size={16} />
                                                         </button>
                                                     )}
-                                                    {isView && item.archived && (
+                                                    {archivable && item.archived && (
                                                         <button
                                                             onClick={() => setPending({ kind: 'restore', item })}
                                                             disabled={rowBusy}

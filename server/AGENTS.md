@@ -188,7 +188,10 @@ Table shapes worth knowing before you write a query:
 - **PK `(username, view_id)`**: `shared_views` (subscriptions, now unused for
   access) and `sidebar_hidden` (views someone took off their sidebar's Recent,
   and when: opening the view after that time brings it back).
-- **PK `id`**: `archived_views` — views taken out of circulation.
+- **PK `id`**: `archived_views` and `archived_widgets` — views and widgets taken
+  out of circulation, with `reason` (`manual` / `unused`); see *Archiving*.
+- **PK `(object_type, object_id)`**: `content_last_used` — each view's and widget's
+  latest use, kept past `view_visits`' 35 days, and reset on restore.
 - **`SERIAL id`**: `widget_categories`, `widget_domains`, `role_mappings`,
   `widget_runs`, `action_logs`. Categories/domains are `UNIQUE (name)` and are
   seeded with defaults on first creation, so a "fresh" schema is not empty.
@@ -226,8 +229,11 @@ them. Get that backwards and every widget drag silently unpins the view.
 ### Removing a view: archive, then delete
 
 Two steps when other people can open the view. `POST /api/apps/{id}/archive`
-inserts into `archived_views`; the sidebar's list (and the creator leaderboard) skip
-those ids, and `_open` reads them as missing, so the link stops opening too.
+inserts into `archived_views`; the sidebar's list, Discover (and the creator
+leaderboard) skip those ids, and `_open` raises `Archived` (410) for anyone who
+holds a level, so the link says "archived" instead of opening. `GET /{ref}` sends
+the marker, the owner and `can_restore` with it; everyone else still gets the
+404 a missing view gets.
 Every version and the draft stay, so `POST /{id}/restore` is exact. `DELETE /{id}`
 answers 409 while a view shared beyond its owner (`_shared_beyond_owner`, from
 the ACL summary) is unarchived, so someone can notice it gone before it is gone
@@ -245,6 +251,43 @@ table is versioned — a flag would travel with one version and be lost on a
 revert, when "retired" is a fact about the view's id. There is one content store,
 so archiving is a single write. `tests/test_view_archive.py` holds the ordering
 and the permissions.
+
+### Archiving (`services/content_archive.py`)
+
+The module docstring is the design; what to keep in mind when touching it:
+
+- **Widgets archive too, and keep rendering.** `archived_widgets` mirrors
+  `archived_views`. `shape_rows(archived=…)` marks an archived widget's rows
+  `in_library: false` with its marker, like a lent row, so the library, the
+  pickers and `search_widgets` drop it while every view that places it still
+  renders it. That is what makes archiving a widget safe by hand or on a timer.
+  `POST /api/widgets/custom/{id}/archive` / `/restore` need `MANAGE`.
+- **The sweep** is the `archive.sweep` job (hourly), driven by
+  `archive_unused_days` (Settings → Unused content, default 60, 0 off). It folds
+  usage into `content_last_used` (view opens; a view's open onto every widget its
+  catalog row places; `widget_runs`; `action_logs`), then archives published
+  views and widgets whose latest use (`is_stale`: opens, versions, drafts,
+  favorites, the fold, and **when archiving was switched on**) is older than the
+  setting. `content_archive_state.enabled_since` is that last one: set by the
+  first run that sees archiving on, cleared by one that sees it off, so neither a
+  first deploy nor switching it back on archives anything that day. Featured
+  views, anything an active schedule runs from, and any widget a live view
+  places (catalog, queued heads, drafts) are never archived. Views go first, so a
+  widget follows its views out. At most `MAX_PER_RUN` per run, oldest first.
+- **A source it can't read skips that kind.** A failed fold leaves
+  `folded_through` where it was and skips that kind's archiving; without a built
+  catalog no widget is archived. Never "no data, so unused".
+- **Restore resets the clock**, in the same transaction, and the sweep's INSERT
+  re-checks `content_last_used` against its cutoff, so a restore racing a run
+  wins. Restoring a view also clears `unused` markers on the widgets it places
+  (`restore_placed_widgets`): a placed widget is never swept, so those went
+  because the view did. A `manual` marker stays.
+- **Reads stand down until `init_db` made the tables** (`tables_ready`), as the
+  catalog's hooks do. `content_last_used` and `content_archive_state` are
+  `NOT_COPIED`; `archived_widgets` travels with the content.
+
+`tests/test_content_archive.py` holds the decision and the sweep against a fake
+connection.
 
 ### Apps: a view is an app with one tab (`services/app_spec.py`, `services/app_store.py`, `routes/apps.py`)
 
@@ -900,7 +943,8 @@ to showing the raw verb:
 | `view.create` | `routes/apps.py` `create_app`, `compose_app` | compose: `tabs`, `composed` |
 | `view.publish` | `publish_app` | `version`, `with` (widgets and agents published alongside) |
 | `view.discard` / `view.revert` | `discard_draft` (only if a draft existed) / `revert_app` | revert: `version` |
-| `view.archive` / `view.restore` / `view.delete` | `archive_app` / `restore_app` / `delete_app` | — |
+| `view.archive` / `view.restore` / `view.delete` | `archive_app` / `restore_app` / `delete_app`; the archive sweep records `view.archive` as `system` | sweep: `reason: unused`, `days`, `last_used`; restore: `widgets` (restored with it) |
+| `widget.archive` / `widget.restore` | `archive_widget` / `restore_widget`; the sweep (as `system`); `restore_app` for widgets restored with their view | `reason`, `days`, `last_used`; `via: view` |
 | `widget.create` | `routes/custom_widgets.py` `create_custom_widget` (new widgets only) | — |
 | `widget.publish` / `widget.revert` | `publish_widget` / `revert_widget` | `version` |
 | `widget.discard` / `widget.delete` | `discard_widget_draft` (only if a draft existed) / `delete_custom_widget` | — |
@@ -2036,10 +2080,11 @@ PYTHONPATH=server .venv/bin/python tests/test_llm_client.py           # 16 passe
 PYTHONPATH=server .venv/bin/python tests/test_sql_errors.py           # 10 passed
 PYTHONPATH=server .venv/bin/python tests/test_view_pins.py            # 7 passed
 PYTHONPATH=server .venv/bin/python tests/test_view_archive.py         # 12 passed
+PYTHONPATH=server .venv/bin/python tests/test_content_archive.py      # 28 passed
 PYTHONPATH=server .venv/bin/python tests/test_app_spec.py             # 44 passed
 PYTHONPATH=server .venv/bin/python tests/test_app_links.py            # 8 passed
 PYTHONPATH=server .venv/bin/python tests/test_look_helper.py          # 7 passed
-PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 54 passed
+PYTHONPATH=server .venv/bin/python tests/test_apps_routes.py          # 55 passed
 PYTHONPATH=server .venv/bin/python tests/test_apps_list.py            # 15 passed
 PYTHONPATH=server .venv/bin/python tests/test_sql_rows.py             # 26 passed
 .venv/bin/python tests/test_file_extract.py                           # 22 passed

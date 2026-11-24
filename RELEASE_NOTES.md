@@ -48,6 +48,9 @@
 - **Open anything from Content.** Admin Panel → Content has **Open** on views and **Edit** on widgets and agents, going straight to the view or its studio.
 - **Clone, Edit and Delete in the Widget Library's list view.** Hover a row for the same icons as a card; **Status** now shows the **PAGE** badge too.
 - **Search, filter and sort Action Logs.** Admin Panel → Action Logs searches the whole log, filters by widget, action, user, domain or dates, sorts any column and pages through every entry.
+- **Unused views and widgets are archived.** After 60 days without use they leave Discover, the sidebar and the Widget Library, never deleted; set the days in Admin Panel → Settings → **Unused content**.
+- **Archive and restore widgets.** Widget Studio has **Archive** and **Restore**, and the Widget Library lists your archived widgets; views that show one keep showing it.
+- **Archived views say so.** A link to an archived view shows who archived it and when, with **Restore** for the people who manage it.
 
 ### Changed
 
@@ -58,6 +61,7 @@
 - **Opens where you left off.** Opening the app without a link shows the view you opened last.
 - **Faster start with many views.** The app loads only the views you open, not every view shared with you.
 - **Copy, rename and delete from the ⋯ menu.** A view's ⋯ menu has **Make a copy**, **Rename…** and **Delete view…** (**Archive view…** once it's shared).
+- **Content archives widgets too.** Admin Panel → Content can archive and restore widgets as well as views, and marks what was archived for going unused.
 - **Reload once after the update.** A tab left open from before this release shows an empty sidebar until you reload it.
 
 ### Fixed

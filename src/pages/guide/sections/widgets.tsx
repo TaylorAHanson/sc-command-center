@@ -57,8 +57,14 @@ const Body = () => (
           view the same icons appear at the end of the row when you hover it.
         </li>
         <li>
-          Can&rsquo;t find a widget you were told about? It has to be shared with you and published. A widget you only
-          see on a view someone shared with you shows there, but the library doesn&rsquo;t offer it. See{' '}
+          <UI>Archived</UI>, at the bottom of the list on the left when you manage an archived widget, lists those widgets
+          with when and why each was archived, <UI>Edit</UI> and <UI>Restore</UI>. An archived widget keeps showing on
+          every view that already has it. See{' '}
+          <GuideLink to="publishing" anchor="unused">Views and widgets nobody uses are archived</GuideLink>.
+        </li>
+        <li>
+          Can&rsquo;t find a widget you were told about? It has to be shared with you, published and not archived. A
+          widget you only see on a view someone shared with you shows there, but the library doesn&rsquo;t offer it. See{' '}
           <GuideLink to="access" anchor="ask">Ask for access</GuideLink>.
         </li>
       </List>
